@@ -1,0 +1,25 @@
+mod home;
+mod search;
+mod albums;
+mod artists;
+mod playlists;
+mod radio;
+mod favorites;
+mod random;
+mod settings;
+mod album_detail;
+mod artist_detail;
+mod playlist_detail;
+
+pub use home::HomeView;
+pub use search::SearchView;
+pub use albums::AlbumsView;
+pub use artists::ArtistsView;
+pub use playlists::PlaylistsView;
+pub use radio::RadioView;
+pub use favorites::FavoritesView;
+pub use random::RandomView;
+pub use settings::SettingsView;
+pub use album_detail::AlbumDetailView;
+pub use artist_detail::ArtistDetailView;
+pub use playlist_detail::PlaylistDetailView;
