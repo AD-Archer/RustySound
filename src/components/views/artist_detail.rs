@@ -7,10 +7,7 @@ use crate::components::{AppView, Icon};
 pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut current_view = use_context::<Signal<AppView>>();
-    let _now_playing = use_context::<Signal<Option<Song>>>();
-    let _queue = use_context::<Signal<Vec<Song>>>();
-    let _queue_index = use_context::<Signal<usize>>();
-    let _is_playing = use_context::<Signal<bool>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
     
     let server = servers().into_iter().find(|s| s.id == server_id);
     
@@ -118,6 +115,10 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                         {
                                             let album_id = album.id.clone();
                                             let album_server_id = album.server_id.clone();
+                                            let album_id_for_nav = album_id.clone();
+                                            let album_server_id_for_nav = album_server_id.clone();
+                                            let album_id_for_add = album_id.clone();
+                                            let album_server_id_for_add = album_server_id.clone();
                                             let album_cover = servers()
                                                 .iter()
                                                 .find(|s| s.id == album.server_id)
@@ -127,12 +128,15 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                 });
                 
                                             rsx! {
-                                                button {
+                                                div {
                                                     key: "{album_id}",
-                                                    class: "group text-left",
-                                                    onclick: move |_| {
-                                                        current_view
-                                                            .set(AppView::AlbumDetail(album_id.clone(), album_server_id.clone()));
+                                                    class: "group text-left cursor-pointer",
+                                                    onclick: {
+                                                        let mut current_view = current_view.clone();
+                                                        move |_| {
+                                                            current_view
+                                                                .set(AppView::AlbumDetail(album_id_for_nav.clone(), album_server_id_for_nav.clone()));
+                                                        }
                                                     },
                                                     div { class: "aspect-square rounded-xl bg-zinc-800 overflow-hidden mb-3 shadow-lg group-hover:shadow-emerald-500/20 transition-shadow relative",
                                                         {
@@ -151,6 +155,36 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                                         }
                                                                     }
                                                                 },
+                                                            }
+                                                        }
+                                                        button {
+                                                            class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                                                            aria_label: "Add album to queue",
+                                                            onclick: {
+                                                                let servers = servers.clone();
+                                                                let album_id = album_id_for_add.clone();
+                                                                let album_server_id = album_server_id_for_add.clone();
+                                                                let mut queue = queue.clone();
+                                                                move |evt: MouseEvent| {
+                                                                    evt.stop_propagation();
+                                                                    let album_id = album_id.clone();
+                                                                    let server = servers()
+                                                                        .iter()
+                                                                        .find(|s| s.id == album_server_id)
+                                                                        .cloned();
+                                                                    if let Some(server) = server {
+                                                                        spawn(async move {
+                                                                            let client = NavidromeClient::new(server);
+                                                                            if let Ok((_, songs)) = client.get_album(&album_id).await {
+                                                                                queue.with_mut(|q| q.extend(songs));
+                                                                            }
+                                                                        });
+                                                                    }
+                                                                }
+                                                            },
+                                                            Icon {
+                                                                name: "plus".to_string(),
+                                                                class: "w-4 h-4".to_string(),
                                                             }
                                                         }
                                                         div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",

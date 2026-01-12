@@ -123,15 +123,15 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                         onclick: nav_to(AppView::Queue),
                     }
                 }
-            }
 
-            // Settings at bottom
-            div { class: "p-4 border-t border-zinc-800/50",
-                NavItem {
-                    icon: "settings",
-                    label: "Settings",
-                    active: matches!(view, AppView::Settings),
-                    onclick: nav_to(AppView::Settings),
+                // Settings section (moved inside scrollable area)
+                div { class: "border-t border-zinc-800/50 pt-4",
+                    NavItem {
+                        icon: "settings",
+                        label: "Settings",
+                        active: matches!(view, AppView::Settings),
+                        onclick: nav_to(AppView::Settings),
+                    }
                 }
             }
         }

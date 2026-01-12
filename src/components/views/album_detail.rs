@@ -40,6 +40,19 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             }
         }
     };
+
+    let on_add_album = {
+        let album_data_ref = album_data.clone();
+        let mut queue = queue.clone();
+        move |_| {
+            if let Some(Some((_, songs))) = album_data_ref() {
+                if !songs.is_empty() {
+                    queue.with_mut(|q| q.extend(songs.clone()));
+                }
+            }
+        }
+    };
+
     
     rsx! {
         div { class: "space-y-8",
@@ -93,7 +106,23 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                 div { class: "flex flex-col justify-end",
                                     p { class: "text-sm text-zinc-400 uppercase tracking-wide mb-2", "Album" }
                                     h1 { class: "text-4xl font-bold text-white mb-4", "{album.name}" }
-                                    p { class: "text-lg text-zinc-300 mb-2", "{album.artist}" }
+                                    if let Some(artist_id) = &album.artist_id {
+                                        button {
+                                            class: "text-lg text-zinc-300 mb-2 hover:text-emerald-400 transition-colors text-left",
+                                            onclick: {
+                                                let artist_id = artist_id.clone();
+                                                let server_id = album.server_id.clone();
+                                                let mut current_view = current_view.clone();
+                                                move |evt| {
+                                                    evt.stop_propagation();
+                                                    current_view.set(AppView::ArtistDetail(artist_id.clone(), server_id.clone()));
+                                                }
+                                            },
+                                            "{album.artist}"
+                                        }
+                                    } else {
+                                        p { class: "text-lg text-zinc-300 mb-2", "{album.artist}" }
+                                    }
                                     div { class: "flex items-center gap-4 text-sm text-zinc-400",
                                         if let Some(year) = album.year {
                                             span { "{year}" }
@@ -107,6 +136,12 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             onclick: on_play_all,
                                             Icon { name: "play".to_string(), class: "w-5 h-5".to_string() }
                                             "Play"
+                                        }
+                                        button {
+                                            class: "px-6 py-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center gap-2",
+                                            onclick: on_add_album,
+                                            Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
+                                            "Add to Queue"
                                         }
                                         button { class: "p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors",
                                             Icon { name: "heart".to_string(), class: "w-5 h-5".to_string() }

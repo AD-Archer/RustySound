@@ -200,6 +200,8 @@ fn QuickPlayCard(title: String, gradient: String, onclick: EventHandler<MouseEve
 #[component]
 pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let current_view = use_context::<Signal<AppView>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
     
     let cover_url = servers().iter()
         .find(|s| s.id == album.server_id)
@@ -207,9 +209,46 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
             let client = NavidromeClient::new(server.clone());
             album.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 300))
         });
+
+    let on_add_album = {
+        let album_id = album.id.clone();
+        let server_id = album.server_id.clone();
+        let servers = servers.clone();
+        let mut queue = queue.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let album_id = album_id.clone();
+            let server = servers()
+                .iter()
+                .find(|s| s.id == server_id)
+                .map(|s| s.clone());
+            if let Some(server) = server {
+                spawn(async move {
+                    let client = NavidromeClient::new(server);
+                    if let Ok((_, songs)) = client.get_album(&album_id).await {
+                        queue.with_mut(|q| q.extend(songs));
+                    }
+                });
+            }
+        }
+    };
+
+    let on_artist_click = {
+        let artist_id = album.artist_id.clone();
+        let server_id = album.server_id.clone();
+        let mut current_view = current_view.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(artist_id) = artist_id.clone() {
+                current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+            }
+        }
+    };
     
     rsx! {
-        button { class: "group text-left", onclick: move |e| onclick.call(e),
+        div {
+            class: "group text-left cursor-pointer",
+            onclick: move |e| onclick.call(e),
             // Album cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
                 {
@@ -227,6 +266,15 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                         },
                     }
                 }
+                button {
+                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    aria_label: "Add album to queue",
+                    onclick: on_add_album,
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
                 // Play overlay
                 div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
                     div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
@@ -241,7 +289,15 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
             p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
                 "{album.name}"
             }
-            p { class: "text-xs text-zinc-400 truncate", "{album.artist}" }
+            if album.artist_id.is_some() {
+                button {
+                    class: "text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors",
+                    onclick: on_artist_click,
+                    "{album.artist}"
+                }
+            } else {
+                p { class: "text-xs text-zinc-400 truncate", "{album.artist}" }
+            }
         }
     }
 }
@@ -249,6 +305,8 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 #[component]
 pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let current_view = use_context::<Signal<AppView>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
     
     let cover_url = servers().iter()
         .find(|s| s.id == song.server_id)
@@ -256,10 +314,59 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             let client = NavidromeClient::new(server.clone());
             song.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
         });
+
+    let album_id = song.album_id.clone();
+    let artist_id = song.artist_id.clone();
+    let server_id = song.server_id.clone();
+
+    let on_album_click_cover = {
+        let album_id = &album_id;
+        let server_id = &server_id;
+        let current_view = current_view.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(ref album_id_val) = album_id {
+                current_view.set(AppView::AlbumDetail((*album_id_val).clone(), (*server_id).clone()));
+            }
+        }
+    };
+
+    let on_album_click_text = {
+        let album_id = &album_id;
+        let server_id = &server_id;
+        let current_view = current_view.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(ref album_id_val) = album_id {
+                current_view.set(AppView::AlbumDetail((*album_id_val).clone(), (*server_id).clone()));
+            }
+        }
+    };
+
+    let on_artist_click = {
+        let artist_id = artist_id.clone();
+        let server_id = server_id.clone();
+        let mut current_view = current_view.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(artist_id) = artist_id.clone() {
+                current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+            }
+        }
+    };
+
+    let on_add_queue = {
+        let mut queue = queue.clone();
+        let song = song.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            queue.with_mut(|q| q.push(song.clone()));
+        }
+    };
     
     rsx! {
-        button {
-            class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group",
+        div {
+            class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
             onclick: move |e| onclick.call(e),
             // Index
             span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{index}" }
@@ -267,17 +374,37 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                 Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
             }
             // Cover
-            div { class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
-                {
-                    match cover_url {
-                        Some(url) => rsx! {
-                            img { class: "w-full h-full object-cover", src: "{url}" }
-                        },
-                        None => rsx! {
-                            div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
-                                Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
-                            }
-                        },
+            if album_id.is_some() {
+                button {
+                    class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
+                    aria_label: "Open album",
+                    onclick: on_album_click_cover,
+                    {
+                        match cover_url {
+                            Some(url) => rsx! {
+                                img { class: "w-full h-full object-cover", src: "{url}" }
+                            },
+                            None => rsx! {
+                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
+                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
+                                }
+                            },
+                        }
+                    }
+                }
+            } else {
+                div { class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
+                    {
+                        match cover_url {
+                            Some(url) => rsx! {
+                                img { class: "w-full h-full object-cover", src: "{url}" }
+                            },
+                            None => rsx! {
+                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
+                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
+                                }
+                            },
+                        }
                     }
                 }
             }
@@ -286,18 +413,45 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                 p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
                     "{song.title}"
                 }
-                p { class: "text-xs text-zinc-400 truncate",
-                    "{song.artist.clone().unwrap_or_default()}"
+                if artist_id.is_some() {
+                    button {
+                        class: "text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors",
+                        onclick: on_artist_click,
+                        "{song.artist.clone().unwrap_or_default()}"
+                    }
+                } else {
+                    p { class: "text-xs text-zinc-400 truncate",
+                        "{song.artist.clone().unwrap_or_default()}"
+                    }
                 }
             }
             // Album
             div { class: "hidden md:block flex-1 min-w-0",
-                p { class: "text-sm text-zinc-400 truncate",
-                    "{song.album.clone().unwrap_or_default()}"
+                if album_id.is_some() {
+                    button {
+                        class: "text-sm text-zinc-400 truncate hover:text-emerald-400 transition-colors",
+                        onclick: on_album_click_text,
+                        "{song.album.clone().unwrap_or_default()}"
+                    }
+                } else {
+                    p { class: "text-sm text-zinc-400 truncate",
+                        "{song.album.clone().unwrap_or_default()}"
+                    }
                 }
             }
             // Duration
-            span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
+            div { class: "flex items-center gap-3",
+                button {
+                    class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    aria_label: "Add to queue",
+                    onclick: on_add_queue,
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
+                span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
+            }
         }
     }
 }

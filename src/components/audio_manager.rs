@@ -216,10 +216,23 @@ pub fn AudioController() -> Element {
             
             if let Some(song) = song {
                 let server_list = servers();
-                if let Some(server) = server_list.iter().find(|s| s.id == song.server_id) {
-                    let client = NavidromeClient::new(server.clone());
-                    let url = client.get_stream_url(&song.id);
-                    
+                let direct_url = song
+                    .stream_url
+                    .clone()
+                    .filter(|url| !url.trim().is_empty());
+                let resolved_url = if let Some(url) = direct_url {
+                    Some(url)
+                } else {
+                    server_list
+                        .iter()
+                        .find(|s| s.id == song.server_id)
+                        .map(|server| {
+                            let client = NavidromeClient::new(server.clone());
+                            client.get_stream_url(&song.id)
+                        })
+                };
+
+                if let Some(url) = resolved_url {
                     if Some(url.clone()) != last_src() {
                         last_src.set(Some(url.clone()));
                         
@@ -235,6 +248,9 @@ pub fn AudioController() -> Element {
                             }
                         }
                     }
+                } else if let Some(audio) = get_or_create_audio_element() {
+                    audio.set_src("");
+                    is_playing.set(false);
                 }
             }
         }

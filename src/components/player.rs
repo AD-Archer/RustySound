@@ -143,18 +143,6 @@ pub fn Player() -> Element {
         }
     };
     
-    // Navigation handlers
-    let on_album_click = {
-        let song = current_song_for_album.clone();
-        move |_| {
-            if let Some(ref s) = song {
-                if let Some(album_id) = &s.album_id {
-                    current_view.set(AppView::AlbumDetail(album_id.clone(), s.server_id.clone()));
-                }
-            }
-        }
-    };
-    
     let on_artist_click = {
         let song = current_song_for_artist.clone();
         move |_| {
@@ -180,7 +168,23 @@ pub fn Player() -> Element {
                                 // Clickable album art
                                 button {
                                     class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
-                                    onclick: on_album_click.clone(),
+                                    onclick: {
+                                        let song = current_song_for_album.clone();
+                                        let mut current_view = current_view.clone();
+                                        move |_| {
+                                            if let Some(ref s) = song {
+                                                if let Some(album_id) = &s.album_id {
+                                                    current_view
+                                                        // Clickable song title (goes to album)
+                                                        .set(
+                                                            // Clickable artist name
+                                                            // Favorite button
+                                                            AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
+                                                        );
+                                                }
+                                            }
+                                        }
+                                    },
                                     {
                                         match &cover_url {
                                             Some(url) => rsx! {
@@ -195,20 +199,30 @@ pub fn Player() -> Element {
                                     }
                                 }
                                 div { class: "min-w-0",
-                                    // Clickable song title (goes to album)
                                     button {
                                         class: "text-sm font-medium text-white truncate hover:text-emerald-400 transition-colors cursor-pointer block text-left w-full",
-                                        onclick: on_album_click,
+                                    onclick: {
+                                        let song = current_song_for_album.clone();
+                                        let mut current_view = current_view.clone();
+                                        move |_| {
+                                            if let Some(ref s) = song {
+                                                if let Some(album_id) = &s.album_id {
+                                                    current_view
+                                                            .set(
+                                                                AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
+                                                            );
+                                                    }
+                                                }
+                                            }
+                                        },
                                         "{song.title}"
                                     }
-                                    // Clickable artist name
                                     button {
                                         class: "text-xs text-zinc-400 truncate hover:text-white transition-colors cursor-pointer block text-left w-full",
                                         onclick: on_artist_click,
                                         "{song.artist.clone().unwrap_or_default()}"
                                     }
                                 }
-                                // Favorite button
                                 button {
                                     class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-400 hover:text-emerald-400 transition-colors" },
                                     onclick: on_favorite_toggle,

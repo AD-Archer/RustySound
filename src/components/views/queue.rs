@@ -1,10 +1,12 @@
 use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::Icon;
+use crate::components::{AppView, Icon};
 use crate::api::models::format_duration;
 
 #[component]
 pub fn QueueView() -> Element {
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let current_view = use_context::<Signal<AppView>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
@@ -59,32 +61,103 @@ pub fn QueueView() -> Element {
                 div { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 overflow-hidden",
                     // Current Song Section
                     if let Some(ref current) = current_song {
-                        div { class: "p-4 bg-emerald-500/10 border-b border-zinc-700/50",
-                            p { class: "text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2",
-                                "Now Playing"
-                            }
-                            div { class: "flex items-center justify-between group",
-                                div { class: "flex items-center gap-4",
-                                    // Cover art
-                                    div { class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
-                                        div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
-                                            Icon {
-                                                name: "music".to_string(),
-                                                class: "w-5 h-5 text-zinc-500".to_string(),
+                        {
+                            let current_cover = servers()
+                                .iter()
+                                .find(|s| s.id == current.server_id)
+                                .and_then(|server| {
+                                    let client = NavidromeClient::new(server.clone());
+                                    current.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
+                                });
+                            rsx! {
+                                div { class: "p-4 bg-emerald-500/10 border-b border-zinc-700/50",
+                                    p { class: "text-xs font-semibold text-emerald-400 uppercase tracking-wider mb-2",
+                                        "Now Playing"
+                                    }
+                                    div { class: "flex items-center justify-between group",
+                                        div { class: "flex items-center gap-4",
+                                            // Cover art
+                                            if current.album_id.is_some() {
+                                                button {
+                                                    class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
+                                                    aria_label: "Open album",
+                                                    onclick: {
+                                                        let album_id = current.album_id.clone();
+                                                        let server_id = current.server_id.clone();
+                                                        let mut current_view = current_view.clone();
+                                                        move |evt: MouseEvent| {
+                                                            evt.stop_propagation();
+                                                            if let Some(album_id) = album_id.clone() {
+                                                                current_view.set(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        match current_cover {
+                                                            Some(url) => rsx! {
+                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                            },
+                                                            None => rsx! {
+                                                                div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
+                                                                    Icon {
+                                                                        name: "music".to_string(),
+                                                                        class: "w-5 h-5 text-zinc-500".to_string(),
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                div { class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
+                                                    {
+                                                        match current_cover {
+                                                            Some(url) => rsx! {
+                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                            },
+                                                            None => rsx! {
+                                                                div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
+                                                                    Icon {
+                                                                        name: "music".to_string(),
+                                                                        class: "w-5 h-5 text-zinc-500".to_string(),
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            div {
+                                                p { class: "font-medium text-white", "{current.title}" }
+                                                if current.artist_id.is_some() {
+                                                    button {
+                                                        class: "text-sm text-zinc-400 hover:text-emerald-400 transition-colors text-left",
+                                                        onclick: {
+                                                            let artist_id = current.artist_id.clone();
+                                                            let server_id = current.server_id.clone();
+                                                            let mut current_view = current_view.clone();
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                if let Some(artist_id) = artist_id.clone() {
+                                                                    current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+                                                                }
+                                                            }
+                                                        },
+                                                        "{current.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                    }
+                                                } else {
+                                                    p { class: "text-sm text-zinc-400",
+                                                        "{current.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                    }
+                                                }
                                             }
                                         }
-                                    }
 
-                                    div {
-                                        p { class: "font-medium text-white", "{current.title}" }
-                                        p { class: "text-sm text-zinc-400",
-                                            "{current.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                        div { class: "text-sm text-zinc-500 font-mono",
+                                            "{format_duration(current.duration)}"
                                         }
                                     }
-                                }
-
-                                div { class: "text-sm text-zinc-500 font-mono",
-                                    "{format_duration(current.duration)}"
                                 }
                             }
                         }
@@ -96,6 +169,13 @@ pub fn QueueView() -> Element {
                             {
                                 let is_current = idx == current_index;
                                 let song_id = song.id.clone();
+                                let cover_url = servers()
+                                    .iter()
+                                    .find(|s| s.id == song.server_id)
+                                    .and_then(|server| {
+                                        let client = NavidromeClient::new(server.clone());
+                                        song.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
+                                    });
                                 rsx! {
                                     div {
                                         key: "{song_id}-{idx}",
@@ -134,13 +214,102 @@ pub fn QueueView() -> Element {
                                                     span { class: "text-zinc-500", "{idx + 1}" }
                                                 }
                                             }
+                                            if song.album_id.is_some() {
+                                                button {
+                                                    class: "w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
+                                                    aria_label: "Open album",
+                                                    onclick: {
+                                                        let album_id = song.album_id.clone();
+                                                        let server_id = song.server_id.clone();
+                                                        let mut current_view = current_view.clone();
+                                                        move |evt: MouseEvent| {
+                                                            evt.stop_propagation();
+                                                            if let Some(album_id) = album_id.clone() {
+                                                                current_view.set(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                            }
+                                                        }
+                                                    },
+                                                    {
+                                                        match cover_url {
+                                                            Some(url) => rsx! {
+                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                            },
+                                                            None => rsx! {
+                                                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
+                                                                    Icon {
+                                                                        name: "music".to_string(),
+                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                div { class: "w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
+                                                    {
+                                                        match cover_url {
+                                                            Some(url) => rsx! {
+                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                            },
+                                                            None => rsx! {
+                                                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
+                                                                    Icon {
+                                                                        name: "music".to_string(),
+                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
+                                                                    }
+                                                                }
+                                                            },
+                                                        }
+                                                    }
+                                                }
+                                            }
         
                                             div { class: "min-w-0",
                                                 p { class: if is_current { "text-emerald-400 font-medium truncate" } else { "text-zinc-300 truncate group-hover:text-white" },
                                                     "{song.title}"
                                                 }
-                                                p { class: "text-xs text-zinc-500 truncate",
-                                                    "{song.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                if song.artist_id.is_some() {
+                                                    button {
+                                                        class: "text-xs text-zinc-500 truncate hover:text-emerald-400 transition-colors",
+                                                        onclick: {
+                                                            let artist_id = song.artist_id.clone();
+                                                            let server_id = song.server_id.clone();
+                                                            let mut current_view = current_view.clone();
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                if let Some(artist_id) = artist_id.clone() {
+                                                                    current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+                                                                }
+                                                            }
+                                                        },
+                                                        "{song.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                    }
+                                                } else {
+                                                    p { class: "text-xs text-zinc-500 truncate",
+                                                        "{song.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                    }
+                                                }
+                                                if song.album_id.is_some() {
+                                                    button {
+                                                        class: "text-xs text-zinc-600 truncate hover:text-emerald-400 transition-colors hidden sm:block",
+                                                        onclick: {
+                                                            let album_id = song.album_id.clone();
+                                                            let server_id = song.server_id.clone();
+                                                            let mut current_view = current_view.clone();
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                if let Some(album_id) = album_id.clone() {
+                                                                    current_view.set(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                                }
+                                                            }
+                                                        },
+                                                        "{song.album.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                    }
+                                                } else {
+                                                    p { class: "text-xs text-zinc-600 truncate hidden sm:block",
+                                                        "{song.album.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
+                                                    }
                                                 }
                                             }
                                         }
@@ -151,7 +320,7 @@ pub fn QueueView() -> Element {
                                             }
         
                                             button {
-                                                class: "hidden group-hover:block p-2 text-zinc-500 hover:text-red-400 transition-colors",
+                                                class: "p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
                                                     let was_playing = is_playing();

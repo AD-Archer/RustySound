@@ -81,6 +81,8 @@ pub struct Song {
     pub cover_art: Option<String>,
     #[serde(default, alias = "contentType")]
     pub content_type: Option<String>,
+    #[serde(default, alias = "streamUrl")]
+    pub stream_url: Option<String>,
     #[serde(default)]
     pub suffix: Option<String>,
     #[serde(default)]

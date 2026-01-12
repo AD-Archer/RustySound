@@ -52,6 +52,7 @@ pub fn RadioView() -> Element {
                                             track: None,
                                             cover_art: None,
                                             content_type: Some("audio/mpeg".to_string()),
+                                            stream_url: Some(station.stream_url.clone()),
                                             suffix: None,
                                             bitrate: None,
                                             starred: None,

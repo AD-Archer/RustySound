@@ -15,6 +15,9 @@ pub fn SettingsView() -> Element {
     let mut server_pass = use_signal(String::new);
     let mut is_testing = use_signal(|| false);
     let mut test_result = use_signal(|| None::<Result<(), String>>);
+    let mut editing_server = use_signal(|| None::<ServerConfig>);
+    let mut is_testing_connection = use_signal(|| false);
+    let mut connection_test_result = use_signal(|| None::<Result<(), String>>);
     let mut save_status = use_signal(|| None::<String>);
     
     let can_add = use_memo(move || {
@@ -22,6 +25,8 @@ pub fn SettingsView() -> Element {
             && !server_url().trim().is_empty()
             && !server_user().trim().is_empty()
             && !server_pass().trim().is_empty()
+            && test_result().is_some_and(|r: Result<(), String>| r.is_ok())
+            && editing_server().is_none()
     });
     
     let on_test = {
@@ -52,6 +57,69 @@ pub fn SettingsView() -> Element {
         }
     };
     
+    let mut on_edit_server = {
+        let mut server_name = server_name.clone();
+        let mut server_url = server_url.clone();
+        let mut server_user = server_user.clone();
+        let mut server_pass = server_pass.clone();
+        move |server: ServerConfig| {
+            editing_server.set(Some(server.clone()));
+            server_name.set(server.name);
+            server_url.set(server.url);
+            server_user.set(server.username);
+            server_pass.set(server.password);
+            test_result.set(None);
+        }
+    };
+
+    let on_cancel_edit = move |_| {
+        editing_server.set(None);
+        server_name.set(String::new());
+        server_url.set(String::new());
+        server_user.set(String::new());
+        server_pass.set(String::new());
+        test_result.set(None);
+    };
+
+    let on_save_edit = move |_| {
+        if let Some(editing) = editing_server() {
+            let name = server_name().trim().to_string();
+            let url = server_url().trim().to_string();
+            let user = server_user().trim().to_string();
+            let pass = server_pass().trim().to_string();
+            
+            if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
+                return;
+            }
+            
+            servers.with_mut(|list| {
+                if let Some(server) = list.iter_mut().find(|s| s.id == editing.id) {
+                    server.name = name;
+                    server.url = url;
+                    server.username = user;
+                    server.password = pass;
+                }
+            });
+            
+            editing_server.set(None);
+            server_name.set(String::new());
+            server_url.set(String::new());
+            server_user.set(String::new());
+            server_pass.set(String::new());
+            test_result.set(None);
+            
+            save_status.set(Some("Server updated!".to_string()));
+            #[cfg(target_arch = "wasm32")]
+            {
+                use gloo_timers::future::TimeoutFuture;
+                spawn(async move {
+                    TimeoutFuture::new(2000).await;
+                    save_status.set(None);
+                });
+            }
+        }
+    };
+
     let on_add = move |_| {
         let name = server_name().trim().to_string();
         let url = server_url().trim().to_string();
@@ -65,15 +133,13 @@ pub fn SettingsView() -> Element {
         let new_server = ServerConfig::new(name, url, user, pass);
         servers.with_mut(|list| list.push(new_server));
         
-        // Clear form
         server_name.set(String::new());
         server_url.set(String::new());
         server_user.set(String::new());
         server_pass.set(String::new());
         test_result.set(None);
         
-        save_status.set(Some("Server added and saved!".to_string()));
-        // Auto-clear status after a delay using gloo_timers on wasm
+        save_status.set(Some("Server added!".to_string()));
         #[cfg(target_arch = "wasm32")]
         {
             use gloo_timers::future::TimeoutFuture;
@@ -81,6 +147,24 @@ pub fn SettingsView() -> Element {
                 TimeoutFuture::new(2000).await;
                 save_status.set(None);
             });
+        }
+    };
+
+    let mut on_test_existing = {
+        let servers = servers.clone();
+        move |server_id: String| {
+            if let Some(server) = servers().iter().find(|s| s.id == server_id).cloned() {
+                is_testing_connection.set(true);
+                connection_test_result.set(None);
+                
+                spawn(async move {
+                    let client = NavidromeClient::new(server);
+                    let result = client.ping().await;
+                    
+                    connection_test_result.set(Some(result.map(|_| ())));
+                    is_testing_connection.set(false);
+                });
+            }
         }
     };
     
@@ -220,9 +304,15 @@ pub fn SettingsView() -> Element {
                 }
             }
 
-            // Add server form
+            // Add/Edit server form
             section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-4", "Add Server" }
+                h2 { class: "text-lg font-semibold text-white mb-4",
+                    if editing_server().is_some() {
+                        "Edit Server"
+                    } else {
+                        "Add Server"
+                    }
+                }
 
                 div { class: "grid gap-4",
                     // Server name
@@ -252,7 +342,7 @@ pub fn SettingsView() -> Element {
                     }
 
                     // Username & Password
-                    div { class: "grid grid-cols-2 gap-4",
+                    div { class: "grid grid-cols-1 sm:grid-cols-2 gap-4",
                         div {
                             label { class: "block text-sm font-medium text-zinc-400 mb-2",
                                 "Username"
@@ -298,9 +388,9 @@ pub fn SettingsView() -> Element {
                     }
 
                     // Buttons
-                    div { class: "flex gap-3 pt-2",
+                    div { class: "flex flex-col sm:flex-row gap-3 pt-2",
                         button {
-                            class: "px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
+                            class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
                             disabled: is_testing(),
                             onclick: on_test,
                             if is_testing() {
@@ -316,15 +406,36 @@ pub fn SettingsView() -> Element {
                             }
                             "Test Connection"
                         }
-                        button {
-                            class: if can_add() { "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2" } else { "px-6 py-2 rounded-xl bg-zinc-700/50 text-zinc-500 cursor-not-allowed flex items-center gap-2" },
-                            disabled: !can_add(),
-                            onclick: on_add,
-                            Icon {
-                                name: "plus".to_string(),
-                                class: "w-4 h-4".to_string(),
+                        if editing_server().is_some() {
+                            button {
+                                class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
+                                onclick: on_save_edit,
+                                Icon {
+                                    name: "check".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "Save Changes"
                             }
-                            "Add Server"
+                            button {
+                                class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
+                                onclick: on_cancel_edit,
+                                Icon {
+                                    name: "x".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "Cancel"
+                            }
+                        } else {
+                            button {
+                                class: if can_add() { "w-full sm:w-auto px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2" } else { "w-full sm:w-auto px-6 py-2 rounded-xl bg-zinc-700/50 text-zinc-500 cursor-not-allowed flex items-center gap-2" },
+                                disabled: !can_add(),
+                                onclick: on_add,
+                                Icon {
+                                    name: "plus".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "Add Server"
+                            }
                         }
                     }
                 }
@@ -361,6 +472,14 @@ pub fn SettingsView() -> Element {
                                             });
                                     }
                                 },
+                                on_edit: {
+                                    let server = server.clone();
+                                    move |_| on_edit_server(server.clone())
+                                },
+                                on_test: {
+                                    let server_id = server.id.clone();
+                                    move |_| on_test_existing(server_id.clone())
+                                },
                                 on_remove: {
                                     let server_id = server.id.clone();
                                     move |_| {
@@ -371,6 +490,25 @@ pub fn SettingsView() -> Element {
                                     }
                                 },
                             }
+                        }
+                    }
+
+                    // Connection test result for existing servers
+                    {
+                        match connection_test_result() {
+                            Some(Ok(())) => rsx! {
+                                div { class: "mt-4 flex items-center gap-2 text-emerald-400 text-sm",
+                                    Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                    "Connection test successful!"
+                                }
+                            },
+                            Some(Err(e)) => rsx! {
+                                div { class: "mt-4 flex items-center gap-2 text-red-400 text-sm",
+                                    Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
+                                    "Connection test failed: {e}"
+                                }
+                            },
+                            None => rsx! {},
                         }
                     }
                 }
@@ -384,6 +522,8 @@ fn ServerCard(
     server: ServerConfig,
     on_toggle: EventHandler<MouseEvent>,
     on_remove: EventHandler<MouseEvent>,
+    on_edit: EventHandler<MouseEvent>,
+    on_test: EventHandler<MouseEvent>,
 ) -> Element {
     let initials: String = server.name.chars()
         .filter(|c| c.is_alphanumeric())
@@ -392,45 +532,69 @@ fn ServerCard(
         .to_uppercase();
     
     rsx! {
-        div { class: "flex items-center justify-between p-4 rounded-xl bg-zinc-900/50 border border-zinc-700/30",
-            div { class: "flex items-center gap-4",
+        div { class: "p-4 rounded-xl bg-zinc-900/50 border border-zinc-700/30",
+            // Server info row
+            div { class: "flex items-center gap-4 mb-3",
                 // Icon
-                div { class: "w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-bold shadow-lg",
+                div { class: "w-12 h-12 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-700 flex items-center justify-center text-white font-bold shadow-lg flex-shrink-0",
                     "{initials}"
                 }
                 // Info
-                div {
-                    p { class: "font-medium text-white", "{server.name}" }
-                    p { class: "text-sm text-zinc-400", "{server.url}" }
+                div { class: "min-w-0 flex-1",
+                    p { class: "font-medium text-white truncate", "{server.name}" }
+                    p { class: "text-sm text-zinc-400 truncate", "{server.url}" }
                     p { class: "text-xs text-zinc-500", "User: {server.username}" }
                 }
             }
-            div { class: "flex items-center gap-3",
-                // Status
-                div { class: if server.active { "text-xs text-emerald-400" } else { "text-xs text-zinc-500" },
-                    if server.active {
-                        "Active"
-                    } else {
-                        "Inactive"
+            // Action buttons row
+            div { class: "flex items-center justify-between gap-2",
+                // Status and toggle
+                div { class: "flex items-center gap-2",
+                    div { class: if server.active { "text-xs text-emerald-400" } else { "text-xs text-zinc-500" },
+                        if server.active {
+                            "Active"
+                        } else {
+                            "Inactive"
+                        }
+                    }
+                    button {
+                        class: if server.active { "px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm hover:bg-emerald-500/30 transition-colors" } else { "px-3 py-1.5 rounded-lg bg-zinc-700/50 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors" },
+                        onclick: move |e| on_toggle.call(e),
+                        if server.active {
+                            "Disable"
+                        } else {
+                            "Enable"
+                        }
                     }
                 }
-                // Toggle button
-                button {
-                    class: if server.active { "px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-400 text-sm hover:bg-emerald-500/30 transition-colors" } else { "px-3 py-1.5 rounded-lg bg-zinc-700/50 text-zinc-400 text-sm hover:bg-zinc-700 transition-colors" },
-                    onclick: move |e| on_toggle.call(e),
-                    if server.active {
-                        "Disable"
-                    } else {
-                        "Enable"
+                // Action buttons
+                div { class: "flex items-center gap-1",
+                    button {
+                        class: "p-2 rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors",
+                        onclick: move |e| on_test.call(e),
+                        title: "Test Connection",
+                        Icon {
+                            name: "server".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
                     }
-                }
-                // Remove button
-                button {
-                    class: "p-2 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
-                    onclick: move |e| on_remove.call(e),
-                    Icon {
-                        name: "trash".to_string(),
-                        class: "w-4 h-4".to_string(),
+                    button {
+                        class: "p-2 rounded-lg text-zinc-500 hover:text-amber-400 hover:bg-amber-500/10 transition-colors",
+                        onclick: move |e| on_edit.call(e),
+                        title: "Edit Server",
+                        Icon {
+                            name: "settings".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                    }
+                    button {
+                        class: "p-2 rounded-lg text-zinc-500 hover:text-red-400 hover:bg-red-500/10 transition-colors",
+                        onclick: move |e| on_remove.call(e),
+                        title: "Remove Server",
+                        Icon {
+                            name: "trash".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
                     }
                 }
             }
