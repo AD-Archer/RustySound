@@ -7,7 +7,7 @@
 name = "RustySound"
 
 # The icon to use for the app (PNG, ICNS, or ICO)
-icon = "assets/logo.png"
+icon = "assets/logo.icns"
 
 # Mobile app configuration  
 [application.mobile]
@@ -37,3 +37,43 @@ script = []
 # Javascript code file
 # serve: [dev-server] only
 script = []
+
+[bundle]
+
+# Bundle identifier for the app
+identifier = "com.adarcher.rustysound"
+
+# Bundle publisher
+publisher = "AD-Archer"
+
+# Display name for the app
+name = "RustySound"
+
+# Short name for the app
+short_name = "RustySound"
+
+# App category
+category = "Music"
+
+# Short description
+short_description = "A music streaming client for Navidrome/Subsonic servers"
+
+# Long description
+long_description = "RustySound is a cross-platform music streaming client that connects to Navidrome and Subsonic-compatible servers."
+
+# Copyright
+copyright = "Copyright © 2026 AD-Archer"
+
+# Icons for different platforms
+icon = ["assets/logo.png", "assets/logo.icns", "assets/favicon.ico"]
+
+# The list of files to include in the bundle
+resources = ["assets/tailwind.css", "assets/styling/*", "assets/logo.png"]
+
+# macOS specific settings
+[bundle.macos]
+minimum_system_version = "10.13"
+
+# Windows specific settings
+[bundle.windows]
+webview_install_mode = { DownloadBootstrapper = { silent = false } }

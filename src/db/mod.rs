@@ -67,14 +67,11 @@ pub struct QueueItem {
     pub server_id: String,
 }
 
-// Server Functions for database operations
+// Database operations for native platforms
+// These run directly on desktop/mobile without needing #[server]
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     // Clear existing servers and insert new ones
@@ -105,11 +102,7 @@ pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnErro
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     let mut stmt = conn.prepare("SELECT id, name, url, username, password, active FROM servers")
@@ -140,11 +133,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn save_settings(settings: AppSettings) -> Result<(), ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     let settings_json = serde_json::to_string(&settings)
@@ -165,11 +154,7 @@ pub async fn save_settings(settings: AppSettings) -> Result<(), ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     let result: Result<String, _> = conn.query_row(
@@ -195,11 +180,7 @@ pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn save_playback_state(state: PlaybackState) -> Result<(), ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     let state_json = serde_json::to_string(&state)
@@ -220,11 +201,7 @@ pub async fn save_playback_state(state: PlaybackState) -> Result<(), ServerFnErr
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     let result: Result<String, _> = conn.query_row(
@@ -250,11 +227,7 @@ pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[server]
-#[allow(dead_code)]
 pub async fn initialize_database() -> Result<(), ServerFnError> {
-    use rusqlite::Connection;
-    
     let conn = get_db_connection()?;
     
     // Create tables
@@ -302,14 +275,57 @@ fn get_db_connection() -> Result<rusqlite::Connection, ServerFnError> {
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
 fn dirs_next() -> Option<std::path::PathBuf> {
-    // Try to get a reasonable data directory
-    if let Ok(home) = std::env::var("HOME") {
-        let data_dir = std::path::PathBuf::from(home).join(".rustysound");
-        std::fs::create_dir_all(&data_dir).ok()?;
-        Some(data_dir)
-    } else {
-        let data_dir = std::path::PathBuf::from(".rustysound");
-        std::fs::create_dir_all(&data_dir).ok()?;
-        Some(data_dir)
+    // Use proper application data directory for each platform
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let data_dir = std::path::PathBuf::from(home)
+                .join("Library")
+                .join("Application Support")
+                .join("com.adarcher.rustysound");
+            std::fs::create_dir_all(&data_dir).ok()?;
+            Some(data_dir)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            let data_dir = std::path::PathBuf::from(app_data).join("RustySound");
+            std::fs::create_dir_all(&data_dir).ok()?;
+            Some(data_dir)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(home) = std::env::var("HOME") {
+            let data_dir = std::path::PathBuf::from(home)
+                .join(".local")
+                .join("share")
+                .join("rustysound");
+            std::fs::create_dir_all(&data_dir).ok()?;
+            Some(data_dir)
+        } else {
+            None
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+    {
+        // Fallback for other platforms
+        if let Ok(home) = std::env::var("HOME") {
+            let data_dir = std::path::PathBuf::from(home).join(".rustysound");
+            std::fs::create_dir_all(&data_dir).ok()?;
+            Some(data_dir)
+        } else {
+            let data_dir = std::path::PathBuf::from(".rustysound");
+            std::fs::create_dir_all(&data_dir).ok()?;
+            Some(data_dir)
+        }
     }
 }
