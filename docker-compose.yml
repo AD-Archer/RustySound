@@ -1,0 +1,8 @@
+services:
+  rustysound:
+    image: ghcr.io/ad-archer/rustysound:latest
+    ports:
+      - "8080:80"
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production

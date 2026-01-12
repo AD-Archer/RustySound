@@ -65,7 +65,7 @@ long_description = "RustySound is a cross-platform music streaming client that c
 copyright = "Copyright © 2026 AD-Archer"
 
 # Icons for different platforms
-icon = ["assets/logo.png", "assets/logo.icns", "assets/favicon.ico"]
+icon = ["assets/logo.png", "assets/logo.icns"]
 
 # The list of files to include in the bundle
 resources = ["assets/tailwind.css", "assets/styling/*", "assets/logo.png"]

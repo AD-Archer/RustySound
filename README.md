@@ -1,58 +1,219 @@
-# Development
+# RustySound
 
-Your new jumpstart project includes basic organization with an organized `assets` folder and a `components` folder.
-If you chose to develop with the router feature, you will also have a `views` folder.
+A cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus.
 
-```
-project/
-├─ assets/ # Any assets that are used by the app should be placed here
-├─ src/
-│  ├─ main.rs # The entrypoint for the app. It also defines the routes for the app.
-│  ├─ components/
-│  │  ├─ mod.rs # Defines the components module
-│  │  ├─ hero.rs # The Hero component for use in the home page
-│  │  ├─ echo.rs # The echo component uses server functions to communicate with the server
-│  ├─ views/ # The views each route will render in the app.
-│  │  ├─ mod.rs # Defines the module for the views route and re-exports the components for each route
-│  │  ├─ blog.rs # The component that will render at the /blog/:id route
-│  │  ├─ home.rs # The component that will render at the / route
-├─ Cargo.toml # The Cargo.toml file defines the dependencies and feature flags for your project
-```
+![RustySound Logo](assets/logo.png)
 
-### Automatic Tailwind (Dioxus 0.7+)
+## Features
 
-As of Dioxus 0.7, there no longer is a need to manually install tailwind. Simply `dx serve` and you're good to go!
+- 🎵 **Multi-platform Support**: Available on Desktop (macOS, Windows, Linux), Mobile (iOS, Android), and Web
+- 🎧 **Audio Playback**: High-quality audio streaming with queue management
+- 📱 **Server Integration**: Connect to Navidrome and Subsonic-compatible music servers
+- 💾 **Local Storage**: Persistent settings and playback state across sessions
+- 🎼 **Playlist Management**: Create and manage playlists
+- 🔍 **Search & Browse**: Browse your music library by artists, albums, and tracks
+- 🎚️ **Audio Controls**: Play, pause, skip, shuffle, and repeat functionality
+- 🌙 **Modern UI**: Clean, responsive interface built with Tailwind CSS
 
-Automatic tailwind is supported by checking for a file called `tailwind.css` in your app's manifest directory (next to Cargo.toml). To customize the file, use the dioxus.toml:
+## Supported Platforms
 
-```toml
-[application]
-tailwind_input = "my.css"
-tailwind_output = "assets/out.css"
-```
+### Desktop
 
-### Tailwind Manual Install
+- **macOS**: DMG installer and native .app bundle
+- **Windows**: MSI installer and portable EXE
+- **Linux**: AppImage bundle
 
-To use tailwind plugins or manually customize tailwind, you can can install the Tailwind CLI and use it directly.
+### Mobile
 
-1. Install npm: https://docs.npmjs.com/downloading-and-installing-node-js-and-npm
-2. Install the Tailwind CSS CLI: https://tailwindcss.com/docs/installation/tailwind-cli
-3. Run the following command in the root of the project to start the Tailwind CSS compiler:
+- **iOS**: App Store distribution
+- **Android**: Google Play Store distribution
+
+### Web
+
+- **Browser**: WebAssembly-based web application
+- **Progressive Web App**: Installable PWA support
+
+## Installation
+
+### Desktop
+
+#### macOS
+
+1. Download the latest `.dmg` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
+2. Open the DMG and drag RustySound to your Applications folder
+
+#### Windows
+
+1. Download the latest `.msi` installer from [Releases](https://github.com/AD-Archer/RustySound/releases)
+2. Run the installer and follow the setup wizard
+
+#### Linux
+
+1. Download the latest `.AppImage` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
+2. Make it executable: `chmod +x RustySound-*.AppImage`
+3. Run: `./RustySound-*.AppImage`
+
+### Mobile
+
+Coming soon to App Store and Google Play Store.
+
+### Web
+
+Visit [rustysound](https://rustysound.adarcher.app) to use the web version.
+
+#### Docker Deployment
+
+You can also run RustySound as a Docker container:
+
+1. Ensure you have Docker and Docker Compose installed
+2. Clone this repository or download `docker-compose.yml`
+3. Run the application:
 
 ```bash
-npx @tailwindcss/cli -i ./input.css -o ./assets/tailwind.css --watch
+docker-compose up -d
 ```
 
-### Serving Your App
+The web interface will be available at `http://localhost:8080`.
 
-Run the following command in the root of your project to start developing with the default platform:
+To stop the container:
 
 ```bash
+docker-compose down
+```
+
+#### Manual Docker Run
+
+If you prefer to run the container directly:
+
+```bash
+docker run -d -p 8080:80 --name rustysound ghcr.io/ad-archer/rustysound:latest
+```
+
+### Prerequisites
+
+- Rust 1.70+ ([install here](https://rustup.rs/))
+- Dioxus CLI: `curl -sSL https://dioxus.dev/install.sh | sh`
+
+### Setup
+
+1. Clone the repository:
+
+```bash
+git clone https://github.com/AD-Archer/RustySound.git
+cd RustySound
+```
+
+2. Install dependencies:
+
+```bash
+cargo build
+```
+
+### Running the Application
+
+#### Development Server
+
+```bash
+dx serve
+```
+
+#### Specific Platforms
+
+```bash
+# Web (default)
 dx serve --platform web
-```
 
-To run for a different platform, use the `--platform platform` flag. E.g.
-```bash
+# Desktop
 dx serve --platform desktop
+
+# Mobile (iOS Simulator)
+dx serve --platform ios
+
+# Mobile (Android Emulator)
+dx serve --platform android
 ```
 
+### Building for Production
+
+#### Desktop Bundles
+
+```bash
+dx bundle --platform desktop --release
+```
+
+#### Mobile Builds
+
+```bash
+# iOS
+dx bundle --platform ios --release
+
+# Android
+dx bundle --platform android --release
+```
+
+## Project Structure
+
+```
+rustysound/
+├── assets/                 # Static assets (icons, styles, etc.)
+├── src/
+│   ├── main.rs            # Application entry point
+│   ├── components/        # Reusable UI components
+│   │   ├── app.rs         # Main app component
+│   │   ├── player.rs      # Audio player controls
+│   │   ├── sidebar.rs     # Navigation sidebar
+│   │   └── views/         # Page components
+│   │       ├── home.rs    # Home/dashboard
+│   │       ├── albums.rs  # Album browser
+│   │       ├── artists.rs # Artist browser
+│   │       ├── queue.rs   # Playback queue
+│   │       └── settings.rs # App settings
+│   ├── api/               # Server API integration
+│   ├── db/                # Local database/storage
+│   └── components.rs      # Component exports
+├── Cargo.toml             # Rust dependencies
+├── Dioxus.toml           # Dioxus configuration
+└── tailwind.css          # Tailwind CSS styles
+```
+
+## Configuration
+
+### Server Connection
+
+1. Launch RustySound
+2. Go to Settings
+3. Add your Navidrome/Subsonic server details:
+   - Server URL
+   - Username
+   - Password (optional, depending on server setup)
+
+### Supported Servers
+
+- **Navidrome**: Full feature support
+- **Subsonic**: Compatible with Subsonic API v1.16.1+
+- **Airsonic**: Compatible servers
+- **Gonic**: Compatible servers
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Make your changes and test thoroughly
+4. Submit a pull request
+
+### Development Guidelines
+
+- Follow Rust best practices
+- Use Dioxus component patterns
+- Test on multiple platforms when possible
+- Update documentation for new features
+
+## License
+
+Copyright © 2026 AD-Archer. All rights reserved.
+
+## Acknowledgments
+
+- Built with [Dioxus](https://dioxuslabs.com/) - A Rust UI framework
+- Audio playback powered by Web Audio API and native platform APIs
+- Icons and UI design inspired by modern music streaming applications

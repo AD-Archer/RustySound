@@ -3,7 +3,29 @@ use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
 #[cfg(target_arch = "wasm32")]
-use gloo_storage::{LocalStorage, Storage};
+use gloo_storage::{errors::StorageError, LocalStorage, Storage};
+
+/// Error type for database operations on native platforms
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Debug)]
+pub struct DbError(String);
+
+#[cfg(not(target_arch = "wasm32"))]
+impl DbError {
+    pub fn new(msg: impl Into<String>) -> Self {
+        Self(msg.into())
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl std::fmt::Display for DbError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl std::error::Error for DbError {}
 
 #[cfg(target_arch = "wasm32")]
 const SETTINGS_KEY: &str = "rustysound.app_settings";
@@ -71,12 +93,12 @@ pub struct QueueItem {
 // These run directly on desktop/mobile without needing #[server]
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnError> {
+pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), DbError> {
     let conn = get_db_connection()?;
     
     // Clear existing servers and insert new ones
     conn.execute("DELETE FROM servers", [])
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
     
     for server in servers {
         conn.execute(
@@ -89,26 +111,26 @@ pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnErro
                 &server.password,
                 &(if server.active { "1" } else { "0" }).to_string(),
             ],
-        ).map_err(|e| ServerFnError::new(e.to_string()))?;
+        ).map_err(|e| DbError::new(e.to_string()))?;
     }
     
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnError> {
+pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), StorageError> {
     LocalStorage::set(SERVERS_KEY, servers)
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .map_err(|e| e)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
+pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
     let conn = get_db_connection()?;
     
     let mut stmt = conn.prepare("SELECT id, name, url, username, password, active FROM servers")
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
     
-    let servers = stmt.query_map([], |row| {
+    let servers = stmt.query_map([], |row: &rusqlite::Row| {
         Ok(ServerConfig {
             id: row.get(0)?,
             name: row.get(1)?,
@@ -117,7 +139,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
             password: row.get(4)?,
             active: row.get::<_, String>(5)? == "1",
         })
-    }).map_err(|e| ServerFnError::new(e.to_string()))?
+    }).map_err(|e| DbError::new(e.to_string()))?
     .filter_map(|r| r.ok())
     .collect();
     
@@ -125,7 +147,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
+pub async fn load_servers() -> Result<Vec<ServerConfig>, StorageError> {
     match LocalStorage::get(SERVERS_KEY) {
         Ok(servers) => Ok(servers),
         Err(_) => Ok(Vec::new()),
@@ -133,46 +155,46 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn save_settings(settings: AppSettings) -> Result<(), ServerFnError> {
+pub async fn save_settings(settings: AppSettings) -> Result<(), DbError> {
     let conn = get_db_connection()?;
     
     let settings_json = serde_json::to_string(&settings)
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
     
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?1)",
         [&settings_json],
-    ).map_err(|e| ServerFnError::new(e.to_string()))?;
+    ).map_err(|e| DbError::new(e.to_string()))?;
     
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn save_settings(settings: AppSettings) -> Result<(), ServerFnError> {
+pub async fn save_settings(settings: AppSettings) -> Result<(), StorageError> {
     LocalStorage::set(SETTINGS_KEY, settings)
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .map_err(|e| e)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
+pub async fn load_settings() -> Result<AppSettings, DbError> {
     let conn = get_db_connection()?;
     
-    let result: Result<String, _> = conn.query_row(
+    let result: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT value FROM settings WHERE key = 'app_settings'",
         [],
-        |row| row.get(0),
+        |row: &rusqlite::Row| row.get(0),
     );
     
     match result {
         Ok(json) => {
-            serde_json::from_str(&json).map_err(|e| ServerFnError::new(e.to_string()))
+            serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string()))
         }
         Err(_) => Ok(AppSettings::default()),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
+pub async fn load_settings() -> Result<AppSettings, StorageError> {
     match LocalStorage::get(SETTINGS_KEY) {
         Ok(settings) => Ok(settings),
         Err(_) => Ok(AppSettings::default()),
@@ -180,46 +202,46 @@ pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn save_playback_state(state: PlaybackState) -> Result<(), ServerFnError> {
+pub async fn save_playback_state(state: PlaybackState) -> Result<(), DbError> {
     let conn = get_db_connection()?;
     
     let state_json = serde_json::to_string(&state)
-        .map_err(|e| ServerFnError::new(e.to_string()))?;
+        .map_err(|e| DbError::new(e.to_string()))?;
     
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('playback_state', ?1)",
         [&state_json],
-    ).map_err(|e| ServerFnError::new(e.to_string()))?;
+    ).map_err(|e| DbError::new(e.to_string()))?;
     
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn save_playback_state(state: PlaybackState) -> Result<(), ServerFnError> {
+pub async fn save_playback_state(state: PlaybackState) -> Result<(), StorageError> {
     LocalStorage::set(PLAYBACK_KEY, state)
-        .map_err(|e| ServerFnError::new(e.to_string()))
+        .map_err(|e| e)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
+pub async fn load_playback_state() -> Result<PlaybackState, DbError> {
     let conn = get_db_connection()?;
     
-    let result: Result<String, _> = conn.query_row(
+    let result: Result<String, rusqlite::Error> = conn.query_row(
         "SELECT value FROM settings WHERE key = 'playback_state'",
         [],
-        |row| row.get(0),
+        |row: &rusqlite::Row| row.get(0),
     );
     
     match result {
         Ok(json) => {
-            serde_json::from_str(&json).map_err(|e| ServerFnError::new(e.to_string()))
+            serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string()))
         }
         Err(_) => Ok(PlaybackState::default()),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
+pub async fn load_playback_state() -> Result<PlaybackState, StorageError> {
     match LocalStorage::get(PLAYBACK_KEY) {
         Ok(state) => Ok(state),
         Err(_) => Ok(PlaybackState::default()),
@@ -227,7 +249,7 @@ pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn initialize_database() -> Result<(), ServerFnError> {
+pub async fn initialize_database() -> Result<(), DbError> {
     let conn = get_db_connection()?;
     
     // Create tables
@@ -241,7 +263,7 @@ pub async fn initialize_database() -> Result<(), ServerFnError> {
             active TEXT NOT NULL DEFAULT '1'
         )",
         [],
-    ).map_err(|e| ServerFnError::new(e.to_string()))?;
+    ).map_err(|e| DbError::new(e.to_string()))?;
     
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings (
@@ -249,19 +271,19 @@ pub async fn initialize_database() -> Result<(), ServerFnError> {
             value TEXT NOT NULL
         )",
         [],
-    ).map_err(|e| ServerFnError::new(e.to_string()))?;
+    ).map_err(|e| DbError::new(e.to_string()))?;
     
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn initialize_database() -> Result<(), ServerFnError> {
+pub async fn initialize_database() -> Result<(), StorageError> {
     Ok(())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
-fn get_db_connection() -> Result<rusqlite::Connection, ServerFnError> {
+fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
     use std::path::PathBuf;
     
     // Get data directory
@@ -269,7 +291,7 @@ fn get_db_connection() -> Result<rusqlite::Connection, ServerFnError> {
     let db_path = data_dir.join("rustysound.db");
     
     rusqlite::Connection::open(&db_path)
-        .map_err(|e| ServerFnError::new(format!("Failed to open database: {}", e)))
+        .map_err(|e| DbError::new(format!("Failed to open database: {}", e)))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
