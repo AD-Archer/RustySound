@@ -320,25 +320,25 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
     let server_id = song.server_id.clone();
 
     let on_album_click_cover = {
-        let album_id = &album_id;
-        let server_id = &server_id;
-        let current_view = current_view.clone();
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let mut current_view = current_view.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            if let Some(ref album_id_val) = album_id {
-                current_view.set(AppView::AlbumDetail((*album_id_val).clone(), (*server_id).clone()));
+            if let Some(album_id_val) = album_id.clone() {
+                current_view.set(AppView::AlbumDetail(album_id_val, server_id.clone()));
             }
         }
     };
 
     let on_album_click_text = {
-        let album_id = &album_id;
-        let server_id = &server_id;
-        let current_view = current_view.clone();
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let mut current_view = current_view.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            if let Some(ref album_id_val) = album_id {
-                current_view.set(AppView::AlbumDetail((*album_id_val).clone(), (*server_id).clone()));
+            if let Some(album_id_val) = album_id.clone() {
+                current_view.set(AppView::AlbumDetail(album_id_val, server_id.clone()));
             }
         }
     };

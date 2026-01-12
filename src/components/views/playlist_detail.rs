@@ -9,6 +9,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut current_view = use_context::<Signal<AppView>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
     
     let server = servers().into_iter().find(|s| s.id == server_id);
@@ -32,6 +33,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             if let Some(Some((_, songs))) = playlist_data_ref() {
                 if !songs.is_empty() {
                     queue.set(songs.clone());
+                    queue_index.set(0);
                     now_playing.set(Some(songs[0].clone()));
                     is_playing.set(true);
                 }

@@ -1,9 +1,27 @@
 [application]
 
+# Desktop app configuration
+[application.desktop]
+
+# The name of the app
+name = "RustySound"
+
+# The icon to use for the app (PNG, ICNS, or ICO)
+icon = "assets/logo.png"
+
+# Mobile app configuration  
+[application.mobile]
+
+# The name of the app
+name = "RustySound"
+
+# The icon to use for the app (PNG)
+icon = "assets/logo.png"
+
 [web.app]
 
 # HTML title tag content
-title = "rustysound"
+title = "RustySound"
 
 # include `assets` in web platform
 [web.resource]

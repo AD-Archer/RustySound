@@ -93,9 +93,9 @@ pub fn AppShell() -> Element {
     use_effect(move || {
         spawn(async move {
             // Initialize DB
-            if let Err(e) = initialize_database().await {
+            if let Err(_e) = initialize_database().await {
                 #[cfg(not(target_arch = "wasm32"))]
-                eprintln!("Failed to initialize database: {}", e);
+                eprintln!("Failed to initialize database: {}", _e);
                 return;
             }
             db_initialized.set(true);
@@ -256,7 +256,7 @@ pub fn AppShell() -> Element {
                 }
 
                 // Main scrollable content
-                main { class: "flex-1 overflow-y-auto pb-36 md:pb-28",
+                main { class: "flex-1 overflow-y-auto main-scroll",
                     div { class: "page-shell",
                         {
                             match view {

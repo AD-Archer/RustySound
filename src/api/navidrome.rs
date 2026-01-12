@@ -54,6 +54,7 @@ impl NavidromeClient {
         self.build_url("getCoverArt", &[("id", cover_art_id), ("size", &size.to_string())])
     }
 
+    #[allow(dead_code)]
     pub fn get_stream_url(&self, song_id: &str) -> String {
         self.build_url("stream", &[("id", song_id)])
     }
@@ -311,6 +312,77 @@ impl NavidromeClient {
         Ok(stations)
     }
 
+    pub async fn create_internet_radio_station(
+        &self,
+        name: &str,
+        stream_url: &str,
+        home_page_url: Option<&str>,
+    ) -> Result<(), String> {
+        let mut params = vec![("name", name), ("streamUrl", stream_url)];
+        if let Some(url) = home_page_url.filter(|value| !value.trim().is_empty()) {
+            params.push(("homePageUrl", url));
+        }
+        let url = self.build_url("createInternetRadioStation", &params);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn update_internet_radio_station(
+        &self,
+        station_id: &str,
+        name: &str,
+        stream_url: &str,
+        home_page_url: Option<&str>,
+    ) -> Result<(), String> {
+        let mut params = vec![
+            ("id", station_id),
+            ("name", name),
+            ("streamUrl", stream_url),
+        ];
+        if let Some(url) = home_page_url.filter(|value| !value.trim().is_empty()) {
+            params.push(("homePageUrl", url));
+        }
+        let url = self.build_url("updateInternetRadioStation", &params);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_internet_radio_station(&self, station_id: &str) -> Result<(), String> {
+        let url = self.build_url("deleteInternetRadioStation", &[("id", station_id)]);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
     pub async fn search(&self, query: &str) -> Result<SearchResult, String> {
         let url = self.build_url("search3", &[
             ("query", query),
@@ -394,6 +466,7 @@ pub struct SubsonicResponseInner {
 
 #[derive(Debug, Deserialize)]
 pub struct SubsonicError {
+    #[allow(dead_code)]
     pub code: i32,
     pub message: String,
 }
@@ -404,8 +477,7 @@ pub struct ArtistsContainer {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ArtistIndex {
-    pub name: String,
+pub struct ArtistIndex {    #[allow(dead_code)]    pub name: String,
     pub artist: Option<Vec<Artist>>,
 }
 

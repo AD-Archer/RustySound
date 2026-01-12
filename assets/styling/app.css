@@ -23,10 +23,17 @@ body {
   position: relative;
   isolation: isolate;
   height: 100dvh;
+  --player-height: 10.5rem;
   background:
     radial-gradient(900px circle at 8% -10%, rgba(16, 185, 129, 0.18), transparent 45%),
     radial-gradient(700px circle at 100% 15%, rgba(59, 130, 246, 0.12), transparent 40%),
     linear-gradient(135deg, #09090b 0%, #17181f 50%, #09090b 100%);
+}
+
+@media (min-width: 768px) {
+  .app-container {
+    --player-height: 6rem;
+  }
 }
 
 .app-container::before {
@@ -93,6 +100,17 @@ body {
 
 .player-shell {
   padding-bottom: env(safe-area-inset-bottom);
+}
+
+.main-scroll {
+  padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom));
+}
+
+.vertical-range {
+  writing-mode: vertical-lr;
+  direction: rtl;
+  width: 0.4rem;
+  height: 3.5rem;
 }
 
 /* Custom scrollbar */

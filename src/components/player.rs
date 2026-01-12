@@ -156,7 +156,7 @@ pub fn Player() -> Element {
     
     rsx! {
         div { class: "player-shell fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 z-50 md:h-24",
-            div { class: "h-full flex flex-col md:flex-row items-center md:justify-between px-4 md:px-6 gap-2 md:gap-8 py-3 md:py-0",
+            div { class: "h-full flex flex-col md:flex-row md:items-center md:justify-between px-4 md:px-6 gap-3 md:gap-8 py-2 md:py-0",
                 // Now playing info
                 div { class: "flex items-center gap-3 md:gap-4 min-w-0 w-full md:w-1/4",
                     {
@@ -198,7 +198,7 @@ pub fn Player() -> Element {
                                         }
                                     }
                                 }
-                                div { class: "min-w-0",
+                                div { class: "min-w-0 flex-1",
                                     button {
                                         class: "text-sm font-medium text-white truncate hover:text-emerald-400 transition-colors cursor-pointer block text-left w-full",
                                     onclick: {
@@ -224,7 +224,7 @@ pub fn Player() -> Element {
                                     }
                                 }
                                 button {
-                                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-400 hover:text-emerald-400 transition-colors" },
+                                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors flex-shrink-0" } else { "p-2 text-zinc-400 hover:text-emerald-400 transition-colors flex-shrink-0" },
                                     onclick: on_favorite_toggle,
                                     Icon {
                                         name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
@@ -236,21 +236,31 @@ pub fn Player() -> Element {
                                 div { class: "w-14 h-14 rounded-lg bg-zinc-800/50 flex items-center justify-center",
                                     Icon { name: "music".to_string(), class: "w-6 h-6 text-zinc-600".to_string() }
                                 }
-                                div {
+                                div { class: "min-w-0 flex-1",
                                     p { class: "text-sm text-zinc-500", "No track playing" }
                                     p { class: "text-xs text-zinc-600", "Select a song to start" }
                                 }
                             },
                         }
                     }
+                    div { class: "md:hidden flex items-center flex-shrink-0",
+                        input {
+                            r#type: "range",
+                            min: "0",
+                            max: "100",
+                            value: (volume() * 100.0).round() as i32,
+                            class: "vertical-range bg-zinc-800 rounded-full cursor-pointer accent-emerald-400",
+                            oninput: on_volume_change,
+                        }
+                    }
                 }
 
                 // Player controls
-                div { class: "flex flex-col items-center gap-2 w-full md:flex-1 md:max-w-2xl",
+                div { class: "flex flex-col items-center gap-3 w-full md:flex-1 md:max-w-2xl",
                     // Control buttons
-                    div { class: "flex items-center gap-3 md:gap-4 justify-center",
+                    div { class: "flex flex-wrap items-center gap-4 md:gap-4 justify-center",
                         // Shuffle button
-                        div { class: "hidden sm:block", ShuffleButton {} }
+                        ShuffleButton {}
                         // Previous button
                         PrevButton {}
                         // Play/Pause button
@@ -258,7 +268,7 @@ pub fn Player() -> Element {
                         // Next button
                         NextButton {}
                         // Repeat button
-                        div { class: "hidden sm:block", RepeatButton {} }
+                        RepeatButton {}
                     }
                     // Progress bar
                     div { class: "flex items-center gap-2 md:gap-3 w-full",
@@ -286,21 +296,14 @@ pub fn Player() -> Element {
                 }
 
                 // Volume and other controls
-                div { class: "flex items-center gap-3 w-full md:w-1/4 justify-between md:justify-end",
-                    // Queue button
-                    button {
-                        class: "p-2 text-zinc-400 hover:text-white transition-colors",
-                        onclick: on_open_queue,
-                        Icon {
-                            name: "bars".to_string(),
-                            class: "w-5 h-5".to_string(),
-                        }
-                    }
-                    // Volume
-                    div { class: "flex items-center gap-2 flex-1 md:flex-none",
-                        button { class: "p-2 text-zinc-400 hover:text-white transition-colors",
+                div { class: "flex items-center w-full md:w-1/4 justify-end",
+                    // Desktop queue + volume
+                    div { class: "hidden md:flex items-center gap-3",
+                        button {
+                            class: "p-2 text-zinc-400 hover:text-white transition-colors",
+                            onclick: on_open_queue,
                             Icon {
-                                name: if volume() > 0.5 { "volume-2".to_string() } else if volume() > 0.0 { "volume-1".to_string() } else { "volume-x".to_string() },
+                                name: "queue".to_string(),
                                 class: "w-5 h-5".to_string(),
                             }
                         }
@@ -309,7 +312,7 @@ pub fn Player() -> Element {
                             min: "0",
                             max: "100",
                             value: (volume() * 100.0).round() as i32,
-                            class: "w-full md:w-24 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-zinc-400",
+                            class: "w-24 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-zinc-400",
                             oninput: on_volume_change,
                         }
                     }

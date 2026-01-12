@@ -22,6 +22,7 @@ use js_sys;
 pub struct AudioState {
     pub current_time: Signal<f64>,
     pub duration: Signal<f64>,
+    #[allow(dead_code)]
     pub is_initialized: Signal<bool>,
 }
 
@@ -295,12 +296,18 @@ pub fn AudioController() -> Element {
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         let idx = queue_index();
-        let queue_list = queue();
+        let queue_list = queue.peek();
         let mut now_playing_mut = now_playing;
         
         if let Some(song) = queue_list.get(idx) {
-            let current = now_playing_mut();
-            if current.as_ref().map(|s| &s.id) != Some(&song.id) {
+            let is_same = {
+                let current = now_playing_mut.peek();
+                current
+                    .as_ref()
+                    .map(|s| s.id.as_str())
+                    == Some(song.id.as_str())
+            };
+            if !is_same {
                 now_playing_mut.set(Some(song.clone()));
             }
         }
@@ -324,6 +331,7 @@ pub fn seek_to(_position: f64) {}
 
 /// Get the current playback position
 #[cfg(target_arch = "wasm32")]
+#[allow(dead_code)]
 pub fn get_current_time() -> f64 {
     get_or_create_audio_element()
         .map(|a| a.current_time())
@@ -336,6 +344,7 @@ pub fn get_current_time() -> f64 { 0.0 }
 
 /// Get the current track duration
 #[cfg(target_arch = "wasm32")]
+#[allow(dead_code)]
 pub fn get_duration() -> f64 {
     get_or_create_audio_element()
         .map(|a| {

@@ -8,6 +8,7 @@ pub fn RandomView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
     
     let mut refresh_counter = use_signal(|| 0);
@@ -39,6 +40,7 @@ pub fn RandomView() -> Element {
             if let Some(songs) = songs_ref() {
                 if !songs.is_empty() {
                     queue.set(songs.clone());
+                    queue_index.set(0);
                     now_playing.set(Some(songs[0].clone()));
                     is_playing.set(true);
                 }

@@ -13,6 +13,7 @@ use dioxus::prelude::Signal;
 pub struct VolumeSignal(pub Signal<f64>);
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub struct PlaybackPositionSignal(pub Signal<f64>);
 
 pub use app::*;

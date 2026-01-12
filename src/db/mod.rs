@@ -71,6 +71,7 @@ pub struct QueueItem {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnError> {
     use rusqlite::Connection;
     
@@ -105,6 +106,7 @@ pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), ServerFnErro
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
     use rusqlite::Connection;
     
@@ -139,6 +141,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, ServerFnError> {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn save_settings(settings: AppSettings) -> Result<(), ServerFnError> {
     use rusqlite::Connection;
     
@@ -163,6 +166,7 @@ pub async fn save_settings(settings: AppSettings) -> Result<(), ServerFnError> {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
     use rusqlite::Connection;
     
@@ -192,6 +196,7 @@ pub async fn load_settings() -> Result<AppSettings, ServerFnError> {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn save_playback_state(state: PlaybackState) -> Result<(), ServerFnError> {
     use rusqlite::Connection;
     
@@ -216,6 +221,7 @@ pub async fn save_playback_state(state: PlaybackState) -> Result<(), ServerFnErr
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
     use rusqlite::Connection;
     
@@ -245,6 +251,7 @@ pub async fn load_playback_state() -> Result<PlaybackState, ServerFnError> {
 
 #[cfg(not(target_arch = "wasm32"))]
 #[server]
+#[allow(dead_code)]
 pub async fn initialize_database() -> Result<(), ServerFnError> {
     use rusqlite::Connection;
     
@@ -280,6 +287,7 @@ pub async fn initialize_database() -> Result<(), ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 fn get_db_connection() -> Result<rusqlite::Connection, ServerFnError> {
     use std::path::PathBuf;
     
@@ -292,6 +300,7 @@ fn get_db_connection() -> Result<rusqlite::Connection, ServerFnError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 fn dirs_next() -> Option<std::path::PathBuf> {
     // Try to get a reasonable data directory
     if let Ok(home) = std::env::var("HOME") {
