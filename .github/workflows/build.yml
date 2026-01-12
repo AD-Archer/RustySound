@@ -4,7 +4,8 @@ on:
   push:
     branches:
       - prod
-      - main
+    tags:
+      - 'v*'
   pull_request:
     branches:
       - prod
@@ -130,7 +131,7 @@ jobs:
     - name: Accept Android licenses
       run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
     - run: cargo install dioxus-cli
-    - run: dx bundle --platform android --release
+    - run: dx bundle --platform android --release --features mobile
       continue-on-error: true
     - uses: actions/upload-artifact@v4
       with:
@@ -155,7 +156,7 @@ jobs:
     - name: Prepare web assets
       run: |
         mkdir -p dist
-        cp -r target/dx/rustysound/release/web/rustysound/* dist/
+        cp -r target/dx/rustysound/release/web/public/* dist/
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
     - name: Log in to GitHub Container Registry
@@ -197,7 +198,7 @@ jobs:
     - name: Prepare web assets for GitHub Pages
       run: |
         mkdir -p gh-pages
-        cp -r target/dx/rustysound/release/web/rustysound/* gh-pages/
+        cp -r target/dx/rustysound/release/web/public/* gh-pages/
         touch gh-pages/.nojekyll
     - name: Setup Pages
       uses: actions/configure-pages@v4
@@ -212,7 +213,7 @@ jobs:
   release:
     needs: [desktop-linux, desktop-windows, desktop-mac, mobile-ios, mobile-android, web-docker, web-pages]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/prod'
+    if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
@@ -220,9 +221,17 @@ jobs:
         path: artifacts/
     - name: List artifacts
       run: find artifacts -type f
+    - name: Generate version tag
+      id: version
+      run: |
+        VERSION="v0.1.${{ github.run_number }}"
+        echo "tag=$VERSION" >> $GITHUB_OUTPUT
+        echo "Generated version: $VERSION"
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
+        tag_name: ${{ steps.version.outputs.tag }}
+        name: Release ${{ steps.version.outputs.tag }}
         files: |
           artifacts/**/*.dmg
           artifacts/**/*.app
@@ -231,7 +240,8 @@ jobs:
           artifacts/**/*.exe
           artifacts/**/*.apk
           artifacts/**/*.aab
-          artifacts/**/*.ipa
         generate_release_notes: true
+        draft: false
+        prerelease: false
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
