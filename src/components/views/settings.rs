@@ -1,13 +1,13 @@
 use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::Icon;
+use crate::components::{Icon, VolumeSignal};
 use crate::db::{save_settings, AppSettings};
 
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut app_settings = use_context::<Signal<AppSettings>>();
-    let mut volume = use_context::<Signal<f64>>();
+    let mut volume = use_context::<VolumeSignal>().0;
     
     let mut server_name = use_signal(String::new);
     let mut server_url = use_signal(String::new);
@@ -118,8 +118,7 @@ pub fn SettingsView() -> Element {
     
     let on_volume_change = move |e: Event<FormData>| {
         if let Ok(vol) = e.value().parse::<f64>() {
-            let vol = vol / 100.0;
-            volume.set(vol);
+            volume.set((vol / 100.0).clamp(0.0, 1.0));
         }
     };
     
@@ -128,10 +127,10 @@ pub fn SettingsView() -> Element {
     let current_volume = volume();
     
     rsx! {
-        div { class: "max-w-3xl space-y-8",
-            header { class: "mb-8",
-                h1 { class: "text-3xl font-bold text-white mb-2", "Settings" }
-                p { class: "text-zinc-400", "Manage your servers and playback preferences" }
+        div { class: "space-y-8",
+            header { class: "page-header",
+                h1 { class: "page-title", "Settings" }
+                p { class: "page-subtitle", "Manage your servers and playback preferences" }
             }
 
             // Save status notification
@@ -160,13 +159,13 @@ pub fn SettingsView() -> Element {
                                 r#type: "range",
                                 min: "0",
                                 max: "100",
-                                value: (current_volume * 100.0) as i32,
+                                value: (current_volume * 100.0).round() as i32,
                                 class: "flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500",
                                 oninput: on_volume_change,
                                 onchange: on_volume_change,
                             }
                             span { class: "text-sm text-zinc-400 w-12 text-right",
-                                "{(current_volume * 100.0) as i32}%"
+                                "{(current_volume * 100.0).round() as i32}%"
                             }
                         }
                     }

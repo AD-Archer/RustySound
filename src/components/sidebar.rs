@@ -3,18 +3,30 @@ use crate::api::ServerConfig;
 use crate::components::{AppView, Icon};
 
 #[component]
-pub fn Sidebar() -> Element {
+pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let current_view = use_context::<Signal<AppView>>();
     let view = current_view();
+
+    let is_open = sidebar_open();
     
     let server_count = servers().len();
     let active_servers = servers().iter().filter(|s| s.active).count();
-    
+
+    let slide_class = if is_open { "translate-x-0" } else { "-translate-x-full" };
+    let nav_to = |target: AppView| {
+        let mut current_view = current_view.clone();
+        let mut sidebar_open = sidebar_open.clone();
+        move |_| {
+            current_view.set(target.clone());
+            sidebar_open.set(false);
+        }
+    };
+
     rsx! {
-        aside { class: "w-64 bg-zinc-950/50 border-r border-zinc-800/50 flex flex-col h-full backdrop-blur-xl",
+        aside { class: "fixed inset-y-0 left-0 z-40 w-72 md:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out md:translate-x-0 md:static md:z-auto shadow-2xl shadow-black/30 md:shadow-none {slide_class}",
             // Logo
-            div { class: "p-6 border-b border-zinc-800/50",
+            div { class: "p-5 md:p-6 border-b border-zinc-800/60 flex items-center justify-between",
                 div { class: "flex items-center gap-3",
                     div { class: "w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-emerald-500/20",
                         "R"
@@ -23,6 +35,15 @@ pub fn Sidebar() -> Element {
                         h1 { class: "text-lg font-bold text-white", "RustySound" }
                         p { class: "text-xs text-zinc-500", "{active_servers}/{server_count} servers" }
                     }
+                }
+                button {
+                    class: "md:hidden p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                    aria_label: "Close menu",
+                    onclick: {
+                        let mut sidebar_open = sidebar_open.clone();
+                        move |_| sidebar_open.set(false)
+                    },
+                    Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
                 }
             }
 
@@ -37,19 +58,19 @@ pub fn Sidebar() -> Element {
                         icon: "home",
                         label: "Home",
                         active: matches!(view, AppView::Home),
-                        onclick: move |_| current_view.set(AppView::Home),
+                        onclick: nav_to(AppView::Home),
                     }
                     NavItem {
                         icon: "search",
                         label: "Search",
                         active: matches!(view, AppView::Search),
-                        onclick: move |_| current_view.set(AppView::Search),
+                        onclick: nav_to(AppView::Search),
                     }
                     NavItem {
                         icon: "shuffle",
                         label: "Random",
                         active: matches!(view, AppView::Random),
-                        onclick: move |_| current_view.set(AppView::Random),
+                        onclick: nav_to(AppView::Random),
                     }
                 }
 
@@ -62,25 +83,25 @@ pub fn Sidebar() -> Element {
                         icon: "album",
                         label: "Albums",
                         active: matches!(view, AppView::Albums),
-                        onclick: move |_| current_view.set(AppView::Albums),
+                        onclick: nav_to(AppView::Albums),
                     }
                     NavItem {
                         icon: "artist",
                         label: "Artists",
                         active: matches!(view, AppView::Artists),
-                        onclick: move |_| current_view.set(AppView::Artists),
+                        onclick: nav_to(AppView::Artists),
                     }
                     NavItem {
                         icon: "playlist",
                         label: "Playlists",
                         active: matches!(view, AppView::Playlists),
-                        onclick: move |_| current_view.set(AppView::Playlists),
+                        onclick: nav_to(AppView::Playlists),
                     }
                     NavItem {
                         icon: "radio",
                         label: "Radio",
                         active: matches!(view, AppView::Radio),
-                        onclick: move |_| current_view.set(AppView::Radio),
+                        onclick: nav_to(AppView::Radio),
                     }
                 }
 
@@ -93,13 +114,13 @@ pub fn Sidebar() -> Element {
                         icon: "heart",
                         label: "Favorites",
                         active: matches!(view, AppView::Favorites),
-                        onclick: move |_| current_view.set(AppView::Favorites),
+                        onclick: nav_to(AppView::Favorites),
                     }
                     NavItem {
                         icon: "queue",
                         label: "Queue",
                         active: matches!(view, AppView::Queue),
-                        onclick: move |_| current_view.set(AppView::Queue),
+                        onclick: nav_to(AppView::Queue),
                     }
                 }
             }
@@ -110,17 +131,7 @@ pub fn Sidebar() -> Element {
                     icon: "settings",
                     label: "Settings",
                     active: matches!(view, AppView::Settings),
-                    onclick: move |_| current_view.set(AppView::Settings),
-                }
-            }
-
-            // Settings
-            div { class: "p-4 border-t border-zinc-800/50",
-                NavItem {
-                    icon: "settings",
-                    label: "Settings",
-                    active: matches!(view, AppView::Settings),
-                    onclick: move |_| current_view.set(AppView::Settings),
+                    onclick: nav_to(AppView::Settings),
                 }
             }
         }

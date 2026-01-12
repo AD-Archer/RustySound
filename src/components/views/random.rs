@@ -52,31 +52,29 @@ pub fn RandomView() -> Element {
     
     rsx! {
         div { class: "space-y-8",
-            header { class: "mb-8",
-                div { class: "flex items-center justify-between",
-                    div {
-                        h1 { class: "text-3xl font-bold text-white mb-2", "Random Mix" }
-                        p { class: "text-zinc-400", "A random selection from your library" }
+            header { class: "page-header page-header--split",
+                div {
+                    h1 { class: "page-title", "Random Mix" }
+                    p { class: "page-subtitle", "A random selection from your library" }
+                }
+                div { class: "flex flex-wrap gap-3",
+                    button {
+                        class: "px-4 py-2 rounded-xl bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2",
+                        onclick: on_shuffle,
+                        Icon {
+                            name: "shuffle".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Shuffle"
                     }
-                    div { class: "flex gap-3",
-                        button {
-                            class: "px-4 py-2 rounded-xl bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2",
-                            onclick: on_shuffle,
-                            Icon {
-                                name: "shuffle".to_string(),
-                                class: "w-4 h-4".to_string(),
-                            }
-                            "Shuffle"
+                    button {
+                        class: "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
+                        onclick: on_play_all,
+                        Icon {
+                            name: "play".to_string(),
+                            class: "w-4 h-4".to_string(),
                         }
-                        button {
-                            class: "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
-                            onclick: on_play_all,
-                            Icon {
-                                name: "play".to_string(),
-                                class: "w-4 h-4".to_string(),
-                            }
-                            "Play All"
-                        }
+                        "Play All"
                     }
                 }
             }

@@ -45,8 +45,8 @@ pub fn SearchView() -> Element {
     
     rsx! {
         div { class: "space-y-8",
-            header { class: "mb-8",
-                h1 { class: "text-3xl font-bold text-white mb-6", "Search" }
+            header { class: "page-header gap-4",
+                h1 { class: "page-title", "Search" }
 
                 // Search input
                 div { class: "relative max-w-2xl",

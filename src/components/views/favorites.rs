@@ -39,11 +39,11 @@ pub fn FavoritesView() -> Element {
     
     rsx! {
         div { class: "space-y-8",
-            header { class: "mb-8",
-                h1 { class: "text-3xl font-bold text-white mb-4", "Favorites" }
+            header { class: "page-header gap-4",
+                h1 { class: "page-title", "Favorites" }
 
                 // Tabs
-                div { class: "flex gap-2",
+                div { class: "flex flex-wrap gap-2",
                     button {
                         class: if tab == "songs" { "px-4 py-2 rounded-full bg-emerald-500/20 text-emerald-400 text-sm font-medium" } else { "px-4 py-2 rounded-full bg-zinc-800/50 text-zinc-400 hover:text-white text-sm font-medium transition-colors" },
                         onclick: move |_| active_tab.set("songs".to_string()),

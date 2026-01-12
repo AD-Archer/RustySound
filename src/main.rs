@@ -18,8 +18,8 @@ fn main() {
 fn App() -> Element {
     rsx! {
         document::Link { rel: "icon", href: FAVICON }
-        document::Stylesheet { href: APP_CSS }
         document::Stylesheet { href: TAILWIND_CSS }
+        document::Stylesheet { href: APP_CSS }
 
         AppShell {}
     }

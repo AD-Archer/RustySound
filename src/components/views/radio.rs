@@ -26,9 +26,9 @@ pub fn RadioView() -> Element {
     
     rsx! {
         div { class: "space-y-8",
-            header { class: "mb-8",
-                h1 { class: "text-3xl font-bold text-white mb-2", "Radio Stations" }
-                p { class: "text-zinc-400", "Internet radio from your servers" }
+            header { class: "page-header",
+                h1 { class: "page-title", "Radio Stations" }
+                p { class: "page-subtitle", "Internet radio from your servers" }
             }
             
             {match stations() {

@@ -9,18 +9,12 @@ pub fn HomeView() -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
     
-    let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
-    let has_servers = !active_servers.is_empty();
-    
-    let active_servers_for_albums = active_servers.clone();
-    let active_servers_for_songs = active_servers.clone();
-    
     // Fetch recent albums from all active servers
     let recent_albums = use_resource(move || {
-        let servers = active_servers_for_albums.clone();
+        let active_servers = servers().into_iter().filter(|s| s.active).collect::<Vec<_>>();
         async move {
             let mut albums = Vec::new();
-            for server in servers {
+            for server in active_servers {
                 let client = NavidromeClient::new(server);
                 if let Ok(server_albums) = client.get_albums("newest", 8, 0).await {
                     albums.extend(server_albums);
@@ -33,10 +27,10 @@ pub fn HomeView() -> Element {
     
     // Fetch random songs
     let random_songs = use_resource(move || {
-        let servers = active_servers_for_songs.clone();
+        let active_servers = servers().into_iter().filter(|s| s.active).collect::<Vec<_>>();
         async move {
             let mut songs = Vec::new();
-            for server in servers {
+            for server in active_servers {
                 let client = NavidromeClient::new(server);
                 if let Ok(server_songs) = client.get_random_songs(5).await {
                     songs.extend(server_songs);
@@ -46,12 +40,14 @@ pub fn HomeView() -> Element {
         }
     });
     
+    let has_servers = servers().iter().any(|s| s.active);
+    
     rsx! {
         div { class: "space-y-8",
             // Welcome header
-            header { class: "mb-8",
-                h1 { class: "text-3xl font-bold text-white mb-2", "Good evening" }
-                p { class: "text-zinc-400",
+            header { class: "page-header",
+                h1 { class: "page-title", "Good evening" }
+                p { class: "page-subtitle",
                     if has_servers {
                         "Welcome back. Here's what's new in your library."
                     } else {

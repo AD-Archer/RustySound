@@ -6,14 +6,13 @@ use crate::components::{AppView, Icon};
 pub fn PlaylistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut current_view = use_context::<Signal<AppView>>();
-    
-    let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
-    
+    let mut search_query = use_signal(String::new);
+
     let playlists = use_resource(move || {
-        let servers = active_servers.clone();
+        let servers = servers();
         async move {
             let mut playlists = Vec::new();
-            for server in servers {
+            for server in servers.into_iter().filter(|s| s.active) {
                 let client = NavidromeClient::new(server);
                 if let Ok(server_playlists) = client.get_playlists().await {
                     playlists.extend(server_playlists);
@@ -25,27 +24,62 @@ pub fn PlaylistsView() -> Element {
     
     rsx! {
         div { class: "space-y-8",
-            header { class: "mb-8",
-                h1 { class: "text-3xl font-bold text-white mb-2", "Playlists" }
-                p { class: "text-zinc-400", "Your playlists from all servers" }
+            header { class: "page-header page-header--split",
+                div {
+                    h1 { class: "page-title", "Playlists" }
+                    p { class: "page-subtitle", "Your playlists from all servers" }
+                }
+                div { class: "relative w-full md:max-w-xs",
+                    Icon {
+                        name: "search".to_string(),
+                        class: "absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500".to_string(),
+                    }
+                    input {
+                        class: "w-full pl-10 pr-4 py-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
+                        placeholder: "Search playlists",
+                        value: search_query,
+                        oninput: move |e| search_query.set(e.value()),
+                    }
+                }
             }
             
             {match playlists() {
-                Some(playlists) if !playlists.is_empty() => rsx! {
-                    div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4",
-                        for playlist in playlists {
-                            PlaylistCard { 
-                                playlist: playlist.clone(),
-                                onclick: move |_| current_view.set(AppView::PlaylistDetail(playlist.id.clone(), playlist.server_id.clone()))
+                Some(playlists) => {
+                    let raw_query = search_query().trim().to_string();
+                    let query = raw_query.to_lowercase();
+                    let mut filtered = Vec::new();
+                    if query.is_empty() {
+                        filtered = playlists.clone();
+                    } else {
+                        for playlist in &playlists {
+                            if playlist.name.to_lowercase().contains(&query) {
+                                filtered.push(playlist.clone());
                             }
                         }
                     }
-                },
-                Some(_) => rsx! {
-                    div { class: "flex flex-col items-center justify-center py-20",
-                        Icon { name: "playlist".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
-                        h2 { class: "text-xl font-semibold text-white mb-2", "No playlists yet" }
-                        p { class: "text-zinc-400", "Create playlists in your Navidrome server" }
+                    let has_query = !query.is_empty();
+
+                    rsx! {
+                        if filtered.is_empty() {
+                            div { class: "flex flex-col items-center justify-center py-20",
+                                Icon { name: "playlist".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
+                                if has_query {
+                                    p { class: "text-zinc-300", "No playlists match \"{raw_query}\"" }
+                                } else {
+                                    h2 { class: "text-xl font-semibold text-white mb-2", "No playlists yet" }
+                                    p { class: "text-zinc-400", "Create playlists in your Navidrome server" }
+                                }
+                            }
+                        } else {
+                            div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4",
+                                for playlist in filtered {
+                                    PlaylistCard { 
+                                        playlist: playlist.clone(),
+                                        onclick: move |_| current_view.set(AppView::PlaylistDetail(playlist.id.clone(), playlist.server_id.clone()))
+                                    }
+                                }
+                            }
+                        }
                     }
                 },
                 None => rsx! {

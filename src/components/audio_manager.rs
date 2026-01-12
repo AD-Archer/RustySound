@@ -2,13 +2,20 @@
 //! This prevents audio from restarting when unrelated state changes.
 
 use dioxus::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
 use crate::api::*;
+#[cfg(target_arch = "wasm32")]
+use crate::components::{PlaybackPositionSignal, VolumeSignal};
+#[cfg(target_arch = "wasm32")]
 use crate::db::RepeatMode;
 
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{HtmlAudioElement, window};
+#[cfg(target_arch = "wasm32")]
+use js_sys;
 
 /// Global audio state that persists across renders
 #[derive(Clone)]
@@ -50,25 +57,34 @@ pub fn get_or_create_audio_element() -> Option<HtmlAudioElement> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub fn get_or_create_audio_element() -> Option<()> {
     None
 }
 
 /// Audio controller hook - manages playback imperatively
+#[cfg(not(target_arch = "wasm32"))]
+#[component]
+pub fn AudioController() -> Element {
+    rsx! {}
+}
+
+/// Audio controller hook - manages playback imperatively
+#[cfg(target_arch = "wasm32")]
 #[component]
 pub fn AudioController() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    let volume = use_context::<Signal<f64>>();
+    let volume = use_context::<VolumeSignal>().0;
     let queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
-    let playback_position = use_context::<Signal<f64>>();
+    let playback_position = use_context::<PlaybackPositionSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
     let user_interacted = use_signal(|| false);
-    
+
     // Track the current song ID to detect changes
     let mut last_song_id = use_signal(|| Option::<String>::None);
     let mut last_src = use_signal(|| Option::<String>::None);
@@ -133,21 +149,31 @@ pub fn AudioController() -> Element {
             let queue_list = queue();
             let current_repeat = repeat_mode();
             let current_shuffle = shuffle_enabled();
+
+            let pick_random_index = |queue_len: usize, exclude: Option<usize>| -> Option<usize> {
+                if queue_len == 0 {
+                    return None;
+                }
+                // On wasm, Math.random is reliable and avoids any getrandom runtime issues.
+                let random = (js_sys::Math::random() * (queue_len as f64)) as usize;
+                match exclude {
+                    Some(excl) if queue_len > 1 => {
+                        let r = random % (queue_len - 1);
+                        Some(if r >= excl { r + 1 } else { r })
+                    }
+                    _ => Some(random % queue_len),
+                }
+            };
             
             match current_repeat {
                 RepeatMode::One => {
-                    // Replay the same song
-                    if let Some(audio) = get_or_create_audio_element() {
-                        audio.set_current_time(0.0);
-                        let _ = audio.play();
-                    }
+                    // Repeat-one is handled by audio.set_loop(true)
                 }
                 RepeatMode::All => {
                     if current_shuffle && !queue_list.is_empty() {
-                        let mut bytes = [0u8; 4];
-                        getrandom::getrandom(&mut bytes).unwrap_or_default();
-                        let random_idx = u32::from_le_bytes(bytes) as usize % queue_list.len();
-                        queue_index.set(random_idx);
+                        if let Some(next_idx) = pick_random_index(queue_list.len(), Some(idx)) {
+                            queue_index.set(next_idx);
+                        }
                     } else if idx < queue_list.len().saturating_sub(1) {
                         queue_index.set(idx + 1);
                     } else if !queue_list.is_empty() {
@@ -157,13 +183,12 @@ pub fn AudioController() -> Element {
                     }
                 }
                 RepeatMode::Off => {
-                    if current_shuffle && !queue_list.is_empty() && idx < queue_list.len().saturating_sub(1) {
-                        let mut bytes = [0u8; 4];
-                        getrandom::getrandom(&mut bytes).unwrap_or_default();
-                        let remaining: Vec<_> = (0..queue_list.len()).filter(|&i| i != idx).collect();
-                        if !remaining.is_empty() {
-                            let random_idx = remaining[u32::from_le_bytes(bytes) as usize % remaining.len()];
-                            queue_index.set(random_idx);
+                    if current_shuffle && !queue_list.is_empty() {
+                        if let Some(next_idx) = pick_random_index(queue_list.len(), Some(idx)) {
+                            queue_index.set(next_idx);
+                        } else {
+                            // queue_len == 0 shouldn't happen due to guard, but keep safe
+                            is_playing.set(false);
                         }
                     } else if idx < queue_list.len().saturating_sub(1) {
                         queue_index.set(idx + 1);
@@ -231,6 +256,15 @@ pub fn AudioController() -> Element {
             }
         }
     });
+
+    // Handle repeat mode changes (RepeatMode::One should loop natively)
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        let mode = repeat_mode();
+        if let Some(audio) = get_or_create_audio_element() {
+            audio.set_loop(mode == RepeatMode::One);
+        }
+    });
     
     // Handle volume changes
     #[cfg(target_arch = "wasm32")]
@@ -269,6 +303,7 @@ pub fn seek_to(position: f64) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub fn seek_to(_position: f64) {}
 
 /// Get the current playback position
@@ -280,6 +315,7 @@ pub fn get_current_time() -> f64 {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub fn get_current_time() -> f64 { 0.0 }
 
 /// Get the current track duration
@@ -294,4 +330,5 @@ pub fn get_duration() -> f64 {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
 pub fn get_duration() -> f64 { 0.0 }

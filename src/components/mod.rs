@@ -7,6 +7,14 @@ mod icons;
 mod views;
 mod audio_manager;
 
+use dioxus::prelude::Signal;
+
+#[derive(Clone)]
+pub struct VolumeSignal(pub Signal<f64>);
+
+#[derive(Clone)]
+pub struct PlaybackPositionSignal(pub Signal<f64>);
+
 pub use app::*;
 pub use sidebar::*;
 pub use player::*;

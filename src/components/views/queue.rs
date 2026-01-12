@@ -23,10 +23,10 @@ pub fn QueueView() -> Element {
     
     rsx! {
         div { class: "space-y-8",
-            header { class: "mb-8 flex items-center justify-between",
+            header { class: "page-header page-header--split",
                 div {
-                    h1 { class: "text-3xl font-bold text-white mb-2", "Play Queue" }
-                    p { class: "text-zinc-400",
+                    h1 { class: "page-title", "Play Queue" }
+                    p { class: "page-subtitle",
                         "{songs.len()} songs • {format_duration(songs.iter().map(|s| s.duration).sum())}"
                     }
                 }
@@ -108,10 +108,21 @@ pub fn QueueView() -> Element {
                                             }
                                         },
 
-        
-                                        // Index or playing indicator
+                                    // Index or playing indicator
 
-                                        // Adjust current index if needed
+                                    // Adjust current index if needed
+        
+        
+
+                                        // Remove the song from queue
+
+                                        // Adjust index and now_playing based on removal
+                                        // Queue is now empty
+                                        // Removed song before current, just adjust index
+                                        // Removed the currently playing song
+                                        // Set now_playing first to avoid the queue_index effect overriding
+                                        // Preserve playback state
+                                        // If idx > current_index, nothing needs to change
                                         div { class: "flex items-center gap-4 overflow-hidden",
                                             div { class: "w-8 text-center text-sm flex-shrink-0",
                                                 if is_current {
@@ -143,23 +154,32 @@ pub fn QueueView() -> Element {
                                                 class: "hidden group-hover:block p-2 text-zinc-500 hover:text-red-400 transition-colors",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
+                                                    let was_playing = is_playing();
+                                                    let q_len = queue().len();
+        
                                                     queue
+        
                                                         .with_mut(|q| {
                                                             if idx < q.len() {
                                                                 q.remove(idx);
                                                             }
                                                         });
-                                                    if idx < current_index {
+                                                    if q_len <= 1 {
+                                                        queue_index.set(0);
+                                                        now_playing.set(None);
+                                                        is_playing.set(false);
+                                                    } else if idx < current_index {
                                                         queue_index.set(current_index - 1);
-                                                    } else if idx == current_index && !queue().is_empty() {
-                                                        let new_idx = if idx >= queue().len() {
-                                                            queue().len().saturating_sub(1)
-                                                        } else {
-                                                            idx
-                                                        };
-                                                        queue_index.set(new_idx);
-                                                        if let Some(new_song) = queue().get(new_idx) {
+                                                    } else if idx == current_index {
+                                                        let new_queue = queue();
+                                                        let new_idx = idx.min(new_queue.len().saturating_sub(1));
+                                                        if let Some(new_song) = new_queue.get(new_idx) {
                                                             now_playing.set(Some(new_song.clone()));
+                                                            queue_index.set(new_idx);
+                                                            is_playing.set(was_playing);
+                                                        } else {
+                                                            now_playing.set(None);
+                                                            is_playing.set(false);
                                                         }
                                                     }
                                                 },

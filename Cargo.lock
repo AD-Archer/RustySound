@@ -4304,6 +4304,7 @@ dependencies = [
  "gloo-net",
  "gloo-storage",
  "gloo-timers",
+ "js-sys",
  "md5",
  "reqwest",
  "rusqlite",

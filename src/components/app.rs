@@ -1,6 +1,8 @@
 use crate::api::*;
 use crate::components::views::*;
-use crate::components::{AudioController, AudioState, Player, Sidebar};
+use crate::components::{
+    AudioController, AudioState, Icon, PlaybackPositionSignal, Player, Sidebar, VolumeSignal,
+};
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
     save_servers, save_settings, AppSettings, PlaybackState, QueueItem,
@@ -8,6 +10,36 @@ use crate::db::{
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
+
+fn normalize_volume(mut value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.8;
+    }
+    let mut passes = 0;
+    while value > 1.0 && passes < 4 {
+        value /= 100.0;
+        passes += 1;
+    }
+    value.clamp(0.0, 1.0)
+}
+
+fn view_label(view: &AppView) -> &'static str {
+    match view {
+        AppView::Home => "Home",
+        AppView::Search => "Search",
+        AppView::Albums => "Albums",
+        AppView::Artists => "Artists",
+        AppView::Playlists => "Playlists",
+        AppView::Radio => "Radio",
+        AppView::Favorites => "Favorites",
+        AppView::Random => "Random",
+        AppView::Settings => "Settings",
+        AppView::Queue => "Queue",
+        AppView::AlbumDetail(_, _) => "Album",
+        AppView::ArtistDetail(_, _) => "Artist",
+        AppView::PlaylistDetail(_, _) => "Playlist",
+    }
+}
 
 #[derive(Clone, PartialEq)]
 pub enum AppView {
@@ -41,6 +73,7 @@ pub fn AppShell() -> Element {
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let audio_state = use_signal(AudioState::default);
+    let sidebar_open = use_signal(|| false);
 
     // Provide state via context
     use_context_provider(|| servers);
@@ -49,9 +82,9 @@ pub fn AppShell() -> Element {
     use_context_provider(|| queue);
     use_context_provider(|| queue_index);
     use_context_provider(|| is_playing);
-    use_context_provider(|| volume);
+    use_context_provider(|| VolumeSignal(volume));
     use_context_provider(|| app_settings);
-    use_context_provider(|| playback_position);
+    use_context_provider(|| PlaybackPositionSignal(playback_position));
     use_context_provider(|| shuffle_enabled);
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
@@ -74,12 +107,16 @@ pub fn AppShell() -> Element {
 
             // Load settings
             if let Ok(mut settings) = load_settings().await {
-                // Clamp volume to [0,1] to avoid media errors
-                settings.volume = settings.volume.clamp(0.0, 1.0);
+                let original_volume = settings.volume;
+                settings.volume = normalize_volume(settings.volume);
                 volume.set(settings.volume);
                 shuffle_enabled.set(settings.shuffle_enabled);
                 repeat_mode.set(settings.repeat_mode);
+                let normalized_settings = settings.clone();
                 app_settings.set(settings);
+                if (normalized_settings.volume - original_volume).abs() > f64::EPSILON {
+                    let _ = save_settings(normalized_settings).await;
+                }
             }
 
             // Load playback state (but don't auto-play)
@@ -105,6 +142,7 @@ pub fn AppShell() -> Element {
     // Auto-save settings when volume, shuffle, or repeat changes
     use_effect(move || {
         let vol = volume();
+        let vol = normalize_volume(vol);
         let shuffle = shuffle_enabled();
         let repeat = repeat_mode();
         let mut settings = app_settings();
@@ -123,6 +161,15 @@ pub fn AppShell() -> Element {
                     let _ = save_settings(settings).await;
                 });
             }
+        }
+    });
+
+    // Normalize volume if any writer pushes it out of range
+    use_effect(move || {
+        let vol = volume();
+        let normalized = normalize_volume(vol);
+        if (vol - normalized).abs() > f64::EPSILON {
+            volume.set(normalized);
         }
     });
 
@@ -154,17 +201,63 @@ pub fn AppShell() -> Element {
     });
 
     let view = current_view();
+    let sidebar_signal = sidebar_open.clone();
 
     rsx! {
-        div { class: "app-container flex h-screen bg-gradient-to-br from-zinc-950 via-zinc-900 to-zinc-950 text-white overflow-hidden",
+        div { class: "app-container flex min-h-screen text-white overflow-hidden",
+            if sidebar_open() {
+                div {
+                    class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden",
+                    onclick: {
+                        let mut sidebar_open = sidebar_open.clone();
+                        move |_| sidebar_open.set(false)
+                    },
+                }
+            }
+
             // Sidebar
-            Sidebar {}
+            Sidebar { sidebar_open: sidebar_signal }
 
             // Main content area
             div { class: "flex-1 flex flex-col overflow-hidden",
+                header { class: "md:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
+                    div { class: "flex items-center justify-between px-4 py-3",
+                        button {
+                            class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                            aria_label: "Open menu",
+                            onclick: {
+                                let mut sidebar_open = sidebar_open.clone();
+                                move |_| sidebar_open.set(true)
+                            },
+                            Icon {
+                                name: "menu".to_string(),
+                                class: "w-5 h-5".to_string(),
+                            }
+                        }
+                        div { class: "flex flex-col items-center text-center",
+                            span { class: "text-xs uppercase tracking-widest text-zinc-500",
+                                "RustySound"
+                            }
+                            span { class: "text-sm font-semibold text-white", "{view_label(&view)}" }
+                        }
+                        button {
+                            class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                            aria_label: "Open queue",
+                            onclick: {
+                                let mut current_view = current_view.clone();
+                                move |_| current_view.set(AppView::Queue)
+                            },
+                            Icon {
+                                name: "bars".to_string(),
+                                class: "w-5 h-5".to_string(),
+                            }
+                        }
+                    }
+                }
+
                 // Main scrollable content
-                main { class: "flex-1 overflow-y-auto pb-28",
-                    div { class: "p-6 lg:p-8",
+                main { class: "flex-1 overflow-y-auto pb-36 md:pb-28",
+                    div { class: "page-shell",
                         {
                             match view {
                                 AppView::Home => rsx! {

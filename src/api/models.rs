@@ -27,9 +27,9 @@ impl ServerConfig {
 pub struct Artist {
     pub id: String,
     pub name: String,
-    #[serde(default)]
+    #[serde(default, alias = "albumCount")]
     pub album_count: u32,
-    #[serde(default)]
+    #[serde(default, alias = "coverArt")]
     pub cover_art: Option<String>,
     #[serde(default)]
     pub starred: Option<String>,

@@ -1,20 +1,51 @@
 use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{Icon, AppView, AudioState, seek_to};
+use crate::components::{AppView, AudioState, Icon, VolumeSignal, seek_to};
 use crate::db::RepeatMode;
 use crate::api::models::format_duration;
+
+/// Pick a random index from the queue, optionally excluding the current index
+fn pick_random_index(queue_len: usize, exclude: Option<usize>) -> Option<usize> {
+    if queue_len == 0 {
+        return None;
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    let random = |max: usize| -> usize {
+        if max == 0 {
+            return 0;
+        }
+        (js_sys::Math::random() * (max as f64)) as usize
+    };
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let random = |max: usize| -> usize {
+        if max == 0 {
+            return 0;
+        }
+        let mut bytes = [0u8; 4];
+        // If OS randomness fails for any reason, fall back to a simple deterministic value.
+        // (This should be extremely rare on native targets.)
+        let _ = getrandom::getrandom(&mut bytes);
+        u32::from_le_bytes(bytes) as usize % max
+    };
+    
+    match exclude {
+        Some(excl) if queue_len > 1 => {
+            // Pick from indices that don't match the excluded one
+            let idx = random(queue_len - 1);
+            Some(if idx >= excl { idx + 1 } else { idx })
+        }
+        _ => Some(random(queue_len)),
+    }
+}
 
 #[component]
 pub fn Player() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
-    let queue = use_context::<Signal<Vec<Song>>>();
-    let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
-    let mut volume = use_context::<Signal<f64>>();
+    let mut volume = use_context::<VolumeSignal>().0;
     let mut current_view = use_context::<Signal<AppView>>();
-    let mut shuffle_enabled = use_context::<Signal<bool>>();
-    let mut repeat_mode = use_context::<Signal<RepeatMode>>();
     let audio_state = use_context::<Signal<AudioState>>();
     
     let mut is_favorited = use_signal(|| false);
@@ -25,10 +56,6 @@ pub fn Player() -> Element {
     let current_song_for_fav = current_song.clone();
     let current_song_for_album = current_song.clone();
     let current_song_for_artist = current_song.clone();
-    let playing = is_playing();
-    let vol = volume();
-    let shuffle = shuffle_enabled();
-    let repeat = repeat_mode();
     
     // Get time from audio state (Signal fields need to be read with ())
     let current_time = (audio_state().current_time)();
@@ -51,49 +78,9 @@ pub fn Player() -> Element {
         scrub_percent.set(0.0);
     });
     
-    let on_prev = move |_| {
-        let idx = queue_index();
-        let queue_list = queue();
-        if shuffle {
-            // Pick a random song from the queue
-            if !queue_list.is_empty() {
-                let mut bytes = [0u8; 4];
-                getrandom::getrandom(&mut bytes).unwrap_or_default();
-                let random_idx = u32::from_le_bytes(bytes) as usize % queue_list.len();
-                queue_index.set(random_idx);
-            }
-        } else if idx > 0 && !queue_list.is_empty() {
-            queue_index.set(idx - 1);
-        }
-    };
-    
-    let on_next = move |_| {
-        let idx = queue_index();
-        let queue_list = queue();
-        if shuffle {
-            // Pick a random song from the queue
-            if !queue_list.is_empty() {
-                let mut bytes = [0u8; 4];
-                getrandom::getrandom(&mut bytes).unwrap_or_default();
-                let random_idx = u32::from_le_bytes(bytes) as usize % queue_list.len();
-                queue_index.set(random_idx);
-            }
-        } else if idx < queue_list.len().saturating_sub(1) {
-            queue_index.set(idx + 1);
-        } else if repeat == RepeatMode::All && !queue_list.is_empty() {
-            // Wrap around to the beginning
-            queue_index.set(0);
-        }
-    };
-    
-    let on_toggle = move |_| {
-        is_playing.set(!playing);
-    };
-    
     let on_volume_change = move |e: Event<FormData>| {
         if let Ok(val) = e.value().parse::<f64>() {
-            let new_vol = (val / 100.0).clamp(0.0, 1.0);
-            volume.set(new_vol);
+            volume.set((val / 100.0).clamp(0.0, 1.0));
         }
     };
     
@@ -119,19 +106,6 @@ pub fn Player() -> Element {
     
     let on_open_queue = move |_| {
         current_view.set(AppView::Queue);
-    };
-    
-    let on_shuffle_toggle = move |_| {
-        shuffle_enabled.set(!shuffle);
-    };
-    
-    let on_repeat_toggle = move |_| {
-        let next = match repeat {
-            RepeatMode::Off => RepeatMode::All,
-            RepeatMode::All => RepeatMode::One,
-            RepeatMode::One => RepeatMode::Off,
-        };
-        repeat_mode.set(next);
     };
     
     // Favorite toggle handler
@@ -193,10 +167,10 @@ pub fn Player() -> Element {
     };
     
     rsx! {
-        div { class: "fixed bottom-0 left-0 right-0 h-24 bg-zinc-950/95 backdrop-blur-xl border-t border-zinc-800/50 z-50",
-            div { class: "h-full flex items-center justify-between px-6 gap-8",
+        div { class: "player-shell fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 z-50 md:h-24",
+            div { class: "h-full flex flex-col md:flex-row items-center md:justify-between px-4 md:px-6 gap-2 md:gap-8 py-3 md:py-0",
                 // Now playing info
-                div { class: "flex items-center gap-4 min-w-0 w-1/4",
+                div { class: "flex items-center gap-3 md:gap-4 min-w-0 w-full md:w-1/4",
                     {
                         // Album art
                         // Track info
@@ -205,7 +179,7 @@ pub fn Player() -> Element {
                             Some(song) => rsx! {
                                 // Clickable album art
                                 button {
-                                    class: "w-14 h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
+                                    class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
                                     onclick: on_album_click.clone(),
                                     {
                                         match &cover_url {
@@ -258,75 +232,22 @@ pub fn Player() -> Element {
                 }
 
                 // Player controls
-                div { class: "flex flex-col items-center gap-2 flex-1 max-w-2xl",
+                div { class: "flex flex-col items-center gap-2 w-full md:flex-1 md:max-w-2xl",
                     // Control buttons
-                    div { class: "flex items-center gap-4",
-                        // Shuffle
-                        button {
-                            class: if shuffle { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-400 hover:text-white transition-colors" },
-                            onclick: on_shuffle_toggle,
-                            Icon {
-                                name: "shuffle".to_string(),
-                                class: "w-5 h-5".to_string(),
-                            }
-                        }
-                        // Previous
-                        button {
-                            class: "p-2 text-zinc-300 hover:text-white transition-colors",
-                            onclick: on_prev,
-                            Icon {
-                                name: "prev".to_string(),
-                                class: "w-5 h-5".to_string(),
-                            }
-                        }
-                        // Play/Pause
-                        button {
-                            class: "w-10 h-10 rounded-full bg-white flex items-center justify-center hover:scale-105 transition-transform shadow-lg",
-                            onclick: on_toggle,
-                            if playing {
-                                Icon {
-                                    name: "pause".to_string(),
-                                    class: "w-5 h-5 text-black".to_string(),
-                                }
-                            } else {
-                                Icon {
-                                    name: "play".to_string(),
-                                    class: "w-5 h-5 text-black ml-0.5".to_string(),
-                                }
-                            }
-                        }
-                        // Next
-                        button {
-                            class: "p-2 text-zinc-300 hover:text-white transition-colors",
-                            onclick: on_next,
-                            Icon {
-                                name: "next".to_string(),
-                                class: "w-5 h-5".to_string(),
-                            }
-                        }
-                        // Repeat
-                        button {
-                            class: match repeat {
-                                RepeatMode::Off => "p-2 text-zinc-400 hover:text-white transition-colors",
-                                RepeatMode::All => {
-                                    "p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
-                                }
-                                RepeatMode::One => {
-                                    "p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
-                                }
-                            },
-                            onclick: on_repeat_toggle,
-                            Icon {
-                                name: match repeat {
-                                    RepeatMode::One => "repeat-1".to_string(),
-                                    _ => "repeat".to_string(),
-                                },
-                                class: "w-5 h-5".to_string(),
-                            }
-                        }
+                    div { class: "flex items-center gap-3 md:gap-4 justify-center",
+                        // Shuffle button
+                        div { class: "hidden sm:block", ShuffleButton {} }
+                        // Previous button
+                        PrevButton {}
+                        // Play/Pause button
+                        PlayPauseButton {}
+                        // Next button
+                        NextButton {}
+                        // Repeat button
+                        div { class: "hidden sm:block", RepeatButton {} }
                     }
                     // Progress bar
-                    div { class: "flex items-center gap-3 w-full",
+                    div { class: "flex items-center gap-2 md:gap-3 w-full",
                         span { class: "text-xs text-zinc-500 w-10 text-right",
                             "{format_duration(current_time as u32)}"
                         }
@@ -334,13 +255,7 @@ pub fn Player() -> Element {
                             r#type: "range",
                             min: "0",
                             max: "100",
-                            value: if is_scrubbing() {
-                                scrub_percent() as i32
-                            } else if duration > 0.0 {
-                                (current_time / duration * 100.0) as i32
-                            } else {
-                                0
-                            },
+                            value: if is_scrubbing() { scrub_percent() as i32 } else if duration > 0.0 { (current_time / duration * 100.0) as i32 } else { 0 },
                             class: "flex-1 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-emerald-500",
                             oninput: on_seek_input,
                             onchange: on_seek_commit,
@@ -357,21 +272,21 @@ pub fn Player() -> Element {
                 }
 
                 // Volume and other controls
-                div { class: "flex items-center gap-4 w-1/4 justify-end",
+                div { class: "flex items-center gap-3 w-full md:w-1/4 justify-between md:justify-end",
                     // Queue button
                     button {
                         class: "p-2 text-zinc-400 hover:text-white transition-colors",
                         onclick: on_open_queue,
                         Icon {
-                            name: "queue".to_string(),
+                            name: "bars".to_string(),
                             class: "w-5 h-5".to_string(),
                         }
                     }
                     // Volume
-                    div { class: "flex items-center gap-2",
+                    div { class: "flex items-center gap-2 flex-1 md:flex-none",
                         button { class: "p-2 text-zinc-400 hover:text-white transition-colors",
                             Icon {
-                                name: if vol > 0.5 { "volume-2".to_string() } else if vol > 0.0 { "volume-1".to_string() } else { "volume-x".to_string() },
+                                name: if volume() > 0.5 { "volume-2".to_string() } else if volume() > 0.0 { "volume-1".to_string() } else { "volume-x".to_string() },
                                 class: "w-5 h-5".to_string(),
                             }
                         }
@@ -379,13 +294,160 @@ pub fn Player() -> Element {
                             r#type: "range",
                             min: "0",
                             max: "100",
-                            value: (vol * 100.0) as i32,
-                            class: "w-24 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-zinc-400",
+                            value: (volume() * 100.0).round() as i32,
+                            class: "w-full md:w-24 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-zinc-400",
                             oninput: on_volume_change,
-                            onchange: on_volume_change,
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Shuffle button - completely isolated component
+#[component]
+fn ShuffleButton() -> Element {
+    let mut shuffle_enabled = use_context::<Signal<bool>>();
+    let is_active = shuffle_enabled();
+    
+    rsx! {
+        button {
+            id: "shuffle-btn",
+            r#type: "button",
+            class: if is_active { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-400 hover:text-white transition-colors" },
+            onclick: move |_| {
+                let current = shuffle_enabled();
+                shuffle_enabled.set(!current);
+            },
+            Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
+        }
+    }
+}
+
+/// Play/Pause button - completely isolated component
+#[component]
+fn PlayPauseButton() -> Element {
+    let mut is_playing = use_context::<Signal<bool>>();
+    let playing = is_playing();
+    
+    rsx! {
+        button {
+            id: "play-pause-btn",
+            r#type: "button",
+            class: "w-10 h-10 rounded-full bg-white flex items-center justify-center hover:scale-105 transition-transform shadow-lg",
+            onclick: move |_| {
+                let current = is_playing();
+                is_playing.set(!current);
+            },
+            if playing {
+                Icon {
+                    name: "pause".to_string(),
+                    class: "w-5 h-5 text-black".to_string(),
+                }
+            } else {
+                Icon {
+                    name: "play".to_string(),
+                    class: "w-5 h-5 text-black ml-0.5".to_string(),
+                }
+            }
+        }
+    }
+}
+
+/// Previous button - completely isolated component
+#[component]
+fn PrevButton() -> Element {
+    let mut queue_index = use_context::<Signal<usize>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let shuffle_enabled = use_context::<Signal<bool>>();
+    
+    rsx! {
+        button {
+            id: "prev-btn",
+            r#type: "button",
+            class: "p-2 text-zinc-300 hover:text-white transition-colors",
+            onclick: move |_| {
+                let idx = queue_index();
+                let queue_list = queue();
+                if shuffle_enabled() {
+                    if let Some(new_idx) = pick_random_index(queue_list.len(), Some(idx)) {
+                        queue_index.set(new_idx);
+                    }
+                } else if idx > 0 && !queue_list.is_empty() {
+                    queue_index.set(idx - 1);
+                }
+            },
+            Icon { name: "prev".to_string(), class: "w-5 h-5".to_string() }
+        }
+    }
+}
+
+/// Next button - completely isolated component
+#[component]
+fn NextButton() -> Element {
+    let mut queue_index = use_context::<Signal<usize>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let shuffle_enabled = use_context::<Signal<bool>>();
+    let repeat_mode = use_context::<Signal<RepeatMode>>();
+    
+    rsx! {
+        button {
+            id: "next-btn",
+            r#type: "button",
+            class: "p-2 text-zinc-300 hover:text-white transition-colors",
+            onclick: move |_| {
+                if repeat_mode() == RepeatMode::One {
+                    seek_to(0.0);
+                    return;
+                }
+                let idx = queue_index();
+                let queue_list = queue();
+                if shuffle_enabled() {
+                    if let Some(new_idx) = pick_random_index(queue_list.len(), Some(idx)) {
+                        queue_index.set(new_idx);
+                    }
+                } else if idx < queue_list.len().saturating_sub(1) {
+                    queue_index.set(idx + 1);
+                } else if repeat_mode() == RepeatMode::All && !queue_list.is_empty() {
+                    queue_index.set(0);
+                }
+            },
+            Icon { name: "next".to_string(), class: "w-5 h-5".to_string() }
+        }
+    }
+}
+
+/// Repeat button - completely isolated component
+#[component]
+fn RepeatButton() -> Element {
+    let mut repeat_mode = use_context::<Signal<RepeatMode>>();
+    let mode = repeat_mode();
+    
+    rsx! {
+        button {
+            id: "repeat-btn",
+            r#type: "button",
+            class: match mode {
+                RepeatMode::Off => "p-2 text-zinc-400 hover:text-white transition-colors",
+                RepeatMode::All | RepeatMode::One => {
+                    "p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
+                }
+            },
+            onclick: move |_| {
+                let next = match repeat_mode() {
+                    RepeatMode::Off => RepeatMode::All,
+                    RepeatMode::All => RepeatMode::One,
+                    RepeatMode::One => RepeatMode::Off,
+                };
+                repeat_mode.set(next);
+            },
+            Icon {
+                name: match mode {
+                    RepeatMode::One => "repeat-1".to_string(),
+                    _ => "repeat".to_string(),
+                },
+                class: "w-5 h-5".to_string(),
             }
         }
     }
