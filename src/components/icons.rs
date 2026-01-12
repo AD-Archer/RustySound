@@ -215,6 +215,29 @@ pub fn Icon(name: String, class: String) -> Element {
                 path { d: "M21 13v2a4 4 0 0 1-4 4H3" }
             }
         },
+        "repeat-1" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                polyline { points: "17 1 21 5 17 9" }
+                path { d: "M3 11V9a4 4 0 0 1 4-4h14" }
+                polyline { points: "7 23 3 19 7 15" }
+                path { d: "M21 13v2a4 4 0 0 1-4 4H3" }
+                // Number 1 in the center
+                text {
+                    x: "12",
+                    y: "14",
+                    font_size: "8",
+                    text_anchor: "middle",
+                    fill: "currentColor",
+                    stroke: "none",
+                    "1"
+                }
+            }
+        },
         "volume" => rsx! {
             svg {
                 class: "{class}",

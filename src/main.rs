@@ -2,6 +2,7 @@ use dioxus::prelude::*;
 
 mod api;
 mod components;
+mod db;
 
 use components::AppShell;
 
@@ -23,4 +24,3 @@ fn App() -> Element {
         AppShell {}
     }
 }
-

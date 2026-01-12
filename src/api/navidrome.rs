@@ -137,6 +137,34 @@ impl NavidromeClient {
         Ok((album, songs))
     }
 
+    pub async fn get_artist(&self, artist_id: &str) -> Result<(Artist, Vec<Album>), String> {
+        let url = self.build_url("getArtist", &[("id", artist_id)]);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+        
+        if json.subsonic_response.status != "ok" {
+            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+        }
+
+        let mut artist_with_albums = json.subsonic_response.artist_detail.ok_or("Artist not found")?;
+        artist_with_albums.server_id = self.server.id.clone();
+        
+        let mut albums = artist_with_albums.album.take().unwrap_or_default();
+        for album in &mut albums {
+            album.server_id = self.server.id.clone();
+        }
+        
+        let artist = Artist {
+            id: artist_with_albums.id,
+            name: artist_with_albums.name,
+            album_count: artist_with_albums.album_count.unwrap_or(0),
+            cover_art: artist_with_albums.cover_art,
+            starred: artist_with_albums.starred,
+            server_id: self.server.id.clone(),
+        };
+        Ok((artist, albums))
+    }
+
     pub async fn get_random_songs(&self, size: u32) -> Result<Vec<Song>, String> {
         let url = self.build_url("getRandomSongs", &[("size", &size.to_string())]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
@@ -350,6 +378,8 @@ pub struct SubsonicResponseInner {
     #[serde(alias = "albumList2")]
     pub album_list2: Option<AlbumList2>,
     pub album: Option<AlbumWithSongs>,
+    #[serde(alias = "artist")]
+    pub artist_detail: Option<ArtistWithAlbums>,
     #[serde(alias = "randomSongs")]
     pub random_songs: Option<RandomSongs>,
     #[serde(alias = "starred2")]
@@ -402,6 +432,20 @@ impl std::ops::DerefMut for AlbumWithSongs {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.album
     }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ArtistWithAlbums {
+    pub id: String,
+    pub name: String,
+    #[serde(alias = "albumCount")]
+    pub album_count: Option<u32>,
+    #[serde(alias = "coverArt")]
+    pub cover_art: Option<String>,
+    pub starred: Option<String>,
+    #[serde(default)]
+    pub server_id: String,
+    pub album: Option<Vec<Album>>,
 }
 
 #[derive(Debug, Deserialize)]

@@ -10,6 +10,7 @@ mod settings;
 mod album_detail;
 mod artist_detail;
 mod playlist_detail;
+mod queue;
 
 pub use home::HomeView;
 pub use search::SearchView;
@@ -23,3 +24,4 @@ pub use settings::SettingsView;
 pub use album_detail::AlbumDetailView;
 pub use artist_detail::ArtistDetailView;
 pub use playlist_detail::PlaylistDetailView;
+pub use queue::QueueView;

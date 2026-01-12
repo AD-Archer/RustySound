@@ -1,10 +1,13 @@
 use dioxus::prelude::*;
 use crate::api::*;
 use crate::components::Icon;
+use crate::db::{save_settings, AppSettings};
 
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let mut app_settings = use_context::<Signal<AppSettings>>();
+    let mut volume = use_context::<Signal<f64>>();
     
     let mut server_name = use_signal(String::new);
     let mut server_url = use_signal(String::new);
@@ -12,6 +15,7 @@ pub fn SettingsView() -> Element {
     let mut server_pass = use_signal(String::new);
     let mut is_testing = use_signal(|| false);
     let mut test_result = use_signal(|| None::<Result<(), String>>);
+    let mut save_status = use_signal(|| None::<String>);
     
     let can_add = use_memo(move || {
         !server_name().trim().is_empty() 
@@ -67,15 +71,154 @@ pub fn SettingsView() -> Element {
         server_user.set(String::new());
         server_pass.set(String::new());
         test_result.set(None);
+        
+        save_status.set(Some("Server added and saved!".to_string()));
+        // Auto-clear status after a delay using gloo_timers on wasm
+        #[cfg(target_arch = "wasm32")]
+        {
+            use gloo_timers::future::TimeoutFuture;
+            spawn(async move {
+                TimeoutFuture::new(2000).await;
+                save_status.set(None);
+            });
+        }
+    };
+    
+    let on_crossfade_toggle = move |_| {
+        let mut settings = app_settings();
+        settings.crossfade_enabled = !settings.crossfade_enabled;
+        let settings_clone = settings.clone();
+        app_settings.set(settings);
+        spawn(async move {
+            let _ = save_settings(settings_clone).await;
+        });
+    };
+    
+    let on_replay_gain_toggle = move |_| {
+        let mut settings = app_settings();
+        settings.replay_gain = !settings.replay_gain;
+        let settings_clone = settings.clone();
+        app_settings.set(settings);
+        spawn(async move {
+            let _ = save_settings(settings_clone).await;
+        });
+    };
+    
+    let on_crossfade_duration_change = move |e: Event<FormData>| {
+        if let Ok(duration) = e.value().parse::<u32>() {
+            let mut settings = app_settings();
+            settings.crossfade_duration = duration;
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            spawn(async move {
+                let _ = save_settings(settings_clone).await;
+            });
+        }
+    };
+    
+    let on_volume_change = move |e: Event<FormData>| {
+        if let Ok(vol) = e.value().parse::<f64>() {
+            let vol = vol / 100.0;
+            volume.set(vol);
+        }
     };
     
     let server_list = servers();
+    let settings = app_settings();
+    let current_volume = volume();
     
     rsx! {
         div { class: "max-w-3xl space-y-8",
             header { class: "mb-8",
                 h1 { class: "text-3xl font-bold text-white mb-2", "Settings" }
-                p { class: "text-zinc-400", "Manage your Navidrome server connections" }
+                p { class: "text-zinc-400", "Manage your servers and playback preferences" }
+            }
+
+            // Save status notification
+            if let Some(status) = save_status() {
+                div { class: "fixed top-4 right-4 px-4 py-2 bg-emerald-500/20 border border-emerald-500/50 rounded-lg text-emerald-400 text-sm",
+                    "{status}"
+                }
+            }
+
+            // Playback Settings
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                h2 { class: "text-lg font-semibold text-white mb-6", "Playback Settings" }
+
+                div { class: "space-y-6",
+                    // Volume control
+                    div {
+                        label { class: "block text-sm font-medium text-zinc-400 mb-3",
+                            "Default Volume"
+                        }
+                        div { class: "flex items-center gap-4",
+                            Icon {
+                                name: if current_volume > 0.5 { "volume-2".to_string() } else if current_volume > 0.0 { "volume-1".to_string() } else { "volume-x".to_string() },
+                                class: "w-5 h-5 text-zinc-400".to_string(),
+                            }
+                            input {
+                                r#type: "range",
+                                min: "0",
+                                max: "100",
+                                value: (current_volume * 100.0) as i32,
+                                class: "flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500",
+                                oninput: on_volume_change,
+                                onchange: on_volume_change,
+                            }
+                            span { class: "text-sm text-zinc-400 w-12 text-right",
+                                "{(current_volume * 100.0) as i32}%"
+                            }
+                        }
+                    }
+
+                    // Crossfade toggle
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Crossfade" }
+                            p { class: "text-sm text-zinc-400", "Smoothly transition between songs" }
+                        }
+                        button {
+                            class: if settings.crossfade_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_crossfade_toggle,
+                            div { class: if settings.crossfade_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+
+                    // Crossfade duration (show only if crossfade is enabled)
+                    if settings.crossfade_enabled {
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Crossfade Duration"
+                            }
+                            div { class: "flex items-center gap-4",
+                                input {
+                                    r#type: "range",
+                                    min: "1",
+                                    max: "12",
+                                    value: settings.crossfade_duration,
+                                    class: "flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500",
+                                    oninput: on_crossfade_duration_change,
+                                }
+                                span { class: "text-sm text-zinc-400 w-16 text-right",
+                                    "{settings.crossfade_duration} seconds"
+                                }
+                            }
+                        }
+                    }
+
+                    // Replay Gain toggle
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Replay Gain" }
+                            p { class: "text-sm text-zinc-400", "Normalize volume across tracks" }
+                        }
+                        button {
+                            class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_replay_gain_toggle,
+                            div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+                }
             }
 
             // Add server form

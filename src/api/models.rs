@@ -147,25 +147,6 @@ impl Default for SearchResult {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
-pub struct NowPlaying {
-    pub song: Song,
-    pub is_playing: bool,
-    pub progress: f64,
-    pub volume: f64,
-}
-
-impl NowPlaying {
-    pub fn new(song: Song) -> Self {
-        Self {
-            song,
-            is_playing: true,
-            progress: 0.0,
-            volume: 1.0,
-        }
-    }
-}
-
 pub fn format_duration(seconds: u32) -> String {
     let mins = seconds / 60;
     let secs = seconds % 60;

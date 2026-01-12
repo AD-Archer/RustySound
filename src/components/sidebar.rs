@@ -95,6 +95,22 @@ pub fn Sidebar() -> Element {
                         active: matches!(view, AppView::Favorites),
                         onclick: move |_| current_view.set(AppView::Favorites),
                     }
+                    NavItem {
+                        icon: "queue",
+                        label: "Queue",
+                        active: matches!(view, AppView::Queue),
+                        onclick: move |_| current_view.set(AppView::Queue),
+                    }
+                }
+            }
+
+            // Settings at bottom
+            div { class: "p-4 border-t border-zinc-800/50",
+                NavItem {
+                    icon: "settings",
+                    label: "Settings",
+                    active: matches!(view, AppView::Settings),
+                    onclick: move |_| current_view.set(AppView::Settings),
                 }
             }
 
