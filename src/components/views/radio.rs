@@ -1,6 +1,6 @@
-use dioxus::prelude::*;
 use crate::api::*;
 use crate::components::Icon;
+use dioxus::prelude::*;
 
 #[derive(Clone, PartialEq)]
 enum RadioFormMode {
@@ -40,11 +40,8 @@ pub fn RadioView() -> Element {
     });
 
     let server_list = servers();
-    let active_servers: Vec<ServerConfig> = server_list
-        .iter()
-        .cloned()
-        .filter(|s| s.active)
-        .collect();
+    let active_servers: Vec<ServerConfig> =
+        server_list.iter().cloned().filter(|s| s.active).collect();
     let has_active_servers = !active_servers.is_empty();
 
     let form_mode_value = form_mode();
@@ -134,9 +131,7 @@ pub fn RadioView() -> Element {
 
             let servers_snapshot = servers();
             spawn(async move {
-                let server = servers_snapshot
-                    .into_iter()
-                    .find(|s| s.id == server_id);
+                let server = servers_snapshot.into_iter().find(|s| s.id == server_id);
                 let Some(server) = server else {
                     error_message.set(Some("Server not found.".to_string()));
                     is_saving.set(false);
@@ -151,21 +146,25 @@ pub fn RadioView() -> Element {
                 };
 
                 let result = match mode_snapshot {
-                    RadioFormMode::Add => client
-                        .create_internet_radio_station(
-                            &name,
-                            &stream_url,
-                            home_page_opt.as_deref(),
-                        )
-                        .await,
-                    RadioFormMode::Edit(station) => client
-                        .update_internet_radio_station(
-                            &station.id,
-                            &name,
-                            &stream_url,
-                            home_page_opt.as_deref(),
-                        )
-                        .await,
+                    RadioFormMode::Add => {
+                        client
+                            .create_internet_radio_station(
+                                &name,
+                                &stream_url,
+                                home_page_opt.as_deref(),
+                            )
+                            .await
+                    }
+                    RadioFormMode::Edit(station) => {
+                        client
+                            .update_internet_radio_station(
+                                &station.id,
+                                &name,
+                                &stream_url,
+                                home_page_opt.as_deref(),
+                            )
+                            .await
+                    }
                     RadioFormMode::Closed => Ok(()),
                 };
 

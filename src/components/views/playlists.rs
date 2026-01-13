@@ -1,11 +1,11 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn PlaylistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
 
     let playlists = use_resource(move || {
@@ -21,7 +21,7 @@ pub fn PlaylistsView() -> Element {
             playlists
         }
     });
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header page-header--split",
@@ -42,7 +42,7 @@ pub fn PlaylistsView() -> Element {
                     }
                 }
             }
-            
+
             {match playlists() {
                 Some(playlists) => {
                     let raw_query = search_query().trim().to_string();
@@ -75,7 +75,17 @@ pub fn PlaylistsView() -> Element {
                                 for playlist in filtered {
                                     PlaylistCard { 
                                         playlist: playlist.clone(),
-                                        onclick: move |_| current_view.set(AppView::PlaylistDetail(playlist.id.clone(), playlist.server_id.clone()))
+                                        onclick: {
+                                            let navigation = navigation.clone();
+                                            let playlist_id = playlist.id.clone();
+                                            let playlist_server_id = playlist.server_id.clone();
+                                            move |_| {
+                                                navigation.navigate_to(AppView::PlaylistDetail(
+                                                    playlist_id.clone(),
+                                                    playlist_server_id.clone(),
+                                                ))
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -95,14 +105,18 @@ pub fn PlaylistsView() -> Element {
 #[component]
 fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    
-    let cover_url = servers().iter()
+
+    let cover_url = servers()
+        .iter()
         .find(|s| s.id == playlist.server_id)
         .and_then(|server| {
             let client = NavidromeClient::new(server.clone());
-            playlist.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 300))
+            playlist
+                .cover_art
+                .as_ref()
+                .map(|ca| client.get_cover_art_url(ca, 300))
         });
-    
+
     rsx! {
         button {
             class: "group text-left",

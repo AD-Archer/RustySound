@@ -17,7 +17,7 @@ impl NavidromeClient {
         // Generate random salt using getrandom (wasm-compatible)
         let mut bytes = [0u8; 8];
         getrandom::getrandom(&mut bytes).unwrap_or_default();
-        
+
         let salt: String = bytes
             .iter()
             .map(|b| {
@@ -29,10 +29,10 @@ impl NavidromeClient {
                 }
             })
             .collect();
-        
+
         let token_input = format!("{}{}", self.server.password, salt);
         let token = format!("{:x}", md5::compute(token_input.as_bytes()));
-        
+
         format!(
             "u={}&t={}&s={}&v={}&c={}&f=json",
             self.server.username, token, salt, API_VERSION, CLIENT_NAME
@@ -42,16 +42,19 @@ impl NavidromeClient {
     fn build_url(&self, endpoint: &str, extra_params: &[(&str, &str)]) -> String {
         let auth = self.generate_auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
-        
+
         for (key, value) in extra_params {
             url.push_str(&format!("&{}={}", key, urlencoding_simple(value)));
         }
-        
+
         url
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {
-        self.build_url("getCoverArt", &[("id", cover_art_id), ("size", &size.to_string())])
+        self.build_url(
+            "getCoverArt",
+            &[("id", cover_art_id), ("size", &size.to_string())],
+        )
     }
 
     #[allow(dead_code)]
@@ -63,10 +66,14 @@ impl NavidromeClient {
         let url = self.build_url("ping", &[]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         match json.subsonic_response.status.as_str() {
             "ok" => Ok(true),
-            _ => Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string())),
+            _ => Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string())),
         }
     }
 
@@ -74,9 +81,13 @@ impl NavidromeClient {
         let url = self.build_url("getArtists", &[]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         let mut artists = Vec::new();
@@ -88,31 +99,45 @@ impl NavidromeClient {
                 }
             }
         }
-        
+
         Ok(artists)
     }
 
-    pub async fn get_albums(&self, album_type: &str, size: u32, offset: u32) -> Result<Vec<Album>, String> {
-        let url = self.build_url("getAlbumList2", &[
-            ("type", album_type),
-            ("size", &size.to_string()),
-            ("offset", &offset.to_string()),
-        ]);
+    pub async fn get_albums(
+        &self,
+        album_type: &str,
+        size: u32,
+        offset: u32,
+    ) -> Result<Vec<Album>, String> {
+        let url = self.build_url(
+            "getAlbumList2",
+            &[
+                ("type", album_type),
+                ("size", &size.to_string()),
+                ("offset", &offset.to_string()),
+            ],
+        );
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut albums = json.subsonic_response.album_list2
+        let mut albums = json
+            .subsonic_response
+            .album_list2
             .and_then(|al| al.album)
             .unwrap_or_default();
-        
+
         for album in &mut albums {
             album.server_id = self.server.id.clone();
         }
-        
+
         Ok(albums)
     }
 
@@ -120,20 +145,24 @@ impl NavidromeClient {
         let url = self.build_url("getAlbum", &[("id", album_id)]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         let mut album_with_songs = json.subsonic_response.album.ok_or("Album not found")?;
         album_with_songs.server_id = self.server.id.clone();
-        
+
         let mut songs = album_with_songs.song.take().unwrap_or_default();
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
         }
-        
+
         let album = album_with_songs.album;
         Ok((album, songs))
     }
@@ -142,19 +171,26 @@ impl NavidromeClient {
         let url = self.build_url("getArtist", &[("id", artist_id)]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut artist_with_albums = json.subsonic_response.artist_detail.ok_or("Artist not found")?;
+        let mut artist_with_albums = json
+            .subsonic_response
+            .artist_detail
+            .ok_or("Artist not found")?;
         artist_with_albums.server_id = self.server.id.clone();
-        
+
         let mut albums = artist_with_albums.album.take().unwrap_or_default();
         for album in &mut albums {
             album.server_id = self.server.id.clone();
         }
-        
+
         let artist = Artist {
             id: artist_with_albums.id,
             name: artist_with_albums.name,
@@ -170,20 +206,26 @@ impl NavidromeClient {
         let url = self.build_url("getRandomSongs", &[("size", &size.to_string())]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut songs = json.subsonic_response.random_songs
+        let mut songs = json
+            .subsonic_response
+            .random_songs
             .and_then(|rs| rs.song)
             .unwrap_or_default();
-        
+
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
         }
-        
+
         Ok(songs)
     }
 
@@ -191,17 +233,21 @@ impl NavidromeClient {
         let url = self.build_url("getStarred2", &[]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         let starred = json.subsonic_response.starred2.unwrap_or_default();
-        
+
         let mut artists = starred.artist.unwrap_or_default();
         let mut albums = starred.album.unwrap_or_default();
         let mut songs = starred.song.unwrap_or_default();
-        
+
         for artist in &mut artists {
             artist.server_id = self.server.id.clone();
         }
@@ -212,7 +258,7 @@ impl NavidromeClient {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
         }
-        
+
         Ok((artists, albums, songs))
     }
 
@@ -225,11 +271,15 @@ impl NavidromeClient {
         let url = self.build_url("star", &[(param, id)]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
-        
+
         Ok(())
     }
 
@@ -242,11 +292,15 @@ impl NavidromeClient {
         let url = self.build_url("unstar", &[(param, id)]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
-        
+
         Ok(())
     }
 
@@ -254,19 +308,25 @@ impl NavidromeClient {
         let url = self.build_url("getPlaylists", &[]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut playlists = json.subsonic_response.playlists
+        let mut playlists = json
+            .subsonic_response
+            .playlists
             .and_then(|p| p.playlist)
             .unwrap_or_default();
-        
+
         for playlist in &mut playlists {
             playlist.server_id = self.server.id.clone();
         }
-        
+
         Ok(playlists)
     }
 
@@ -274,20 +334,27 @@ impl NavidromeClient {
         let url = self.build_url("getPlaylist", &[("id", playlist_id)]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut playlist_with_entries = json.subsonic_response.playlist.ok_or("Playlist not found")?;
+        let mut playlist_with_entries = json
+            .subsonic_response
+            .playlist
+            .ok_or("Playlist not found")?;
         playlist_with_entries.server_id = self.server.id.clone();
-        
+
         let mut songs = playlist_with_entries.entry.take().unwrap_or_default();
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
         }
-        
+
         let playlist = playlist_with_entries.playlist;
         Ok((playlist, songs))
     }
@@ -296,19 +363,25 @@ impl NavidromeClient {
         let url = self.build_url("getInternetRadioStations", &[]);
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut stations = json.subsonic_response.internet_radio_stations
+        let mut stations = json
+            .subsonic_response
+            .internet_radio_stations
             .and_then(|irs| irs.internet_radio_station)
             .unwrap_or_default();
-        
+
         for station in &mut stations {
             station.server_id = self.server.id.clone();
         }
-        
+
         Ok(stations)
     }
 
@@ -384,25 +457,32 @@ impl NavidromeClient {
     }
 
     pub async fn search(&self, query: &str) -> Result<SearchResult, String> {
-        let url = self.build_url("search3", &[
-            ("query", query),
-            ("artistCount", "20"),
-            ("albumCount", "20"),
-            ("songCount", "50"),
-        ]);
+        let url = self.build_url(
+            "search3",
+            &[
+                ("query", query),
+                ("artistCount", "20"),
+                ("albumCount", "20"),
+                ("songCount", "50"),
+            ],
+        );
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        
+
         if json.subsonic_response.status != "ok" {
-            return Err(json.subsonic_response.error.map(|e| e.message).unwrap_or("Unknown error".to_string()));
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         let search = json.subsonic_response.search_result3.unwrap_or_default();
-        
+
         let mut artists = search.artist.unwrap_or_default();
         let mut albums = search.album.unwrap_or_default();
         let mut songs = search.song.unwrap_or_default();
-        
+
         for artist in &mut artists {
             artist.server_id = self.server.id.clone();
         }
@@ -413,8 +493,12 @@ impl NavidromeClient {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
         }
-        
-        Ok(SearchResult { artists, albums, songs })
+
+        Ok(SearchResult {
+            artists,
+            albums,
+            songs,
+        })
     }
 }
 
@@ -477,7 +561,9 @@ pub struct ArtistsContainer {
 }
 
 #[derive(Debug, Deserialize)]
-pub struct ArtistIndex {    #[allow(dead_code)]    pub name: String,
+pub struct ArtistIndex {
+    #[allow(dead_code)]
+    pub name: String,
     pub artist: Option<Vec<Artist>>,
 }
 

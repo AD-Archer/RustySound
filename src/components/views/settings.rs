@@ -1,14 +1,14 @@
-use dioxus::prelude::*;
 use crate::api::*;
 use crate::components::{Icon, VolumeSignal};
 use crate::db::{save_settings, AppSettings};
+use dioxus::prelude::*;
 
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut app_settings = use_context::<Signal<AppSettings>>();
     let mut volume = use_context::<VolumeSignal>().0;
-    
+
     let mut server_name = use_signal(String::new);
     let mut server_url = use_signal(String::new);
     let mut server_user = use_signal(String::new);
@@ -19,16 +19,16 @@ pub fn SettingsView() -> Element {
     let mut is_testing_connection = use_signal(|| false);
     let mut connection_test_result = use_signal(|| None::<Result<(), String>>);
     let mut save_status = use_signal(|| None::<String>);
-    
+
     let can_add = use_memo(move || {
-        !server_name().trim().is_empty() 
+        !server_name().trim().is_empty()
             && !server_url().trim().is_empty()
             && !server_user().trim().is_empty()
             && !server_pass().trim().is_empty()
             && test_result().is_some_and(|r: Result<(), String>| r.is_ok())
             && editing_server().is_none()
     });
-    
+
     let on_test = {
         let url = server_url.clone();
         let user = server_user.clone();
@@ -37,26 +37,21 @@ pub fn SettingsView() -> Element {
             let url = url().trim().to_string();
             let user = user().trim().to_string();
             let pass = pass().trim().to_string();
-            
+
             is_testing.set(true);
             test_result.set(None);
-            
+
             spawn(async move {
-                let test_server = ServerConfig::new(
-                    "Test".to_string(),
-                    url,
-                    user,
-                    pass,
-                );
+                let test_server = ServerConfig::new("Test".to_string(), url, user, pass);
                 let client = NavidromeClient::new(test_server);
                 let result = client.ping().await;
-                
+
                 test_result.set(Some(result.map(|_| ())));
                 is_testing.set(false);
             });
         }
     };
-    
+
     let mut on_edit_server = {
         let mut server_name = server_name.clone();
         let mut server_url = server_url.clone();
@@ -87,11 +82,11 @@ pub fn SettingsView() -> Element {
             let url = server_url().trim().to_string();
             let user = server_user().trim().to_string();
             let pass = server_pass().trim().to_string();
-            
+
             if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
                 return;
             }
-            
+
             servers.with_mut(|list| {
                 if let Some(server) = list.iter_mut().find(|s| s.id == editing.id) {
                     server.name = name;
@@ -100,14 +95,14 @@ pub fn SettingsView() -> Element {
                     server.password = pass;
                 }
             });
-            
+
             editing_server.set(None);
             server_name.set(String::new());
             server_url.set(String::new());
             server_user.set(String::new());
             server_pass.set(String::new());
             test_result.set(None);
-            
+
             save_status.set(Some("Server updated!".to_string()));
             #[cfg(target_arch = "wasm32")]
             {
@@ -125,20 +120,20 @@ pub fn SettingsView() -> Element {
         let url = server_url().trim().to_string();
         let user = server_user().trim().to_string();
         let pass = server_pass().trim().to_string();
-        
+
         if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
             return;
         }
-        
+
         let new_server = ServerConfig::new(name, url, user, pass);
         servers.with_mut(|list| list.push(new_server));
-        
+
         server_name.set(String::new());
         server_url.set(String::new());
         server_user.set(String::new());
         server_pass.set(String::new());
         test_result.set(None);
-        
+
         save_status.set(Some("Server added!".to_string()));
         #[cfg(target_arch = "wasm32")]
         {
@@ -156,18 +151,18 @@ pub fn SettingsView() -> Element {
             if let Some(server) = servers().iter().find(|s| s.id == server_id).cloned() {
                 is_testing_connection.set(true);
                 connection_test_result.set(None);
-                
+
                 spawn(async move {
                     let client = NavidromeClient::new(server);
                     let result = client.ping().await;
-                    
+
                     connection_test_result.set(Some(result.map(|_| ())));
                     is_testing_connection.set(false);
                 });
             }
         }
     };
-    
+
     let on_crossfade_toggle = move |_| {
         let mut settings = app_settings();
         settings.crossfade_enabled = !settings.crossfade_enabled;
@@ -177,7 +172,7 @@ pub fn SettingsView() -> Element {
             let _ = save_settings(settings_clone).await;
         });
     };
-    
+
     let on_replay_gain_toggle = move |_| {
         let mut settings = app_settings();
         settings.replay_gain = !settings.replay_gain;
@@ -187,7 +182,7 @@ pub fn SettingsView() -> Element {
             let _ = save_settings(settings_clone).await;
         });
     };
-    
+
     let on_crossfade_duration_change = move |e: Event<FormData>| {
         if let Ok(duration) = e.value().parse::<u32>() {
             let mut settings = app_settings();
@@ -199,17 +194,17 @@ pub fn SettingsView() -> Element {
             });
         }
     };
-    
+
     let on_volume_change = move |e: Event<FormData>| {
         if let Ok(vol) = e.value().parse::<f64>() {
             volume.set((vol / 100.0).clamp(0.0, 1.0));
         }
     };
-    
+
     let server_list = servers();
     let settings = app_settings();
     let current_volume = volume();
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header",
@@ -525,12 +520,14 @@ fn ServerCard(
     on_edit: EventHandler<MouseEvent>,
     on_test: EventHandler<MouseEvent>,
 ) -> Element {
-    let initials: String = server.name.chars()
+    let initials: String = server
+        .name
+        .chars()
         .filter(|c| c.is_alphanumeric())
         .take(2)
         .collect::<String>()
         .to_uppercase();
-    
+
     rsx! {
         div { class: "p-4 rounded-xl bg-zinc-900/50 border border-zinc-700/30",
             // Server info row

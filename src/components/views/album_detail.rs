@@ -1,19 +1,19 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
 use crate::components::views::home::SongRow;
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    
+
     let server = servers().into_iter().find(|s| s.id == server_id);
-    
+
     let album_data = use_resource(move || {
         let server = server.clone();
         let album_id = album_id.clone();
@@ -26,7 +26,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             }
         }
     });
-    
+
     let on_play_all = {
         let album_data_ref = album_data.clone();
         move |_| {
@@ -53,13 +53,16 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         }
     };
 
-    
     rsx! {
         div { class: "space-y-8",
             // Back button
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
-                onclick: move |_| current_view.set(AppView::Albums),
+                onclick: move |_| {
+                    if navigation.go_back().is_none() {
+                        navigation.navigate_to(AppView::Albums);
+                    }
+                },
                 Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
                 "Back to Albums"
             }
@@ -112,10 +115,13 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             onclick: {
                                                 let artist_id = artist_id.clone();
                                                 let server_id = album.server_id.clone();
-                                                let mut current_view = current_view.clone();
+                                                let navigation = navigation.clone();
                                                 move |evt| {
                                                     evt.stop_propagation();
-                                                    current_view.set(AppView::ArtistDetail(artist_id.clone(), server_id.clone()));
+                                                    navigation.navigate_to(AppView::ArtistDetail(
+                                                        artist_id.clone(),
+                                                        server_id.clone(),
+                                                    ));
                                                 }
                                             },
                                             "{album.artist}"
@@ -150,7 +156,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                 }
                             }
 
-                
+
                             // Set the full album as queue
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {

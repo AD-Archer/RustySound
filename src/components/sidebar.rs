@@ -1,24 +1,29 @@
-use dioxus::prelude::*;
 use crate::api::ServerConfig;
-use crate::components::{AppView, Icon};
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let view = current_view();
 
     let is_open = sidebar_open();
-    
+
     let server_count = servers().len();
     let active_servers = servers().iter().filter(|s| s.active).count();
 
-    let slide_class = if is_open { "translate-x-0" } else { "-translate-x-full" };
+    let slide_class = if is_open {
+        "translate-x-0"
+    } else {
+        "-translate-x-full"
+    };
     let nav_to = |target: AppView| {
-        let mut current_view = current_view.clone();
+        let navigation = navigation.clone();
         let mut sidebar_open = sidebar_open.clone();
         move |_| {
-            current_view.set(target.clone());
+            navigation.navigate_to(target.clone());
             sidebar_open.set(false);
         }
     };
@@ -139,14 +144,19 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
 }
 
 #[component]
-fn NavItem(icon: String, label: String, active: bool, onclick: EventHandler<MouseEvent>) -> Element {
+fn NavItem(
+    icon: String,
+    label: String,
+    active: bool,
+    onclick: EventHandler<MouseEvent>,
+) -> Element {
     let base_class = "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 cursor-pointer";
     let active_class = if active {
         "bg-gradient-to-r from-emerald-500/20 to-teal-500/10 text-emerald-400 shadow-sm"
     } else {
         "text-zinc-400 hover:text-white hover:bg-zinc-800/50"
     };
-    
+
     rsx! {
         button {
             class: "{base_class} {active_class} w-full",

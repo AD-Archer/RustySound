@@ -1,8 +1,28 @@
-use dioxus::prelude::*;
-use crate::api::*;
-use crate::components::{AppView, AudioState, Icon, VolumeSignal, seek_to};
-use crate::db::RepeatMode;
 use crate::api::models::format_duration;
+use crate::api::*;
+use crate::components::{seek_to, AppView, AudioState, Icon, Navigation, VolumeSignal};
+use crate::db::RepeatMode;
+use dioxus::prelude::*;
+
+/// Fisher-Yates shuffle using getrandom (wasm-compatible)
+fn shuffle_songs(songs: &mut Vec<Song>) {
+    let len = songs.len();
+    if len <= 1 {
+        return;
+    }
+
+    for i in (1..len).rev() {
+        #[cfg(target_arch = "wasm32")]
+        let j = (js_sys::Math::random() * ((i + 1) as f64)) as usize;
+        #[cfg(not(target_arch = "wasm32"))]
+        let j = {
+            let mut bytes = [0u8; 4];
+            let _ = getrandom::getrandom(&mut bytes);
+            u32::from_le_bytes(bytes) as usize % (i + 1)
+        };
+        songs.swap(i, j);
+    }
+}
 
 /// Pick a random index from the queue, optionally excluding the current index
 fn pick_random_index(queue_len: usize, exclude: Option<usize>) -> Option<usize> {
@@ -29,7 +49,7 @@ fn pick_random_index(queue_len: usize, exclude: Option<usize>) -> Option<usize> 
         let _ = getrandom::getrandom(&mut bytes);
         u32::from_le_bytes(bytes) as usize % max
     };
-    
+
     match exclude {
         Some(excl) if queue_len > 1 => {
             // Pick from indices that don't match the excluded one
@@ -45,29 +65,31 @@ pub fn Player() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let mut volume = use_context::<VolumeSignal>().0;
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let audio_state = use_context::<Signal<AudioState>>();
-    
+
     let mut is_favorited = use_signal(|| false);
     let mut is_scrubbing = use_signal(|| false);
     let mut scrub_percent = use_signal(|| 0.0f64);
-    
+
     let current_song = now_playing();
     let current_song_for_fav = current_song.clone();
     let current_song_for_album = current_song.clone();
     let current_song_for_artist = current_song.clone();
-    
+
     // Get time from audio state (Signal fields need to be read with ())
     let current_time = (audio_state().current_time)();
     let duration = (audio_state().duration)();
-    
+
     // Get cover art URL if available
     let cover_url = current_song.as_ref().and_then(|song| {
         let server = servers().iter().find(|s| s.id == song.server_id)?.clone();
         let client = NavidromeClient::new(server);
-        song.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 100))
+        song.cover_art
+            .as_ref()
+            .map(|ca| client.get_cover_art_url(ca, 100))
     });
-    
+
     use_effect(move || {
         let starred = now_playing()
             .as_ref()
@@ -77,13 +99,13 @@ pub fn Player() -> Element {
         is_scrubbing.set(false);
         scrub_percent.set(0.0);
     });
-    
+
     let on_volume_change = move |e: Event<FormData>| {
         if let Ok(val) = e.value().parse::<f64>() {
             volume.set((val / 100.0).clamp(0.0, 1.0));
         }
     };
-    
+
     let on_seek_input = move |e: Event<FormData>| {
         if let Ok(percent) = e.value().parse::<f64>() {
             scrub_percent.set(percent.clamp(0.0, 100.0));
@@ -103,11 +125,12 @@ pub fn Player() -> Element {
         }
         is_scrubbing.set(false);
     };
-    
-    let on_open_queue = move |_| {
-        current_view.set(AppView::Queue);
+
+    let on_open_queue = {
+        let navigation = navigation.clone();
+        move |_| navigation.navigate_to(AppView::Queue)
     };
-    
+
     // Favorite toggle handler
     let on_favorite_toggle = move |_| {
         if let Some(song) = current_song_for_fav.clone() {
@@ -142,18 +165,22 @@ pub fn Player() -> Element {
             }
         }
     };
-    
+
     let on_artist_click = {
         let song = current_song_for_artist.clone();
+        let navigation = navigation.clone();
         move |_| {
             if let Some(ref s) = song {
                 if let Some(artist_id) = &s.artist_id {
-                    current_view.set(AppView::ArtistDetail(artist_id.clone(), s.server_id.clone()));
+                    navigation.navigate_to(AppView::ArtistDetail(
+                        artist_id.clone(),
+                        s.server_id.clone(),
+                    ));
                 }
             }
         }
     };
-    
+
     rsx! {
         div { class: "player-shell fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 z-50 md:h-24",
             div { class: "h-full flex flex-col md:flex-row md:items-center md:justify-between px-4 md:px-6 gap-3 md:gap-8 py-2 md:py-0",
@@ -166,25 +193,22 @@ pub fn Player() -> Element {
                         match &current_song {
                             Some(song) => rsx! {
                                 // Clickable album art
-                                button {
-                                    class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
-                                    onclick: {
-                                        let song = current_song_for_album.clone();
-                                        let mut current_view = current_view.clone();
-                                        move |_| {
-                                            if let Some(ref s) = song {
-                                                if let Some(album_id) = &s.album_id {
-                                                    current_view
-                                                        // Clickable song title (goes to album)
-                                                        .set(
-                                                            // Clickable artist name
-                                                            // Favorite button
-                                                            AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
-                                                        );
+                                    button {
+                                        class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
+                                        onclick: {
+                                            let song = current_song_for_album.clone();
+                                            let navigation = navigation.clone();
+                                            move |_| {
+                                                if let Some(ref s) = song {
+                                                    if let Some(album_id) = &s.album_id {
+                                                        navigation.navigate_to(AppView::AlbumDetail(
+                                                            album_id.clone(),
+                                                            s.server_id.clone(),
+                                                        ));
+                                                    }
                                                 }
                                             }
-                                        }
-                                    },
+                                        },
                                     {
                                         match &cover_url {
                                             Some(url) => rsx! {
@@ -201,16 +225,16 @@ pub fn Player() -> Element {
                                 div { class: "min-w-0 flex-1",
                                     button {
                                         class: "text-sm font-medium text-white truncate hover:text-emerald-400 transition-colors cursor-pointer block text-left w-full",
-                                    onclick: {
-                                        let song = current_song_for_album.clone();
-                                        let mut current_view = current_view.clone();
-                                        move |_| {
-                                            if let Some(ref s) = song {
-                                                if let Some(album_id) = &s.album_id {
-                                                    current_view
-                                                            .set(
-                                                                AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
-                                                            );
+                                        onclick: {
+                                            let song = current_song_for_album.clone();
+                                            let navigation = navigation.clone();
+                                            move |_| {
+                                                if let Some(ref s) = song {
+                                                    if let Some(album_id) = &s.album_id {
+                                                        navigation.navigate_to(AppView::AlbumDetail(
+                                                            album_id.clone(),
+                                                            s.server_id.clone(),
+                                                        ));
                                                     }
                                                 }
                                             }
@@ -327,7 +351,7 @@ pub fn Player() -> Element {
 fn ShuffleButton() -> Element {
     let mut shuffle_enabled = use_context::<Signal<bool>>();
     let is_active = shuffle_enabled();
-    
+
     rsx! {
         button {
             id: "shuffle-btn",
@@ -347,7 +371,7 @@ fn ShuffleButton() -> Element {
 fn PlayPauseButton() -> Element {
     let mut is_playing = use_context::<Signal<bool>>();
     let playing = is_playing();
-    
+
     rsx! {
         button {
             id: "play-pause-btn",
@@ -375,10 +399,11 @@ fn PlayPauseButton() -> Element {
 /// Previous button - completely isolated component
 #[component]
 fn PrevButton() -> Element {
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
-    
+
     rsx! {
         button {
             id: "prev-btn",
@@ -388,7 +413,30 @@ fn PrevButton() -> Element {
                 let idx = queue_index();
                 let queue_list = queue();
                 if shuffle_enabled() {
-                    if let Some(new_idx) = pick_random_index(queue_list.len(), Some(idx)) {
+                    if queue_list.is_empty() {
+                        // Queue is empty, fetch random songs
+                        let servers = servers();
+                        let mut queue = queue.clone();
+                        let mut queue_index = queue_index.clone();
+                        spawn(async move {
+                            let mut songs = Vec::new();
+                            for server in servers.into_iter().filter(|s| s.active) {
+                                let client = NavidromeClient::new(server);
+                                if let Ok(server_songs) = client.get_random_songs(25).await {
+                                    songs.extend(server_songs);
+                                }
+                            }
+                            if !songs.is_empty() {
+                                shuffle_songs(&mut songs);
+                                songs.truncate(50);
+                                queue.set(songs);
+                                queue_index.set(0);
+                            }
+                        });
+                    } else if let Some(new_idx) = pick_random_index(
+                        queue_list.len(),
+                        Some(idx),
+                    ) {
                         queue_index.set(new_idx);
                     }
                 } else if idx > 0 && !queue_list.is_empty() {
@@ -403,11 +451,12 @@ fn PrevButton() -> Element {
 /// Next button - completely isolated component
 #[component]
 fn NextButton() -> Element {
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
-    
+
     rsx! {
         button {
             id: "next-btn",
@@ -421,7 +470,30 @@ fn NextButton() -> Element {
                 let idx = queue_index();
                 let queue_list = queue();
                 if shuffle_enabled() {
-                    if let Some(new_idx) = pick_random_index(queue_list.len(), Some(idx)) {
+                    if queue_list.is_empty() {
+                        // Queue is empty, fetch random songs
+                        let servers = servers();
+                        let mut queue = queue.clone();
+                        let mut queue_index = queue_index.clone();
+                        spawn(async move {
+                            let mut songs = Vec::new();
+                            for server in servers.into_iter().filter(|s| s.active) {
+                                let client = NavidromeClient::new(server);
+                                if let Ok(server_songs) = client.get_random_songs(25).await {
+                                    songs.extend(server_songs);
+                                }
+                            }
+                            if !songs.is_empty() {
+                                shuffle_songs(&mut songs);
+                                songs.truncate(50);
+                                queue.set(songs);
+                                queue_index.set(0);
+                            }
+                        });
+                    } else if let Some(new_idx) = pick_random_index(
+                        queue_list.len(),
+                        Some(idx),
+                    ) {
                         queue_index.set(new_idx);
                     }
                 } else if idx < queue_list.len().saturating_sub(1) {
@@ -440,7 +512,7 @@ fn NextButton() -> Element {
 fn RepeatButton() -> Element {
     let mut repeat_mode = use_context::<Signal<RepeatMode>>();
     let mode = repeat_mode();
-    
+
     rsx! {
         button {
             id: "repeat-btn",

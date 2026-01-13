@@ -19,7 +19,11 @@ fn App() -> Element {
     rsx! {
         // Favicon and icons
         document::Link { rel: "icon", href: FAVICON }
-        document::Link { rel: "apple-touch-icon", href: FAVICON }
+        document::Link { rel: "apple-touch-icon-precomposed", href: FAVICON }
+        document::Link { rel: "apple-touch-icon", sizes: "180x180", href: FAVICON }
+        document::Link { rel: "apple-touch-icon", sizes: "152x152", href: FAVICON }
+        document::Link { rel: "apple-touch-icon", sizes: "120x120", href: FAVICON }
+        document::Link { rel: "apple-touch-icon", sizes: "76x76", href: FAVICON }
         document::Link {
             rel: "icon",
             r#type: "image/png",

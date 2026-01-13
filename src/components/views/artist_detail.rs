@@ -1,16 +1,16 @@
-use dioxus::prelude::*;
 use crate::api::*;
+use dioxus::prelude::*;
 
-use crate::components::{AppView, Icon};
+use crate::components::{AppView, Icon, Navigation};
 
 #[component]
 pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    
+
     let server = servers().into_iter().find(|s| s.id == server_id);
-    
+
     let artist_data = use_resource(move || {
         let server = server.clone();
         let artist_id = artist_id.clone();
@@ -23,13 +23,17 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             }
         }
     });
-    
+
     rsx! {
         div { class: "space-y-8",
             // Back button
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
-                onclick: move |_| current_view.set(AppView::Artists),
+                onclick: move |_| {
+                    if navigation.go_back().is_none() {
+                        navigation.navigate_to(AppView::Artists);
+                    }
+                },
                 Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
                 "Back to Artists"
             }
@@ -83,8 +87,8 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                             // Play overlay
                             // Album info
 
-                
-                
+
+
 
                                         "Artist"
                                     }
@@ -107,7 +111,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
-                
+
                             section { class: "space-y-6",
                                 h2 { class: "text-2xl font-bold text-white", "Albums" }
                                 div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6",
@@ -126,16 +130,18 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                     let client = NavidromeClient::new(server.clone());
                                                     album.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 300))
                                                 });
-                
+
                                             rsx! {
                                                 div {
                                                     key: "{album_id}",
                                                     class: "group text-left cursor-pointer",
                                                     onclick: {
-                                                        let mut current_view = current_view.clone();
+                                                        let navigation = navigation.clone();
                                                         move |_| {
-                                                            current_view
-                                                                .set(AppView::AlbumDetail(album_id_for_nav.clone(), album_server_id_for_nav.clone()));
+                                                            navigation.navigate_to(AppView::AlbumDetail(
+                                                                album_id_for_nav.clone(),
+                                                                album_server_id_for_nav.clone(),
+                                                            ));
                                                         }
                                                     },
                                                     div { class: "aspect-square rounded-xl bg-zinc-800 overflow-hidden mb-3 shadow-lg group-hover:shadow-emerald-500/20 transition-shadow relative",

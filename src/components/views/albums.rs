@@ -1,13 +1,13 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
 use crate::components::views::home::AlbumCard;
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn AlbumsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
-    
+    let navigation = use_context::<Navigation>();
+
     let mut album_type = use_signal(|| "alphabeticalByName".to_string());
     let mut search_query = use_signal(String::new);
 
@@ -25,7 +25,7 @@ pub fn AlbumsView() -> Element {
             albums
         }
     });
-    
+
     let album_types = vec![
         ("alphabeticalByName", "A-Z"),
         ("newest", "Newest"),
@@ -33,12 +33,12 @@ pub fn AlbumsView() -> Element {
         ("recent", "Recently Played"),
         ("random", "Random"),
     ];
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header gap-4",
                 h1 { class: "page-title", "Albums" }
-                
+
                 div { class: "flex flex-col gap-3 md:flex-row md:items-center md:justify-between",
                     // Filter tabs
                     div { class: "flex gap-2 flex-wrap",
@@ -69,7 +69,7 @@ pub fn AlbumsView() -> Element {
                     }
                 }
             }
-            
+
             {match albums() {
                 Some(albums) => {
                     let raw_query = search_query().trim().to_string();
@@ -103,7 +103,17 @@ pub fn AlbumsView() -> Element {
                                 for album in filtered {
                                     AlbumCard { 
                                         album: album.clone(),
-                                        onclick: move |_| current_view.set(AppView::AlbumDetail(album.id.clone(), album.server_id.clone()))
+                                        onclick: {
+                                            let navigation = navigation.clone();
+                                            let album_id = album.id.clone();
+                                            let album_server_id = album.server_id.clone();
+                                            move |_| {
+                                                navigation.navigate_to(AppView::AlbumDetail(
+                                                    album_id.clone(),
+                                                    album_server_id.clone(),
+                                                ))
+                                            }
+                                        }
                                     }
                                 }
                             }

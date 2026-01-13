@@ -1,7 +1,7 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::Icon;
 use crate::components::views::home::SongRow;
+use crate::components::Icon;
+use dioxus::prelude::*;
 
 #[component]
 pub fn RandomView() -> Element {
@@ -10,12 +10,13 @@ pub fn RandomView() -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    
-    let mut refresh_counter = use_signal(|| 0);
-    
+    let mut shuffle_enabled = use_context::<Signal<bool>>();
+
+    let refresh_counter = use_signal(|| 0);
+
     let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
     let counter = refresh_counter();
-    
+
     let songs = use_resource(move || {
         let servers = active_servers.clone();
         let _counter = counter; // Force refresh dependency
@@ -33,7 +34,7 @@ pub fn RandomView() -> Element {
             songs
         }
     });
-    
+
     let on_play_all = {
         let songs_ref = songs.clone();
         move |_| {
@@ -47,11 +48,12 @@ pub fn RandomView() -> Element {
             }
         }
     };
-    
+
     let on_shuffle = move |_| {
-        refresh_counter.set(counter + 1);
+        let current = shuffle_enabled();
+        shuffle_enabled.set(!current);
     };
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header page-header--split",
@@ -61,13 +63,17 @@ pub fn RandomView() -> Element {
                 }
                 div { class: "flex flex-wrap gap-3",
                     button {
-                        class: "px-4 py-2 rounded-xl bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2",
+                        class: if shuffle_enabled() { "px-4 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2" },
                         onclick: on_shuffle,
                         Icon {
                             name: "shuffle".to_string(),
                             class: "w-4 h-4".to_string(),
                         }
-                        "Shuffle"
+                        if shuffle_enabled() {
+                            "Shuffle On"
+                        } else {
+                            "Shuffle Off"
+                        }
                     }
                     button {
                         class: "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
@@ -130,7 +136,7 @@ fn shuffle_songs(songs: &mut Vec<Song>) {
     if len <= 1 {
         return;
     }
-    
+
     for i in (1..len).rev() {
         let mut bytes = [0u8; 4];
         let _ = getrandom::getrandom(&mut bytes);

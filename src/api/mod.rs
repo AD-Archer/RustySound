@@ -1,5 +1,5 @@
-pub mod navidrome;
 pub mod models;
+pub mod navidrome;
 
-pub use navidrome::*;
 pub use models::*;
+pub use navidrome::*;
