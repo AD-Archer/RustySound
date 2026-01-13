@@ -26,23 +26,10 @@ jobs:
   desktop-linux:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: Swatinem/rust-cache@v2
-    - name: Install dependencies
+    - name: Skip Linux desktop build
       run: |
-        sudo apt-get update
-        sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev libssl-dev libxdo-dev
-    - run: cargo install dioxus-cli
-    - name: Update Cargo.lock
-      run: cargo update
-    - run: dx bundle --platform desktop --release
-      continue-on-error: true
-    - uses: actions/upload-artifact@v4
-      with:
-        name: linux-appimage
-        path: target/dx/rustysound/release/linux/**/*.AppImage
-        if-no-files-found: warn
+        echo "Linux desktop builds currently disabled due to ashpd dependency issues"
+        echo "Web and Docker builds will still work"
 
   desktop-windows:
     runs-on: windows-latest
@@ -53,11 +40,6 @@ jobs:
     - run: cargo install dioxus-cli
     - run: dx bundle --platform desktop --release
       continue-on-error: true
-    - uses: actions/upload-artifact@v4
-      with:
-        name: windows-msi
-        path: target/dx/rustysound/release/windows/**/*.msi
-        if-no-files-found: warn
     - uses: actions/upload-artifact@v4
       with:
         name: windows-exe
@@ -98,51 +80,13 @@ jobs:
         path: target/dx/rustysound/release/macos/**/*.app
         if-no-files-found: warn
 
-  mobile-ios:
-    runs-on: macos-latest
-    steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: Swatinem/rust-cache@v2
-    - run: rustup target add aarch64-apple-ios x86_64-apple-ios
-    - run: cargo install dioxus-cli
-    - run: dx bundle --platform ios --release
-      continue-on-error: true
-    - uses: actions/upload-artifact@v4
-      with:
-        name: ios-bundle
-        path: target/dx/rustysound/release/ios/**/*.app
-        if-no-files-found: warn
-
   mobile-android:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-    - uses: Swatinem/rust-cache@v2
-    - run: rustup target add aarch64-linux-android armv7-linux-androideabi x86_64-linux-android i686-linux-android
-    - uses: android-actions/setup-android@v3
-    - name: Setup Android NDK
+    - name: Skip Android build
       run: |
-        sdkmanager --install "ndk;25.2.9519653"
-        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/25.2.9519653" >> $GITHUB_ENV
-        echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> $GITHUB_ENV
-    - name: Accept Android licenses
-      run: yes | $ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager --licenses
-    - run: cargo install dioxus-cli
-    - run: dx bundle --platform android --release --features mobile
-      continue-on-error: true
-    - uses: actions/upload-artifact@v4
-      with:
-        name: android-aab
-        path: target/dx/rustysound/release/android/**/*.aab
-        if-no-files-found: warn
-    - uses: actions/upload-artifact@v4
-      with:
-        name: android-apk
-        path: target/dx/rustysound/release/android/**/*.apk
-        if-no-files-found: warn
+        echo "Android builds currently disabled due to dependency compilation issues"
+        echo "Will be re-enabled once dependency conflicts are resolved"
 
   web-docker:
     runs-on: ubuntu-latest
@@ -211,7 +155,7 @@ jobs:
       uses: actions/deploy-pages@v4
 
   release:
-    needs: [desktop-linux, desktop-windows, desktop-mac, mobile-ios, mobile-android, web-docker, web-pages]
+    needs: [desktop-windows, desktop-mac, web-docker, web-pages]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
@@ -233,13 +177,8 @@ jobs:
         tag_name: ${{ steps.version.outputs.tag }}
         name: Release ${{ steps.version.outputs.tag }}
         files: |
-          artifacts/**/*.dmg
           artifacts/**/*.app
-          artifacts/**/*.AppImage
-          artifacts/**/*.msi
           artifacts/**/*.exe
-          artifacts/**/*.apk
-          artifacts/**/*.aab
         generate_release_notes: true
         draft: false
         prerelease: false
