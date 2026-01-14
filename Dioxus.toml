@@ -24,7 +24,7 @@ icon = "assets/logo.png"
 title = "RustySound"
 
 # Base path for assets when deployed under a subdirectory
-base_path = "/RustySound/"
+base_path = "/"
 
 # include `assets` in web platform
 [web.resource]
