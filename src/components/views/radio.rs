@@ -84,6 +84,38 @@ pub fn RadioView() -> Element {
         }
     };
 
+    let on_add_demo_station = {
+        let servers = servers.clone();
+        let mut error_message = error_message.clone();
+        let mut refresh_key = refresh_key.clone();
+        move |_| {
+            let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+            if active_servers.is_empty() {
+                error_message.set(Some("No active servers found. Please add and activate a server first.".to_string()));
+                return;
+            }
+
+            // For demo, use the first active server, but in a real implementation you might want to let the user choose
+            let server = active_servers.into_iter().next().unwrap();
+            let client = NavidromeClient::new(server);
+
+            spawn(async move {
+                match client.create_internet_radio_station(
+                    "Downtown Hot Radio",
+                    "https://usa11.fastcast4u.com/proxy/downtownhott?mp=/1",
+                    Some("https://downtownhottradio.com"),
+                ).await {
+                    Ok(_) => {
+                        refresh_key.with_mut(|value| *value += 1);
+                    }
+                    Err(err) => {
+                        error_message.set(Some(format!("Failed to add demo station: {}", err)));
+                    }
+                }
+            });
+        }
+    };
+
     let on_cancel_form = {
         let mut form_mode = form_mode.clone();
         let mut error_message = error_message.clone();
@@ -194,7 +226,10 @@ pub fn RadioView() -> Element {
                     class: "inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-4 py-2 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/25 transition-colors disabled:opacity-40 disabled:cursor-not-allowed",
                     onclick: on_open_add,
                     disabled: !has_active_servers,
-                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                     "Add station"
                 }
             }
@@ -216,7 +251,11 @@ pub fn RadioView() -> Element {
                     div { class: "flex flex-wrap items-center justify-between gap-3",
                         div { class: "space-y-1",
                             h2 { class: "text-lg font-semibold text-white",
-                                if is_editing { "Edit station" } else { "Add station" }
+                                if is_editing {
+                                    "Edit station"
+                                } else {
+                                    "Add station"
+                                }
                             }
                             p { class: "text-xs text-zinc-400",
                                 "Stream URL should point to a direct audio stream."
@@ -231,7 +270,9 @@ pub fn RadioView() -> Element {
 
                     div { class: "grid gap-4 md:grid-cols-2",
                         div { class: "space-y-2",
-                            label { class: "text-xs uppercase tracking-widest text-zinc-500", "Name" }
+                            label { class: "text-xs uppercase tracking-widest text-zinc-500",
+                                "Name"
+                            }
                             input {
                                 class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                                 placeholder: "Station name",
@@ -240,7 +281,9 @@ pub fn RadioView() -> Element {
                             }
                         }
                         div { class: "space-y-2",
-                            label { class: "text-xs uppercase tracking-widest text-zinc-500", "Stream URL" }
+                            label { class: "text-xs uppercase tracking-widest text-zinc-500",
+                                "Stream URL"
+                            }
                             input {
                                 class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                                 placeholder: "https://stream.example.com/radio.mp3",
@@ -249,7 +292,9 @@ pub fn RadioView() -> Element {
                             }
                         }
                         div { class: "space-y-2",
-                            label { class: "text-xs uppercase tracking-widest text-zinc-500", "Homepage (optional)" }
+                            label { class: "text-xs uppercase tracking-widest text-zinc-500",
+                                "Homepage (optional)"
+                            }
                             input {
                                 class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-sm text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                                 placeholder: "https://station.example.com",
@@ -258,7 +303,9 @@ pub fn RadioView() -> Element {
                             }
                         }
                         div { class: "space-y-2",
-                            label { class: "text-xs uppercase tracking-widest text-zinc-500", "Server" }
+                            label { class: "text-xs uppercase tracking-widest text-zinc-500",
+                                "Server"
+                            }
                             if has_active_servers {
                                 select {
                                     class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-950/70 px-4 py-3 text-sm text-white focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 disabled:text-zinc-500",
@@ -282,7 +329,11 @@ pub fn RadioView() -> Element {
                             class: "inline-flex items-center justify-center rounded-full bg-emerald-500 px-5 py-2 text-sm font-semibold text-black shadow-lg shadow-emerald-500/20 hover:bg-emerald-400 transition-colors disabled:opacity-60 disabled:cursor-not-allowed",
                             onclick: on_save_form,
                             disabled: is_saving(),
-                            if is_saving() { "Saving..." } else { "Save station" }
+                            if is_saving() {
+                                "Saving..."
+                            } else {
+                                "Save station"
+                            }
                         }
                         button {
                             class: "inline-flex items-center justify-center rounded-full border border-zinc-700/70 px-5 py-2 text-sm font-semibold text-zinc-200 hover:bg-zinc-800/60 transition-colors",
@@ -293,108 +344,118 @@ pub fn RadioView() -> Element {
                 }
             }
 
-            {match stations() {
-                Some(stations) if !stations.is_empty() => rsx! {
-                    div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4",
-                        for station in stations {
-                            RadioStationCard {
-                                station: station.clone(),
-                                on_play: {
-                                    let station = station.clone();
-                                    move |_| {
-                                        let radio_song = Song {
-                                            id: station.id.clone(),
-                                            title: station.name.clone(),
-                                            artist: Some("Internet Radio".to_string()),
-                                            album: None,
-                                            album_id: None,
-                                            artist_id: None,
-                                            duration: 0,
-                                            track: None,
-                                            cover_art: None,
-                                            content_type: Some("audio/mpeg".to_string()),
-                                            stream_url: Some(station.stream_url.clone()),
-                                            suffix: None,
-                                            bitrate: None,
-                                            starred: None,
-                                            year: None,
-                                            genre: None,
-                                            server_id: station.server_id.clone(),
-                                            server_name: "Radio".to_string(),
-                                        };
-                                        now_playing.set(Some(radio_song));
-                                        is_playing.set(true);
-                                    }
-                                },
-                                on_edit: {
-                                    let station = station.clone();
-                                    let mut form_mode = form_mode.clone();
-                                    let mut form_name = form_name.clone();
-                                    let mut form_stream_url = form_stream_url.clone();
-                                    let mut form_home_page_url = form_home_page_url.clone();
-                                    let mut form_server_id = form_server_id.clone();
-                                    let mut error_message = error_message.clone();
-                                    move |_| {
-                                        form_name.set(station.name.clone());
-                                        form_stream_url.set(station.stream_url.clone());
-                                        form_home_page_url
-                                            .set(station.home_page_url.clone().unwrap_or_default());
-                                        form_server_id.set(station.server_id.clone());
-                                        error_message.set(None);
-                                        form_mode.set(RadioFormMode::Edit(station.clone()));
-                                    }
-                                },
-                                on_delete: {
-                                    let station_id = station.id.clone();
-                                    let station_server_id = station.server_id.clone();
-                                    let servers = servers.clone();
-                                    let mut refresh_key = refresh_key.clone();
-                                    let mut error_message = error_message.clone();
-                                    move |_| {
-                                        let station_id = station_id.clone();
-                                        let station_server_id = station_server_id.clone();
-                                        let servers_snapshot = servers();
-                                        spawn(async move {
-                                            let server = servers_snapshot
-                                                .into_iter()
-                                                .find(|s| s.id == station_server_id);
-                                            let Some(server) = server else {
-                                                error_message
-                                                    .set(Some("Server not found.".to_string()));
-                                                return;
+            {
+                match stations() {
+                    Some(stations) if !stations.is_empty() => rsx! {
+                        div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4",
+                            for station in stations {
+                                RadioStationCard {
+                                    station: station.clone(),
+                                    on_play: {
+                                        let station = station.clone();
+                                        move |_| {
+                                            let radio_song = Song {
+                                                id: station.id.clone(),
+                                                title: station.name.clone(),
+                                                artist: Some("Internet Radio".to_string()),
+                                                album: None,
+                                                album_id: None,
+                                                artist_id: None,
+                                                duration: 0,
+                                                track: None,
+                                                cover_art: None,
+                                                content_type: Some("audio/mpeg".to_string()),
+                                                stream_url: Some(station.stream_url.clone()),
+                                                suffix: None,
+                                                bitrate: None,
+                                                starred: None,
+                                                user_rating: None,
+                                                year: None,
+                                                genre: None,
+                                                server_id: station.server_id.clone(),
+                                                server_name: "Radio".to_string(),
                                             };
-                                            let client = NavidromeClient::new(server);
-                                            match client
-                                                .delete_internet_radio_station(&station_id)
-                                                .await
-                                            {
-                                                Ok(_) => {
-                                                    refresh_key.with_mut(|value| *value += 1);
+                                            now_playing.set(Some(radio_song));
+                                            is_playing.set(true);
+                                        }
+                                    },
+                                    on_edit: {
+                                        let station = station.clone();
+                                        let mut form_mode = form_mode.clone();
+                                        let mut form_name = form_name.clone();
+                                        let mut form_stream_url = form_stream_url.clone();
+                                        let mut form_home_page_url = form_home_page_url.clone();
+                                        let mut form_server_id = form_server_id.clone();
+                                        let mut error_message = error_message.clone();
+                                        move |_| {
+                                            form_name.set(station.name.clone());
+                                            form_stream_url.set(station.stream_url.clone());
+                                            form_home_page_url.set(station.home_page_url.clone().unwrap_or_default());
+                                            form_server_id.set(station.server_id.clone());
+                                            error_message.set(None);
+                                            form_mode.set(RadioFormMode::Edit(station.clone()));
+                                        }
+                                    },
+                                    on_delete: {
+                                        let station_id = station.id.clone();
+                                        let station_server_id = station.server_id.clone();
+                                        let servers = servers.clone();
+                                        let mut refresh_key = refresh_key.clone();
+                                        let mut error_message = error_message.clone();
+                                        move |_| {
+                                            let station_id = station_id.clone();
+                                            let station_server_id = station_server_id.clone();
+                                            let servers_snapshot = servers();
+                                            spawn(async move {
+                                                let server = servers_snapshot
+                                                    .into_iter()
+                                                    .find(|s| s.id == station_server_id);
+                                                let Some(server) = server else {
+                                                    error_message.set(Some("Server not found.".to_string()));
+                                                    return;
+                                                };
+                                                let client = NavidromeClient::new(server);
+                                                match client.delete_internet_radio_station(&station_id).await {
+                                                    Ok(_) => {
+                                                        refresh_key.with_mut(|value| *value += 1);
+                                                    }
+                                                    Err(err) => {
+                                                        error_message.set(Some(err));
+                                                    }
                                                 }
-                                                Err(err) => {
-                                                    error_message.set(Some(err));
-                                                }
-                                            }
-                                        });
-                                    }
-                                },
+                                            });
+                                        }
+                                    },
+                                }
                             }
                         }
-                    }
-                },
-                Some(_) => rsx! {
-                    div { class: "flex flex-col items-center justify-center py-20",
-                        Icon { name: "radio".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
-                        h2 { class: "text-xl font-semibold text-white mb-2", "No radio stations" }
-                        p { class: "text-zinc-400", "Add radio stations in your Navidrome server" }
-                    }
-                },
-                None => rsx! {
-                    div { class: "flex items-center justify-center py-20",
-                        Icon { name: "loader".to_string(), class: "w-8 h-8 text-zinc-500".to_string() }
-                    }
+                    },
+                    Some(_) => rsx! {
+                        div { class: "flex flex-col items-center justify-center py-20",
+                            Icon {
+                                name: "radio".to_string(),
+                                class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
+                            }
+                            h2 { class: "text-xl font-semibold text-white mb-2", "No radio stations" }
+                            p { class: "text-zinc-400 mb-6", "Add radio stations in your Navidrome server" }
+                            button {
+                                class: "inline-flex items-center gap-2 rounded-full bg-emerald-500/15 px-6 py-3 text-sm font-semibold text-emerald-200 hover:bg-emerald-500/25 transition-colors",
+                                onclick: on_add_demo_station,
+                                Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                                "Add Downtown Hot Radio Demo Station"
+                            }
+                        }
+                    },
+                    None => rsx! {
+                        div { class: "flex items-center justify-center py-20",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-zinc-500".to_string(),
+                            }
+                        }
+                    },
                 }
-            }}
+            }
         }
     }
 }
@@ -424,7 +485,9 @@ fn RadioStationCard(
             }
             // Station info
             div { class: "flex-1 min-w-0 text-left",
-                p { class: "font-medium text-white truncate group-hover:text-emerald-400 transition-colors", "{station.name}" }
+                p { class: "font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                    "{station.name}"
+                }
                 p { class: "text-xs text-zinc-400 truncate", "{station.stream_url}" }
             }
             // Actions
@@ -436,7 +499,10 @@ fn RadioStationCard(
                         e.stop_propagation();
                         on_edit.call(e);
                     },
-                    Icon { name: "settings".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "settings".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                 }
                 button {
                     class: "p-2 rounded-lg text-zinc-400 hover:text-rose-300 hover:bg-rose-500/10 transition-colors",
@@ -445,10 +511,16 @@ fn RadioStationCard(
                         e.stop_propagation();
                         on_delete.call(e);
                     },
-                    Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "trash".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                 }
                 div { class: "w-10 h-10 rounded-full bg-zinc-700/50 group-hover:bg-emerald-500 flex items-center justify-center transition-colors",
-                    Icon { name: "play".to_string(), class: "w-4 h-4 text-zinc-400 group-hover:text-white ml-0.5".to_string() }
+                    Icon {
+                        name: "play".to_string(),
+                        class: "w-4 h-4 text-zinc-400 group-hover:text-white ml-0.5".to_string(),
+                    }
                 }
             }
         }

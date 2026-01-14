@@ -41,7 +41,12 @@ pub fn ArtistsView() -> Element {
                         class: "w-full pl-10 pr-4 py-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                         placeholder: "Search artists",
                         value: search_query,
-                        oninput: move |e| search_query.set(e.value()),
+                        oninput: move |e| {
+                            let value = e.value();
+                            if value.is_empty() || value.len() >= 2 {
+                                search_query.set(value);
+                            }
+                        },
                     }
                 }
             }
@@ -86,10 +91,10 @@ pub fn ArtistsView() -> Element {
                                                 let artist_id = artist.id.clone();
                                                 let artist_server_id = artist.server_id.clone();
                                                 move |_| {
-                                                    navigation.navigate_to(AppView::ArtistDetail(
-                                                        artist_id.clone(),
-                                                        artist_server_id.clone(),
-                                                    ))
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
+                                                        )
                                                 }
                                             },
                                         }
@@ -97,7 +102,7 @@ pub fn ArtistsView() -> Element {
                                 }
                             }
                         }
-                    },
+                    }
                     None => rsx! {
                         div { class: "flex items-center justify-center py-20",
                             Icon {

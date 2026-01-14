@@ -103,6 +103,26 @@ pub fn Icon(name: String, class: String) -> Element {
                 path { d: "M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z" }
             }
         },
+        "star" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                path { d: "M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14 2 9.27l6.91-1.01L12 2z" }
+            }
+        },
+        "star-filled" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "currentColor",
+                stroke: "currentColor",
+                stroke_width: "2",
+                path { d: "M12 2l3.09 6.26L22 9.27l-5 4.87L18.18 22 12 18.56 5.82 22 7 14.14 2 9.27l6.91-1.01L12 2z" }
+            }
+        },
         "settings" => rsx! {
             svg {
                 class: "{class}",

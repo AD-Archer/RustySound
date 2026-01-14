@@ -9,6 +9,26 @@ pub fn StatsView() -> Element {
     let _app_settings = use_context::<Signal<AppSettings>>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
 
+    // Fetch scan status for all active servers
+    let scan_statuses = use_resource(move || {
+        let active_servers = servers().into_iter().filter(|s| s.active).collect::<Vec<_>>();
+        async move {
+            let mut statuses = Vec::new();
+            for server in active_servers {
+                let client = NavidromeClient::new(server.clone());
+                match client.get_scan_status().await {
+                    Ok(status) => statuses.push((server.name.clone(), status)),
+                    Err(_) => statuses.push((server.name.clone(), ScanStatus {
+                        status: "unknown".to_string(),
+                        current_task: None,
+                        seconds_remaining: None,
+                        seconds_elapsed: None,
+                    })),
+                }
+            }
+            statuses
+        }
+    });
     rsx! {
         div { class: "space-y-8",
             // Header
@@ -49,7 +69,49 @@ pub fn StatsView() -> Element {
                                 }
                             }
 
+                            // Scan Status
+        
+
                             // Server list
+                            h3 { class: "text-md font-semibold text-white mt-6 mb-4", "Scan Status" }
+                            {
+                                match scan_statuses() {
+                                    Some(statuses) => rsx! {
+                                        div { class: "space-y-3",
+                                            for (server_name , status) in statuses {
+                                                div { class: "bg-zinc-900/30 rounded-lg p-4",
+                                                    div { class: "flex items-center justify-between mb-2",
+                                                        span { class: "font-medium text-white", "{server_name}" }
+                                                        span { class: if status.status == "running" { "text-green-400 text-sm" } else { "text-zinc-400 text-sm" },
+                                                            "{status.status}"
+                                                        }
+                                                    }
+                                                    if let Some(task) = &status.current_task {
+                                                        div { class: "text-sm text-zinc-400", "Task: {task}" }
+                                                    }
+                                                    if let (Some(remaining), Some(elapsed)) = (
+                                                        status.seconds_remaining,
+                                                        status.seconds_elapsed,
+                                                    )
+                                                    {
+                                                        div { class: "text-sm text-zinc-400",
+                                                            "Progress: {elapsed}s elapsed, {remaining}s remaining"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    },
+                                    None => rsx! {
+                                        div { class: "flex items-center justify-center py-8",
+                                            Icon {
+                                                name: "loader".to_string(),
+                                                class: "w-6 h-6 text-zinc-500".to_string(),
+                                            }
+                                        }
+                                    },
+                                }
+                            }
         
                             div { class: "mt-6 space-y-3",
                                 for server in server_list {

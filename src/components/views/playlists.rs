@@ -38,66 +38,82 @@ pub fn PlaylistsView() -> Element {
                         class: "w-full pl-10 pr-4 py-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                         placeholder: "Search playlists",
                         value: search_query,
-                        oninput: move |e| search_query.set(e.value()),
+                        oninput: move |e| {
+                            let value = e.value();
+                            if value.is_empty() || value.len() >= 2 {
+                                search_query.set(value);
+                            }
+                        },
                     }
                 }
             }
 
-            {match playlists() {
-                Some(playlists) => {
-                    let raw_query = search_query().trim().to_string();
-                    let query = raw_query.to_lowercase();
-                    let mut filtered = Vec::new();
-                    if query.is_empty() {
-                        filtered = playlists.clone();
-                    } else {
-                        for playlist in &playlists {
-                            if playlist.name.to_lowercase().contains(&query) {
-                                filtered.push(playlist.clone());
-                            }
-                        }
-                    }
-                    let has_query = !query.is_empty();
+            {
 
-                    rsx! {
-                        if filtered.is_empty() {
-                            div { class: "flex flex-col items-center justify-center py-20",
-                                Icon { name: "playlist".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
-                                if has_query {
-                                    p { class: "text-zinc-300", "No playlists match \"{raw_query}\"" }
-                                } else {
-                                    h2 { class: "text-xl font-semibold text-white mb-2", "No playlists yet" }
-                                    p { class: "text-zinc-400", "Create playlists in your Navidrome server" }
+                match playlists() {
+                    Some(playlists) => {
+                        let raw_query = search_query().trim().to_string();
+                        let query = raw_query.to_lowercase();
+                        let mut filtered = Vec::new();
+                        if query.is_empty() {
+                            filtered = playlists.clone();
+                        } else {
+                            for playlist in &playlists {
+                                if playlist.name.to_lowercase().contains(&query) {
+                                    filtered.push(playlist.clone());
                                 }
                             }
-                        } else {
-                            div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4",
-                                for playlist in filtered {
-                                    PlaylistCard {
-                                        playlist: playlist.clone(),
-                                        onclick: {
-                                            let navigation = navigation.clone();
-                                            let playlist_id = playlist.id.clone();
-                                            let playlist_server_id = playlist.server_id.clone();
-                                            move |_| {
-                                                navigation.navigate_to(AppView::PlaylistDetail(
-                                                    playlist_id.clone(),
-                                                    playlist_server_id.clone(),
-                                                ))
-                                            }
+                        }
+                        let has_query = !query.is_empty();
+                        rsx! {
+                            if filtered.is_empty() {
+                                div { class: "flex flex-col items-center justify-center py-20",
+                                    Icon {
+                                        name: "playlist".to_string(),
+                                        class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
+                                    }
+                                    if has_query {
+                                        p { class: "text-zinc-300", "No playlists match \"{raw_query}\"" }
+                                    } else {
+                                        h2 { class: "text-xl font-semibold text-white mb-2", "No playlists yet" }
+                                        p { class: "text-zinc-400", "Create playlists in your Navidrome server" }
+                                    }
+                                }
+                            } else {
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4",
+                                    for playlist in filtered {
+                                        PlaylistCard {
+                                            playlist: playlist.clone(),
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let playlist_id = playlist.id.clone();
+                                                let playlist_server_id = playlist.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::PlaylistDetail(
+                                                                playlist_id.clone(),
+                                                                playlist_server_id.clone(),
+                                                            ),
+                                                        )
+                                                }
+                                            },
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                },
-                None => rsx! {
-                    div { class: "flex items-center justify-center py-20",
-                        Icon { name: "loader".to_string(), class: "w-8 h-8 text-zinc-500".to_string() }
-                    }
+                    None => rsx! {
+                        div { class: "flex items-center justify-center py-20",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-zinc-500".to_string(),
+                            }
+                        }
+                    },
                 }
-            }}
+            }
         }
     }
 }
@@ -118,31 +134,41 @@ fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Elemen
         });
 
     rsx! {
-        button {
-            class: "group text-left",
-            onclick: move |e| onclick.call(e),
+        button { class: "group text-left", onclick: move |e| onclick.call(e),
             // Playlist cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
-                {match cover_url {
-                    Some(url) => rsx! {
-                        img { class: "w-full h-full object-cover", src: "{url}" }
-                    },
-                    None => rsx! {
-                        div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
-                            Icon { name: "playlist".to_string(), class: "w-12 h-12 text-white/70".to_string() }
-                        }
+                {
+                    match cover_url {
+                        Some(url) => rsx! {
+                            img { class: "w-full h-full object-cover", src: "{url}" }
+                        },
+                        None => rsx! {
+                            div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
+                                Icon {
+                                    name: "playlist".to_string(),
+                                    class: "w-12 h-12 text-white/70".to_string(),
+                                }
+                            }
+                        },
                     }
-                }}
+                }
                 // Play overlay
                 div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
                     div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
-                        Icon { name: "play".to_string(), class: "w-5 h-5 text-white ml-0.5".to_string() }
+                        Icon {
+                            name: "play".to_string(),
+                            class: "w-5 h-5 text-white ml-0.5".to_string(),
+                        }
                     }
                 }
             }
             // Playlist info
-            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors", "{playlist.name}" }
-            p { class: "text-xs text-zinc-400", "{playlist.song_count} songs • {format_duration(playlist.duration)}" }
+            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
+                "{playlist.name}"
+            }
+            p { class: "text-xs text-zinc-400",
+                "{playlist.song_count} songs • {format_duration(playlist.duration)}"
+            }
         }
     }
 }

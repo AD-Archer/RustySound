@@ -42,13 +42,9 @@ pub fn AlbumsView() -> Element {
                 div { class: "flex flex-col gap-3 md:flex-row md:items-center md:justify-between",
                     // Filter tabs
                     div { class: "flex gap-2 flex-wrap",
-                        for (value, label) in album_types {
+                        for (value , label) in album_types {
                             button {
-                                class: if album_type() == value {
-                                    "px-4 py-2 rounded-full bg-emerald-500/20 text-emerald-400 text-sm font-medium"
-                                } else {
-                                    "px-4 py-2 rounded-full bg-zinc-800/50 text-zinc-400 hover:text-white text-sm font-medium transition-colors"
-                                },
+                                class: if album_type() == value { "px-4 py-2 rounded-full bg-emerald-500/20 text-emerald-400 text-sm font-medium" } else { "px-4 py-2 rounded-full bg-zinc-800/50 text-zinc-400 hover:text-white text-sm font-medium transition-colors" },
                                 onclick: move |_| album_type.set(value.to_string()),
                                 "{label}"
                             }
@@ -64,68 +60,81 @@ pub fn AlbumsView() -> Element {
                             class: "w-full pl-10 pr-4 py-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                             placeholder: "Search albums",
                             value: search_query,
-                            oninput: move |e| search_query.set(e.value()),
+                            oninput: move |e| {
+                                let value = e.value();
+                                if value.is_empty() || value.len() >= 2 {
+                                    search_query.set(value);
+                                }
+                            },
                         }
                     }
                 }
             }
 
-            {match albums() {
-                Some(albums) => {
-                    let raw_query = search_query().trim().to_string();
-                    let query = raw_query.to_lowercase();
-                    let mut filtered = Vec::new();
-                    if query.is_empty() {
-                        filtered = albums.clone();
-                    } else {
-                        for album in &albums {
-                            let name = album.name.to_lowercase();
-                            let artist = album.artist.to_lowercase();
-                            if name.contains(&query) || artist.contains(&query) {
-                                filtered.push(album.clone());
-                            }
-                        }
-                    }
-                    let has_query = !query.is_empty();
+            {
 
-                    rsx! {
-                        if filtered.is_empty() {
-                            div { class: "flex flex-col items-center justify-center py-20",
-                                Icon { name: "album".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
-                                if has_query {
-                                    p { class: "text-zinc-300", "No albums match \"{raw_query}\"" }
-                                } else {
-                                    p { class: "text-zinc-400", "No albums found" }
+                match albums() {
+                    Some(albums) => {
+                        let raw_query = search_query().trim().to_string();
+                        let query = raw_query.to_lowercase();
+                        let mut filtered = Vec::new();
+                        if query.is_empty() {
+                            filtered = albums.clone();
+                        } else {
+                            for album in &albums {
+                                let name = album.name.to_lowercase();
+                                let artist = album.artist.to_lowercase();
+                                if name.contains(&query) || artist.contains(&query) {
+                                    filtered.push(album.clone());
                                 }
                             }
-                        } else {
-                            div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4",
-                                for album in filtered {
-                                    AlbumCard {
-                                        album: album.clone(),
-                                        onclick: {
-                                            let navigation = navigation.clone();
-                                            let album_id = album.id.clone();
-                                            let album_server_id = album.server_id.clone();
-                                            move |_| {
-                                                navigation.navigate_to(AppView::AlbumDetail(
-                                                    album_id.clone(),
-                                                    album_server_id.clone(),
-                                                ))
-                                            }
+                        }
+                        let has_query = !query.is_empty();
+                        rsx! {
+                            if filtered.is_empty() {
+                                div { class: "flex flex-col items-center justify-center py-20",
+                                    Icon {
+                                        name: "album".to_string(),
+                                        class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
+                                    }
+                                    if has_query {
+                                        p { class: "text-zinc-300", "No albums match \"{raw_query}\"" }
+                                    } else {
+                                        p { class: "text-zinc-400", "No albums found" }
+                                    }
+                                }
+                            } else {
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4",
+                                    for album in filtered {
+                                        AlbumCard {
+                                            album: album.clone(),
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let album_id = album.id.clone();
+                                                let album_server_id = album.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
+                                                }
+                                            },
                                         }
                                     }
                                 }
                             }
                         }
                     }
-                },
-                None => rsx! {
-                    div { class: "flex items-center justify-center py-20",
-                        Icon { name: "loader".to_string(), class: "w-8 h-8 text-zinc-500".to_string() }
-                    }
+                    None => rsx! {
+                        div { class: "flex items-center justify-center py-20",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-zinc-500".to_string(),
+                            }
+                        }
+                    },
                 }
-            }}
+            }
         }
     }
 }

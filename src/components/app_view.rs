@@ -4,6 +4,7 @@
 pub enum AppView {
     Home,
     Search,
+    Songs,
     Albums,
     Artists,
     Playlists,
@@ -22,6 +23,7 @@ pub fn view_label(view: &AppView) -> &'static str {
     match view {
         AppView::Home => "Home",
         AppView::Search => "Search",
+        AppView::Songs => "Songs",
         AppView::Albums => "Albums",
         AppView::Artists => "Artists",
         AppView::Playlists => "Playlists",

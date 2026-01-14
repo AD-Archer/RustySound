@@ -53,7 +53,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
             }
 
             // Navigation
-            nav { class: "flex-1 overflow-y-auto p-4 space-y-1",
+            nav { class: "flex-1 overflow-y-auto p-4 space-y-1 pb-40",
                 // Main section
                 div { class: "mb-6",
                     p { class: "text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 px-3",
@@ -89,6 +89,12 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                         label: "Albums",
                         active: matches!(view, AppView::Albums),
                         onclick: nav_to(AppView::Albums),
+                    }
+                    NavItem {
+                        icon: "music",
+                        label: "Songs",
+                        active: matches!(view, AppView::Songs),
+                        onclick: nav_to(AppView::Songs),
                     }
                     NavItem {
                         icon: "artist",

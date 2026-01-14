@@ -215,18 +215,88 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
-        let mut songs = json
-            .subsonic_response
-            .random_songs
-            .and_then(|rs| rs.song)
-            .unwrap_or_default();
+        Ok(self.normalize_song_list(json.subsonic_response.random_songs))
+    }
 
+    fn normalize_song_list(&self, list: Option<SongList>) -> Vec<Song> {
+        let mut songs = list.and_then(|l| l.song).unwrap_or_default();
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
         }
+        songs
+    }
 
-        Ok(songs)
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub async fn get_similar_songs(&self, id: &str, count: u32) -> Result<Vec<Song>, String> {
+        let url = self.build_url(
+            "getSimilarSongs",
+            &[("id", id), ("count", &count.to_string())],
+        );
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(
+                json.subsonic_response
+                    .error
+                    .map(|e| e.message)
+                    .unwrap_or("Unknown error".to_string()),
+            );
+        }
+
+        Ok(self.normalize_song_list(json.subsonic_response.similar_songs))
+    }
+
+    pub async fn get_top_songs(&self, artist: &str, count: u32) -> Result<Vec<Song>, String> {
+        let url = self.build_url(
+            "getTopSongs",
+            &[("artist", artist), ("count", &count.to_string())],
+        );
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(
+                json.subsonic_response
+                    .error
+                    .map(|e| e.message)
+                    .unwrap_or("Unknown error".to_string()),
+            );
+        }
+
+        Ok(self.normalize_song_list(json.subsonic_response.top_songs))
+    }
+
+    pub async fn get_scan_status(&self) -> Result<ScanStatus, String> {
+        let url = self.build_url("getScanStatus", &[]);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+        Self::extract_scan_status(json)
+    }
+
+    pub async fn start_scan(&self) -> Result<ScanStatus, String> {
+        let url = self.build_url("startScan", &[]);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+        Self::extract_scan_status(json)
+    }
+
+    fn extract_scan_status(json: SubsonicResponse) -> Result<ScanStatus, String> {
+        if json.subsonic_response.status != "ok" {
+            return Err(
+                json.subsonic_response
+                    .error
+                    .map(|e| e.message)
+                    .unwrap_or("Unknown error".to_string()),
+            );
+        }
+
+        if let Some(payload) = json.subsonic_response.scan_status {
+            Ok(payload.into_status())
+        } else {
+            Err("No scan status returned".to_string())
+        }
     }
 
     pub async fn get_starred(&self) -> Result<(Vec<Artist>, Vec<Album>, Vec<Song>), String> {
@@ -290,6 +360,25 @@ impl NavidromeClient {
             _ => "id",
         };
         let url = self.build_url("unstar", &[(param, id)]);
+        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn set_rating(&self, id: &str, rating: u32) -> Result<(), String> {
+        let url = self.build_url(
+            "setRating",
+            &[("id", id), ("rating", &rating.to_string())],
+        );
         let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
@@ -537,7 +626,15 @@ pub struct SubsonicResponseInner {
     #[serde(alias = "artist")]
     pub artist_detail: Option<ArtistWithAlbums>,
     #[serde(alias = "randomSongs")]
-    pub random_songs: Option<RandomSongs>,
+    pub random_songs: Option<SongList>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    #[serde(alias = "similarSongs")]
+    pub similar_songs: Option<SongList>,
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    #[serde(alias = "similarSongs2")]
+    pub similar_songs2: Option<SongList>,
+    #[serde(alias = "topSongs")]
+    pub top_songs: Option<SongList>,
     #[serde(alias = "starred2")]
     pub starred2: Option<Starred2>,
     pub playlists: Option<PlaylistsContainer>,
@@ -546,6 +643,8 @@ pub struct SubsonicResponseInner {
     pub internet_radio_stations: Option<InternetRadioStations>,
     #[serde(alias = "searchResult3")]
     pub search_result3: Option<SearchResult3>,
+    #[serde(alias = "scanStatus")]
+    pub scan_status: Option<ScanStatusPayload>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -606,8 +705,8 @@ pub struct ArtistWithAlbums {
     pub album: Option<Vec<Album>>,
 }
 
-#[derive(Debug, Deserialize)]
-pub struct RandomSongs {
+#[derive(Debug, Deserialize, Default)]
+pub struct SongList {
     pub song: Option<Vec<Song>>,
 }
 
@@ -616,6 +715,37 @@ pub struct Starred2 {
     pub artist: Option<Vec<Artist>>,
     pub album: Option<Vec<Album>>,
     pub song: Option<Vec<Song>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ScanStatusPayload {
+    #[serde(rename = "status")]
+    pub status: Option<String>,
+    #[serde(rename = "currentTask")]
+    pub current_task: Option<String>,
+    #[serde(rename = "secondsRemaining")]
+    pub seconds_remaining: Option<u64>,
+    #[serde(rename = "secondsElapsed")]
+    pub seconds_elapsed: Option<u64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct ScanStatus {
+    pub status: String,
+    pub current_task: Option<String>,
+    pub seconds_remaining: Option<u64>,
+    pub seconds_elapsed: Option<u64>,
+}
+
+impl ScanStatusPayload {
+    fn into_status(self) -> ScanStatus {
+        ScanStatus {
+            status: self.status.unwrap_or_else(|| "unknown".to_string()),
+            current_task: self.current_task,
+            seconds_remaining: self.seconds_remaining,
+            seconds_elapsed: self.seconds_elapsed,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]

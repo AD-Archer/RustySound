@@ -3,12 +3,19 @@ use crate::components::{Icon, VolumeSignal};
 use crate::db::{save_settings, AppSettings};
 use dioxus::prelude::*;
 
+#[derive(Clone)]
+struct ScanResultEntry {
+    server_name: String,
+    status: ScanStatus,
+}
+
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut app_settings = use_context::<Signal<AppSettings>>();
     let mut volume = use_context::<VolumeSignal>().0;
-    let mut shuffle_enabled = use_context::<Signal<bool>>();
+    let scan_results = use_signal(|| Vec::<ScanResultEntry>::new());
+    let scan_busy = use_signal(|| false);
 
     let mut server_name = use_signal(String::new);
     let mut server_url = use_signal(String::new);
@@ -202,6 +209,58 @@ pub fn SettingsView() -> Element {
         }
     };
 
+    let on_start_scan = {
+        let servers = servers.clone();
+        let mut scan_results = scan_results.clone();
+        let mut scan_busy = scan_busy.clone();
+        move |_| {
+            if scan_busy() {
+                return;
+            }
+            scan_busy.set(true);
+            spawn(async move {
+                let mut results = Vec::new();
+                for server in servers().iter().filter(|s| s.active).cloned() {
+                    let client = NavidromeClient::new(server.clone());
+                    if let Ok(status) = client.start_scan().await {
+                        results.push(ScanResultEntry {
+                            server_name: server.name.clone(),
+                            status,
+                        });
+                    }
+                }
+                scan_results.set(results);
+                scan_busy.set(false);
+            });
+        }
+    };
+
+    let on_refresh_scan = {
+        let servers = servers.clone();
+        let mut scan_results = scan_results.clone();
+        let mut scan_busy = scan_busy.clone();
+        move |_| {
+            if scan_busy() {
+                return;
+            }
+            scan_busy.set(true);
+            spawn(async move {
+                let mut results = Vec::new();
+                for server in servers().iter().filter(|s| s.active).cloned() {
+                    let client = NavidromeClient::new(server.clone());
+                    if let Ok(status) = client.get_scan_status().await {
+                        results.push(ScanResultEntry {
+                            server_name: server.name.clone(),
+                            status,
+                        });
+                    }
+                }
+                scan_results.set(results);
+                scan_busy.set(false);
+            });
+        }
+    };
+
     let server_list = servers();
     let settings = app_settings();
     let current_volume = volume();
@@ -300,27 +359,78 @@ pub fn SettingsView() -> Element {
                 }
             }
 
-            // Debug Section
+            // Quick Scan Section
             section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-6", "Debug Tools" }
+                h2 { class: "text-lg font-semibold text-white mb-3", "Quick Scan" }
 
                 div { class: "space-y-4",
-                    p { class: "text-sm text-zinc-400", "Shuffle is: {shuffle_enabled()}" }
-                    div { class: "flex flex-wrap gap-4",
+                    p { class: "text-sm text-zinc-400",
+                        "Trigger a quick scan on your connected servers and keep an eye on the status."
+                    }
+                    div { class: "flex flex-wrap gap-3",
                         button {
-                            class: "px-4 py-2 rounded-xl bg-blue-500 text-white hover:bg-blue-400 transition-colors",
-                            onclick: move |_| {
-                                let current = shuffle_enabled();
-                                shuffle_enabled.set(!current);
-                            },
-                            "Test Shuffle Toggle"
+                            class: if scan_busy() { "px-4 py-2 rounded-xl bg-emerald-500/60 text-white cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center gap-2" },
+                            disabled: scan_busy(),
+                            onclick: on_start_scan,
+                            if scan_busy() {
+                                Icon {
+                                    name: "loader".to_string(),
+                                    class: "w-4 h-4 text-white animate-spin".to_string(),
+                                }
+                                "Scanning..."
+                            } else {
+                                Icon {
+                                    name: "search".to_string(),
+                                    class: "w-4 h-4 text-white".to_string(),
+                                }
+                                "Start Quick Scan"
+                            }
                         }
                         button {
-                            class: "px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-400 transition-colors",
-                            onclick: move |_| {
-                                shuffle_enabled.set(false);
-                            },
-                            "Force Shuffle Off"
+                            class: if scan_busy() { "px-4 py-2 rounded-xl bg-zinc-700/40 text-zinc-300 cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-700/60 text-white hover:bg-zinc-700 transition-colors flex items-center gap-2" },
+                            disabled: scan_busy(),
+                            onclick: on_refresh_scan,
+                            if scan_busy() {
+                                Icon {
+                                    name: "loader".to_string(),
+                                    class: "w-4 h-4 text-white animate-spin".to_string(),
+                                }
+                                "Refreshing..."
+                            } else {
+                                Icon {
+                                    name: "repeat".to_string(),
+                                    class: "w-4 h-4 text-white".to_string(),
+                                }
+                                "Refresh Status"
+                            }
+                        }
+                    }
+
+                    {
+                        if scan_results().is_empty() {
+                            rsx! {
+                                p { class: "text-sm text-zinc-500", "No scan status available yet." }
+                            }
+                        } else {
+                            rsx! {
+                                div { class: "space-y-3",
+                                    for entry in scan_results() {
+                                        div { class: "p-4 bg-zinc-900/50 border border-zinc-800/70 rounded-2xl space-y-1",
+                                            span { class: "text-sm text-zinc-500", "{entry.server_name}" }
+                                            p { class: "text-sm text-white", "Status: {entry.status.status}" }
+                                            if let Some(task) = entry.status.current_task.as_ref() {
+                                                span { class: "text-xs text-zinc-500", "Task: {task}" }
+                                            }
+                                            if let Some(seconds) = entry.status.seconds_remaining {
+                                                span { class: "text-xs text-zinc-500", "{seconds}s remaining" }
+                                            }
+                                            if let Some(elapsed) = entry.status.seconds_elapsed {
+                                                span { class: "text-xs text-zinc-500", "Elapsed: {elapsed}s" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

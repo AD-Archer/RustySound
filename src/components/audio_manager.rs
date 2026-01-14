@@ -76,20 +76,33 @@ pub(crate) fn spawn_shuffle_queue(
     servers: Vec<ServerConfig>,
     mut queue: Signal<Vec<Song>>,
     mut queue_index: Signal<usize>,
+    seed_song: Option<Song>,
 ) {
-    let mut active_servers: Vec<ServerConfig> = servers.into_iter().filter(|s| s.active).collect();
+    let active_servers: Vec<ServerConfig> = servers.into_iter().filter(|s| s.active).collect();
     if active_servers.is_empty() {
         return;
     }
 
     spawn(async move {
         let mut songs = Vec::new();
-        for server in active_servers.drain(..) {
-            let client = NavidromeClient::new(server);
-            if let Ok(server_songs) = client.get_random_songs(25).await {
-                songs.extend(server_songs);
+        if let Some(seed) = seed_song {
+            if let Some(server) = active_servers.iter().find(|s| s.id == seed.server_id).cloned() {
+                let client = NavidromeClient::new(server);
+                if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
+                    songs.extend(similar);
+                }
             }
         }
+
+        if songs.is_empty() {
+            for server in active_servers.iter().cloned() {
+                let client = NavidromeClient::new(server.clone());
+                if let Ok(server_songs) = client.get_random_songs(25).await {
+                    songs.extend(server_songs);
+                }
+            }
+        }
+
         if songs.is_empty() {
             return;
         }
@@ -112,7 +125,7 @@ pub fn AudioController() -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
     let volume = use_context::<VolumeSignal>().0;
-    let queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
@@ -189,7 +202,7 @@ pub fn AudioController() -> Element {
         // Set up ended listener for auto-next
         let end_closure = Closure::wrap(Box::new(move || {
             let idx = *queue_index.peek();
-            let queue_list = queue.peek();
+            let queue_list = queue();
             let current_repeat = *repeat_mode.peek();
             let current_shuffle = *shuffle_enabled.peek();
 
@@ -198,23 +211,7 @@ pub fn AudioController() -> Element {
                     // Repeat-one is handled by audio.set_loop(true)
                 }
                 RepeatMode::All => {
-                    if current_shuffle {
-                        if queue_list.is_empty() {
-                            spawn_shuffle_queue(
-                                servers.peek().clone(),
-                                queue.clone(),
-                                queue_index.clone(),
-                            );
-                        } else if idx < queue_list.len().saturating_sub(1) {
-                            queue_index.set(idx + 1);
-                        } else {
-                            spawn_shuffle_queue(
-                                servers.peek().clone(),
-                                queue.clone(),
-                                queue_index.clone(),
-                            );
-                        }
-                    } else if idx < queue_list.len().saturating_sub(1) {
+                    if idx < queue_list.len().saturating_sub(1) {
                         queue_index.set(idx + 1);
                     } else if !queue_list.is_empty() {
                         queue_index.set(0);
@@ -229,6 +226,7 @@ pub fn AudioController() -> Element {
                                 servers.peek().clone(),
                                 queue.clone(),
                                 queue_index.clone(),
+                                now_playing.peek().clone(),
                             );
                         } else if idx < queue_list.len().saturating_sub(1) {
                             queue_index.set(idx + 1);
@@ -237,6 +235,7 @@ pub fn AudioController() -> Element {
                                 servers.peek().clone(),
                                 queue.clone(),
                                 queue_index.clone(),
+                                now_playing.peek().clone(),
                             );
                         }
                     } else if idx < queue_list.len().saturating_sub(1) {
@@ -351,6 +350,23 @@ pub fn AudioController() -> Element {
             };
             if !is_same {
                 now_playing_mut.set(Some(song.clone()));
+            }
+        }
+    });
+
+    // Ensure the active song always exists in the queue
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        let song = now_playing();
+        if let Some(current) = song {
+            let queue_list = queue();
+            if let Some(pos) = queue_list.iter().position(|s| s.id == current.id) {
+                if *queue_index.peek() != pos {
+                    queue_index.set(pos);
+                }
+            } else {
+                queue.set(vec![current]);
+                queue_index.set(0);
             }
         }
     });

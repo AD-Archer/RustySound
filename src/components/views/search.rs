@@ -59,10 +59,14 @@ pub fn SearchView() -> Element {
                         class: "w-full pl-12 pr-4 py-4 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                         placeholder: "Search songs, albums, artists...",
                         value: search_query,
-                        oninput: move |e| search_query.set(e.value()),
-                        onkeydown: move |e| {
-                            if e.key() == Key::Enter {
-                                on_search(e);
+                        oninput: move |e| {
+                            let value = e.value();
+                            search_query.set(value.clone());
+                            if value.is_empty() {
+                                search_results.set(None);
+                                is_searching.set(false);
+                            } else if value.len() >= 2 {
+                                on_search(());
                             }
                         },
                     }
@@ -102,10 +106,16 @@ pub fn SearchView() -> Element {
                                                 let artist_id = artist.id.clone();
                                                 let artist_server_id = artist.server_id.clone();
                                                 move |_| {
-                                                    navigation.navigate_to(AppView::ArtistDetail(
-                                                        artist_id.clone(),
-                                                        artist_server_id.clone(),
-                                                    ))
+                                                    navigation
+
+                                                        // Albums
+
+                                                        // Songs
+
+                                                        .navigate_to(
+
+                                                            AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
+                                                        )
                                                 }
                                             },
                                         }
@@ -113,12 +123,8 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-
-                        // Albums
-
-
-                        // Songs
-
+        
+        
                         if has_albums {
                             section { class: "mb-8",
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Albums" }
@@ -132,10 +138,10 @@ pub fn SearchView() -> Element {
                                                 let album_id = album.id.clone();
                                                 let album_server_id = album.server_id.clone();
                                                 move |_| {
-                                                    navigation.navigate_to(AppView::AlbumDetail(
-                                                        album_id.clone(),
-                                                        album_server_id.clone(),
-                                                    ))
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
                                                 }
                                             },
                                         }
@@ -143,7 +149,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-
+        
                         if has_songs {
                             section {
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Songs" }
@@ -162,7 +168,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-
+        
                         if no_results {
                             div { class: "flex flex-col items-center justify-center py-20",
                                 Icon {

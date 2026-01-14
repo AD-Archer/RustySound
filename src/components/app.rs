@@ -278,6 +278,9 @@ pub fn AppShell() -> Element {
                                 AppView::Search => rsx! {
                                     SearchView {}
                                 },
+                                AppView::Songs => rsx! {
+                                    SongsView {}
+                                },
                                 AppView::Albums => rsx! {
                                     AlbumsView {}
                                 },
