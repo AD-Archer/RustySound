@@ -24,9 +24,16 @@ body {
   isolation: isolate;
   height: 100dvh;
   --player-height: 10.5rem;
-  background:
-    radial-gradient(900px circle at 8% -10%, rgba(16, 185, 129, 0.18), transparent 45%),
-    radial-gradient(700px circle at 100% 15%, rgba(59, 130, 246, 0.12), transparent 40%),
+  background: radial-gradient(
+      900px circle at 8% -10%,
+      rgba(16, 185, 129, 0.18),
+      transparent 45%
+    ),
+    radial-gradient(
+      700px circle at 100% 15%,
+      rgba(59, 130, 246, 0.12),
+      transparent 40%
+    ),
     linear-gradient(135deg, #09090b 0%, #17181f 50%, #09090b 100%);
 }
 
@@ -40,11 +47,21 @@ body {
   content: "";
   position: absolute;
   inset: 0;
-  background-image: radial-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-image: radial-gradient(
+    rgba(255, 255, 255, 0.035) 1px,
+    transparent 1px
+  );
   background-size: 24px 24px;
   opacity: 0.4;
   pointer-events: none;
   z-index: -1;
+}
+
+/* Mobile sidebar adjustment to not overlap player */
+@media (max-width: 767px) {
+  aside {
+    bottom: var(--player-height);
+  }
 }
 
 .page-shell {

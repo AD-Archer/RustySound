@@ -1,14 +1,22 @@
-use dioxus::prelude::*;
 use crate::api::*;
 use crate::components::{Icon, VolumeSignal};
 use crate::db::{save_settings, AppSettings};
+use dioxus::prelude::*;
+
+#[derive(Clone)]
+struct ScanResultEntry {
+    server_name: String,
+    status: ScanStatus,
+}
 
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut app_settings = use_context::<Signal<AppSettings>>();
     let mut volume = use_context::<VolumeSignal>().0;
-    
+    let scan_results = use_signal(|| Vec::<ScanResultEntry>::new());
+    let scan_busy = use_signal(|| false);
+
     let mut server_name = use_signal(String::new);
     let mut server_url = use_signal(String::new);
     let mut server_user = use_signal(String::new);
@@ -19,16 +27,16 @@ pub fn SettingsView() -> Element {
     let mut is_testing_connection = use_signal(|| false);
     let mut connection_test_result = use_signal(|| None::<Result<(), String>>);
     let mut save_status = use_signal(|| None::<String>);
-    
+
     let can_add = use_memo(move || {
-        !server_name().trim().is_empty() 
+        !server_name().trim().is_empty()
             && !server_url().trim().is_empty()
             && !server_user().trim().is_empty()
             && !server_pass().trim().is_empty()
             && test_result().is_some_and(|r: Result<(), String>| r.is_ok())
             && editing_server().is_none()
     });
-    
+
     let on_test = {
         let url = server_url.clone();
         let user = server_user.clone();
@@ -37,26 +45,21 @@ pub fn SettingsView() -> Element {
             let url = url().trim().to_string();
             let user = user().trim().to_string();
             let pass = pass().trim().to_string();
-            
+
             is_testing.set(true);
             test_result.set(None);
-            
+
             spawn(async move {
-                let test_server = ServerConfig::new(
-                    "Test".to_string(),
-                    url,
-                    user,
-                    pass,
-                );
+                let test_server = ServerConfig::new("Test".to_string(), url, user, pass);
                 let client = NavidromeClient::new(test_server);
                 let result = client.ping().await;
-                
+
                 test_result.set(Some(result.map(|_| ())));
                 is_testing.set(false);
             });
         }
     };
-    
+
     let mut on_edit_server = {
         let mut server_name = server_name.clone();
         let mut server_url = server_url.clone();
@@ -87,11 +90,11 @@ pub fn SettingsView() -> Element {
             let url = server_url().trim().to_string();
             let user = server_user().trim().to_string();
             let pass = server_pass().trim().to_string();
-            
+
             if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
                 return;
             }
-            
+
             servers.with_mut(|list| {
                 if let Some(server) = list.iter_mut().find(|s| s.id == editing.id) {
                     server.name = name;
@@ -100,14 +103,14 @@ pub fn SettingsView() -> Element {
                     server.password = pass;
                 }
             });
-            
+
             editing_server.set(None);
             server_name.set(String::new());
             server_url.set(String::new());
             server_user.set(String::new());
             server_pass.set(String::new());
             test_result.set(None);
-            
+
             save_status.set(Some("Server updated!".to_string()));
             #[cfg(target_arch = "wasm32")]
             {
@@ -125,20 +128,20 @@ pub fn SettingsView() -> Element {
         let url = server_url().trim().to_string();
         let user = server_user().trim().to_string();
         let pass = server_pass().trim().to_string();
-        
+
         if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
             return;
         }
-        
+
         let new_server = ServerConfig::new(name, url, user, pass);
         servers.with_mut(|list| list.push(new_server));
-        
+
         server_name.set(String::new());
         server_url.set(String::new());
         server_user.set(String::new());
         server_pass.set(String::new());
         test_result.set(None);
-        
+
         save_status.set(Some("Server added!".to_string()));
         #[cfg(target_arch = "wasm32")]
         {
@@ -156,18 +159,18 @@ pub fn SettingsView() -> Element {
             if let Some(server) = servers().iter().find(|s| s.id == server_id).cloned() {
                 is_testing_connection.set(true);
                 connection_test_result.set(None);
-                
+
                 spawn(async move {
                     let client = NavidromeClient::new(server);
                     let result = client.ping().await;
-                    
+
                     connection_test_result.set(Some(result.map(|_| ())));
                     is_testing_connection.set(false);
                 });
             }
         }
     };
-    
+
     let on_crossfade_toggle = move |_| {
         let mut settings = app_settings();
         settings.crossfade_enabled = !settings.crossfade_enabled;
@@ -177,7 +180,7 @@ pub fn SettingsView() -> Element {
             let _ = save_settings(settings_clone).await;
         });
     };
-    
+
     let on_replay_gain_toggle = move |_| {
         let mut settings = app_settings();
         settings.replay_gain = !settings.replay_gain;
@@ -187,7 +190,7 @@ pub fn SettingsView() -> Element {
             let _ = save_settings(settings_clone).await;
         });
     };
-    
+
     let on_crossfade_duration_change = move |e: Event<FormData>| {
         if let Ok(duration) = e.value().parse::<u32>() {
             let mut settings = app_settings();
@@ -199,17 +202,69 @@ pub fn SettingsView() -> Element {
             });
         }
     };
-    
+
     let on_volume_change = move |e: Event<FormData>| {
         if let Ok(vol) = e.value().parse::<f64>() {
             volume.set((vol / 100.0).clamp(0.0, 1.0));
         }
     };
-    
+
+    let on_start_scan = {
+        let servers = servers.clone();
+        let mut scan_results = scan_results.clone();
+        let mut scan_busy = scan_busy.clone();
+        move |_| {
+            if scan_busy() {
+                return;
+            }
+            scan_busy.set(true);
+            spawn(async move {
+                let mut results = Vec::new();
+                for server in servers().iter().filter(|s| s.active).cloned() {
+                    let client = NavidromeClient::new(server.clone());
+                    if let Ok(status) = client.start_scan().await {
+                        results.push(ScanResultEntry {
+                            server_name: server.name.clone(),
+                            status,
+                        });
+                    }
+                }
+                scan_results.set(results);
+                scan_busy.set(false);
+            });
+        }
+    };
+
+    let on_refresh_scan = {
+        let servers = servers.clone();
+        let mut scan_results = scan_results.clone();
+        let mut scan_busy = scan_busy.clone();
+        move |_| {
+            if scan_busy() {
+                return;
+            }
+            scan_busy.set(true);
+            spawn(async move {
+                let mut results = Vec::new();
+                for server in servers().iter().filter(|s| s.active).cloned() {
+                    let client = NavidromeClient::new(server.clone());
+                    if let Ok(status) = client.get_scan_status().await {
+                        results.push(ScanResultEntry {
+                            server_name: server.name.clone(),
+                            status,
+                        });
+                    }
+                }
+                scan_results.set(results);
+                scan_busy.set(false);
+            });
+        }
+    };
+
     let server_list = servers();
     let settings = app_settings();
     let current_volume = volume();
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header",
@@ -299,6 +354,83 @@ pub fn SettingsView() -> Element {
                             class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
                             onclick: on_replay_gain_toggle,
                             div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+                }
+            }
+
+            // Quick Scan Section
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                h2 { class: "text-lg font-semibold text-white mb-3", "Quick Scan" }
+
+                div { class: "space-y-4",
+                    p { class: "text-sm text-zinc-400",
+                        "Trigger a quick scan on your connected servers and keep an eye on the status."
+                    }
+                    div { class: "flex flex-wrap gap-3",
+                        button {
+                            class: if scan_busy() { "px-4 py-2 rounded-xl bg-emerald-500/60 text-white cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center gap-2" },
+                            disabled: scan_busy(),
+                            onclick: on_start_scan,
+                            if scan_busy() {
+                                Icon {
+                                    name: "loader".to_string(),
+                                    class: "w-4 h-4 text-white animate-spin".to_string(),
+                                }
+                                "Scanning..."
+                            } else {
+                                Icon {
+                                    name: "search".to_string(),
+                                    class: "w-4 h-4 text-white".to_string(),
+                                }
+                                "Start Quick Scan"
+                            }
+                        }
+                        button {
+                            class: if scan_busy() { "px-4 py-2 rounded-xl bg-zinc-700/40 text-zinc-300 cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-700/60 text-white hover:bg-zinc-700 transition-colors flex items-center gap-2" },
+                            disabled: scan_busy(),
+                            onclick: on_refresh_scan,
+                            if scan_busy() {
+                                Icon {
+                                    name: "loader".to_string(),
+                                    class: "w-4 h-4 text-white animate-spin".to_string(),
+                                }
+                                "Refreshing..."
+                            } else {
+                                Icon {
+                                    name: "repeat".to_string(),
+                                    class: "w-4 h-4 text-white".to_string(),
+                                }
+                                "Refresh Status"
+                            }
+                        }
+                    }
+
+                    {
+                        if scan_results().is_empty() {
+                            rsx! {
+                                p { class: "text-sm text-zinc-500", "No scan status available yet." }
+                            }
+                        } else {
+                            rsx! {
+                                div { class: "space-y-3",
+                                    for entry in scan_results() {
+                                        div { class: "p-4 bg-zinc-900/50 border border-zinc-800/70 rounded-2xl space-y-1",
+                                            span { class: "text-sm text-zinc-500", "{entry.server_name}" }
+                                            p { class: "text-sm text-white", "Status: {entry.status.status}" }
+                                            if let Some(task) = entry.status.current_task.as_ref() {
+                                                span { class: "text-xs text-zinc-500", "Task: {task}" }
+                                            }
+                                            if let Some(seconds) = entry.status.seconds_remaining {
+                                                span { class: "text-xs text-zinc-500", "{seconds}s remaining" }
+                                            }
+                                            if let Some(elapsed) = entry.status.seconds_elapsed {
+                                                span { class: "text-xs text-zinc-500", "Elapsed: {elapsed}s" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -525,12 +657,14 @@ fn ServerCard(
     on_edit: EventHandler<MouseEvent>,
     on_test: EventHandler<MouseEvent>,
 ) -> Element {
-    let initials: String = server.name.chars()
+    let initials: String = server
+        .name
+        .chars()
         .filter(|c| c.is_alphanumeric())
         .take(2)
         .collect::<String>()
         .to_uppercase();
-    
+
     rsx! {
         div { class: "p-4 rounded-xl bg-zinc-900/50 border border-zinc-700/30",
             // Server info row

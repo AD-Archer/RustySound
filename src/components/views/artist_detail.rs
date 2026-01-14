@@ -1,16 +1,15 @@
-use dioxus::prelude::*;
 use crate::api::*;
-
-use crate::components::{AppView, Icon};
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    
+
     let server = servers().into_iter().find(|s| s.id == server_id);
-    
+
     let artist_data = use_resource(move || {
         let server = server.clone();
         let artist_id = artist_id.clone();
@@ -23,13 +22,17 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             }
         }
     });
-    
+
     rsx! {
         div { class: "space-y-8",
             // Back button
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
-                onclick: move |_| current_view.set(AppView::Artists),
+                onclick: move |_| {
+                    if navigation.go_back().is_none() {
+                        navigation.navigate_to(AppView::Artists);
+                    }
+                },
                 Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
                 "Back to Artists"
             }
@@ -50,16 +53,18 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
 
                         let total_albums = albums.len();
                         let total_songs: u32 = albums.iter().map(|a| a.song_count).sum();
-
                         rsx! {
-                            // Artist header
                             div { class: "flex flex-col md:flex-row gap-8 mb-12",
-                                // Artist image - circular like Spotify
                                 div { class: "w-48 h-48 md:w-64 md:h-64 rounded-full bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0 mx-auto md:mx-0",
                                     {
                                         match cover_url {
                                             Some(url) => rsx! {
-                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                img {
+                                                    src: "{url}",
+                                                    alt: "{artist.name}",
+                                                    class: "w-full h-full object-cover",
+                                                    loading: "lazy",
+                                                }
                                             },
                                             None => rsx! {
                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700",
@@ -72,18 +77,9 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                         }
                                     }
                                 }
-                                // Artist info
                                 div { class: "flex flex-col justify-end text-center md:text-left",
                                     p { class: "text-sm text-zinc-400 uppercase tracking-wide mb-2 font-medium",
-                            // Action buttons
 
-                            // Albums section
-
-                            // Album cover
-                            // Play overlay
-                            // Album info
-
-                
                 
 
                                         "Artist"
@@ -132,10 +128,15 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                     key: "{album_id}",
                                                     class: "group text-left cursor-pointer",
                                                     onclick: {
-                                                        let mut current_view = current_view.clone();
+                                                        let navigation = navigation.clone();
                                                         move |_| {
-                                                            current_view
-                                                                .set(AppView::AlbumDetail(album_id_for_nav.clone(), album_server_id_for_nav.clone()));
+                                                            navigation
+                                                                .navigate_to(
+                                                                    AppView::AlbumDetail(
+                                                                        album_id_for_nav.clone(),
+                                                                        album_server_id_for_nav.clone(),
+                                                                    ),
+                                                                );
                                                         }
                                                     },
                                                     div { class: "aspect-square rounded-xl bg-zinc-800 overflow-hidden mb-3 shadow-lg group-hover:shadow-emerald-500/20 transition-shadow relative",
@@ -168,10 +169,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                                 move |evt: MouseEvent| {
                                                                     evt.stop_propagation();
                                                                     let album_id = album_id.clone();
-                                                                    let server = servers()
-                                                                        .iter()
-                                                                        .find(|s| s.id == album_server_id)
-                                                                        .cloned();
+                                                                    let server = servers().iter().find(|s| s.id == album_server_id).cloned();
                                                                     if let Some(server) = server {
                                                                         spawn(async move {
                                                                             let client = NavidromeClient::new(server);
@@ -182,10 +180,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                                     }
                                                                 }
                                                             },
-                                                            Icon {
-                                                                name: "plus".to_string(),
-                                                                class: "w-4 h-4".to_string(),
-                                                            }
+                                                            Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
                                                         }
                                                         div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
                                                             div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform",

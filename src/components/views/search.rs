@@ -1,31 +1,32 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
 use crate::components::views::home::{AlbumCard, SongRow};
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn SearchView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    
+
     let mut search_query = use_signal(String::new);
     let mut search_results = use_signal(|| None::<SearchResult>);
     let mut is_searching = use_signal(|| false);
-    
+
     let mut on_search = move |_| {
         let query = search_query().trim().to_string();
         if query.is_empty() {
             return;
         }
-        
-        let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+
+        let active_servers: Vec<ServerConfig> =
+            servers().into_iter().filter(|s| s.active).collect();
         is_searching.set(true);
-        
+
         spawn(async move {
             let mut combined = SearchResult::default();
-            
+
             for server in active_servers {
                 let client = NavidromeClient::new(server);
                 if let Ok(result) = client.search(&query).await {
@@ -34,15 +35,15 @@ pub fn SearchView() -> Element {
                     combined.songs.extend(result.songs);
                 }
             }
-            
+
             search_results.set(Some(combined));
             is_searching.set(false);
         });
     };
-    
+
     let results = search_results();
     let searching = is_searching();
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header gap-4",
@@ -58,10 +59,14 @@ pub fn SearchView() -> Element {
                         class: "w-full pl-12 pr-4 py-4 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                         placeholder: "Search songs, albums, artists...",
                         value: search_query,
-                        oninput: move |e| search_query.set(e.value()),
-                        onkeydown: move |e| {
-                            if e.key() == Key::Enter {
-                                on_search(e);
+                        oninput: move |e| {
+                            let value = e.value();
+                            search_query.set(value.clone());
+                            if value.is_empty() {
+                                search_results.set(None);
+                                is_searching.set(false);
+                            } else if value.len() >= 2 {
+                                on_search(());
                             }
                         },
                     }
@@ -96,21 +101,30 @@ pub fn SearchView() -> Element {
                                         ArtistCard {
                                             key: "{artist.id}-{artist.server_id}",
                                             artist: artist.clone(),
-                                            onclick: move |_| {
-                                                current_view
-                                                    .set(AppView::ArtistDetail(artist.id.clone(), artist.server_id.clone()))
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let artist_id = artist.id.clone();
+                                                let artist_server_id = artist.server_id.clone();
+                                                move |_| {
+                                                    navigation
+
+                                                        // Albums
+
+                                                        // Songs
+
+                                                        .navigate_to(
+
+                                                            AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
+                                                        )
+                                                }
                                             },
                                         }
                                     }
                                 }
                             }
                         }
-
-                        // Albums
         
-
-                        // Songs
-
+        
                         if has_albums {
                             section { class: "mb-8",
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Albums" }
@@ -119,8 +133,16 @@ pub fn SearchView() -> Element {
                                         AlbumCard {
                                             key: "{album.id}-{album.server_id}",
                                             album: album.clone(),
-                                            onclick: move |_| {
-                                                current_view.set(AppView::AlbumDetail(album.id.clone(), album.server_id.clone()))
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let album_id = album.id.clone();
+                                                let album_server_id = album.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
+                                                }
                                             },
                                         }
                                     }
@@ -175,20 +197,26 @@ pub fn SearchView() -> Element {
 #[component]
 pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    
-    let cover_url = servers().iter()
+
+    let cover_url = servers()
+        .iter()
         .find(|s| s.id == artist.server_id)
         .and_then(|server| {
             let client = NavidromeClient::new(server.clone());
-            artist.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 300))
+            artist
+                .cover_art
+                .as_ref()
+                .map(|ca| client.get_cover_art_url(ca, 300))
         });
-    
-    let initials: String = artist.name.chars()
+
+    let initials: String = artist
+        .name
+        .chars()
         .filter(|c| c.is_alphanumeric())
         .take(2)
         .collect::<String>()
         .to_uppercase();
-    
+
     rsx! {
         button { class: "group text-center", onclick: move |e| onclick.call(e),
             // Artist image

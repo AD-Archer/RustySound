@@ -89,6 +89,8 @@ pub struct Song {
     pub bitrate: Option<u32>,
     #[serde(default)]
     pub starred: Option<String>,
+    #[serde(default, alias = "userRating", alias = "rating")]
+    pub user_rating: Option<u32>,
     #[serde(default)]
     pub year: Option<u32>,
     #[serde(default)]

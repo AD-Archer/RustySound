@@ -1,11 +1,14 @@
-//! The components module contains all shared components for our app.
+//! The components module contains all shared pieces of the UI.
 
 mod app;
-mod sidebar;
-mod player;
-mod icons;
-mod views;
+mod app_view;
 mod audio_manager;
+mod cached_image;
+mod icons;
+mod navigation;
+mod player;
+mod sidebar;
+mod views;
 
 use dioxus::prelude::Signal;
 
@@ -17,8 +20,10 @@ pub struct VolumeSignal(pub Signal<f64>);
 pub struct PlaybackPositionSignal(pub Signal<f64>);
 
 pub use app::*;
-pub use sidebar::*;
-pub use player::*;
-pub use icons::*;
+pub use app_view::{view_label, AppView};
 pub use audio_manager::*;
+pub use icons::*;
+pub use navigation::Navigation;
+pub use player::*;
+pub use sidebar::*;
 // Views are accessed via views::ViewName

@@ -1,12 +1,12 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
 use crate::components::views::search::ArtistCard;
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn ArtistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
 
     let artists = use_resource(move || {
@@ -24,7 +24,7 @@ pub fn ArtistsView() -> Element {
             artists
         }
     });
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header page-header--split",
@@ -41,7 +41,12 @@ pub fn ArtistsView() -> Element {
                         class: "w-full pl-10 pr-4 py-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                         placeholder: "Search artists",
                         value: search_query,
-                        oninput: move |e| search_query.set(e.value()),
+                        oninput: move |e| {
+                            let value = e.value();
+                            if value.is_empty() || value.len() >= 2 {
+                                search_query.set(value);
+                            }
+                        },
                     }
                 }
             }
@@ -81,16 +86,23 @@ pub fn ArtistsView() -> Element {
                                     for artist in filtered {
                                         ArtistCard {
                                             artist: artist.clone(),
-                                            onclick: move |_| {
-                                                current_view
-                                                    .set(AppView::ArtistDetail(artist.id.clone(), artist.server_id.clone()))
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let artist_id = artist.id.clone();
+                                                let artist_server_id = artist.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
+                                                        )
+                                                }
                                             },
                                         }
                                     }
                                 }
                             }
                         }
-                    },
+                    }
                     None => rsx! {
                         div { class: "flex items-center justify-center py-20",
                             Icon {

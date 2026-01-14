@@ -1,22 +1,25 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn HomeView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    
+
     // Fetch recent albums from all active servers
     let recent_albums = use_resource(move || {
-        let active_servers = servers().into_iter().filter(|s| s.active).collect::<Vec<_>>();
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
         async move {
             let mut albums = Vec::new();
             for server in active_servers {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums("newest", 8, 0).await {
+                if let Ok(server_albums) = client.get_albums("newest", 12, 0).await {
                     albums.extend(server_albums);
                 }
             }
@@ -24,26 +27,130 @@ pub fn HomeView() -> Element {
             albums
         }
     });
-    
-    // Fetch random songs
-    let random_songs = use_resource(move || {
-        let active_servers = servers().into_iter().filter(|s| s.active).collect::<Vec<_>>();
+
+    // Fetch most played albums
+    let most_played_albums = use_resource(move || {
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
         async move {
-            let mut songs = Vec::new();
+            let mut albums = Vec::new();
             for server in active_servers {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_songs) = client.get_random_songs(5).await {
-                    songs.extend(server_songs);
+                if let Ok(server_albums) = client.get_albums("frequent", 12, 0).await {
+                    albums.extend(server_albums);
                 }
             }
+            albums.truncate(12);
+            albums
+        }
+    });
+
+    // Fetch recently played albums
+    let recently_played_albums = use_resource(move || {
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
+        async move {
+            let mut albums = Vec::new();
+            for server in active_servers {
+                let client = NavidromeClient::new(server);
+                if let Ok(server_albums) = client.get_albums("recent", 12, 0).await {
+                    albums.extend(server_albums);
+                }
+            }
+            albums.truncate(12);
+            albums
+        }
+    });
+
+    // Fetch random albums
+    let random_albums = use_resource(move || {
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
+        async move {
+            let mut albums = Vec::new();
+            for server in active_servers {
+                let client = NavidromeClient::new(server);
+                if let Ok(server_albums) = client.get_albums("random", 12, 0).await {
+                    albums.extend(server_albums);
+                }
+            }
+            albums.truncate(12);
+            albums
+        }
+    });
+
+    // Fetch genres from albums
+    let genres = use_resource(move || {
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
+        async move {
+            let mut genre_set = std::collections::HashSet::new();
+            for server in active_servers {
+                let client = NavidromeClient::new(server);
+                if let Ok(server_albums) = client.get_albums("alphabeticalByName", 100, 0).await {
+                    for album in server_albums {
+                        if let Some(genre) = album.genre {
+                            genre_set.insert(genre);
+                        }
+                    }
+                }
+            }
+            let mut genres: Vec<String> = genre_set.into_iter().collect();
+            genres.sort();
+            genres.truncate(12);
+            genres
+        }
+    });
+
+    // Fetch quick picks (random songs)
+    let quick_picks = use_resource(move || {
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
+        async move {
+            let mut songs = Vec::new();
+            for server in &active_servers {
+                let client = NavidromeClient::new(server.clone());
+                if let Ok(artists) = client.get_artists().await {
+                    if let Some(artist) = artists
+                        .iter()
+                        .filter(|a| !a.name.trim().is_empty())
+                        .max_by_key(|a| a.album_count)
+                    {
+                    if let Ok(top) = client.get_top_songs(&artist.name, 24).await {
+                        songs.extend(top);
+                    }
+                    }
+                }
+            }
+
+            if songs.is_empty() {
+                for server in &active_servers {
+                    let client = NavidromeClient::new(server.clone());
+                    if let Ok(server_songs) = client.get_random_songs(24).await {
+                        songs.extend(server_songs);
+                    }
+                }
+            }
+
+            songs.truncate(24);
             songs
         }
     });
-    
+
     let has_servers = servers().iter().any(|s| s.active);
-    
+
     rsx! {
-        div { class: "space-y-8",
+        div { class: "space-y-8 max-w-none",
             // Welcome header
             header { class: "page-header",
                 h1 { class: "page-title", "Good evening" }
@@ -71,7 +178,10 @@ pub fn HomeView() -> Element {
                     }
                     button {
                         class: "px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-medium rounded-xl transition-colors",
-                        onclick: move |_| current_view.set(AppView::Settings),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Settings)
+                        },
                         "Add Server"
                     }
                 }
@@ -81,22 +191,86 @@ pub fn HomeView() -> Element {
                     QuickPlayCard {
                         title: "Random Mix".to_string(),
                         gradient: "from-purple-600 to-indigo-600".to_string(),
-                        onclick: move |_| current_view.set(AppView::Random),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Random)
+                        },
+                    }
+                    QuickPlayCard {
+                        title: "All Songs".to_string(),
+                        gradient: "from-sky-600 to-cyan-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Songs)
+                        },
                     }
                     QuickPlayCard {
                         title: "Favorites".to_string(),
                         gradient: "from-rose-600 to-pink-600".to_string(),
-                        onclick: move |_| current_view.set(AppView::Favorites),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Favorites)
+                        },
                     }
                     QuickPlayCard {
                         title: "Radio Stations".to_string(),
                         gradient: "from-emerald-600 to-teal-600".to_string(),
-                        onclick: move |_| current_view.set(AppView::Radio),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Radio)
+                        },
                     }
                     QuickPlayCard {
                         title: "All Albums".to_string(),
                         gradient: "from-amber-600 to-orange-600".to_string(),
-                        onclick: move |_| current_view.set(AppView::Albums),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Albums)
+                        },
+                    }
+                }
+
+                // Genres
+                section { class: "mb-8",
+                    div { class: "flex items-center justify-between mb-4",
+                        h2 { class: "text-xl font-semibold text-white", "Genres" }
+                        button {
+                            class: "text-sm text-zinc-400 hover:text-white transition-colors",
+                            onclick: {
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Albums)
+                            },
+                            "See all"
+                        }
+                    }
+
+                    {
+                        match genres() {
+                            Some(genres_list) if !genres_list.is_empty() => rsx! {
+                                div { class: "grid grid-cols-2 gap-3 max-h-48 overflow-y-auto",
+                                    for genre in genres_list {
+                                        GenreCard {
+                                            genre: genre.clone(),
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                move |_| {
+                                                    // For now, navigate to albums - could be enhanced to filter by genre
+                                                    navigation.navigate_to(AppView::Albums);
+                                                }
+                                            },
+                                        }
+                                    }
+                                }
+                            },
+                            _ => rsx! {
+                                div { class: "flex items-center justify-center py-8",
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-8 h-8 text-zinc-500".to_string(),
+                                    }
+                                }
+                            },
+                        }
                     }
                 }
 
@@ -106,7 +280,10 @@ pub fn HomeView() -> Element {
                         h2 { class: "text-xl font-semibold text-white", "Recently Added" }
                         button {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
-                            onclick: move |_| current_view.set(AppView::Albums),
+                            onclick: {
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Albums)
+                            },
                             "See all"
                         }
                     }
@@ -114,12 +291,164 @@ pub fn HomeView() -> Element {
                     {
                         match recent_albums() {
                             Some(albums) => rsx! {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4",
+                                div { class: "flex gap-4 overflow-x-auto pb-2",
                                     for album in albums {
                                         AlbumCard {
                                             album: album.clone(),
-                                            onclick: move |_| {
-                                                current_view.set(AppView::AlbumDetail(album.id.clone(), album.server_id.clone()))
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let album_id = album.id.clone();
+                                                let album_server_id = album.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
+                                                }
+                                            },
+                                        }
+                                    }
+                                }
+                            },
+                            None => rsx! {
+                                div { class: "flex items-center justify-center py-12",
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-8 h-8 text-zinc-500".to_string(),
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+
+                // Most played albums
+                section { class: "mb-8",
+                    div { class: "flex items-center justify-between mb-4",
+                        h2 { class: "text-xl font-semibold text-white", "Most Played" }
+                        button {
+                            class: "text-sm text-zinc-400 hover:text-white transition-colors",
+                            onclick: {
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Albums)
+                            },
+                            "See all"
+                        }
+                    }
+
+                    {
+                        match most_played_albums() {
+                            Some(albums) => rsx! {
+                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                    for album in albums {
+                                        AlbumCard {
+                                            album: album.clone(),
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let album_id = album.id.clone();
+                                                let album_server_id = album.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
+                                                }
+                                            },
+                                        }
+                                    }
+                                }
+                            },
+                            None => rsx! {
+                                div { class: "flex items-center justify-center py-12",
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-8 h-8 text-zinc-500".to_string(),
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+
+                // Recently played albums
+                section { class: "mb-8",
+                    div { class: "flex items-center justify-between mb-4",
+                        h2 { class: "text-xl font-semibold text-white", "Recently Played" }
+                        button {
+                            class: "text-sm text-zinc-400 hover:text-white transition-colors",
+                            onclick: {
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Albums)
+                            },
+                            "See all"
+                        }
+                    }
+
+                    {
+                        match recently_played_albums() {
+                            Some(albums) => rsx! {
+                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                    for album in albums {
+                                        AlbumCard {
+                                            album: album.clone(),
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let album_id = album.id.clone();
+                                                let album_server_id = album.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
+                                                }
+                                            },
+                                        }
+                                    }
+                                }
+                            },
+                            None => rsx! {
+                                div { class: "flex items-center justify-center py-12",
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-8 h-8 text-zinc-500".to_string(),
+                                    }
+                                }
+                            },
+                        }
+                    }
+                }
+
+                // Random albums
+                section { class: "mb-8",
+                    div { class: "flex items-center justify-between mb-4",
+                        h2 { class: "text-xl font-semibold text-white", "Random" }
+                        button {
+                            class: "text-sm text-zinc-400 hover:text-white transition-colors",
+                            onclick: {
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Albums)
+                            },
+                            "See all"
+                        }
+                    }
+
+                    {
+                        match random_albums() {
+                            Some(albums) => rsx! {
+                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                    for album in albums {
+                                        AlbumCard {
+                                            album: album.clone(),
+                                            onclick: {
+                                                let navigation = navigation.clone();
+                                                let album_id = album.id.clone();
+                                                let album_server_id = album.server_id.clone();
+                                                move |_| {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
+                                                }
                                             },
                                         }
                                     }
@@ -141,10 +470,18 @@ pub fn HomeView() -> Element {
                 section {
                     div { class: "flex items-center justify-between mb-4",
                         h2 { class: "text-xl font-semibold text-white", "Quick Picks" }
+                        button {
+                            class: "text-sm text-zinc-400 hover:text-white transition-colors",
+                            onclick: {
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Songs)
+                            },
+                            "See all"
+                        }
                     }
 
                     {
-                        match random_songs() {
+                        match quick_picks() {
                             Some(songs) => rsx! {
                                 div { class: "space-y-1",
                                     for (index , song) in songs.iter().enumerate() {
@@ -198,16 +535,130 @@ fn QuickPlayCard(title: String, gradient: String, onclick: EventHandler<MouseEve
 }
 
 #[component]
+fn GenreCard(genre: String, onclick: EventHandler<MouseEvent>) -> Element {
+    rsx! {
+        button {
+            class: "flex items-center gap-3 p-4 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-left group flex-shrink-0",
+            onclick: move |e| onclick.call(e),
+            div { class: "w-12 h-12 rounded-lg bg-gradient-to-br from-blue-600 to-purple-600 flex items-center justify-center shadow-lg",
+                Icon {
+                    name: "music".to_string(),
+                    class: "w-5 h-5 text-white".to_string(),
+                }
+            }
+            span { class: "font-medium text-white group-hover:text-emerald-400 transition-colors",
+                "{genre}"
+            }
+        }
+    }
+}
+
+#[component]
+fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let rating = song.user_rating.unwrap_or(0).min(5);
+
+    let cover_url = servers()
+        .iter()
+        .find(|s| s.id == song.server_id)
+        .and_then(|server| {
+            let client = NavidromeClient::new(server.clone());
+            song.cover_art
+                .as_ref()
+                .map(|ca| client.get_cover_art_url(ca, 120))
+        });
+
+    let artist_id = song.artist_id.clone();
+
+    let on_add_queue = {
+        let mut queue = queue.clone();
+        let song = song.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            queue.with_mut(|q| q.push(song.clone()));
+        }
+    };
+
+    rsx! {
+        div {
+            class: "group text-left cursor-pointer flex-shrink-0 w-48",
+            onclick: move |e| onclick.call(e),
+            // Cover
+            div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
+                {
+                    match cover_url {
+                        Some(url) => rsx! {
+                            img { class: "w-full h-full object-cover", src: "{url}" }
+                        },
+                        None => rsx! {
+                            div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
+                                Icon { name: "music".to_string(), class: "w-8 h-8 text-zinc-500".to_string() }
+                            }
+                        },
+                    }
+                }
+                button {
+                    class: "absolute top-2 right-2 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    aria_label: "Add to queue",
+                    onclick: on_add_queue,
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-3 h-3".to_string(),
+                    }
+                }
+                // Play overlay
+                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
+                    div { class: "w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
+                        Icon {
+                            name: "play".to_string(),
+                            class: "w-5 h-5 text-white ml-0.5".to_string(),
+                        }
+                    }
+                }
+            }
+            // Song info
+            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
+                "{song.title}"
+            }
+            if artist_id.is_some() {
+                p { class: "text-xs text-zinc-400 truncate",
+                    "{song.artist.clone().unwrap_or_default()}"
+                }
+            } else {
+                p { class: "text-xs text-zinc-400 truncate",
+                    "{song.artist.clone().unwrap_or_default()}"
+                }
+            }
+            if rating > 0 {
+                div { class: "mt-2 flex items-center gap-1 text-amber-400",
+                    for i in 1..=5 {
+                        Icon {
+                            name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
+                            class: "w-3.5 h-3.5".to_string(),
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[component]
 pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    
-    let cover_url = servers().iter()
+
+    let cover_url = servers()
+        .iter()
         .find(|s| s.id == album.server_id)
         .and_then(|server| {
             let client = NavidromeClient::new(server.clone());
-            album.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 300))
+            album
+                .cover_art
+                .as_ref()
+                .map(|ca| client.get_cover_art_url(ca, 300))
         });
 
     let on_add_album = {
@@ -236,18 +687,18 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
     let on_artist_click = {
         let artist_id = album.artist_id.clone();
         let server_id = album.server_id.clone();
-        let mut current_view = current_view.clone();
+        let navigation = navigation.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(artist_id) = artist_id.clone() {
-                current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+                navigation.navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
             }
         }
     };
-    
+
     rsx! {
         div {
-            class: "group text-left cursor-pointer",
+            class: "group text-left cursor-pointer flex-shrink-0 w-48",
             onclick: move |e| onclick.call(e),
             // Album cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
@@ -305,14 +756,18 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 #[component]
 pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    
-    let cover_url = servers().iter()
+    let rating = song.user_rating.unwrap_or(0).min(5);
+
+    let cover_url = servers()
+        .iter()
         .find(|s| s.id == song.server_id)
         .and_then(|server| {
             let client = NavidromeClient::new(server.clone());
-            song.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
+            song.cover_art
+                .as_ref()
+                .map(|ca| client.get_cover_art_url(ca, 80))
         });
 
     let album_id = song.album_id.clone();
@@ -322,35 +777,11 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
     let on_album_click_cover = {
         let album_id = album_id.clone();
         let server_id = server_id.clone();
-        let mut current_view = current_view.clone();
+        let navigation = navigation.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(album_id_val) = album_id.clone() {
-                current_view.set(AppView::AlbumDetail(album_id_val, server_id.clone()));
-            }
-        }
-    };
-
-    let on_album_click_text = {
-        let album_id = album_id.clone();
-        let server_id = server_id.clone();
-        let mut current_view = current_view.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(album_id_val) = album_id.clone() {
-                current_view.set(AppView::AlbumDetail(album_id_val, server_id.clone()));
-            }
-        }
-    };
-
-    let on_artist_click = {
-        let artist_id = artist_id.clone();
-        let server_id = server_id.clone();
-        let mut current_view = current_view.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(artist_id) = artist_id.clone() {
-                current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
             }
         }
     };
@@ -363,7 +794,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             queue.with_mut(|q| q.push(song.clone()));
         }
     };
-    
+
     rsx! {
         div {
             class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
@@ -414,9 +845,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                     "{song.title}"
                 }
                 if artist_id.is_some() {
-                    button {
-                        class: "text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors",
-                        onclick: on_artist_click,
+                    p { class: "text-xs text-zinc-400 truncate",
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 } else {
@@ -428,9 +857,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             // Album
             div { class: "hidden md:block flex-1 min-w-0",
                 if album_id.is_some() {
-                    button {
-                        class: "text-sm text-zinc-400 truncate hover:text-emerald-400 transition-colors",
-                        onclick: on_album_click_text,
+                    p { class: "text-sm text-zinc-400 truncate",
                         "{song.album.clone().unwrap_or_default()}"
                     }
                 } else {
@@ -441,6 +868,16 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             }
             // Duration
             div { class: "flex items-center gap-3",
+                if rating > 0 {
+                    div { class: "hidden sm:flex items-center gap-1 text-amber-400",
+                        for i in 1..=5 {
+                            Icon {
+                                name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
+                                class: "w-3.5 h-3.5".to_string(),
+                            }
+                        }
+                    }
+                }
                 button {
                     class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",

@@ -37,6 +37,10 @@ jobs:
     - uses: actions/checkout@v4
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
+    - name: Create ICO icon
+      run: |
+        choco install imagemagick
+        magick assets/logo.png -define icon:auto-resize=256,128,64,48,32,16 assets/logo.ico
     - run: cargo install dioxus-cli
     - run: dx bundle --platform desktop --release
       continue-on-error: true
@@ -178,7 +182,9 @@ jobs:
         name: Release ${{ steps.version.outputs.tag }}
         files: |
           artifacts/**/*.app
+          artifacts/**/*.dmg
           artifacts/**/*.exe
+          artifacts/**/*.apk
         generate_release_notes: true
         draft: false
         prerelease: false

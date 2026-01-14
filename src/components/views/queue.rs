@@ -1,28 +1,33 @@
-use dioxus::prelude::*;
-use crate::api::*;
-use crate::components::{AppView, Icon};
 use crate::api::models::format_duration;
+use crate::api::*;
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn QueueView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    
+
     let current_index = queue_index();
     let songs: Vec<Song> = queue().into_iter().collect();
     let current_song = now_playing();
-    
+
     let on_clear = move |_| {
-        queue.set(Vec::new());
-        queue_index.set(0);
-        now_playing.set(None);
-        is_playing.set(false);
+        let current = now_playing();
+        if let Some(song) = current {
+            queue.set(vec![song]);
+            queue_index.set(0);
+        } else {
+            queue.set(Vec::new());
+            queue_index.set(0);
+            is_playing.set(false);
+        }
     };
-    
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header page-header--split",
@@ -76,7 +81,6 @@ pub fn QueueView() -> Element {
                                     }
                                     div { class: "flex items-center justify-between group",
                                         div { class: "flex items-center gap-4",
-                                            // Cover art
                                             if current.album_id.is_some() {
                                                 button {
                                                     class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
@@ -84,25 +88,28 @@ pub fn QueueView() -> Element {
                                                     onclick: {
                                                         let album_id = current.album_id.clone();
                                                         let server_id = current.server_id.clone();
-                                                        let mut current_view = current_view.clone();
+                                                        let navigation = navigation.clone();
                                                         move |evt: MouseEvent| {
                                                             evt.stop_propagation();
                                                             if let Some(album_id) = album_id.clone() {
-                                                                current_view.set(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                                navigation
+                                                                    .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
                                                             }
                                                         }
                                                     },
                                                     {
-                                                        match current_cover {
+                                                        match current_cover.clone() {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{current.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-5 h-5 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
@@ -113,20 +120,24 @@ pub fn QueueView() -> Element {
                                                     {
                                                         match current_cover {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{current.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-5 h-5 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
                                                     }
                                                 }
                                             }
+
+        
 
                                             div {
                                                 p { class: "font-medium text-white", "{current.title}" }
@@ -136,11 +147,12 @@ pub fn QueueView() -> Element {
                                                         onclick: {
                                                             let artist_id = current.artist_id.clone();
                                                             let server_id = current.server_id.clone();
-                                                            let mut current_view = current_view.clone();
+                                                            let navigation = navigation.clone();
                                                             move |evt: MouseEvent| {
                                                                 evt.stop_propagation();
                                                                 if let Some(artist_id) = artist_id.clone() {
-                                                                    current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+                                                                    navigation
+                                                                        .navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
                                                                 }
                                                             }
                                                         },
@@ -153,10 +165,8 @@ pub fn QueueView() -> Element {
                                                 }
                                             }
                                         }
-
-                                        div { class: "text-sm text-zinc-500 font-mono",
-                                            "{format_duration(current.duration)}"
-                                        }
+        
+                                        div { class: "text-sm text-zinc-500 font-mono", "{format_duration(current.duration)}" }
                                     }
                                 }
                             }
@@ -188,21 +198,8 @@ pub fn QueueView() -> Element {
                                             }
                                         },
 
-                                    // Index or playing indicator
-
-                                    // Adjust current index if needed
-        
         
 
-                                        // Remove the song from queue
-
-                                        // Adjust index and now_playing based on removal
-                                        // Queue is now empty
-                                        // Removed song before current, just adjust index
-                                        // Removed the currently playing song
-                                        // Set now_playing first to avoid the queue_index effect overriding
-                                        // Preserve playback state
-                                        // If idx > current_index, nothing needs to change
                                         div { class: "flex items-center gap-4 overflow-hidden",
                                             div { class: "w-8 text-center text-sm flex-shrink-0",
                                                 if is_current {
@@ -221,25 +218,28 @@ pub fn QueueView() -> Element {
                                                     onclick: {
                                                         let album_id = song.album_id.clone();
                                                         let server_id = song.server_id.clone();
-                                                        let mut current_view = current_view.clone();
+                                                        let navigation = navigation.clone();
                                                         move |evt: MouseEvent| {
                                                             evt.stop_propagation();
                                                             if let Some(album_id) = album_id.clone() {
-                                                                current_view.set(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                                navigation
+                                                                    .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
                                                             }
                                                         }
                                                     },
                                                     {
-                                                        match cover_url {
+                                                        match cover_url.clone() {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{song.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
@@ -250,14 +250,16 @@ pub fn QueueView() -> Element {
                                                     {
                                                         match cover_url {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{song.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
@@ -275,11 +277,12 @@ pub fn QueueView() -> Element {
                                                         onclick: {
                                                             let artist_id = song.artist_id.clone();
                                                             let server_id = song.server_id.clone();
-                                                            let mut current_view = current_view.clone();
+                                                            let navigation = navigation.clone();
                                                             move |evt: MouseEvent| {
                                                                 evt.stop_propagation();
                                                                 if let Some(artist_id) = artist_id.clone() {
-                                                                    current_view.set(AppView::ArtistDetail(artist_id, server_id.clone()));
+                                                                    navigation
+                                                                        .navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
                                                                 }
                                                             }
                                                         },
@@ -296,11 +299,12 @@ pub fn QueueView() -> Element {
                                                         onclick: {
                                                             let album_id = song.album_id.clone();
                                                             let server_id = song.server_id.clone();
-                                                            let mut current_view = current_view.clone();
+                                                            let navigation = navigation.clone();
                                                             move |evt: MouseEvent| {
                                                                 evt.stop_propagation();
                                                                 if let Some(album_id) = album_id.clone() {
-                                                                    current_view.set(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                                    navigation
+                                                                        .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
                                                                 }
                                                             }
                                                         },

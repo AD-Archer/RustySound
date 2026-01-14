@@ -1,19 +1,19 @@
-use dioxus::prelude::*;
 use crate::api::*;
-use crate::components::{AppView, Icon};
 use crate::components::views::home::SongRow;
+use crate::components::{AppView, Icon, Navigation};
+use dioxus::prelude::*;
 
 #[component]
 pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut current_view = use_context::<Signal<AppView>>();
+    let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    
+
     let server = servers().into_iter().find(|s| s.id == server_id);
-    
+
     let playlist_data = use_resource(move || {
         let server = server.clone();
         let playlist_id = playlist_id.clone();
@@ -26,7 +26,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
         }
     });
-    
+
     let on_play_all = {
         let playlist_data_ref = playlist_data.clone();
         move |_| {
@@ -40,17 +40,21 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
         }
     };
-    
+
     rsx! {
         div { class: "space-y-8",
             // Back button
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
-                onclick: move |_| current_view.set(AppView::Playlists),
+                onclick: move |_| {
+                    if navigation.go_back().is_none() {
+                        navigation.navigate_to(AppView::Playlists);
+                    }
+                },
                 Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
                 "Back to Playlists"
             }
-            
+
             {match playlist_data() {
                 Some(Some((playlist, songs))) => {
                     let cover_url = servers().iter()
@@ -59,7 +63,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             let client = NavidromeClient::new(server.clone());
                             playlist.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 500))
                         });
-                    
+
                     rsx! {
                         // Playlist header
                         div { class: "flex flex-col md:flex-row gap-8 mb-8",
@@ -106,12 +110,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 }
                             }
                         }
-                        
+
                         // Song list
                         div { class: "space-y-1",
                             for (index, song) in songs.iter().enumerate() {
-                                SongRow { 
-                                    song: song.clone(), 
+                                SongRow {
+                                    song: song.clone(),
                                     index: index + 1,
                                     onclick: {
                                         let song = song.clone();

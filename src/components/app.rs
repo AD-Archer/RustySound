@@ -1,7 +1,8 @@
 use crate::api::*;
 use crate::components::views::*;
 use crate::components::{
-    AudioController, AudioState, Icon, PlaybackPositionSignal, Player, Sidebar, VolumeSignal,
+    view_label, AppView, AudioController, AudioState, Icon, Navigation, PlaybackPositionSignal,
+    Player, Sidebar, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -10,6 +11,8 @@ use crate::db::{
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
+
+const BACK_SWIPE_THRESHOLD: f64 = 100.0;
 
 fn normalize_volume(mut value: f64) -> f64 {
     if !value.is_finite() {
@@ -21,41 +24,6 @@ fn normalize_volume(mut value: f64) -> f64 {
         passes += 1;
     }
     value.clamp(0.0, 1.0)
-}
-
-fn view_label(view: &AppView) -> &'static str {
-    match view {
-        AppView::Home => "Home",
-        AppView::Search => "Search",
-        AppView::Albums => "Albums",
-        AppView::Artists => "Artists",
-        AppView::Playlists => "Playlists",
-        AppView::Radio => "Radio",
-        AppView::Favorites => "Favorites",
-        AppView::Random => "Random",
-        AppView::Settings => "Settings",
-        AppView::Queue => "Queue",
-        AppView::AlbumDetail(_, _) => "Album",
-        AppView::ArtistDetail(_, _) => "Artist",
-        AppView::PlaylistDetail(_, _) => "Playlist",
-    }
-}
-
-#[derive(Clone, PartialEq)]
-pub enum AppView {
-    Home,
-    Search,
-    Albums,
-    Artists,
-    Playlists,
-    Radio,
-    Favorites,
-    Random,
-    Settings,
-    Queue,
-    AlbumDetail(String, String),    // album_id, server_id
-    ArtistDetail(String, String),   // artist_id, server_id
-    PlaylistDetail(String, String), // playlist_id, server_id
 }
 
 #[component]
@@ -74,10 +42,49 @@ pub fn AppShell() -> Element {
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let audio_state = use_signal(AudioState::default);
     let sidebar_open = use_signal(|| false);
+    let navigation_stack = use_signal(Vec::<AppView>::new);
+    let navigation = Navigation::new(current_view.clone(), navigation_stack.clone());
+    let swipe_start = use_signal(|| None::<f64>);
 
     // Provide state via context
     use_context_provider(|| servers);
     use_context_provider(|| current_view);
+    use_context_provider(|| navigation.clone());
+
+    let on_pointer_down = {
+        let mut swipe_start = swipe_start.clone();
+        move |evt: PointerEvent| {
+            swipe_start.set(Some(evt.client_coordinates().x));
+        }
+    };
+
+    let on_pointer_move = {
+        let mut swipe_start = swipe_start.clone();
+        let navigation = navigation.clone();
+        move |evt: PointerEvent| {
+            if let Some(start) = swipe_start() {
+                let delta = evt.client_coordinates().x - start;
+                if delta > BACK_SWIPE_THRESHOLD && navigation.can_go_back() {
+                    navigation.go_back();
+                    swipe_start.set(None);
+                }
+            }
+        }
+    };
+
+    let on_pointer_up = {
+        let mut swipe_start = swipe_start.clone();
+        move |_| {
+            swipe_start.set(None);
+        }
+    };
+
+    let on_pointer_cancel = {
+        let mut swipe_start = swipe_start.clone();
+        move |_| {
+            swipe_start.set(None);
+        }
+    };
     use_context_provider(|| now_playing);
     use_context_provider(|| queue);
     use_context_provider(|| queue_index);
@@ -115,7 +122,7 @@ pub fn AppShell() -> Element {
                 let normalized_settings = settings.clone();
                 app_settings.set(settings);
                 if (normalized_settings.volume - original_volume).abs() > f64::EPSILON {
-                    let _ = save_settings(normalized_settings).await;
+                    let _ = save_settings(normalized_settings.clone()).await;
                 }
             }
 
@@ -146,12 +153,12 @@ pub fn AppShell() -> Element {
         let shuffle = shuffle_enabled();
         let repeat = repeat_mode();
         let mut settings = app_settings();
-        
+
         if db_initialized() {
-            let changed = (settings.volume - vol).abs() > 0.01 
-                || settings.shuffle_enabled != shuffle 
+            let changed = (settings.volume - vol).abs() > 0.01
+                || settings.shuffle_enabled != shuffle
                 || settings.repeat_mode != repeat;
-            
+
             if changed {
                 settings.volume = vol;
                 settings.shuffle_enabled = shuffle;
@@ -244,8 +251,8 @@ pub fn AppShell() -> Element {
                             class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
                             aria_label: "Open queue",
                             onclick: {
-                                let mut current_view = current_view.clone();
-                                move |_| current_view.set(AppView::Queue)
+                                let nav = navigation.clone();
+                                move |_| nav.navigate_to(AppView::Queue)
                             },
                             Icon {
                                 name: "bars".to_string(),
@@ -257,7 +264,12 @@ pub fn AppShell() -> Element {
 
                 // Main scrollable content
                 main { class: "flex-1 overflow-y-auto main-scroll",
-                    div { class: "page-shell",
+                    div {
+                        class: "page-shell",
+                        onpointerdown: on_pointer_down,
+                        onpointermove: on_pointer_move,
+                        onpointerup: on_pointer_up,
+                        onpointercancel: on_pointer_cancel,
                         {
                             match view {
                                 AppView::Home => rsx! {
@@ -265,6 +277,9 @@ pub fn AppShell() -> Element {
                                 },
                                 AppView::Search => rsx! {
                                     SearchView {}
+                                },
+                                AppView::Songs => rsx! {
+                                    SongsView {}
                                 },
                                 AppView::Albums => rsx! {
                                     AlbumsView {}
@@ -286,6 +301,9 @@ pub fn AppShell() -> Element {
                                 },
                                 AppView::Settings => rsx! {
                                     SettingsView {}
+                                },
+                                AppView::Stats => rsx! {
+                                    StatsView {}
                                 },
                                 AppView::Queue => rsx! {
                                     QueueView {}
