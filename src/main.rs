@@ -38,11 +38,11 @@ fn App() -> Element {
         }
 
         // Web app manifest
-        document::Link { rel: "manifest", href: "/manifest.json" }
+        document::Link { rel: "manifest", href: "/assets/manifest.json" }
 
         // Theme color for mobile browsers
         document::Meta { name: "theme-color", content: "#1f2937" }
-        document::Meta { name: "apple-mobile-web-app-capable", content: "yes" }
+        document::Meta { name: "mobile-web-app-capable", content: "yes" }
         document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }
         document::Meta { name: "apple-mobile-web-app-title", content: "RustySound" }
 

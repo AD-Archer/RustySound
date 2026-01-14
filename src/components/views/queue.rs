@@ -17,10 +17,15 @@ pub fn QueueView() -> Element {
     let current_song = now_playing();
 
     let on_clear = move |_| {
-        queue.set(Vec::new());
-        queue_index.set(0);
-        now_playing.set(None);
-        is_playing.set(false);
+        let current = now_playing();
+        if let Some(song) = current {
+            queue.set(vec![song]);
+            queue_index.set(0);
+        } else {
+            queue.set(Vec::new());
+            queue_index.set(0);
+            is_playing.set(false);
+        }
     };
 
     rsx! {
@@ -76,7 +81,6 @@ pub fn QueueView() -> Element {
                                     }
                                     div { class: "flex items-center justify-between group",
                                         div { class: "flex items-center gap-4",
-                                            // Cover art
                                             if current.album_id.is_some() {
                                                 button {
                                                     class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
@@ -88,24 +92,24 @@ pub fn QueueView() -> Element {
                                                         move |evt: MouseEvent| {
                                                             evt.stop_propagation();
                                                             if let Some(album_id) = album_id.clone() {
-                                                                navigation.navigate_to(AppView::AlbumDetail(
-                                                                    album_id,
-                                                                    server_id.clone(),
-                                                                ));
+                                                                navigation
+                                                                    .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
                                                             }
                                                         }
                                                     },
                                                     {
-                                                        match current_cover {
+                                                        match current_cover.clone() {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{current.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-5 h-5 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
@@ -116,20 +120,24 @@ pub fn QueueView() -> Element {
                                                     {
                                                         match current_cover {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{current.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full bg-zinc-700 flex items-center justify-center",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-5 h-5 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
                                                     }
                                                 }
                                             }
+
+        
 
                                             div {
                                                 p { class: "font-medium text-white", "{current.title}" }
@@ -143,10 +151,8 @@ pub fn QueueView() -> Element {
                                                             move |evt: MouseEvent| {
                                                                 evt.stop_propagation();
                                                                 if let Some(artist_id) = artist_id.clone() {
-                                                                    navigation.navigate_to(AppView::ArtistDetail(
-                                                                        artist_id,
-                                                                        server_id.clone(),
-                                                                    ));
+                                                                    navigation
+                                                                        .navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
                                                                 }
                                                             }
                                                         },
@@ -159,10 +165,8 @@ pub fn QueueView() -> Element {
                                                 }
                                             }
                                         }
-
-                                        div { class: "text-sm text-zinc-500 font-mono",
-                                            "{format_duration(current.duration)}"
-                                        }
+        
+                                        div { class: "text-sm text-zinc-500 font-mono", "{format_duration(current.duration)}" }
                                     }
                                 }
                             }
@@ -194,21 +198,8 @@ pub fn QueueView() -> Element {
                                             }
                                         },
 
-                                    // Index or playing indicator
+        
 
-                                    // Adjust current index if needed
-
-
-
-                                        // Remove the song from queue
-
-                                        // Adjust index and now_playing based on removal
-                                        // Queue is now empty
-                                        // Removed song before current, just adjust index
-                                        // Removed the currently playing song
-                                        // Set now_playing first to avoid the queue_index effect overriding
-                                        // Preserve playback state
-                                        // If idx > current_index, nothing needs to change
                                         div { class: "flex items-center gap-4 overflow-hidden",
                                             div { class: "w-8 text-center text-sm flex-shrink-0",
                                                 if is_current {
@@ -231,24 +222,24 @@ pub fn QueueView() -> Element {
                                                         move |evt: MouseEvent| {
                                                             evt.stop_propagation();
                                                             if let Some(album_id) = album_id.clone() {
-                                                                navigation.navigate_to(AppView::AlbumDetail(
-                                                                    album_id,
-                                                                    server_id.clone(),
-                                                                ));
+                                                                navigation
+                                                                    .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
                                                             }
                                                         }
                                                     },
                                                     {
-                                                        match cover_url {
+                                                        match cover_url.clone() {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{song.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
@@ -259,21 +250,23 @@ pub fn QueueView() -> Element {
                                                     {
                                                         match cover_url {
                                                             Some(url) => rsx! {
-                                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                                img {
+                                                                    src: "{url}",
+                                                                    alt: "{song.title}",
+                                                                    class: "w-full h-full object-cover",
+                                                                    loading: "lazy",
+                                                                }
                                                             },
                                                             None => rsx! {
                                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
-                                                                    Icon {
-                                                                        name: "music".to_string(),
-                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
-                                                                    }
+                                                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
                                                                 }
                                                             },
                                                         }
                                                     }
                                                 }
                                             }
-
+        
                                             div { class: "min-w-0",
                                                 p { class: if is_current { "text-emerald-400 font-medium truncate" } else { "text-zinc-300 truncate group-hover:text-white" },
                                                     "{song.title}"
@@ -288,10 +281,8 @@ pub fn QueueView() -> Element {
                                                             move |evt: MouseEvent| {
                                                                 evt.stop_propagation();
                                                                 if let Some(artist_id) = artist_id.clone() {
-                                                                    navigation.navigate_to(AppView::ArtistDetail(
-                                                                        artist_id,
-                                                                        server_id.clone(),
-                                                                    ));
+                                                                    navigation
+                                                                        .navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
                                                                 }
                                                             }
                                                         },
@@ -312,10 +303,8 @@ pub fn QueueView() -> Element {
                                                             move |evt: MouseEvent| {
                                                                 evt.stop_propagation();
                                                                 if let Some(album_id) = album_id.clone() {
-                                                                    navigation.navigate_to(AppView::AlbumDetail(
-                                                                        album_id,
-                                                                        server_id.clone(),
-                                                                    ));
+                                                                    navigation
+                                                                        .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
                                                                 }
                                                             }
                                                         },
@@ -328,21 +317,21 @@ pub fn QueueView() -> Element {
                                                 }
                                             }
                                         }
-
+        
                                         div { class: "flex items-center gap-4",
                                             span { class: "text-sm text-zinc-600 font-mono group-hover:hidden",
                                                 "{format_duration(song.duration)}"
                                             }
-
+        
                                             button {
                                                 class: "p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
                                                     let was_playing = is_playing();
                                                     let q_len = queue().len();
-
+        
                                                     queue
-
+        
                                                         .with_mut(|q| {
                                                             if idx < q.len() {
                                                                 q.remove(idx);

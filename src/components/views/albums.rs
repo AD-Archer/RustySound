@@ -101,7 +101,7 @@ pub fn AlbumsView() -> Element {
                         } else {
                             div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4",
                                 for album in filtered {
-                                    AlbumCard { 
+                                    AlbumCard {
                                         album: album.clone(),
                                         onclick: {
                                             let navigation = navigation.clone();

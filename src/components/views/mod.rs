@@ -11,6 +11,7 @@ mod radio;
 mod random;
 mod search;
 mod settings;
+mod stats;
 
 pub use album_detail::AlbumDetailView;
 pub use albums::AlbumsView;
@@ -25,3 +26,4 @@ pub use radio::RadioView;
 pub use random::RandomView;
 pub use search::SearchView;
 pub use settings::SettingsView;
+pub use stats::StatsView;

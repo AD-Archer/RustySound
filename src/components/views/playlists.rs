@@ -73,7 +73,7 @@ pub fn PlaylistsView() -> Element {
                         } else {
                             div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4",
                                 for playlist in filtered {
-                                    PlaylistCard { 
+                                    PlaylistCard {
                                         playlist: playlist.clone(),
                                         onclick: {
                                             let navigation = navigation.clone();

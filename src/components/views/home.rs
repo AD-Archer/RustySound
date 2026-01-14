@@ -87,38 +87,38 @@ pub fn HomeView() -> Element {
             } else {
                 // Quick play cards
                 div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8",
-                QuickPlayCard {
-                    title: "Random Mix".to_string(),
-                    gradient: "from-purple-600 to-indigo-600".to_string(),
-                    onclick: {
-                        let nav = navigation.clone();
-                        move |_| nav.navigate_to(AppView::Random)
-                    },
-                }
-                QuickPlayCard {
-                    title: "Favorites".to_string(),
-                    gradient: "from-rose-600 to-pink-600".to_string(),
-                    onclick: {
-                        let nav = navigation.clone();
-                        move |_| nav.navigate_to(AppView::Favorites)
-                    },
-                }
-                QuickPlayCard {
-                    title: "Radio Stations".to_string(),
-                    gradient: "from-emerald-600 to-teal-600".to_string(),
-                    onclick: {
-                        let nav = navigation.clone();
-                        move |_| nav.navigate_to(AppView::Radio)
-                    },
-                }
-                QuickPlayCard {
-                    title: "All Albums".to_string(),
-                    gradient: "from-amber-600 to-orange-600".to_string(),
-                    onclick: {
-                        let nav = navigation.clone();
-                        move |_| nav.navigate_to(AppView::Albums)
-                    },
-                }
+                    QuickPlayCard {
+                        title: "Random Mix".to_string(),
+                        gradient: "from-purple-600 to-indigo-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Random)
+                        },
+                    }
+                    QuickPlayCard {
+                        title: "Favorites".to_string(),
+                        gradient: "from-rose-600 to-pink-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Favorites)
+                        },
+                    }
+                    QuickPlayCard {
+                        title: "Radio Stations".to_string(),
+                        gradient: "from-emerald-600 to-teal-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Radio)
+                        },
+                    }
+                    QuickPlayCard {
+                        title: "All Albums".to_string(),
+                        gradient: "from-amber-600 to-orange-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Albums)
+                        },
+                    }
                 }
 
                 // Recently added albums
@@ -147,10 +147,10 @@ pub fn HomeView() -> Element {
                                                 let album_id = album.id.clone();
                                                 let album_server_id = album.server_id.clone();
                                                 move |_| {
-                                                    navigation.navigate_to(AppView::AlbumDetail(
-                                                        album_id.clone(),
-                                                        album_server_id.clone(),
-                                                    ))
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                        )
                                                 }
                                             },
                                         }
@@ -370,30 +370,6 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
         }
     };
 
-    let on_album_click_text = {
-        let album_id = album_id.clone();
-        let server_id = server_id.clone();
-        let navigation = navigation.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
-            }
-        }
-    };
-
-    let on_artist_click = {
-        let artist_id = artist_id.clone();
-        let server_id = server_id.clone();
-        let navigation = navigation.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(artist_id) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
-            }
-        }
-    };
-
     let on_add_queue = {
         let mut queue = queue.clone();
         let song = song.clone();
@@ -453,9 +429,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                     "{song.title}"
                 }
                 if artist_id.is_some() {
-                    button {
-                        class: "text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors",
-                        onclick: on_artist_click,
+                    p { class: "text-xs text-zinc-400 truncate",
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 } else {
@@ -467,9 +441,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             // Album
             div { class: "hidden md:block flex-1 min-w-0",
                 if album_id.is_some() {
-                    button {
-                        class: "text-sm text-zinc-400 truncate hover:text-emerald-400 transition-colors",
-                        onclick: on_album_click_text,
+                    p { class: "text-sm text-zinc-400 truncate",
                         "{song.album.clone().unwrap_or_default()}"
                     }
                 } else {

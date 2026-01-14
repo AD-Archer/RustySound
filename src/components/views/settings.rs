@@ -8,6 +8,7 @@ pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut app_settings = use_context::<Signal<AppSettings>>();
     let mut volume = use_context::<VolumeSignal>().0;
+    let mut shuffle_enabled = use_context::<Signal<bool>>();
 
     let mut server_name = use_signal(String::new);
     let mut server_url = use_signal(String::new);
@@ -294,6 +295,32 @@ pub fn SettingsView() -> Element {
                             class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
                             onclick: on_replay_gain_toggle,
                             div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+                }
+            }
+
+            // Debug Section
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                h2 { class: "text-lg font-semibold text-white mb-6", "Debug Tools" }
+
+                div { class: "space-y-4",
+                    p { class: "text-sm text-zinc-400", "Shuffle is: {shuffle_enabled()}" }
+                    div { class: "flex flex-wrap gap-4",
+                        button {
+                            class: "px-4 py-2 rounded-xl bg-blue-500 text-white hover:bg-blue-400 transition-colors",
+                            onclick: move |_| {
+                                let current = shuffle_enabled();
+                                shuffle_enabled.set(!current);
+                            },
+                            "Test Shuffle Toggle"
+                        }
+                        button {
+                            class: "px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-400 transition-colors",
+                            onclick: move |_| {
+                                shuffle_enabled.set(false);
+                            },
+                            "Force Shuffle Off"
                         }
                     }
                 }

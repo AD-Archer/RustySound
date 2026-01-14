@@ -137,6 +137,12 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                         active: matches!(view, AppView::Settings),
                         onclick: nav_to(AppView::Settings),
                     }
+                    NavItem {
+                        icon: "bar-chart",
+                        label: "Stats",
+                        active: matches!(view, AppView::Stats),
+                        onclick: nav_to(AppView::Stats),
+                    }
                 }
             }
         }

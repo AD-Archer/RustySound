@@ -122,7 +122,7 @@ pub fn AppShell() -> Element {
                 let normalized_settings = settings.clone();
                 app_settings.set(settings);
                 if (normalized_settings.volume - original_volume).abs() > f64::EPSILON {
-                    let _ = save_settings(normalized_settings).await;
+                    let _ = save_settings(normalized_settings.clone()).await;
                 }
             }
 
@@ -298,6 +298,9 @@ pub fn AppShell() -> Element {
                                 },
                                 AppView::Settings => rsx! {
                                     SettingsView {}
+                                },
+                                AppView::Stats => rsx! {
+                                    StatsView {}
                                 },
                                 AppView::Queue => rsx! {
                                     QueueView {}

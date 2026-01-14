@@ -61,7 +61,7 @@ pub fn RandomView() -> Element {
                     h1 { class: "page-title", "Random Mix" }
                     p { class: "page-subtitle", "A random selection from your library" }
                 }
-                div { class: "flex flex-wrap gap-3",
+                div { class: "flex flex-wrap gap-6",
                     button {
                         class: if shuffle_enabled() { "px-4 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2" },
                         onclick: on_shuffle,

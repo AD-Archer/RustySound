@@ -72,6 +72,40 @@ pub fn AudioController() -> Element {
 
 /// Audio controller hook - manages playback imperatively
 #[cfg(target_arch = "wasm32")]
+pub(crate) fn spawn_shuffle_queue(
+    servers: Vec<ServerConfig>,
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+) {
+    let mut active_servers: Vec<ServerConfig> = servers.into_iter().filter(|s| s.active).collect();
+    if active_servers.is_empty() {
+        return;
+    }
+
+    spawn(async move {
+        let mut songs = Vec::new();
+        for server in active_servers.drain(..) {
+            let client = NavidromeClient::new(server);
+            if let Ok(server_songs) = client.get_random_songs(25).await {
+                songs.extend(server_songs);
+            }
+        }
+        if songs.is_empty() {
+            return;
+        }
+
+        let len = songs.len();
+        for i in (1..len).rev() {
+            let j = (js_sys::Math::random() * ((i + 1) as f64)) as usize;
+            songs.swap(i, j);
+        }
+        songs.truncate(50);
+        queue.set(songs);
+        queue_index.set(0);
+    });
+}
+
+#[cfg(target_arch = "wasm32")]
 #[component]
 pub fn AudioController() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -154,32 +188,10 @@ pub fn AudioController() -> Element {
 
         // Set up ended listener for auto-next
         let end_closure = Closure::wrap(Box::new(move || {
-            let idx = queue_index();
-            let queue_list = queue();
-            let current_repeat = repeat_mode();
-            let current_shuffle = shuffle_enabled();
-
-            let pick_random_index = |queue_len: usize, exclude: Option<usize>| -> Option<usize> {
-                if queue_len == 0 {
-                    return None;
-                }
-                // On wasm, Math.random is reliable and avoids any getrandom runtime issues.
-                let random = |max: usize| -> usize {
-                    if max == 0 {
-                        return 0;
-                    }
-                    (js_sys::Math::random() * (max as f64)) as usize
-                };
-
-                match exclude {
-                    Some(excl) if queue_len > 1 => {
-                        // Pick from indices that don't match the excluded one
-                        let idx = random(queue_len - 1);
-                        Some(if idx >= excl { idx + 1 } else { idx })
-                    }
-                    _ => Some(random(queue_len)),
-                }
-            };
+            let idx = *queue_index.peek();
+            let queue_list = queue.peek();
+            let current_repeat = *repeat_mode.peek();
+            let current_shuffle = *shuffle_enabled.peek();
 
             match current_repeat {
                 RepeatMode::One => {
@@ -188,35 +200,19 @@ pub fn AudioController() -> Element {
                 RepeatMode::All => {
                     if current_shuffle {
                         if queue_list.is_empty() {
-                            // Queue is empty, fetch random songs
-                            let servers = servers();
-                            let mut queue = queue.clone();
-                            let mut queue_index = queue_index.clone();
-                            spawn(async move {
-                                let mut songs = Vec::new();
-                                for server in servers.into_iter().filter(|s| s.active) {
-                                    let client = NavidromeClient::new(server);
-                                    if let Ok(server_songs) = client.get_random_songs(25).await {
-                                        songs.extend(server_songs);
-                                    }
-                                }
-                                if !songs.is_empty() {
-                                    // Fisher-Yates shuffle
-                                    let len = songs.len();
-                                    for i in (1..len).rev() {
-                                        let j =
-                                            (js_sys::Math::random() * ((i + 1) as f64)) as usize;
-                                        songs.swap(i, j);
-                                    }
-                                    songs.truncate(50);
-                                    queue.set(songs);
-                                    queue_index.set(0);
-                                }
-                            });
-                        } else if let Some(next_idx) =
-                            pick_random_index(queue_list.len(), Some(idx))
-                        {
-                            queue_index.set(next_idx);
+                            spawn_shuffle_queue(
+                                servers.peek().clone(),
+                                queue.clone(),
+                                queue_index.clone(),
+                            );
+                        } else if idx < queue_list.len().saturating_sub(1) {
+                            queue_index.set(idx + 1);
+                        } else {
+                            spawn_shuffle_queue(
+                                servers.peek().clone(),
+                                queue.clone(),
+                                queue_index.clone(),
+                            );
                         }
                     } else if idx < queue_list.len().saturating_sub(1) {
                         queue_index.set(idx + 1);
@@ -229,37 +225,19 @@ pub fn AudioController() -> Element {
                 RepeatMode::Off => {
                     if current_shuffle {
                         if queue_list.is_empty() {
-                            // Queue is empty, fetch random songs
-                            let servers = servers();
-                            let mut queue = queue.clone();
-                            let mut queue_index = queue_index.clone();
-                            spawn(async move {
-                                let mut songs = Vec::new();
-                                for server in servers.into_iter().filter(|s| s.active) {
-                                    let client = NavidromeClient::new(server);
-                                    if let Ok(server_songs) = client.get_random_songs(25).await {
-                                        songs.extend(server_songs);
-                                    }
-                                }
-                                if !songs.is_empty() {
-                                    // Fisher-Yates shuffle
-                                    let len = songs.len();
-                                    for i in (1..len).rev() {
-                                        let j =
-                                            (js_sys::Math::random() * ((i + 1) as f64)) as usize;
-                                        songs.swap(i, j);
-                                    }
-                                    songs.truncate(50);
-                                    queue.set(songs);
-                                    queue_index.set(0);
-                                }
-                            });
-                        } else if let Some(next_idx) =
-                            pick_random_index(queue_list.len(), Some(idx))
-                        {
-                            queue_index.set(next_idx);
+                            spawn_shuffle_queue(
+                                servers.peek().clone(),
+                                queue.clone(),
+                                queue_index.clone(),
+                            );
+                        } else if idx < queue_list.len().saturating_sub(1) {
+                            queue_index.set(idx + 1);
                         } else {
-                            is_playing.set(false);
+                            spawn_shuffle_queue(
+                                servers.peek().clone(),
+                                queue.clone(),
+                                queue_index.clone(),
+                            );
                         }
                     } else if idx < queue_list.len().saturating_sub(1) {
                         queue_index.set(idx + 1);

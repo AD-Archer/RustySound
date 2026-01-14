@@ -54,7 +54,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     };
 
     rsx! {
-        div { class: "space-y-8",
+        div { class: "space-y-8 overflow-x-hidden",
             // Back button
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
@@ -88,12 +88,17 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                     .map(|ca| client.get_cover_art_url(ca, 500))
                             });
                         rsx! {
-                            div { class: "flex flex-col md:flex-row gap-8 mb-8",
+                            div { class: "flex flex-col md:flex-row gap-8 mb-8 overflow-x-hidden",
                                 div { class: "w-64 h-64 rounded-2xl bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0",
                                     {
                                         match cover_url {
                                             Some(url) => rsx! {
-                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                img {
+                                                    src: "{url}",
+                                                    alt: "{album.name} cover",
+                                                    class: "w-full h-full object-cover",
+                                                    loading: "lazy",
+                                                }
                                             },
                                             None => rsx! {
                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
@@ -118,10 +123,16 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                 let navigation = navigation.clone();
                                                 move |evt| {
                                                     evt.stop_propagation();
-                                                    navigation.navigate_to(AppView::ArtistDetail(
-                                                        artist_id.clone(),
-                                                        server_id.clone(),
-                                                    ));
+                                                    navigation
+
+                            // Set the full album as queue
+
+                
+                
+
+                                                        .navigate_to(
+                                                            AppView::ArtistDetail(artist_id.clone(), server_id.clone()),
+                                                        );
                                                 }
                                             },
                                             "{album.artist}"
@@ -155,22 +166,16 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
-
-
-                            // Set the full album as queue
+                
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {
                                     {
-                                        let all_songs = songs.clone();
                                         let song_clone = song.clone();
-                                        let song_index = index;
                                         rsx! {
                                             SongRow {
                                                 song: song.clone(),
                                                 index: index + 1,
                                                 onclick: move |_| {
-                                                    queue.set(all_songs.clone());
-                                                    queue_index.set(song_index);
                                                     now_playing.set(Some(song_clone.clone()));
                                                     is_playing.set(true);
                                                 },

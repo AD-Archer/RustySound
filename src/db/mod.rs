@@ -56,6 +56,14 @@ pub struct AppSettings {
     pub shuffle_enabled: bool,
     #[serde(default)]
     pub repeat_mode: RepeatMode,
+    #[serde(default)]
+    pub cache_enabled: bool,
+    #[serde(default)]
+    pub cache_size_mb: u32,
+    #[serde(default)]
+    pub cache_expiry_hours: u32,
+    #[serde(default)]
+    pub cache_images_enabled: bool,
 }
 
 impl Default for AppSettings {
@@ -69,6 +77,10 @@ impl Default for AppSettings {
             replay_gain: false,
             shuffle_enabled: false,
             repeat_mode: RepeatMode::Off,
+            cache_enabled: true,
+            cache_size_mb: 100,
+            cache_expiry_hours: 24,
+            cache_images_enabled: true,
         }
     }
 }

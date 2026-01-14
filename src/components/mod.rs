@@ -3,6 +3,7 @@
 mod app;
 mod app_view;
 mod audio_manager;
+mod cached_image;
 mod icons;
 mod navigation;
 mod player;
@@ -21,6 +22,7 @@ pub struct PlaybackPositionSignal(pub Signal<f64>);
 pub use app::*;
 pub use app_view::{view_label, AppView};
 pub use audio_manager::*;
+pub use cached_image::*;
 pub use icons::*;
 pub use navigation::Navigation;
 pub use player::*;

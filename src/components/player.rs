@@ -1,64 +1,10 @@
 use crate::api::models::format_duration;
 use crate::api::*;
+#[cfg(target_arch = "wasm32")]
+use crate::components::audio_manager::spawn_shuffle_queue;
 use crate::components::{seek_to, AppView, AudioState, Icon, Navigation, VolumeSignal};
-use crate::db::RepeatMode;
+use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
-
-/// Fisher-Yates shuffle using getrandom (wasm-compatible)
-fn shuffle_songs(songs: &mut Vec<Song>) {
-    let len = songs.len();
-    if len <= 1 {
-        return;
-    }
-
-    for i in (1..len).rev() {
-        #[cfg(target_arch = "wasm32")]
-        let j = (js_sys::Math::random() * ((i + 1) as f64)) as usize;
-        #[cfg(not(target_arch = "wasm32"))]
-        let j = {
-            let mut bytes = [0u8; 4];
-            let _ = getrandom::getrandom(&mut bytes);
-            u32::from_le_bytes(bytes) as usize % (i + 1)
-        };
-        songs.swap(i, j);
-    }
-}
-
-/// Pick a random index from the queue, optionally excluding the current index
-fn pick_random_index(queue_len: usize, exclude: Option<usize>) -> Option<usize> {
-    if queue_len == 0 {
-        return None;
-    }
-
-    #[cfg(target_arch = "wasm32")]
-    let random = |max: usize| -> usize {
-        if max == 0 {
-            return 0;
-        }
-        (js_sys::Math::random() * (max as f64)) as usize
-    };
-
-    #[cfg(not(target_arch = "wasm32"))]
-    let random = |max: usize| -> usize {
-        if max == 0 {
-            return 0;
-        }
-        let mut bytes = [0u8; 4];
-        // If OS randomness fails for any reason, fall back to a simple deterministic value.
-        // (This should be extremely rare on native targets.)
-        let _ = getrandom::getrandom(&mut bytes);
-        u32::from_le_bytes(bytes) as usize % max
-    };
-
-    match exclude {
-        Some(excl) if queue_len > 1 => {
-            // Pick from indices that don't match the excluded one
-            let idx = random(queue_len - 1);
-            Some(if idx >= excl { idx + 1 } else { idx })
-        }
-        _ => Some(random(queue_len)),
-    }
-}
 
 #[component]
 pub fn Player() -> Element {
@@ -193,26 +139,31 @@ pub fn Player() -> Element {
                         match &current_song {
                             Some(song) => rsx! {
                                 // Clickable album art
-                                    button {
-                                        class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
-                                        onclick: {
-                                            let song = current_song_for_album.clone();
-                                            let navigation = navigation.clone();
-                                            move |_| {
-                                                if let Some(ref s) = song {
-                                                    if let Some(album_id) = &s.album_id {
-                                                        navigation.navigate_to(AppView::AlbumDetail(
-                                                            album_id.clone(),
-                                                            s.server_id.clone(),
-                                                        ));
-                                                    }
+                                button {
+                                    class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
+                                    onclick: {
+                                        let song = current_song_for_album.clone();
+                                        let navigation = navigation.clone();
+                                        move |_| {
+                                            if let Some(ref s) = song {
+                                                if let Some(album_id) = &s.album_id {
+                                                    navigation
+                                                        .navigate_to(
+                                                            AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
+                                                        );
                                                 }
                                             }
-                                        },
+                                        }
+                                    },
                                     {
                                         match &cover_url {
                                             Some(url) => rsx! {
-                                                img { class: "w-full h-full object-cover", src: "{url}" }
+                                                img {
+                                                    src: "{url}",
+                                                    alt: "{song.title}",
+                                                    class: "w-full h-full object-cover",
+                                                    loading: "lazy",
+                                                }
                                             },
                                             None => rsx! {
                                                 div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700",
@@ -231,10 +182,10 @@ pub fn Player() -> Element {
                                             move |_| {
                                                 if let Some(ref s) = song {
                                                     if let Some(album_id) = &s.album_id {
-                                                        navigation.navigate_to(AppView::AlbumDetail(
-                                                            album_id.clone(),
-                                                            s.server_id.clone(),
-                                                        ));
+                                                        navigation
+                                                            .navigate_to(
+                                                                AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
+                                                            );
                                                     }
                                                 }
                                             }
@@ -282,7 +233,7 @@ pub fn Player() -> Element {
                 // Player controls
                 div { class: "flex flex-col items-center gap-3 w-full md:flex-1 md:max-w-2xl",
                     // Control buttons
-                    div { class: "flex flex-wrap items-center gap-4 md:gap-4 justify-center",
+                    div { class: "flex flex-wrap items-center gap-6 md:gap-4 justify-center",
                         // Shuffle button
                         ShuffleButton {}
                         // Previous button
@@ -356,7 +307,7 @@ fn ShuffleButton() -> Element {
         button {
             id: "shuffle-btn",
             r#type: "button",
-            class: if is_active { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-400 hover:text-white transition-colors" },
+            class: if is_active { "p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors" },
             onclick: move |_| {
                 let current = shuffle_enabled();
                 shuffle_enabled.set(!current);
@@ -399,47 +350,18 @@ fn PlayPauseButton() -> Element {
 /// Previous button - completely isolated component
 #[component]
 fn PrevButton() -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    let shuffle_enabled = use_context::<Signal<bool>>();
 
     rsx! {
         button {
             id: "prev-btn",
             r#type: "button",
-            class: "p-2 text-zinc-300 hover:text-white transition-colors",
+            class: "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors",
             onclick: move |_| {
                 let idx = queue_index();
                 let queue_list = queue();
-                if shuffle_enabled() {
-                    if queue_list.is_empty() {
-                        // Queue is empty, fetch random songs
-                        let servers = servers();
-                        let mut queue = queue.clone();
-                        let mut queue_index = queue_index.clone();
-                        spawn(async move {
-                            let mut songs = Vec::new();
-                            for server in servers.into_iter().filter(|s| s.active) {
-                                let client = NavidromeClient::new(server);
-                                if let Ok(server_songs) = client.get_random_songs(25).await {
-                                    songs.extend(server_songs);
-                                }
-                            }
-                            if !songs.is_empty() {
-                                shuffle_songs(&mut songs);
-                                songs.truncate(50);
-                                queue.set(songs);
-                                queue_index.set(0);
-                            }
-                        });
-                    } else if let Some(new_idx) = pick_random_index(
-                        queue_list.len(),
-                        Some(idx),
-                    ) {
-                        queue_index.set(new_idx);
-                    }
-                } else if idx > 0 && !queue_list.is_empty() {
+                if idx > 0 && !queue_list.is_empty() {
                     queue_index.set(idx - 1);
                 }
             },
@@ -451,54 +373,46 @@ fn PrevButton() -> Element {
 /// Next button - completely isolated component
 #[component]
 fn NextButton() -> Element {
+    #[cfg(target_arch = "wasm32")]
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    let shuffle_enabled = use_context::<Signal<bool>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
+    let shuffle_enabled = use_context::<Signal<bool>>();
 
     rsx! {
         button {
             id: "next-btn",
             r#type: "button",
-            class: "p-2 text-zinc-300 hover:text-white transition-colors",
+            class: "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors",
             onclick: move |_| {
-                if repeat_mode() == RepeatMode::One {
+                if *repeat_mode.peek() == RepeatMode::One {
                     seek_to(0.0);
                     return;
                 }
-                let idx = queue_index();
-                let queue_list = queue();
-                if shuffle_enabled() {
+                let idx = *queue_index.peek();
+                let queue_list = queue.peek();
+                if *shuffle_enabled.peek() {
                     if queue_list.is_empty() {
-                        // Queue is empty, fetch random songs
-                        let servers = servers();
-                        let mut queue = queue.clone();
-                        let mut queue_index = queue_index.clone();
-                        spawn(async move {
-                            let mut songs = Vec::new();
-                            for server in servers.into_iter().filter(|s| s.active) {
-                                let client = NavidromeClient::new(server);
-                                if let Ok(server_songs) = client.get_random_songs(25).await {
-                                    songs.extend(server_songs);
-                                }
-                            }
-                            if !songs.is_empty() {
-                                shuffle_songs(&mut songs);
-                                songs.truncate(50);
-                                queue.set(songs);
-                                queue_index.set(0);
-                            }
-                        });
-                    } else if let Some(new_idx) = pick_random_index(
-                        queue_list.len(),
-                        Some(idx),
-                    ) {
-                        queue_index.set(new_idx);
+                        #[cfg(target_arch = "wasm32")]
+                        spawn_shuffle_queue(
+                            servers.peek().clone(),
+                            queue.clone(),
+                            queue_index.clone(),
+                        );
+                    } else if idx < queue_list.len().saturating_sub(1) {
+                        queue_index.set(idx + 1);
+                    } else {
+                        #[cfg(target_arch = "wasm32")]
+                        spawn_shuffle_queue(
+                            servers.peek().clone(),
+                            queue.clone(),
+                            queue_index.clone(),
+                        );
                     }
                 } else if idx < queue_list.len().saturating_sub(1) {
                     queue_index.set(idx + 1);
-                } else if repeat_mode() == RepeatMode::All && !queue_list.is_empty() {
+                } else if *repeat_mode.peek() == RepeatMode::All && !queue_list.is_empty() {
                     queue_index.set(0);
                 }
             },
@@ -518,9 +432,9 @@ fn RepeatButton() -> Element {
             id: "repeat-btn",
             r#type: "button",
             class: match mode {
-                RepeatMode::Off => "p-2 text-zinc-400 hover:text-white transition-colors",
+                RepeatMode::Off => "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors",
                 RepeatMode::All | RepeatMode::One => {
-                    "p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
+                    "p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
                 }
             },
             onclick: move |_| {
