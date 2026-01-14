@@ -170,7 +170,7 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - run: cargo install dioxus-cli
     - name: Build web app
-      run: dx bundle --platform web --release --base-path "/RustySound/"
+      run: dx bundle --platform web --release
     - name: Prepare web assets for GitHub Pages
       run: |
         mkdir -p gh-pages
