@@ -73,10 +73,22 @@ jobs:
         rm -rf logo.iconset
     - run: cargo install dioxus-cli
     - run: dx bundle --platform desktop --release
+    - name: Create DMG from app bundle
+      run: |
+        APP_PATH="$(find target/dx/rustysound/release/macos -maxdepth 2 -name '*.app' | head -n 1)"
+        if [ -z "$APP_PATH" ]; then
+          echo "No .app bundle found to package"
+          exit 1
+        fi
+        hdiutil create \
+          -volname "RustySound" \
+          -srcfolder "$APP_PATH" \
+          -ov -format UDZO \
+          "target/dx/rustysound/release/macos/RustySound.dmg"
     - uses: actions/upload-artifact@v4
       with:
         name: mac-dmg
-        path: target/dx/rustysound/release/macos/**/*.dmg
+        path: target/dx/rustysound/release/macos/RustySound.dmg
         if-no-files-found: warn
 
   mobile-android:
