@@ -78,19 +78,35 @@ jobs:
         name: mac-dmg
         path: target/dx/rustysound/release/macos/**/*.dmg
         if-no-files-found: warn
-    - uses: actions/upload-artifact@v4
-      with:
-        name: mac-app
-        path: target/dx/rustysound/release/macos/**/*.app
-        if-no-files-found: warn
 
   mobile-android:
     runs-on: ubuntu-latest
     steps:
-    - name: Skip Android build
-      run: |
-        echo "Android builds currently disabled due to dependency compilation issues"
-        echo "Will be re-enabled once dependency conflicts are resolved"
+    - uses: actions/checkout@v4
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: "17"
+    - name: Set up Android SDK
+      uses: android-actions/setup-android@v3
+      with:
+        packages: >-
+          platform-tools
+          platforms;android-34
+          build-tools;34.0.0
+          ndk;26.1.10909125
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - name: Install Rust Android targets
+      run: rustup target add aarch64-linux-android x86_64-linux-android
+    - run: cargo install dioxus-cli
+    - name: Build Android app
+      run: dx bundle --platform android --release
+    - uses: actions/upload-artifact@v4
+      with:
+        name: android-apk
+        path: target/dx/rustysound/release/android/**/*.apk
+        if-no-files-found: warn
 
   web-docker:
     runs-on: ubuntu-latest
@@ -121,7 +137,7 @@ jobs:
         tags: |
           type=ref,event=branch
           type=ref,event=pr
-          type=sha,prefix={{branch}}-
+          type=sha,prefix={{branch}}-,enable={{branch}}
           type=raw,value=latest,enable={{is_default_branch}}
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
@@ -159,7 +175,7 @@ jobs:
       uses: actions/deploy-pages@v4
 
   release:
-    needs: [desktop-windows, desktop-mac, web-docker, web-pages]
+    needs: [desktop-windows, desktop-mac, mobile-android, web-docker, web-pages]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
@@ -181,7 +197,6 @@ jobs:
         tag_name: ${{ steps.version.outputs.tag }}
         name: Release ${{ steps.version.outputs.tag }}
         files: |
-          artifacts/**/*.app
           artifacts/**/*.dmg
           artifacts/**/*.exe
           artifacts/**/*.apk
