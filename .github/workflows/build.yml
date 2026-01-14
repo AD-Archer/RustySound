@@ -141,16 +141,16 @@ jobs:
         registry: ghcr.io
         username: ${{ github.actor }}
         password: ${{ secrets.GITHUB_TOKEN }}
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ghcr.io/${{ github.repository_owner }}/rustysound
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix=sha-
-          type=raw,value=latest,enable={{is_default_branch}}
+     - name: Extract metadata
+       id: meta
+       uses: docker/metadata-action@v5
+       with:
+         images: ghcr.io/${{ github.repository_owner }}/rustysound
+         tags: |
+           type=ref,event=branch
+           type=ref,event=pr
+           type=sha,prefix=sha-
+           type=raw,value=latest
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
