@@ -1,6 +1,7 @@
 use crate::api::*;
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
+use futures_util::future::join_all;
 
 #[component]
 pub fn HomeView() -> Element {
@@ -16,13 +17,11 @@ pub fn HomeView() -> Element {
             .filter(|s| s.active)
             .collect::<Vec<_>>();
         async move {
-            let mut albums = Vec::new();
-            for server in active_servers {
+            let tasks = active_servers.into_iter().map(|server| async move {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums("newest", 12, 0).await {
-                    albums.extend(server_albums);
-                }
-            }
+                client.get_albums("newest", 12, 0).await.unwrap_or_default()
+            });
+            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
             albums.truncate(12);
             albums
         }
@@ -35,13 +34,14 @@ pub fn HomeView() -> Element {
             .filter(|s| s.active)
             .collect::<Vec<_>>();
         async move {
-            let mut albums = Vec::new();
-            for server in active_servers {
+            let tasks = active_servers.into_iter().map(|server| async move {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums("frequent", 12, 0).await {
-                    albums.extend(server_albums);
-                }
-            }
+                client
+                    .get_albums("frequent", 12, 0)
+                    .await
+                    .unwrap_or_default()
+            });
+            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
             albums.truncate(12);
             albums
         }
@@ -54,13 +54,11 @@ pub fn HomeView() -> Element {
             .filter(|s| s.active)
             .collect::<Vec<_>>();
         async move {
-            let mut albums = Vec::new();
-            for server in active_servers {
+            let tasks = active_servers.into_iter().map(|server| async move {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums("recent", 12, 0).await {
-                    albums.extend(server_albums);
-                }
-            }
+                client.get_albums("recent", 12, 0).await.unwrap_or_default()
+            });
+            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
             albums.truncate(12);
             albums
         }
@@ -73,13 +71,11 @@ pub fn HomeView() -> Element {
             .filter(|s| s.active)
             .collect::<Vec<_>>();
         async move {
-            let mut albums = Vec::new();
-            for server in active_servers {
+            let tasks = active_servers.into_iter().map(|server| async move {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums("random", 12, 0).await {
-                    albums.extend(server_albums);
-                }
-            }
+                client.get_albums("random", 12, 0).await.unwrap_or_default()
+            });
+            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
             albums.truncate(12);
             albums
         }
@@ -93,16 +89,20 @@ pub fn HomeView() -> Element {
             .collect::<Vec<_>>();
         async move {
             let mut genre_set = std::collections::HashSet::new();
-            for server in active_servers {
+            let tasks = active_servers.into_iter().map(|server| async move {
                 let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums("alphabeticalByName", 100, 0).await {
-                    for album in server_albums {
-                        if let Some(genre) = album.genre {
-                            genre_set.insert(genre);
-                        }
-                    }
+                client
+                    .get_albums("alphabeticalByName", 80, 0)
+                    .await
+                    .unwrap_or_default()
+            });
+
+            for album in join_all(tasks).await.into_iter().flatten() {
+                if let Some(genre) = album.genre {
+                    genre_set.insert(genre);
                 }
             }
+
             let mut genres: Vec<String> = genre_set.into_iter().collect();
             genres.sort();
             genres.truncate(12);
@@ -118,7 +118,7 @@ pub fn HomeView() -> Element {
             .collect::<Vec<_>>();
         async move {
             let mut songs = Vec::new();
-            for server in &active_servers {
+            let tasks = active_servers.into_iter().map(|server| async move {
                 let client = NavidromeClient::new(server.clone());
                 if let Ok(artists) = client.get_artists().await {
                     if let Some(artist) = artists
@@ -126,21 +126,16 @@ pub fn HomeView() -> Element {
                         .filter(|a| !a.name.trim().is_empty())
                         .max_by_key(|a| a.album_count)
                     {
-                    if let Ok(top) = client.get_top_songs(&artist.name, 24).await {
-                        songs.extend(top);
-                    }
+                        if let Ok(top) = client.get_top_songs(&artist.name, 24).await {
+                            return top;
+                        }
                     }
                 }
-            }
 
-            if songs.is_empty() {
-                for server in &active_servers {
-                    let client = NavidromeClient::new(server.clone());
-                    if let Ok(server_songs) = client.get_random_songs(24).await {
-                        songs.extend(server_songs);
-                    }
-                }
-            }
+                client.get_random_songs(24).await.unwrap_or_default()
+            });
+
+            songs.extend(join_all(tasks).await.into_iter().flatten());
 
             songs.truncate(24);
             songs
@@ -556,8 +551,10 @@ fn GenreCard(genre: String, onclick: EventHandler<MouseEvent>) -> Element {
 #[component]
 fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let rating = song.user_rating.unwrap_or(0).min(5);
+    let is_favorited = use_signal(|| song.starred.is_some());
 
     let cover_url = servers()
         .iter()
@@ -571,12 +568,68 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
 
     let artist_id = song.artist_id.clone();
 
-    let on_add_queue = {
-        let mut queue = queue.clone();
+    let make_on_add_queue = {
+        let queue = queue.clone();
         let song = song.clone();
+        move || {
+            let mut queue = queue.clone();
+            let song = song.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                queue.with_mut(|q| q.push(song.clone()));
+            }
+        }
+    };
+
+    let on_toggle_favorite = {
+        let servers = servers.clone();
+        let song_id = song.id.clone();
+        let server_id = song.server_id.clone();
+        let mut now_playing = now_playing.clone();
+        let mut queue = queue.clone();
+        let mut is_favorited = is_favorited.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            queue.with_mut(|q| q.push(song.clone()));
+            let should_star = !is_favorited();
+            let servers = servers.clone();
+            let song_id = song_id.clone();
+            let server_id = server_id.clone();
+            spawn(async move {
+                let servers_snapshot = servers();
+                if let Some(server) = servers_snapshot.iter().find(|s| s.id == server_id) {
+                    let client = NavidromeClient::new(server.clone());
+                    let result = if should_star {
+                        client.star(&song_id, "song").await
+                    } else {
+                        client.unstar(&song_id, "song").await
+                    };
+                    if result.is_ok() {
+                        is_favorited.set(should_star);
+                        now_playing.with_mut(|current| {
+                            if let Some(ref mut s) = current {
+                                if s.id == song_id {
+                                    s.starred = if should_star {
+                                        Some("local".to_string())
+                                    } else {
+                                        None
+                                    };
+                                }
+                            }
+                        });
+                        queue.with_mut(|items| {
+                            for s in items.iter_mut() {
+                                if s.id == song_id {
+                                    s.starred = if should_star {
+                                        Some("local".to_string())
+                                    } else {
+                                        None
+                                    };
+                                }
+                            }
+                        });
+                    }
+                }
+            });
         }
     };
 
@@ -601,7 +654,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 button {
                     class: "absolute top-2 right-2 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",
-                    onclick: on_add_queue,
+                    onclick: make_on_add_queue(),
                     Icon {
                         name: "plus".to_string(),
                         class: "w-3 h-3".to_string(),
@@ -618,15 +671,15 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 }
             }
             // Song info
-            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
+            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors max-w-full",
                 "{song.title}"
             }
             if artist_id.is_some() {
-                p { class: "text-xs text-zinc-400 truncate",
+                p { class: "text-xs text-zinc-400 truncate max-w-full",
                     "{song.artist.clone().unwrap_or_default()}"
                 }
             } else {
-                p { class: "text-xs text-zinc-400 truncate",
+                p { class: "text-xs text-zinc-400 truncate max-w-full",
                     "{song.artist.clone().unwrap_or_default()}"
                 }
             }
@@ -637,6 +690,26 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                             name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
                             class: "w-3.5 h-3.5".to_string(),
                         }
+                    }
+                }
+            }
+            div { class: "mt-2 flex items-center gap-3",
+                button {
+                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
+                    aria_label: "Favorite",
+                    onclick: on_toggle_favorite,
+                    Icon {
+                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
+                button {
+                    class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
+                    aria_label: "Add to queue",
+                    onclick: make_on_add_queue(),
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
                     }
                 }
             }
@@ -737,7 +810,9 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                 }
             }
             // Album info
-            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
+            p {
+                class: "font-medium text-white text-sm group-hover:text-emerald-400 transition-colors",
+                style: "overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word;",
                 "{album.name}"
             }
             if album.artist_id.is_some() {
@@ -759,6 +834,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let rating = song.user_rating.unwrap_or(0).min(5);
+    let is_favorited = use_signal(|| song.starred.is_some());
 
     let cover_url = servers()
         .iter()
@@ -786,12 +862,64 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
         }
     };
 
+    let on_album_click_text = {
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let navigation = navigation.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
+            }
+        }
+    };
+
     let on_add_queue = {
         let mut queue = queue.clone();
         let song = song.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
             queue.with_mut(|q| q.push(song.clone()));
+        }
+    };
+
+    let on_toggle_favorite = {
+        let servers = servers.clone();
+        let song_id = song.id.clone();
+        let server_id = song.server_id.clone();
+        let mut queue = queue.clone();
+        let mut is_favorited = is_favorited.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let should_star = !is_favorited();
+            let servers = servers.clone();
+            let song_id = song_id.clone();
+            let server_id = server_id.clone();
+            spawn(async move {
+                let servers_snapshot = servers();
+                if let Some(server) = servers_snapshot.iter().find(|s| s.id == server_id) {
+                    let client = NavidromeClient::new(server.clone());
+                    let result = if should_star {
+                        client.star(&song_id, "song").await
+                    } else {
+                        client.unstar(&song_id, "song").await
+                    };
+                    if result.is_ok() {
+                        is_favorited.set(should_star);
+                        queue.with_mut(|items| {
+                            for s in items.iter_mut() {
+                                if s.id == song_id {
+                                    s.starred = if should_star {
+                                        Some("local".to_string())
+                                    } else {
+                                        None
+                                    };
+                                }
+                            }
+                        });
+                    }
+                }
+            });
         }
     };
 
@@ -857,7 +985,9 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             // Album
             div { class: "hidden md:block flex-1 min-w-0",
                 if album_id.is_some() {
-                    p { class: "text-sm text-zinc-400 truncate",
+                    button {
+                        class: "text-sm text-zinc-400 truncate hover:text-emerald-400 transition-colors text-left w-full",
+                        onclick: on_album_click_text,
                         "{song.album.clone().unwrap_or_default()}"
                     }
                 } else {
@@ -866,7 +996,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                     }
                 }
             }
-            // Duration
+            // Duration and actions
             div { class: "flex items-center gap-3",
                 if rating > 0 {
                     div { class: "hidden sm:flex items-center gap-1 text-amber-400",
@@ -876,6 +1006,15 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                                 class: "w-3.5 h-3.5".to_string(),
                             }
                         }
+                    }
+                }
+                button {
+                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
+                    aria_label: "Favorite",
+                    onclick: on_toggle_favorite,
+                    Icon {
+                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                        class: "w-4 h-4".to_string(),
                     }
                 }
                 button {

@@ -11,19 +11,25 @@ pub fn StatsView() -> Element {
 
     // Fetch scan status for all active servers
     let scan_statuses = use_resource(move || {
-        let active_servers = servers().into_iter().filter(|s| s.active).collect::<Vec<_>>();
+        let active_servers = servers()
+            .into_iter()
+            .filter(|s| s.active)
+            .collect::<Vec<_>>();
         async move {
             let mut statuses = Vec::new();
             for server in active_servers {
                 let client = NavidromeClient::new(server.clone());
                 match client.get_scan_status().await {
                     Ok(status) => statuses.push((server.name.clone(), status)),
-                    Err(_) => statuses.push((server.name.clone(), ScanStatus {
-                        status: "unknown".to_string(),
-                        current_task: None,
-                        seconds_remaining: None,
-                        seconds_elapsed: None,
-                    })),
+                    Err(_) => statuses.push((
+                        server.name.clone(),
+                        ScanStatus {
+                            status: "unknown".to_string(),
+                            current_task: None,
+                            seconds_remaining: None,
+                            seconds_elapsed: None,
+                        },
+                    )),
                 }
             }
             statuses
@@ -70,7 +76,7 @@ pub fn StatsView() -> Element {
                             }
 
                             // Scan Status
-        
+
 
                             // Server list
                             h3 { class: "text-md font-semibold text-white mt-6 mb-4", "Scan Status" }
@@ -112,7 +118,7 @@ pub fn StatsView() -> Element {
                                     },
                                 }
                             }
-        
+
                             div { class: "mt-6 space-y-3",
                                 for server in server_list {
                                     div { class: "flex items-center justify-between p-3 bg-zinc-900/30 rounded-lg",

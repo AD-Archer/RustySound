@@ -17,6 +17,7 @@ urlencoding = "2.1"
 getrandom = { version = "0.2", features = ["js"] }
 base64 = "0.22"
 futures-util = "0.3"
+once_cell = "1.19"
 
 # Server-side dependencies
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
@@ -39,6 +40,4 @@ wasm-bindgen-futures = "0.4"
 [features]
 default = ["web"]
 web = ["dioxus/web"]
-desktop = ["dioxus/desktop", "dioxus/fullstack"]
-mobile = ["dioxus/mobile", "dioxus/fullstack"]
 server = ["dioxus/server"]

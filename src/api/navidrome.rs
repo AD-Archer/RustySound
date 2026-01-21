@@ -1,5 +1,12 @@
 use crate::api::models::*;
+use chrono::Utc;
+use once_cell::sync::Lazy;
 use serde::Deserialize;
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
+static AUTH_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
 
 const CLIENT_NAME: &str = "RustySound";
 const API_VERSION: &str = "1.16.1";
@@ -11,6 +18,22 @@ pub struct NavidromeClient {
 impl NavidromeClient {
     pub fn new(server: ServerConfig) -> Self {
         Self { server }
+    }
+
+    fn auth_params(&self) -> String {
+        let mut cache = AUTH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        let cache_key = format!(
+            "{}:{}:{}:{}",
+            self.server.id, self.server.username, self.server.url, self.server.password
+        );
+
+        if let Some(value) = cache.get(&cache_key) {
+            return value.clone();
+        }
+
+        let value = self.generate_auth_params();
+        cache.insert(cache_key, value.clone());
+        value
     }
 
     fn generate_auth_params(&self) -> String {
@@ -40,7 +63,7 @@ impl NavidromeClient {
     }
 
     fn build_url(&self, endpoint: &str, extra_params: &[(&str, &str)]) -> String {
-        let auth = self.generate_auth_params();
+        let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
 
         for (key, value) in extra_params {
@@ -64,7 +87,11 @@ impl NavidromeClient {
 
     pub async fn ping(&self) -> Result<bool, String> {
         let url = self.build_url("ping", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         match json.subsonic_response.status.as_str() {
@@ -79,7 +106,11 @@ impl NavidromeClient {
 
     pub async fn get_artists(&self) -> Result<Vec<Artist>, String> {
         let url = self.build_url("getArtists", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -117,7 +148,11 @@ impl NavidromeClient {
                 ("offset", &offset.to_string()),
             ],
         );
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -143,7 +178,11 @@ impl NavidromeClient {
 
     pub async fn get_album(&self, album_id: &str) -> Result<(Album, Vec<Song>), String> {
         let url = self.build_url("getAlbum", &[("id", album_id)]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -169,7 +208,11 @@ impl NavidromeClient {
 
     pub async fn get_artist(&self, artist_id: &str) -> Result<(Artist, Vec<Album>), String> {
         let url = self.build_url("getArtist", &[("id", artist_id)]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -204,7 +247,11 @@ impl NavidromeClient {
 
     pub async fn get_random_songs(&self, size: u32) -> Result<Vec<Song>, String> {
         let url = self.build_url("getRandomSongs", &[("size", &size.to_string())]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -233,16 +280,19 @@ impl NavidromeClient {
             "getSimilarSongs",
             &[("id", id), ("count", &count.to_string())],
         );
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
-            return Err(
-                json.subsonic_response
-                    .error
-                    .map(|e| e.message)
-                    .unwrap_or("Unknown error".to_string()),
-            );
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         Ok(self.normalize_song_list(json.subsonic_response.similar_songs))
@@ -253,16 +303,19 @@ impl NavidromeClient {
             "getTopSongs",
             &[("artist", artist), ("count", &count.to_string())],
         );
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
-            return Err(
-                json.subsonic_response
-                    .error
-                    .map(|e| e.message)
-                    .unwrap_or("Unknown error".to_string()),
-            );
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         Ok(self.normalize_song_list(json.subsonic_response.top_songs))
@@ -270,26 +323,33 @@ impl NavidromeClient {
 
     pub async fn get_scan_status(&self) -> Result<ScanStatus, String> {
         let url = self.build_url("getScanStatus", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
         Self::extract_scan_status(json)
     }
 
     pub async fn start_scan(&self) -> Result<ScanStatus, String> {
         let url = self.build_url("startScan", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
         Self::extract_scan_status(json)
     }
 
     fn extract_scan_status(json: SubsonicResponse) -> Result<ScanStatus, String> {
         if json.subsonic_response.status != "ok" {
-            return Err(
-                json.subsonic_response
-                    .error
-                    .map(|e| e.message)
-                    .unwrap_or("Unknown error".to_string()),
-            );
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
         }
 
         if let Some(payload) = json.subsonic_response.scan_status {
@@ -301,7 +361,11 @@ impl NavidromeClient {
 
     pub async fn get_starred(&self) -> Result<(Vec<Artist>, Vec<Album>, Vec<Song>), String> {
         let url = self.build_url("getStarred2", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -339,7 +403,11 @@ impl NavidromeClient {
             _ => "id",
         };
         let url = self.build_url("star", &[(param, id)]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -360,7 +428,11 @@ impl NavidromeClient {
             _ => "id",
         };
         let url = self.build_url("unstar", &[(param, id)]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -375,11 +447,12 @@ impl NavidromeClient {
     }
 
     pub async fn set_rating(&self, id: &str, rating: u32) -> Result<(), String> {
-        let url = self.build_url(
-            "setRating",
-            &[("id", id), ("rating", &rating.to_string())],
-        );
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let url = self.build_url("setRating", &[("id", id), ("rating", &rating.to_string())]);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -395,7 +468,11 @@ impl NavidromeClient {
 
     pub async fn get_playlists(&self) -> Result<Vec<Playlist>, String> {
         let url = self.build_url("getPlaylists", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -421,7 +498,11 @@ impl NavidromeClient {
 
     pub async fn get_playlist(&self, playlist_id: &str) -> Result<(Playlist, Vec<Song>), String> {
         let url = self.build_url("getPlaylist", &[("id", playlist_id)]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -450,7 +531,11 @@ impl NavidromeClient {
 
     pub async fn get_internet_radio_stations(&self) -> Result<Vec<RadioStation>, String> {
         let url = self.build_url("getInternetRadioStations", &[]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -485,7 +570,11 @@ impl NavidromeClient {
             params.push(("homePageUrl", url));
         }
         let url = self.build_url("createInternetRadioStation", &params);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -515,7 +604,11 @@ impl NavidromeClient {
             params.push(("homePageUrl", url));
         }
         let url = self.build_url("updateInternetRadioStation", &params);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -531,7 +624,11 @@ impl NavidromeClient {
 
     pub async fn delete_internet_radio_station(&self, station_id: &str) -> Result<(), String> {
         let url = self.build_url("deleteInternetRadioStation", &[("id", station_id)]);
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -545,17 +642,27 @@ impl NavidromeClient {
         Ok(())
     }
 
-    pub async fn search(&self, query: &str) -> Result<SearchResult, String> {
+    pub async fn search(
+        &self,
+        query: &str,
+        artist_count: u32,
+        album_count: u32,
+        song_count: u32,
+    ) -> Result<SearchResult, String> {
         let url = self.build_url(
             "search3",
             &[
                 ("query", query),
-                ("artistCount", "20"),
-                ("albumCount", "20"),
-                ("songCount", "50"),
+                ("artistCount", &artist_count.to_string()),
+                ("albumCount", &album_count.to_string()),
+                ("songCount", &song_count.to_string()),
             ],
         );
-        let response = reqwest::get(&url).await.map_err(|e| e.to_string())?;
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
@@ -588,6 +695,36 @@ impl NavidromeClient {
             albums,
             songs,
         })
+    }
+
+    /// Report playback to Navidrome/Subsonic. If submission is false, it updates "Now Playing";
+    /// when true, it scrobbles the play as finished.
+    pub async fn scrobble(&self, id: &str, submission: bool) -> Result<(), String> {
+        let millis = Utc::now().timestamp_millis().to_string();
+        let url = self.build_url(
+            "scrobble",
+            &[
+                ("id", id),
+                ("time", millis.as_str()),
+                ("submission", if submission { "true" } else { "false" }),
+            ],
+        );
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
     }
 }
 

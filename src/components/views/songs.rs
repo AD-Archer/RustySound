@@ -1,6 +1,6 @@
 use crate::api::*;
-use crate::components::{AppView, Navigation};
 use crate::components::Icon;
+use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 
 #[component]
@@ -12,32 +12,44 @@ pub fn SongsView() -> Element {
     let queue_index = use_context::<Signal<usize>>();
 
     let mut search_query = use_signal(String::new);
-    let mut sort_by = use_signal(|| "alphabetical".to_string());
+    let mut sort_by = use_signal(|| "last_played".to_string());
     let mut filter_min_rating = use_signal(|| 0i32);
+    let limit = use_signal(|| 30u32);
 
     let songs = use_resource(move || {
         let servers = servers();
+        let limit = limit();
+        let query_snapshot = search_query();
         async move {
             let mut songs = Vec::new();
-            for server in servers.into_iter().filter(|s| s.active) {
-                let client = NavidromeClient::new(server);
-                // Try to get songs from different sources to get more variety
-                if let Ok(server_songs) = client.get_random_songs(200).await {
-                    songs.extend(server_songs);
+            let active_servers: Vec<ServerConfig> =
+                servers.into_iter().filter(|s| s.active).collect();
+            if query_snapshot.trim().is_empty() {
+                // Lazy load a small batch by default
+                let per_server =
+                    ((limit as usize).max(10) / active_servers.len().max(1)).max(10) as u32;
+                for server in active_servers {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(server_songs) = client.get_random_songs(per_server).await {
+                        songs.extend(server_songs);
+                    }
                 }
-                // Also try to get some recent songs
-                if let Ok(recent_albums) = client.get_albums("newest", 20, 0).await {
-                    for album in recent_albums {
-                        if let Ok((_, album_songs)) = client.get_album(&album.id).await {
-                            songs.extend(album_songs);
-                        }
+            } else {
+                // Search mode - query backend directly
+                for server in active_servers {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(results) = client
+                        .search(&query_snapshot, 0, 0, limit as u32 + 20)
+                        .await
+                    {
+                        songs.extend(results.songs);
                     }
                 }
             }
             // Remove duplicates based on id
             let mut seen = std::collections::HashSet::new();
             songs.retain(|song| seen.insert(song.id.clone()));
-            songs.truncate(500); // Limit to 500 songs for performance
+            songs.truncate(limit as usize);
             songs
         }
     });
@@ -75,9 +87,9 @@ pub fn SongsView() -> Element {
                                 class: "px-3 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/50",
                                 value: sort_by,
                                 oninput: move |e| sort_by.set(e.value()),
+                                option { value: "last_played", "Last Played" }
                                 option { value: "alphabetical", "A-Z" }
                                 option { value: "rating", "Rating" }
-                                option { value: "recent", "Recent" }
                                 option { value: "duration", "Duration" }
                             }
                         }
@@ -153,6 +165,9 @@ pub fn SongsView() -> Element {
                                 });
                         }
                         match sort_option.as_str() {
+                            "last_played" => {
+                                // Keep server order as-is to approximate last played/random order
+                            }
                             "rating" => {
                                 filtered
                                     .sort_by(|a, b| {
@@ -160,9 +175,6 @@ pub fn SongsView() -> Element {
                                         let b_rating = b.user_rating.unwrap_or(0);
                                         b_rating.cmp(&a_rating).then(a.title.cmp(&b.title))
                                     });
-                            }
-                            "recent" => {
-                                filtered.sort_by(|a, b| a.title.cmp(&b.title));
                             }
                             "duration" => {
                                 filtered.sort_by(|a, b| b.duration.cmp(&a.duration));
@@ -208,6 +220,14 @@ pub fn SongsView() -> Element {
                                         }
                                     }
                                 }
+                                button {
+                                    class: "w-full mt-4 py-3 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                                    onclick: {
+                                        let mut limit = limit.clone();
+                                        move |_| limit.set(limit() + 30)
+                                    },
+                                    "View more"
+                                }
                             }
                         }
                     }
@@ -245,8 +265,21 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
     let album_id = song.album_id.clone();
     let artist_id = song.artist_id.clone();
     let server_id = song.server_id.clone();
+    let is_favorited = use_signal(|| song.starred.is_some());
 
     let on_album_click_cover = {
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let navigation = navigation.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
+            }
+        }
+    };
+
+    let on_album_click_text = {
         let album_id = album_id.clone();
         let server_id = server_id.clone();
         let navigation = navigation.clone();
@@ -279,6 +312,46 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
                 if let Some(server) = servers().iter().find(|s| s.id == server_id) {
                     let client = NavidromeClient::new(server.clone());
                     let _ = client.set_rating(&song_id, new_rating as u32).await;
+                }
+            });
+        }
+    };
+
+    let on_toggle_favorite = {
+        let servers = servers.clone();
+        let song_id = song.id.clone();
+        let server_id = song.server_id.clone();
+        let mut queue = queue.clone();
+        let mut is_favorited = is_favorited.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let should_star = !is_favorited();
+            let servers = servers.clone();
+            let song_id = song_id.clone();
+            let server_id = server_id.clone();
+            spawn(async move {
+                let servers_snapshot = servers();
+                if let Some(server) = servers_snapshot.iter().find(|s| s.id == server_id) {
+                    let client = NavidromeClient::new(server.clone());
+                    let result = if should_star {
+                        client.star(&song_id, "song").await
+                    } else {
+                        client.unstar(&song_id, "song").await
+                    };
+                    if result.is_ok() {
+                        is_favorited.set(should_star);
+                        queue.with_mut(|items| {
+                            for s in items.iter_mut() {
+                                if s.id == song_id {
+                                    s.starred = if should_star {
+                                        Some("local".to_string())
+                                    } else {
+                                        None
+                                    };
+                                }
+                            }
+                        });
+                    }
                 }
             });
         }
@@ -330,15 +403,15 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
             }
             // Song info
             div { class: "flex-1 min-w-0 text-left",
-                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors max-w-full",
                     "{song.title}"
                 }
                 if artist_id.is_some() {
-                    p { class: "text-xs text-zinc-400 truncate",
+                    p { class: "text-xs text-zinc-400 truncate max-w-full",
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 } else {
-                    p { class: "text-xs text-zinc-400 truncate",
+                    p { class: "text-xs text-zinc-400 truncate max-w-full",
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 }
@@ -346,7 +419,9 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
             // Album
             div { class: "hidden md:block flex-1 min-w-0",
                 if album_id.is_some() {
-                    p { class: "text-sm text-zinc-400 truncate",
+                    button {
+                        class: "text-sm text-zinc-400 truncate hover:text-emerald-400 transition-colors text-left w-full",
+                        onclick: on_album_click_text,
                         "{song.album.clone().unwrap_or_default()}"
                     }
                 } else {
@@ -355,22 +430,34 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
                     }
                 }
             }
-            // Rating
-            div { class: "flex items-center gap-1",
-                for i in 1..=5 {
-                    button {
-                        class: "w-4 h-4",
-                        onclick: {
-                            let on_set_rating = on_set_rating.clone();
-                            let rating_value = i as i32;
-                            move |evt: MouseEvent| {
-                                evt.stop_propagation();
-                                on_set_rating(rating_value);
+            // Favorite + Rating
+            div { class: "flex items-center gap-2",
+                button {
+                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
+                    aria_label: "Favorite",
+                    onclick: on_toggle_favorite,
+                    Icon {
+                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
+                // Hide star ratings on mobile to leave space for titles
+                div { class: "hidden sm:flex items-center gap-1",
+                    for i in 1..=5 {
+                        button {
+                            class: "w-4 h-4",
+                            onclick: {
+                                let on_set_rating = on_set_rating.clone();
+                                let rating_value = i as i32;
+                                move |evt: MouseEvent| {
+                                    evt.stop_propagation();
+                                    on_set_rating(rating_value);
+                                }
+                            },
+                            Icon {
+                                name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
+                                class: "w-4 h-4 text-amber-400 hover:text-amber-300 transition-colors".to_string(),
                             }
-                        },
-                        Icon {
-                            name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
-                            class: "w-4 h-4 text-amber-400 hover:text-amber-300 transition-colors".to_string(),
                         }
                     }
                 }

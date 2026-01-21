@@ -1,4 +1,5 @@
 mod album_detail;
+mod album_song_row;
 mod albums;
 mod artist_detail;
 mod artists;

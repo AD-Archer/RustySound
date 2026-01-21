@@ -29,7 +29,7 @@ pub fn SearchView() -> Element {
 
             for server in active_servers {
                 let client = NavidromeClient::new(server);
-                if let Ok(result) = client.search(&query).await {
+                if let Ok(result) = client.search(&query, 20, 20, 50).await {
                     combined.artists.extend(result.artists);
                     combined.albums.extend(result.albums);
                     combined.songs.extend(result.songs);
@@ -123,8 +123,8 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-        
-        
+
+
                         if has_albums {
                             section { class: "mb-8",
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Albums" }
@@ -149,7 +149,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-        
+
                         if has_songs {
                             section {
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Songs" }
@@ -168,7 +168,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-        
+
                         if no_results {
                             div { class: "flex flex-col items-center justify-center py-20",
                                 Icon {

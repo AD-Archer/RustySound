@@ -8,29 +8,53 @@ pub fn AlbumsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
 
-    let mut album_type = use_signal(|| "alphabeticalByName".to_string());
+    let mut album_type = use_signal(|| "recent".to_string());
     let mut search_query = use_signal(String::new);
+    let limit = use_signal(|| 30u32);
 
     let albums = use_resource(move || {
         let servers = servers();
         let album_type = album_type();
+        let limit = limit();
+        let query = search_query();
         async move {
             let mut albums = Vec::new();
-            for server in servers.into_iter().filter(|s| s.active) {
-                let client = NavidromeClient::new(server);
-                if let Ok(server_albums) = client.get_albums(&album_type, 50, 0).await {
-                    albums.extend(server_albums);
+            let mut more_available = false;
+            if query.trim().is_empty() {
+                for server in servers.into_iter().filter(|s| s.active) {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(mut server_albums) =
+                        client.get_albums(&album_type, limit + 1, 0).await
+                    {
+                        if server_albums.len() as u32 > limit {
+                            more_available = true;
+                        }
+                        server_albums.truncate(limit as usize);
+                        albums.extend(server_albums);
+                    }
+                }
+            } else {
+                for server in servers.into_iter().filter(|s| s.active) {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(results) = client.search(&query, 0, limit + 1, 0).await {
+                        if results.albums.len() as u32 > limit {
+                            more_available = true;
+                        }
+                        let mut subset = results.albums;
+                        subset.truncate(limit as usize);
+                        albums.extend(subset);
+                    }
                 }
             }
-            albums
+            (albums, more_available)
         }
     });
 
     let album_types = vec![
+        ("recent", "Recently Played"),
         ("alphabeticalByName", "A-Z"),
         ("newest", "Newest"),
         ("frequent", "Most Played"),
-        ("recent", "Recently Played"),
         ("random", "Random"),
     ];
 
@@ -74,24 +98,12 @@ pub fn AlbumsView() -> Element {
             {
 
                 match albums() {
-                    Some(albums) => {
+                    Some((albums, more_available)) => {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
-                        let mut filtered = Vec::new();
-                        if query.is_empty() {
-                            filtered = albums.clone();
-                        } else {
-                            for album in &albums {
-                                let name = album.name.to_lowercase();
-                                let artist = album.artist.to_lowercase();
-                                if name.contains(&query) || artist.contains(&query) {
-                                    filtered.push(album.clone());
-                                }
-                            }
-                        }
                         let has_query = !query.is_empty();
                         rsx! {
-                            if filtered.is_empty() {
+                            if albums.is_empty() {
                                 div { class: "flex flex-col items-center justify-center py-20",
                                     Icon {
                                         name: "album".to_string(),
@@ -105,7 +117,7 @@ pub fn AlbumsView() -> Element {
                                 }
                             } else {
                                 div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4",
-                                    for album in filtered {
+                                    for album in albums {
                                         AlbumCard {
                                             album: album.clone(),
                                             onclick: {
@@ -120,6 +132,16 @@ pub fn AlbumsView() -> Element {
                                                 }
                                             },
                                         }
+                                    }
+                                }
+                                if more_available {
+                                    button {
+                                        class: "w-full mt-4 py-3 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                                        onclick: {
+                                            let mut limit = limit.clone();
+                                            move |_| limit.set(limit() + 30)
+                                        },
+                                        "View more"
                                     }
                                 }
                             }

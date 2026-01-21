@@ -52,24 +52,42 @@ pub fn Player() -> Element {
         }
     };
 
-    let on_seek_input = move |e: Event<FormData>| {
-        if let Ok(percent) = e.value().parse::<f64>() {
-            scrub_percent.set(percent.clamp(0.0, 100.0));
-            if !is_scrubbing() {
-                is_scrubbing.set(true);
+    let is_radio = current_song
+        .as_ref()
+        .map(|s| s.server_name == "Radio")
+        .unwrap_or(false);
+
+    let on_seek_input = {
+        let mut scrub_percent = scrub_percent.clone();
+        let mut is_scrubbing = is_scrubbing.clone();
+        move |e: Event<FormData>| {
+            if is_radio {
+                return;
+            }
+            if let Ok(percent) = e.value().parse::<f64>() {
+                scrub_percent.set(percent.clamp(0.0, 100.0));
+                if !is_scrubbing() {
+                    is_scrubbing.set(true);
+                }
             }
         }
     };
 
-    let on_seek_commit = move |e: Event<FormData>| {
-        if let Ok(percent) = e.value().parse::<f64>() {
-            let dur = duration;
-            if dur > 0.0 {
-                let new_time = (percent / 100.0) * dur;
-                seek_to(new_time);
+    let on_seek_commit = {
+        let mut is_scrubbing = is_scrubbing.clone();
+        move |e: Event<FormData>| {
+            if is_radio {
+                return;
             }
+            if let Ok(percent) = e.value().parse::<f64>() {
+                let dur = duration;
+                if dur > 0.0 {
+                    let new_time = (percent / 100.0) * dur;
+                    seek_to(new_time);
+                }
+            }
+            is_scrubbing.set(false);
         }
-        is_scrubbing.set(false);
     };
 
     let on_open_queue = {
@@ -254,6 +272,7 @@ pub fn Player() -> Element {
                             r#type: "range",
                             min: "0",
                             max: "100",
+                            disabled: is_radio,
                             value: if is_scrubbing() { scrub_percent() as i32 } else if duration > 0.0 { (current_time / duration * 100.0) as i32 } else { 0 },
                             class: "flex-1 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-emerald-500",
                             oninput: on_seek_input,
@@ -320,10 +339,7 @@ fn RatingButton() -> Element {
         let mut rating_open = rating_open.clone();
         move |rating: u32| {
             if let Some(song) = now_playing() {
-                let server = servers()
-                    .iter()
-                    .find(|s| s.id == song.server_id)
-                    .cloned();
+                let server = servers().iter().find(|s| s.id == song.server_id).cloned();
                 if let Some(server) = server {
                     let song_id = song.id.clone();
                     let normalized = if rating > 5 { 5 } else { rating };

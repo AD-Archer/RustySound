@@ -7,9 +7,11 @@ pub fn PlaylistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
+    let limit = use_signal(|| 30usize);
 
     let playlists = use_resource(move || {
         let servers = servers();
+        let limit = limit();
         async move {
             let mut playlists = Vec::new();
             for server in servers.into_iter().filter(|s| s.active) {
@@ -18,6 +20,7 @@ pub fn PlaylistsView() -> Element {
                     playlists.extend(server_playlists);
                 }
             }
+            playlists.truncate(limit);
             playlists
         }
     });
@@ -65,8 +68,10 @@ pub fn PlaylistsView() -> Element {
                             }
                         }
                         let has_query = !query.is_empty();
+                        let more_available = filtered.len() > limit();
+                        let display: Vec<Playlist> = filtered.into_iter().take(limit()).collect();
                         rsx! {
-                            if filtered.is_empty() {
+                            if display.is_empty() {
                                 div { class: "flex flex-col items-center justify-center py-20",
                                     Icon {
                                         name: "playlist".to_string(),
@@ -81,7 +86,7 @@ pub fn PlaylistsView() -> Element {
                                 }
                             } else {
                                 div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4",
-                                    for playlist in filtered {
+                                    for playlist in display {
                                         PlaylistCard {
                                             playlist: playlist.clone(),
                                             onclick: {
@@ -98,6 +103,18 @@ pub fn PlaylistsView() -> Element {
                                                         )
                                                 }
                                             },
+                                        }
+                                    }
+                                }
+                                if more_available {
+                                    div { class: "flex justify-center mt-4",
+                                        button {
+                                            class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                                            onclick: {
+                                                let mut limit = limit.clone();
+                                                move |_| limit.set(limit() + 30)
+                                            },
+                                            "View more"
                                         }
                                     }
                                 }

@@ -80,7 +80,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                 div { class: "flex flex-col justify-end text-center md:text-left",
                                     p { class: "text-sm text-zinc-400 uppercase tracking-wide mb-2 font-medium",
 
-                
+
 
                                         "Artist"
                                     }
@@ -103,7 +103,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
-                
+
                             section { class: "space-y-6",
                                 h2 { class: "text-2xl font-bold text-white", "Albums" }
                                 div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6",
@@ -122,7 +122,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                     let client = NavidromeClient::new(server.clone());
                                                     album.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 300))
                                                 });
-                
+
                                             rsx! {
                                                 div {
                                                     key: "{album_id}",

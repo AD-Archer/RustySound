@@ -89,9 +89,12 @@ pub fn RadioView() -> Element {
         let mut error_message = error_message.clone();
         let mut refresh_key = refresh_key.clone();
         move |_| {
-            let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+            let active_servers: Vec<ServerConfig> =
+                servers().into_iter().filter(|s| s.active).collect();
             if active_servers.is_empty() {
-                error_message.set(Some("No active servers found. Please add and activate a server first.".to_string()));
+                error_message.set(Some(
+                    "No active servers found. Please add and activate a server first.".to_string(),
+                ));
                 return;
             }
 
@@ -100,11 +103,14 @@ pub fn RadioView() -> Element {
             let client = NavidromeClient::new(server);
 
             spawn(async move {
-                match client.create_internet_radio_station(
-                    "Downtown Hot Radio",
-                    "https://usa11.fastcast4u.com/proxy/downtownhott?mp=/1",
-                    Some("https://downtownhottradio.com"),
-                ).await {
+                match client
+                    .create_internet_radio_station(
+                        "Downtown Hot Radio",
+                        "https://usa11.fastcast4u.com/proxy/downtownhott?mp=/1",
+                        Some("https://downtownhottradio.com"),
+                    )
+                    .await
+                {
                     Ok(_) => {
                         refresh_key.with_mut(|value| *value += 1);
                     }

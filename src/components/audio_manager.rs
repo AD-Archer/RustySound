@@ -13,6 +13,8 @@ use crate::db::RepeatMode;
 #[cfg(target_arch = "wasm32")]
 use js_sys;
 #[cfg(target_arch = "wasm32")]
+use std::cell::Cell;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{window, HtmlAudioElement};
@@ -49,7 +51,8 @@ pub fn get_or_create_audio_element() -> Option<HtmlAudioElement> {
     // Create new audio element
     let audio: HtmlAudioElement = document.create_element("audio").ok()?.dyn_into().ok()?;
     audio.set_id("rustysound-audio");
-    audio.set_attribute("preload", "auto").ok()?;
+    // Keep preload light so we stream instead of buffering entire files
+    audio.set_attribute("preload", "metadata").ok()?;
 
     // Append to body (hidden)
     document.body()?.append_child(&audio).ok()?;
@@ -86,7 +89,11 @@ pub(crate) fn spawn_shuffle_queue(
     spawn(async move {
         let mut songs = Vec::new();
         if let Some(seed) = seed_song {
-            if let Some(server) = active_servers.iter().find(|s| s.id == seed.server_id).cloned() {
+            if let Some(server) = active_servers
+                .iter()
+                .find(|s| s.id == seed.server_id)
+                .cloned()
+            {
                 let client = NavidromeClient::new(server);
                 if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
                     songs.extend(similar);
@@ -131,7 +138,12 @@ pub fn AudioController() -> Element {
     let shuffle_enabled = use_context::<Signal<bool>>();
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
-    let user_interacted = use_signal(|| false);
+    // Keep user interaction flag in a simple thread-local Cell (non-reactive) to avoid cross-scope Signal issues
+    thread_local! {
+        static USER_INTERACTED: Cell<bool> = Cell::new(false);
+    }
+    let mark_user_interacted = || USER_INTERACTED.with(|c| c.set(true));
+    let has_user_interacted = || USER_INTERACTED.with(|c| c.get());
 
     // Track the current song ID to detect changes
     let mut last_song_id = use_signal(|| Option::<String>::None);
@@ -145,14 +157,14 @@ pub fn AudioController() -> Element {
         };
 
         // Mark user interaction on first click/keydown/touch
-        if !user_interacted() {
+        if !has_user_interacted() {
             if let Some(doc) = window().and_then(|w| w.document()) {
-                let mut ui = user_interacted.clone();
-                let click_cb = Closure::wrap(Box::new(move || ui.set(true)) as Box<dyn FnMut()>);
-                let mut ui = user_interacted.clone();
-                let key_cb = Closure::wrap(Box::new(move || ui.set(true)) as Box<dyn FnMut()>);
-                let mut ui = user_interacted.clone();
-                let touch_cb = Closure::wrap(Box::new(move || ui.set(true)) as Box<dyn FnMut()>);
+                let click_cb =
+                    Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
+                let key_cb =
+                    Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
+                let touch_cb =
+                    Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
                 let _ = doc
                     .add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
                 let _ = doc
@@ -205,6 +217,18 @@ pub fn AudioController() -> Element {
             let queue_list = queue();
             let current_repeat = *repeat_mode.peek();
             let current_shuffle = *shuffle_enabled.peek();
+
+            // Mark current track as finished for Navidrome (server "Now Playing"/history)
+            if let Some(current) = now_playing.peek().clone() {
+                if let Some(server) = servers.peek().iter().find(|s| s.id == current.server_id) {
+                    let song_id = current.id.clone();
+                    let server = server.clone();
+                    spawn(async move {
+                        let client = NavidromeClient::new(server);
+                        let _ = client.scrobble(&song_id, true).await;
+                    });
+                }
+            }
 
             match current_repeat {
                 RepeatMode::One => {
@@ -285,13 +309,23 @@ pub fn AudioController() -> Element {
                             audio.set_src(&url);
                             audio.set_volume(volume().clamp(0.0, 1.0));
                             // Only autoplay if user already interacted
-                            if user_interacted() && is_playing() {
+                            if has_user_interacted() && is_playing() {
                                 let _ = audio.play();
                             } else {
                                 let _ = audio.pause();
                                 is_playing.set(false);
                             }
                         }
+                    }
+                    // Report "now playing" to Navidrome for server-side visibility
+                    if let Some(server) =
+                        server_list.iter().find(|s| s.id == song.server_id).cloned()
+                    {
+                        let song_id = song.id.clone();
+                        spawn(async move {
+                            let client = NavidromeClient::new(server);
+                            let _ = client.scrobble(&song_id, false).await;
+                        });
                     }
                 } else if let Some(audio) = get_or_create_audio_element() {
                     audio.set_src("");
@@ -307,9 +341,21 @@ pub fn AudioController() -> Element {
         let playing = is_playing();
         if let Some(audio) = get_or_create_audio_element() {
             if playing {
-                if user_interacted() {
+                if has_user_interacted() {
                     if audio.paused() {
                         let _ = audio.play();
+                    }
+                } else {
+                    // Ensure we request playback once the user interacts to keep streaming behavior
+                    if let Some(doc) = window().and_then(|w| w.document()) {
+                        let play_cb = Closure::wrap(Box::new(move || {
+                            mark_user_interacted();
+                        }) as Box<dyn FnMut()>);
+                        let _ = doc.add_event_listener_with_callback(
+                            "click",
+                            play_cb.as_ref().unchecked_ref(),
+                        );
+                        play_cb.forget();
                     }
                 }
             } else if !audio.paused() {

@@ -10,7 +10,7 @@ pub fn RandomView() -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    let mut shuffle_enabled = use_context::<Signal<bool>>();
+    let shuffle_enabled = use_context::<Signal<bool>>();
 
     let refresh_counter = use_signal(|| 0);
 
@@ -49,9 +49,12 @@ pub fn RandomView() -> Element {
         }
     };
 
-    let on_shuffle = move |_| {
-        let current = shuffle_enabled();
-        shuffle_enabled.set(!current);
+    let on_shuffle = {
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        move |_: MouseEvent| {
+            let current = shuffle_enabled();
+            shuffle_enabled.set(!current);
+        }
     };
 
     rsx! {
@@ -62,19 +65,7 @@ pub fn RandomView() -> Element {
                     p { class: "page-subtitle", "A random selection from your library" }
                 }
                 div { class: "flex flex-wrap gap-6",
-                    button {
-                        class: if shuffle_enabled() { "px-4 py-2 rounded-xl bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 hover:bg-emerald-500/30 transition-colors flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-800/50 text-zinc-300 hover:text-white hover:bg-zinc-800 transition-colors flex items-center gap-2" },
-                        onclick: on_shuffle,
-                        Icon {
-                            name: "shuffle".to_string(),
-                            class: "w-4 h-4".to_string(),
-                        }
-                        if shuffle_enabled() {
-                            "Shuffle On"
-                        } else {
-                            "Shuffle Off"
-                        }
-                    }
+
                     button {
                         class: "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
                         onclick: on_play_all,
@@ -83,6 +74,15 @@ pub fn RandomView() -> Element {
                             class: "w-4 h-4".to_string(),
                         }
                         "Play All"
+                    }
+                    button {
+                        class: if shuffle_enabled() { "px-6 py-2 rounded-xl bg-zinc-800 text-emerald-400 border border-emerald-500/50 font-medium transition-colors" } else { "px-6 py-2 rounded-xl bg-zinc-800 text-zinc-200 border border-zinc-700/60 font-medium transition-colors" },
+                        onclick: on_shuffle,
+                        Icon {
+                            name: "shuffle".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Shuffle"
                     }
                 }
             }

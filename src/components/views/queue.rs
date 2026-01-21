@@ -137,7 +137,7 @@ pub fn QueueView() -> Element {
                                                 }
                                             }
 
-        
+
 
                                             div {
                                                 p { class: "font-medium text-white", "{current.title}" }
@@ -165,7 +165,7 @@ pub fn QueueView() -> Element {
                                                 }
                                             }
                                         }
-        
+
                                         div { class: "text-sm text-zinc-500 font-mono", "{format_duration(current.duration)}" }
                                     }
                                 }
@@ -198,7 +198,7 @@ pub fn QueueView() -> Element {
                                             }
                                         },
 
-        
+
 
                                         div { class: "flex items-center gap-4 overflow-hidden",
                                             div { class: "w-8 text-center text-sm flex-shrink-0",
@@ -266,7 +266,7 @@ pub fn QueueView() -> Element {
                                                     }
                                                 }
                                             }
-        
+
                                             div { class: "min-w-0",
                                                 p { class: if is_current { "text-emerald-400 font-medium truncate" } else { "text-zinc-300 truncate group-hover:text-white" },
                                                     "{song.title}"
@@ -317,21 +317,21 @@ pub fn QueueView() -> Element {
                                                 }
                                             }
                                         }
-        
+
                                         div { class: "flex items-center gap-4",
                                             span { class: "text-sm text-zinc-600 font-mono group-hover:hidden",
                                                 "{format_duration(song.duration)}"
                                             }
-        
+
                                             button {
                                                 class: "p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
                                                     let was_playing = is_playing();
                                                     let q_len = queue().len();
-        
+
                                                     queue
-        
+
                                                         .with_mut(|q| {
                                                             if idx < q.len() {
                                                                 q.remove(idx);

@@ -20,21 +20,23 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 
 ## Supported Platforms
 
-### Desktop
+### Web
+
+- **Browser**: WebAssembly-based web application
+- **Progressive Web App**: Installable PWA support
+
+
+### Desktop(currently disabled)
 
 - **macOS**: DMG installer and native .app bundle
 - **Windows**: MSI installer and portable EXE
 - **Linux**: AppImage bundle
 
-### Mobile
+### Mobile(currently disabled)
 
-- **iOS**: App Store distribution
-- **Android**: Google Play Store distribution
+- **iOS**: unsigned .app 
+- **Android**: apk 
 
-### Web
-
-- **Browser**: WebAssembly-based web application
-- **Progressive Web App**: Installable PWA support
 
 ## Installation
 
@@ -56,13 +58,10 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 2. Make it executable: `chmod +x RustySound-*.AppImage`
 3. Run: `./RustySound-*.AppImage`
 
-### Mobile
-
-Coming soon to App Store and Google Play Store.
 
 ### Web
 
-Visit [rustysound](https://rustysound.adarcher.app) to use the web version.
+Visit [rustysound](https://rustysound-demo.adarcher.app) to use the web version.
 
 #### Docker Deployment
 

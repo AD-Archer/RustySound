@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::views::home::SongRow;
+use crate::components::views::album_song_row::AlbumSongRow;
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
@@ -111,12 +111,16 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                         }
                                     }
                                 }
-                                div { class: "flex flex-col justify-end",
+                                div { class: "flex flex-col justify-end max-w-full",
                                     p { class: "text-sm text-zinc-400 uppercase tracking-wide mb-2", "Album" }
-                                    h1 { class: "text-4xl font-bold text-white mb-4", "{album.name}" }
+                                    h1 {
+                                        class: "text-4xl font-bold text-white mb-4 max-w-3xl",
+                                        style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;",
+                                        "{album.name}"
+                                    }
                                     if let Some(artist_id) = &album.artist_id {
                                         button {
-                                            class: "text-lg text-zinc-300 mb-2 hover:text-emerald-400 transition-colors text-left",
+                                            class: "text-lg text-zinc-300 mb-2 hover:text-emerald-400 transition-colors text-left max-w-3xl truncate",
                                             onclick: {
                                                 let artist_id = artist_id.clone();
                                                 let server_id = album.server_id.clone();
@@ -127,8 +131,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
                             // Set the full album as queue
 
-                
-                
+
+
 
                                                         .navigate_to(
                                                             AppView::ArtistDetail(artist_id.clone(), server_id.clone()),
@@ -166,13 +170,13 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
-                
+
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {
                                     {
                                         let song_clone = song.clone();
                                         rsx! {
-                                            SongRow {
+                                            AlbumSongRow {
                                                 song: song.clone(),
                                                 index: index + 1,
                                                 onclick: move |_| {

@@ -8,20 +8,42 @@ pub fn ArtistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
+    let limit = use_signal(|| 30usize);
 
     let artists = use_resource(move || {
         let servers = servers();
+        let limit = limit();
+        let query = search_query();
         async move {
             let mut artists = Vec::new();
-            for server in servers.into_iter().filter(|s| s.active) {
-                let client = NavidromeClient::new(server);
-                if let Ok(server_artists) = client.get_artists().await {
-                    artists.extend(server_artists);
+            let mut more_available = false;
+            if query.trim().is_empty() {
+                for server in servers.into_iter().filter(|s| s.active) {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(server_artists) = client.get_artists().await {
+                        artists.extend(server_artists);
+                    }
                 }
+                artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                if artists.len() > limit {
+                    more_available = true;
+                }
+                artists.truncate(limit);
+            } else {
+                for server in servers.into_iter().filter(|s| s.active) {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(results) = client.search(&query, limit as u32 + 1, 0, 0).await {
+                        if results.artists.len() > limit {
+                            more_available = true;
+                        }
+                        let mut subset = results.artists;
+                        subset.truncate(limit);
+                        artists.extend(subset);
+                    }
+                }
+                artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
             }
-            // Sort by name
-            artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
-            artists
+            (artists, more_available)
         }
     });
 
@@ -53,23 +75,14 @@ pub fn ArtistsView() -> Element {
 
             {
                 match artists() {
-                    Some(artists) => {
+                    Some((artists, more_available)) => {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
-                        let mut filtered = Vec::new();
-                        if query.is_empty() {
-                            filtered = artists.clone();
-                        } else {
-                            for artist in &artists {
-                                if artist.name.to_lowercase().contains(&query) {
-                                    filtered.push(artist.clone());
-                                }
-                            }
-                        }
                         let has_query = !query.is_empty();
+                        let display: Vec<Artist> = artists.into_iter().take(limit()).collect();
 
                         rsx! {
-                            if filtered.is_empty() {
+                            if display.is_empty() {
                                 div { class: "flex flex-col items-center justify-center py-20",
                                     Icon {
                                         name: "artist".to_string(),
@@ -83,7 +96,7 @@ pub fn ArtistsView() -> Element {
                                 }
                             } else {
                                 div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6",
-                                    for artist in filtered {
+                                    for artist in display {
                                         ArtistCard {
                                             artist: artist.clone(),
                                             onclick: {
@@ -97,6 +110,18 @@ pub fn ArtistsView() -> Element {
                                                         )
                                                 }
                                             },
+                                        }
+                                    }
+                                }
+                                if more_available {
+                                    div { class: "flex justify-center mt-4",
+                                        button {
+                                            class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                                            onclick: {
+                                                let mut limit = limit.clone();
+                                                move |_| limit.set(limit() + 30)
+                                            },
+                                            "View more"
                                         }
                                     }
                                 }
