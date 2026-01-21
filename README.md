@@ -2,7 +2,10 @@
 
 A cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus.
 
-![RustySound Logo](assets/logo.png)
+<img width="1918" height="905" alt="album page art" src="https://github.com/user-attachments/assets/06267508-388f-456b-a2e3-ae45dc00f11c" />
+<img width="2000" height="2000" alt="logo" src="https://github.com/user-attachments/assets/06a667e0-e700-4da4-b47d-5c8d4dcd3938" />
+<img width="323" height="697" alt="album" src="https://github.com/user-attachments/assets/bc93c22e-bcf1-4a41-9d3c-fdba82a36214" />
+
 
 ## Features
 
