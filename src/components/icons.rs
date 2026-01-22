@@ -473,6 +473,17 @@ pub fn Icon(name: String, class: String) -> Element {
                 path { d: "M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" }
             }
         },
+        "arrow-left" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                polyline { points: "15 18 9 12 15 6" }
+                line { x1: "9", y1: "12", x2: "21", y2: "12" }
+            }
+        },
         _ => rsx! {
             svg {
                 class: "{class}",
