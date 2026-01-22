@@ -2,7 +2,7 @@ use crate::api::*;
 use crate::components::views::*;
 use crate::components::{
     view_label, AppView, AudioController, AudioState, Icon, Navigation, PlaybackPositionSignal,
-    Player, Sidebar, VolumeSignal,
+    Player, SeekRequestSignal, Sidebar, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -44,6 +44,8 @@ pub fn AppShell() -> Element {
     let sidebar_open = use_signal(|| false);
     let navigation_stack = use_signal(Vec::<AppView>::new);
     let navigation = Navigation::new(current_view.clone(), navigation_stack.clone());
+    let seek_request = use_signal(|| None::<(String, f64)>);
+    let mut resume_bookmark_loaded = use_signal(|| false);
     let swipe_start = use_signal(|| None::<f64>);
 
     // Provide state via context
@@ -92,6 +94,7 @@ pub fn AppShell() -> Element {
     use_context_provider(|| VolumeSignal(volume));
     use_context_provider(|| app_settings);
     use_context_provider(|| PlaybackPositionSignal(playback_position));
+    use_context_provider(|| SeekRequestSignal(seek_request));
     use_context_provider(|| shuffle_enabled);
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
@@ -133,6 +136,75 @@ pub fn AppShell() -> Element {
                 // Note: We don't restore the full queue/song here since we'd need to re-fetch song details
                 // That would require knowing which server each song came from
             }
+        });
+    });
+
+    // Resume from the most recent bookmark on startup (paused)
+    use_effect(move || {
+        if resume_bookmark_loaded() {
+            return;
+        }
+        if now_playing().is_some() {
+            resume_bookmark_loaded.set(true);
+            return;
+        }
+
+        let servers_snapshot = servers();
+        if servers_snapshot.is_empty() {
+            return;
+        }
+
+        let mut queue = queue.clone();
+        let mut queue_index = queue_index.clone();
+        let mut now_playing = now_playing.clone();
+        let mut is_playing = is_playing.clone();
+        let mut playback_position = playback_position.clone();
+        let mut seek_request = seek_request.clone();
+        let mut resume_bookmark_loaded = resume_bookmark_loaded.clone();
+        spawn(async move {
+            let mut latest: Option<Bookmark> = None;
+
+            for server in servers_snapshot.into_iter().filter(|s| s.active) {
+                let client = NavidromeClient::new(server.clone());
+                if let Ok(mut bookmarks) = client.get_bookmarks().await {
+                    for bm in bookmarks.iter_mut() {
+                        if bm.entry.server_id.is_empty() {
+                            bm.entry.server_id = server.id.clone();
+                        }
+                        if bm.entry.server_name.is_empty() {
+                            bm.entry.server_name = server.name.clone();
+                        }
+                    }
+
+                    if let Some(best) = bookmarks
+                        .into_iter()
+                        .max_by(|a, b| a.changed.cmp(&b.changed))
+                    {
+                        latest = Some(match latest {
+                            Some(current) => {
+                                if best.changed > current.changed {
+                                    best
+                                } else {
+                                    current
+                                }
+                            }
+                            None => best,
+                        });
+                    }
+                }
+            }
+
+            if let Some(bookmark) = latest {
+                let position = bookmark.position as f64 / 1000.0;
+                queue.set(vec![bookmark.entry.clone()]);
+                queue_index.set(0);
+                now_playing.set(Some(bookmark.entry.clone()));
+                playback_position.set(position);
+                seek_request.set(Some((bookmark.entry.id.clone(), position)));
+                is_playing.set(false);
+            }
+
+            resume_bookmark_loaded.set(true);
         });
     });
 
@@ -292,6 +364,9 @@ pub fn AppShell() -> Element {
                                 },
                                 AppView::Radio => rsx! {
                                     RadioView {}
+                                },
+                                AppView::Bookmarks => rsx! {
+                                    BookmarksView {}
                                 },
                                 AppView::Favorites => rsx! {
                                     FavoritesView {}

@@ -10,6 +10,7 @@ pub enum AppView {
     Artists,
     Playlists,
     Radio,
+    Bookmarks,
     Favorites,
     Random,
     Settings,
@@ -33,10 +34,11 @@ pub fn view_label(view: &AppView) -> &'static str {
             } else {
                 "Albums"
             }
-        },
+        }
         AppView::Artists => "Artists",
         AppView::Playlists => "Playlists",
         AppView::Radio => "Radio",
+        AppView::Bookmarks => "Bookmarks",
         AppView::Favorites => "Favorites",
         AppView::Random => "Random",
         AppView::Settings => "Settings",

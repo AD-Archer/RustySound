@@ -165,8 +165,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
                             // Set the full album as queue
 
-                
-                
+
+
 
                                                         .navigate_to(
                                                             AppView::ArtistDetail(artist_id.clone(), server_id.clone()),
@@ -183,7 +183,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             span { "{year}" }
                                         }
                                         span { "{album.song_count} songs" }
-                                        span { "{format_duration(album.duration)}" }
+                                        span { "{format_duration(album.duration / 1000)}" }
                                     }
                                     div { class: "flex gap-3 mt-6",
                                         button {
@@ -209,7 +209,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
-                
+
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {
                                     {

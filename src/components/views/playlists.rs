@@ -69,7 +69,10 @@ pub fn PlaylistsView() -> Element {
                         }
                         let has_query = !query.is_empty();
                         let more_available = filtered.len() > limit();
-                        let display: Vec<Playlist> = filtered.into_iter().take(limit()).collect();
+                        let display: Vec<Playlist> = filtered
+                            .into_iter()
+                            .take(limit())
+                            .collect();
                         rsx! {
                             if display.is_empty() {
                                 div { class: "flex flex-col items-center justify-center py-20",
@@ -184,7 +187,7 @@ fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Elemen
                 "{playlist.name}"
             }
             p { class: "text-xs text-zinc-400",
-                "{playlist.song_count} songs • {format_duration(playlist.duration)}"
+                "{playlist.song_count} songs • {format_duration(playlist.duration / 1000)}"
             }
         }
     }

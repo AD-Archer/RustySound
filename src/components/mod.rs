@@ -19,6 +19,9 @@ pub struct VolumeSignal(pub Signal<f64>);
 #[allow(dead_code)]
 pub struct PlaybackPositionSignal(pub Signal<f64>);
 
+#[derive(Clone)]
+pub struct SeekRequestSignal(pub Signal<Option<(String, f64)>>);
+
 pub use app::*;
 pub use app_view::{view_label, AppView};
 pub use audio_manager::*;

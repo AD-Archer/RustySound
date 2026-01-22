@@ -462,7 +462,10 @@ pub fn SettingsView() -> Element {
                             class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                             placeholder: "My Navidrome Server",
                             value: server_name,
-                            oninput: move |e| server_name.set(e.value()),
+                            oninput: move |e| {
+                                server_name.set(e.value());
+                                test_result.set(None);
+                            },
                         }
                     }
 
@@ -475,7 +478,10 @@ pub fn SettingsView() -> Element {
                             class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                             placeholder: "https://navidrome.example.com",
                             value: server_url,
-                            oninput: move |e| server_url.set(e.value()),
+                            oninput: move |e| {
+                                server_url.set(e.value());
+                                test_result.set(None);
+                            },
                         }
                     }
 
@@ -489,7 +495,10 @@ pub fn SettingsView() -> Element {
                                 class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                                 placeholder: "admin",
                                 value: server_user,
-                                oninput: move |e| server_user.set(e.value()),
+                                oninput: move |e| {
+                                    server_user.set(e.value());
+                                    test_result.set(None);
+                                },
                             }
                         }
                         div {
@@ -501,7 +510,10 @@ pub fn SettingsView() -> Element {
                                 r#type: "password",
                                 placeholder: "••••••••",
                                 value: server_pass,
-                                oninput: move |e| server_pass.set(e.value()),
+                                oninput: move |e| {
+                                    server_pass.set(e.value());
+                                    test_result.set(None);
+                                },
                             }
                         }
                     }

@@ -6,7 +6,7 @@ use dioxus::prelude::*;
 #[cfg(target_arch = "wasm32")]
 use crate::api::*;
 #[cfg(target_arch = "wasm32")]
-use crate::components::{PlaybackPositionSignal, VolumeSignal};
+use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal};
 #[cfg(target_arch = "wasm32")]
 use crate::db::RepeatMode;
 
@@ -137,6 +137,9 @@ pub fn AudioController() -> Element {
     let repeat_mode = use_context::<Signal<RepeatMode>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
     let playback_position = use_context::<PlaybackPositionSignal>().0;
+    let mut seek_request = use_context::<SeekRequestSignal>().0;
+    let mut last_bookmark = use_signal(|| None::<(String, u64)>);
+    let mut last_song_for_bookmark = use_signal(|| None::<Song>);
     let audio_state = use_context::<Signal<AudioState>>();
     // Keep user interaction flag in a simple thread-local Cell (non-reactive) to avoid cross-scope Signal issues
     thread_local! {
@@ -281,10 +284,32 @@ pub fn AudioController() -> Element {
     use_effect(move || {
         let song = now_playing();
         let song_id = song.as_ref().map(|s| s.id.clone());
+        let previous_song = last_song_for_bookmark();
+        let mut last_bookmark = last_bookmark.clone();
+
+        // Save a bookmark for the previous song when switching tracks (keeps position even if user never hit pause)
+        if let Some(prev) = previous_song {
+            if Some(prev.id.clone()) != song_id {
+                let position_ms = (playback_position() * 1000.0).round().max(0.0) as u64;
+                if position_ms > 1500 {
+                    let servers = servers.peek().clone();
+                    let song_id = prev.id.clone();
+                    let server_id = prev.server_id.clone();
+                    last_bookmark.set(Some((song_id.clone(), position_ms)));
+                    spawn(async move {
+                        if let Some(server) = servers.iter().find(|s| s.id == server_id).cloned() {
+                            let client = NavidromeClient::new(server);
+                            let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                        }
+                    });
+                }
+            }
+        }
 
         // Only update if song actually changed
         if song_id != last_song_id() {
             last_song_id.set(song_id.clone());
+            last_song_for_bookmark.set(song.clone());
 
             if let Some(song) = song {
                 let server_list = servers();
@@ -308,6 +333,13 @@ pub fn AudioController() -> Element {
                         if let Some(audio) = get_or_create_audio_element() {
                             audio.set_src(&url);
                             audio.set_volume(volume().clamp(0.0, 1.0));
+                            let pending_seek = seek_request.peek().clone();
+                            if let Some((target_id, target_pos)) = pending_seek {
+                                if target_id == song.id {
+                                    audio.set_current_time(target_pos);
+                                    seek_request.set(None);
+                                }
+                            }
                             // Only autoplay if user already interacted
                             if has_user_interacted() && is_playing() {
                                 let _ = audio.play();
@@ -370,6 +402,39 @@ pub fn AudioController() -> Element {
         let mode = repeat_mode();
         if let Some(audio) = get_or_create_audio_element() {
             audio.set_loop(mode == RepeatMode::One);
+        }
+    });
+
+    // Automatically persist a server bookmark when playback stops/pauses
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        let playing = is_playing();
+        let song = now_playing();
+        // Use the audio_state clock for the freshest position at pause time
+        let position_ms = ((audio_state().current_time)() * 1000.0).round().max(0.0) as u64;
+        let mut last_bookmark = last_bookmark.clone();
+
+        if !playing {
+            if let Some(song) = song {
+                let should_save = match last_bookmark.peek().clone() {
+                    Some((id, pos)) => id != song.id || position_ms.abs_diff(pos) >= 2000,
+                    None => true,
+                };
+
+                if should_save && position_ms > 1500 {
+                    let servers = servers.peek().clone();
+                    let song_id = song.id.clone();
+                    let server_id = song.server_id.clone();
+                    last_bookmark.set(Some((song_id.clone(), position_ms)));
+
+                    spawn(async move {
+                        if let Some(server) = servers.iter().find(|s| s.id == server_id).cloned() {
+                            let client = NavidromeClient::new(server);
+                            let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                        }
+                    });
+                }
+            }
         }
     });
 

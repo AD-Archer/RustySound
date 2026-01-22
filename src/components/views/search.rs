@@ -112,13 +112,13 @@ pub fn SearchView() -> Element {
 
                         // Songs
 
-        
 
-        
-        
+
+
+
 
                                                         .navigate_to(
-        
+
 
                                                             AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
                                                         )
@@ -129,7 +129,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-        
+
                         if has_albums {
                             section { class: "mb-8",
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Albums" }
@@ -154,7 +154,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-        
+
                         if has_songs {
                             section {
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Songs" }
@@ -173,7 +173,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-        
+
                         if no_results {
                             div { class: "flex flex-col items-center justify-center py-20",
                                 Icon {

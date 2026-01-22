@@ -208,6 +208,14 @@ pub fn HomeView() -> Element {
                         },
                     }
                     QuickPlayCard {
+                        title: "Bookmarks".to_string(),
+                        gradient: "from-indigo-500 to-blue-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Bookmarks)
+                        },
+                    }
+                    QuickPlayCard {
                         title: "Radio Stations".to_string(),
                         gradient: "from-emerald-600 to-teal-600".to_string(),
                         onclick: {
@@ -229,6 +237,14 @@ pub fn HomeView() -> Element {
                         onclick: {
                             let nav = navigation.clone();
                             move |_| nav.navigate_to(AppView::Playlists)
+                        },
+                    }
+                    QuickPlayCard {
+                        title: "Artists".to_string(),
+                        gradient: "from-purple-600 to-indigo-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Artists)
                         },
                     }
                 }

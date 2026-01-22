@@ -8,9 +8,16 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
 
-    let mut album_type = use_signal(|| "recent".to_string());
+    let mut album_type = use_signal(|| {
+        if genre.is_some() {
+            "alphabeticalByName".to_string()
+        } else {
+            "recent".to_string()
+        }
+    });
     let mut search_query = use_signal(String::new);
     let limit = use_signal(|| 30u32);
+    let mut fallback_applied = use_signal(|| false);
 
     let genre_for_title = genre.clone();
     let albums = use_resource(move || {
@@ -48,14 +55,12 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                     }
                 }
             }
-            
+
             // Filter by genre if specified
             if let Some(ref genre_name) = genre_filter {
-                albums.retain(|album| {
-                    album.genre.as_ref().map_or(false, |g| g == genre_name)
-                });
+                albums.retain(|album| album.genre.as_ref().map_or(false, |g| g == genre_name));
             }
-            
+
             (albums, more_available)
         }
     });
@@ -118,6 +123,15 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
                         let has_query = !query.is_empty();
+                        if albums.is_empty()
+                            && album_type() == "recent"
+                            && !has_query
+                            && !fallback_applied()
+                        {
+                            fallback_applied.set(true);
+                            album_type.set("alphabeticalByName".to_string());
+                            return rsx! {};
+                        }
                         rsx! {
                             if albums.is_empty() {
                                 div { class: "flex flex-col items-center justify-center py-20",

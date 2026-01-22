@@ -128,6 +128,12 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                         onclick: nav_to(AppView::Favorites),
                     }
                     NavItem {
+                        icon: "bookmark",
+                        label: "Bookmarks",
+                        active: matches!(view, AppView::Bookmarks),
+                        onclick: nav_to(AppView::Bookmarks),
+                    }
+                    NavItem {
                         icon: "queue",
                         label: "Queue",
                         active: matches!(view, AppView::Queue),
@@ -143,7 +149,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                         active: matches!(view, AppView::Settings),
                         onclick: nav_to(AppView::Settings),
                     }
-                
+
                 }
             }
         }

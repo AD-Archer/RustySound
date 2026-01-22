@@ -2,7 +2,9 @@ use crate::api::models::format_duration;
 use crate::api::*;
 #[cfg(target_arch = "wasm32")]
 use crate::components::audio_manager::spawn_shuffle_queue;
-use crate::components::{seek_to, AppView, AudioState, Icon, Navigation, VolumeSignal};
+use crate::components::{
+    seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, VolumeSignal,
+};
 use crate::db::RepeatMode;
 use dioxus::prelude::*;
 
@@ -252,6 +254,8 @@ pub fn Player() -> Element {
                 div { class: "flex flex-col items-center gap-3 w-full md:flex-1 md:max-w-2xl",
                     // Control buttons
                     div { class: "flex flex-wrap items-center gap-6 md:gap-4 justify-center",
+                        // Bookmark button
+                        BookmarkButton {}
                         // Rating button
                         RatingButton {}
                         // Previous button
@@ -311,6 +315,68 @@ pub fn Player() -> Element {
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+/// Bookmark button - capture current playback position on the server
+#[component]
+fn BookmarkButton() -> Element {
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
+    let playback_position = use_context::<PlaybackPositionSignal>().0;
+    let saving = use_signal(|| false);
+    let saved = use_signal(|| false);
+    let base_class = "hidden sm:flex items-center justify-center";
+
+    {
+        let now_playing = now_playing.clone();
+        let mut saved_signal = saved.clone();
+        use_effect(move || {
+            let _ = now_playing();
+            saved_signal.set(false);
+        });
+    }
+
+    let has_song = now_playing().is_some();
+
+    let on_save = move |_| {
+        if saving() {
+            return;
+        }
+        if let Some(song) = now_playing.peek().clone() {
+            if let Some(server) = servers().iter().find(|s| s.id == song.server_id).cloned() {
+                let song_id = song.id.clone();
+                let position_ms = (playback_position() * 1000.0).round().max(0.0) as u64;
+                let mut saving = saving.clone();
+                let mut saved = saved.clone();
+                spawn(async move {
+                    saving.set(true);
+                    let client = NavidromeClient::new(server);
+                    let res = client.create_bookmark(&song_id, position_ms, None).await;
+                    saving.set(false);
+                    saved.set(res.is_ok());
+                });
+            }
+        }
+    };
+
+    rsx! {
+        button {
+            id: "bookmark-btn",
+            r#type: "button",
+            disabled: !has_song || saving(),
+            class: if saved() {
+                format!("{base_class} p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors")
+            } else {
+                format!("{base_class} p-3 md:p-2 text-zinc-400 hover:text-white transition-colors")
+            },
+            onclick: on_save,
+            if saving() {
+                Icon { name: "loader".to_string(), class: "w-5 h-5".to_string() }
+            } else {
+                Icon { name: "bookmark".to_string(), class: "w-5 h-5".to_string() }
             }
         }
     }

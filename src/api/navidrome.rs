@@ -396,6 +396,45 @@ impl NavidromeClient {
         Ok((artists, albums, songs))
     }
 
+    pub async fn get_bookmarks(&self) -> Result<Vec<Bookmark>, String> {
+        let url = self.build_url("getBookmarks", &[]);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        let mut bookmarks = json
+            .subsonic_response
+            .bookmarks
+            .and_then(|b| b.bookmark)
+            .unwrap_or_default();
+
+        for bookmark in &mut bookmarks {
+            if bookmark.id.is_empty() {
+                bookmark.id = bookmark.entry.id.clone();
+            }
+            bookmark.server_id = self.server.id.clone();
+            if bookmark.entry.server_id.is_empty() {
+                bookmark.entry.server_id = self.server.id.clone();
+            }
+            if bookmark.entry.server_name.is_empty() {
+                bookmark.entry.server_name = self.server.name.clone();
+            }
+        }
+
+        Ok(bookmarks)
+    }
+
     pub async fn star(&self, id: &str, item_type: &str) -> Result<(), String> {
         let param = match item_type {
             "artist" => "artistId",
@@ -403,6 +442,60 @@ impl NavidromeClient {
             _ => "id",
         };
         let url = self.build_url("star", &[(param, id)]);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn create_bookmark(
+        &self,
+        song_id: &str,
+        position_ms: u64,
+        comment: Option<&str>,
+    ) -> Result<(), String> {
+        let position_string = position_ms.to_string();
+        let mut params: Vec<(&str, &str)> =
+            vec![("id", song_id), ("position", position_string.as_str())];
+        let comment_string;
+        if let Some(text) = comment.filter(|c| !c.trim().is_empty()) {
+            comment_string = text.to_string();
+            params.push(("comment", comment_string.as_str()));
+        }
+
+        let url = self.build_url("createBookmark", &params);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn delete_bookmark(&self, song_id: &str) -> Result<(), String> {
+        let url = self.build_url("deleteBookmark", &[("id", song_id)]);
         let response = HTTP_CLIENT
             .get(&url)
             .send()
@@ -783,6 +876,7 @@ pub struct SubsonicResponseInner {
     pub search_result3: Option<SearchResult3>,
     #[serde(alias = "scanStatus")]
     pub scan_status: Option<ScanStatusPayload>,
+    pub bookmarks: Option<BookmarksContainer>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -922,4 +1016,9 @@ pub struct SearchResult3 {
     pub artist: Option<Vec<Artist>>,
     pub album: Option<Vec<Album>>,
     pub song: Option<Vec<Song>>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct BookmarksContainer {
+    pub bookmark: Option<Vec<Bookmark>>,
 }

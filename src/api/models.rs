@@ -102,6 +102,26 @@ pub struct Song {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct Bookmark {
+    #[serde(default)]
+    pub id: String,
+    #[serde(default)]
+    pub position: u64,
+    #[serde(default)]
+    pub comment: Option<String>,
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub changed: Option<String>,
+    #[serde(default)]
+    pub username: Option<String>,
+    #[serde(default)]
+    pub entry: Song,
+    #[serde(default)]
+    pub server_id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct Playlist {
     pub id: String,
     pub name: String,
