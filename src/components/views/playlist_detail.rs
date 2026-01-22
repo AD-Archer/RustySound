@@ -1,5 +1,7 @@
 use crate::api::*;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use std::rc::Rc;
+use std::cell::RefCell;
 use dioxus::prelude::*;
 
 #[component]
@@ -88,13 +90,23 @@ fn PlaylistSongRow(
             }
             div { class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
                 match cover_url {
-                    Some(url) => rsx! { img { class: "w-full h-full object-cover", src: "{url}" } },
-                    None => rsx! { div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800", Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() } } },
+                    Some(url) => rsx! {
+                        img { class: "w-full h-full object-cover", src: "{url}" }
+                    },
+                    None => rsx! {
+                        div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
+                            Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
+                        }
+                    },
                 }
             }
             div { class: "flex-1 min-w-0 text-center md:text-left",
-                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors", "{song.title}" }
-                p { class: "text-xs text-zinc-400 truncate", "{song.album.clone().unwrap_or_default()}" }
+                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                    "{song.title}"
+                }
+                p { class: "text-xs text-zinc-400 truncate",
+                    "{song.album.clone().unwrap_or_default()}"
+                }
             }
             div { class: "hidden sm:flex items-center gap-1 text-amber-400",
                 for i in 1..=5 {
@@ -140,6 +152,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let deleting_playlist = use_signal(|| false);
     let delete_error = use_signal(|| None::<String>);
     let mut song_list = use_signal(|| Vec::<Song>::new());
+    let mut show_delete_confirm = use_signal(|| false);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
     let server_for_playlist = server.clone();
@@ -262,14 +275,18 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 {
                     let playlist_id = playlist.id.clone();
                     let mut song_list = song_list_signal.clone();
-                    spawn(async move {
-                        let client = NavidromeClient::new(server);
-                        let result =
-                            client.remove_songs_from_playlist(&playlist_id, &[song_id.clone()]).await;
-                        if result.is_ok() {
-                            song_list.with_mut(|list| list.retain(|s| s.id != song_id));
-                        }
-                    });
+                    // Find the index of the song in the current list
+                    let song_index = song_list().iter().position(|s| s.id == song_id);
+                    if let Some(index) = song_index {
+                        spawn(async move {
+                            let client = NavidromeClient::new(server);
+                            let result =
+                                client.remove_songs_from_playlist(&playlist_id, &[index]).await;
+                            if result.is_ok() {
+                                song_list.with_mut(|list| list.retain(|s| s.id != song_id));
+                            }
+                        });
+                    }
                 }
             }
         }
@@ -297,13 +314,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         }
     };
 
-    let on_delete_playlist = {
+    let delete_playlist_action = {
         let playlist_data_ref = playlist_data.clone();
         let servers = servers.clone();
-        let mut deleting_playlist_flag = deleting_playlist.clone();
-        let delete_error_signal = delete_error.clone();
+        let deleting_playlist = deleting_playlist.clone();
+        let delete_error = delete_error.clone();
         let navigation = navigation.clone();
-        move |_| {
+        Rc::new(RefCell::new(move || {
+            let mut deleting_playlist_flag = deleting_playlist.clone();
             if deleting_playlist_flag() {
                 return;
             }
@@ -317,7 +335,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     let playlist_id = playlist.id.clone();
                     let navigation = navigation.clone();
                     let mut deleting_playlist_clone = deleting_playlist_flag.clone();
-                    let mut delete_error_clone = delete_error_signal.clone();
+                    let mut delete_error_clone = delete_error.clone();
                     spawn(async move {
                         let client = NavidromeClient::new(server);
                         match client.delete_playlist(&playlist_id).await {
@@ -328,6 +346,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     });
                 }
             }
+        }))
+    };
+    let on_delete_playlist = {
+        let mut show_delete_confirm = show_delete_confirm.clone();
+        let mut delete_error = delete_error.clone();
+        move |_: MouseEvent| {
+            delete_error.set(None);
+            show_delete_confirm.set(true);
+        }
+    };
+    let on_confirm_delete = {
+        let delete_playlist_action = delete_playlist_action.clone();
+        let mut show_delete_confirm = show_delete_confirm.clone();
+        move |_: MouseEvent| {
+            show_delete_confirm.set(false);
+            delete_playlist_action.borrow_mut()();
         }
     };
 
@@ -373,8 +407,24 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         div { class: "flex flex-col md:flex-row gap-8 mb-8 items-center md:items-end",
                             div { class: "w-64 h-64 rounded-2xl bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0",
                                 match cover_url {
-                                    Some(url) => rsx! { img { class: "w-full h-full object-cover", src: "{url}" } },
-                                    None => rsx! { div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700", Icon { name: "playlist".to_string(), class: "w-20 h-20 text-white/70".to_string() } } },
+                                    Some(url) => rsx! {
+
+            
+                    
+            
+
+                                        img { class: "w-full h-full object-cover", src: "{url}" }
+                                    },
+                                    None => rsx! {
+                    
+
+                                        div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
+                                            Icon {
+                                                name: "playlist".to_string(),
+                                                class: "w-20 h-20 text-white/70".to_string(),
+                                            }
+                                        }
+                                    },
                                 }
                             }
                             div { class: "flex flex-col justify-end text-center md:text-left",
@@ -438,18 +488,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         }
                                     }
                                     button {
-                                    class: "p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors",
+                                        class: "p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors",
                                         onclick: on_open_playlist_menu,
                                         Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
                                     }
                                     if editing_allowed {
-                                    button {
-                                        class: "px-4 py-2 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-sm",
-                                        onclick: move |_| {
-                                            edit_mode.set(!edit_mode());
-                                            song_search.set(String::new());
+                                        button {
+                                            class: "px-4 py-2 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-sm",
+                                            onclick: move |_| {
+                                                edit_mode.set(!edit_mode());
+                                                song_search.set(String::new());
                                             },
-                                            if edit_mode() { "Done editing" } else { "Edit playlist" }
+                                            if edit_mode() {
+                                                "Done editing"
+                                            } else {
+                                                "Edit playlist"
+                                            }
                                         }
                                     }
                                     if editing_allowed {
@@ -457,15 +511,19 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                             class: "px-4 py-2 rounded-full border border-red-500/60 text-red-300 hover:text-white hover:bg-red-500/10 transition-colors text-sm",
                                             onclick: on_delete_playlist,
                                             disabled: deleting_playlist(),
-                                            if deleting_playlist() { "Deleting..." } else { "Delete playlist" }
+                                            if deleting_playlist() {
+                                                "Deleting..."
+                                            } else {
+                                                "Delete playlist"
+                                            }
                                         }
                                     }
                                 }
                             }
                         }
-
+            
                         div { class: "space-y-1",
-                            for (index, song) in song_list().iter().enumerate() {
+                            for (index , song) in song_list().iter().enumerate() {
                                 if edit_mode() {
                                     {
                                         let cover_url = servers()
@@ -473,21 +531,27 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                             .find(|s| s.id == song.server_id)
                                             .and_then(|server| {
                                                 let client = NavidromeClient::new(server.clone());
-                                                song.cover_art
-                                                    .as_ref()
-                                                    .map(|ca| client.get_cover_art_url(ca, 80))
+                                                song.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
                                             });
                                         rsx! {
                                             div { class: "flex items-center gap-3 p-3 rounded-lg bg-zinc-900/60 border border-zinc-800",
                                                 div { class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
                                                     match cover_url {
-                                                        Some(url) => rsx! { img { class: "w-full h-full object-cover", src: "{url}" } },
-                                                        None => rsx! { div { class: "w-full h-full flex items-center justify-center bg-zinc-800", Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() } } },
+                                                        Some(url) => rsx! {
+                                                            img { class: "w-full h-full object-cover", src: "{url}" }
+                                                        },
+                                                        None => rsx! {
+                                                            div { class: "w-full h-full flex items-center justify-center bg-zinc-800",
+                                                                Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
+                                                            }
+                                                        },
                                                     }
                                                 }
                                                 div { class: "min-w-0 flex-1",
                                                     p { class: "text-sm text-white truncate", "{song.title}" }
-                                                    p { class: "text-xs text-zinc-500 truncate", "{song.artist.clone().unwrap_or_default()} • {song.album.clone().unwrap_or_default()}" }
+                                                    p { class: "text-xs text-zinc-500 truncate",
+                                                        "{song.artist.clone().unwrap_or_default()} • {song.album.clone().unwrap_or_default()}"
+                                                    }
                                                 }
                                                 if editing_allowed {
                                                     button {
@@ -520,7 +584,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 }
                             }
                         }
-
+            
                         if editing_allowed && edit_mode() {
                             div { class: "mt-6 space-y-3 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800",
                                 h3 { class: "text-sm font-semibold text-white", "Add songs to this playlist" }
@@ -543,23 +607,29 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                             .find(|s| s.id == res.server_id)
                                                             .and_then(|server| {
                                                                 let client = NavidromeClient::new(server.clone());
-                                                                res.cover_art
-                                                                    .as_ref()
-                                                                    .map(|ca| client.get_cover_art_url(ca, 80))
+                                                                res.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
                                                             });
                                                         rsx! {
                                                             if let Some(url) = cover_url {
-                                                                img { class: "w-10 h-10 rounded object-cover border border-zinc-800/80", src: "{url}" }
+                                                                img {
+                                                                    class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                    src: "{url}",
+                                                                }
                                                             } else {
                                                                 div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
-                                                                    Icon { name: "music".to_string(), class: "w-4 h-4 text-zinc-500".to_string() }
+                                                                    Icon {
+                                                                        name: "music".to_string(),
+                                                                        class: "w-4 h-4 text-zinc-500".to_string(),
+                                                                    }
                                                                 }
                                                             }
                                                         }
                                                     }
                                                     div { class: "min-w-0 flex-1",
                                                         p { class: "text-sm text-white truncate", "{res.title}" }
-                                                        p { class: "text-xs text-zinc-500 truncate", "{res.artist.clone().unwrap_or_default()} • {res.album.clone().unwrap_or_default()}" }
+                                                        p { class: "text-xs text-zinc-500 truncate",
+                                                            "{res.artist.clone().unwrap_or_default()} • {res.album.clone().unwrap_or_default()}"
+                                                        }
                                                     }
                                                     button {
                                                         class: "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs",
@@ -583,15 +653,43 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 }
                 Some(None) => rsx! {
                     div { class: "flex flex-col items-center justify-center py-20",
-                        Icon { name: "playlist".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
+                        Icon {
+                            name: "playlist".to_string(),
+                            class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
+                        }
                         p { class: "text-zinc-400", "Playlist not found" }
                     }
                 },
                 None => rsx! {
                     div { class: "flex items-center justify-center py-20",
-                        Icon { name: "loader".to_string(), class: "w-8 h-8 text-zinc-500".to_string() }
+                        Icon {
+                            name: "loader".to_string(),
+                            class: "w-8 h-8 text-zinc-500".to_string(),
+                        }
                     }
                 },
+            }
+            if show_delete_confirm() {
+                div { class: "fixed inset-0 bg-black/50 flex items-center justify-center z-50",
+                    div { class: "bg-zinc-900 border border-zinc-700 rounded-lg p-6 max-w-md w-full mx-4",
+                        h2 { class: "text-xl font-bold text-white mb-4", "Delete Playlist" }
+                        p { class: "text-zinc-300 mb-6",
+                            "Are you sure you want to delete this playlist? This action cannot be undone."
+                        }
+                        div { class: "flex gap-3 justify-end",
+                            button {
+                                class: "px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors",
+                                onclick: move |_| show_delete_confirm.set(false),
+                                "Cancel"
+                            }
+                            button {
+                                class: "px-4 py-2 rounded-lg bg-red-600 hover:bg-red-500 text-white transition-colors",
+                                onclick: on_confirm_delete,
+                                "Delete"
+                            }
+                        }
+                    }
+                }
             }
         }
     }

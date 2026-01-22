@@ -10,6 +10,9 @@ pub fn PlaylistsView() -> Element {
     let limit = use_signal(|| 30usize);
     let refresh = use_signal(|| 0usize);
     let single_active_server = servers().iter().filter(|s| s.active).count() == 1;
+    let mut hide_auto_imported = use_signal(|| true);
+    let mut owner_filter = use_signal(|| "all".to_string());
+    let mut sort_by = use_signal(|| "newest".to_string());
 
     let playlists = use_resource(move || {
         let servers = servers();
@@ -65,6 +68,37 @@ pub fn PlaylistsView() -> Element {
                 }
             }
 
+            div { class: "overflow-x-auto",
+                div { class: "flex gap-2 min-w-min sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-3",
+                    label { class: "flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/60 transition-colors whitespace-nowrap flex-shrink-0 sm:flex-shrink",
+                        input {
+                            r#type: "checkbox",
+                            checked: hide_auto_imported(),
+                            onchange: move |e| hide_auto_imported.set(e.checked()),
+                            class: "w-3.5 h-3.5 rounded cursor-pointer",
+                        }
+                        span { class: "text-xs sm:text-sm font-medium text-zinc-200",
+                            "Hide auto-imported"
+                        }
+                    }
+                    select {
+                        class: "px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/50 text-xs sm:text-sm text-zinc-200 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-colors whitespace-nowrap flex-shrink-0 sm:flex-shrink",
+                        value: owner_filter(),
+                        onchange: move |e| owner_filter.set(e.value()),
+                        option { value: "all", "All owners" }
+                    }
+                    select {
+                        class: "px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/50 text-xs sm:text-sm text-zinc-200 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-colors whitespace-nowrap flex-shrink-0 sm:flex-shrink",
+                        value: sort_by(),
+                        onchange: move |e| sort_by.set(e.value()),
+                        option { value: "newest", "Newest" }
+                        option { value: "name", "Name (A-Z)" }
+                        option { value: "created", "Date created" }
+                        option { value: "changed", "Last changed" }
+                    }
+                }
+            }
+
             {
 
                 match playlists() {
@@ -72,10 +106,54 @@ pub fn PlaylistsView() -> Element {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
                         let mut filtered = playlists.clone();
-                        // Newest first: sort descending by creation if available, fallback name
-                        filtered.sort_by(|a, b| b.id.cmp(&a.id));
+
+                        // Apply filters
+                        if hide_auto_imported() {
+                            filtered
+
+                                .retain(|p| {
+
+                                    // Apply search
+
+                                    // Apply sorting
+
+                                    p.comment
+                                        .as_ref()
+                                        .map(|c| !c.to_lowercase().contains("auto-imported"))
+                                        .unwrap_or(true)
+                                });
+                        }
+                        if owner_filter() != "all" {
+                            filtered
+                                .retain(|p| {
+                                    p.owner
+                                        .as_ref()
+                                        .map(|o| o == &owner_filter())
+                                        .unwrap_or(false)
+                                });
+                        }
                         if !query.is_empty() {
                             filtered.retain(|p| p.name.to_lowercase().contains(&query));
+                        }
+                        match sort_by().as_str() {
+                            "name" => filtered.sort_by(|a, b| a.name.cmp(&b.name)),
+                            "created" => {
+                                filtered
+                                    .sort_by(|a, b| {
+                                        let a_date = a.created.as_deref().unwrap_or("");
+                                        let b_date = b.created.as_deref().unwrap_or("");
+                                        b_date.cmp(a_date)
+                                    })
+                            }
+                            "changed" => {
+                                filtered
+                                    .sort_by(|a, b| {
+                                        let a_date = a.changed.as_deref().unwrap_or("");
+                                        let b_date = b.changed.as_deref().unwrap_or("");
+                                        b_date.cmp(a_date)
+                                    })
+                            }
+                            _ => filtered.sort_by(|a, b| b.id.cmp(&a.id)),
                         }
                         let has_query = !query.is_empty();
                         let more_available = filtered.len() > limit();
@@ -93,8 +171,8 @@ pub fn PlaylistsView() -> Element {
                                     if has_query {
                                         p { class: "text-zinc-300", "No playlists match \"{raw_query}\"" }
                                     } else {
-                                        h2 { class: "text-xl font-semibold text-white mb-2", "No playlists yet" }
-                                        p { class: "text-zinc-400", "Create playlists in your Navidrome server" }
+                                        h2 { class: "text-xl font-semibold text-white mb-2", "No playlists found" }
+                                        p { class: "text-zinc-400", "Try adjusting your filters" }
                                     }
                                 }
                             } else {

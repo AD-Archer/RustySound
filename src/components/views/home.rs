@@ -119,26 +119,11 @@ pub fn HomeView() -> Element {
             .filter(|s| s.active)
             .collect::<Vec<_>>();
         async move {
-            let mut songs = Vec::new();
             let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server.clone());
-                if let Ok(artists) = client.get_artists().await {
-                    if let Some(artist) = artists
-                        .iter()
-                        .filter(|a| !a.name.trim().is_empty())
-                        .max_by_key(|a| a.album_count)
-                    {
-                        if let Ok(top) = client.get_top_songs(&artist.name, 24).await {
-                            return top;
-                        }
-                    }
-                }
-
-                client.get_random_songs(24).await.unwrap_or_default()
+                let client = NavidromeClient::new(server);
+                client.get_random_songs(12).await.unwrap_or_default()
             });
-
-            songs.extend(join_all(tasks).await.into_iter().flatten());
-
+            let mut songs: Vec<Song> = join_all(tasks).await.into_iter().flatten().collect();
             songs.truncate(24);
             songs
         }
@@ -276,7 +261,10 @@ pub fn HomeView() -> Element {
                                                 let navigation = navigation.clone();
                                                 let genre_name = genre.clone();
                                                 move |_| {
-                                                    navigation.navigate_to(AppView::AlbumsWithGenre { genre: genre_name.clone() });
+                                                    navigation
+                                                        .navigate_to(AppView::AlbumsWithGenre {
+                                                            genre: genre_name.clone(),
+                                                        });
                                                 }
                                             },
                                         }
@@ -312,24 +300,26 @@ pub fn HomeView() -> Element {
                     {
                         match recent_albums() {
                             Some(albums) => rsx! {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
-                                    for album in albums {
-                                        AlbumCard {
-                                            album: album.clone(),
-                                            onclick: {
-                                                let navigation = navigation.clone();
-                                                let album_id = album.id.clone();
-                                                let album_server_id = album.server_id.clone();
-                                                move |_| {
-                                                    navigation
-                                                        .navigate_to(
-                                                            AppView::AlbumDetailView {
-                                                                album_id: album_id.clone(),
-                                                                server_id: album_server_id.clone(),
-                                                            },
-                                                        )
+                                div { class: "overflow-x-auto",
+                                    div { class: "flex gap-4 pb-2 min-w-min",
+                                        for album in albums {
+                                            div { class: "w-32 flex-shrink-0",
+                                                AlbumCard {
+                                                    album: album.clone(),
+                                                    onclick: {
+                                                        let navigation = navigation.clone();
+                                                        let album_id = album.id.clone();
+                                                        let album_server_id = album.server_id.clone();
+                                                        move |_| {
+                                                            navigation
+                                                                .navigate_to(AppView::AlbumDetailView {
+                                                                    album_id: album_id.clone(),
+                                                                    server_id: album_server_id.clone(),
+                                                                })
+                                                        }
+                                                    },
                                                 }
-                                            },
+                                            }
                                         }
                                     }
                                 }
@@ -363,24 +353,26 @@ pub fn HomeView() -> Element {
                     {
                         match most_played_albums() {
                             Some(albums) => rsx! {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
-                                    for album in albums {
-                                        AlbumCard {
-                                            album: album.clone(),
-                                            onclick: {
-                                                let navigation = navigation.clone();
-                                                let album_id = album.id.clone();
-                                                let album_server_id = album.server_id.clone();
-                                                move |_| {
-                                                    navigation
-                                                        .navigate_to(
-                                                            AppView::AlbumDetailView {
-                                                                album_id: album_id.clone(),
-                                                                server_id: album_server_id.clone(),
-                                                            },
-                                                        )
+                                div { class: "overflow-x-auto",
+                                    div { class: "flex gap-4 pb-2 min-w-min",
+                                        for album in albums {
+                                            div { class: "w-32 flex-shrink-0",
+                                                AlbumCard {
+                                                    album: album.clone(),
+                                                    onclick: {
+                                                        let navigation = navigation.clone();
+                                                        let album_id = album.id.clone();
+                                                        let album_server_id = album.server_id.clone();
+                                                        move |_| {
+                                                            navigation
+                                                                .navigate_to(AppView::AlbumDetailView {
+                                                                    album_id: album_id.clone(),
+                                                                    server_id: album_server_id.clone(),
+                                                                })
+                                                        }
+                                                    },
                                                 }
-                                            },
+                                            }
                                         }
                                     }
                                 }
@@ -414,24 +406,26 @@ pub fn HomeView() -> Element {
                     {
                         match recently_played_albums() {
                             Some(albums) => rsx! {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
-                                    for album in albums {
-                                        AlbumCard {
-                                            album: album.clone(),
-                                            onclick: {
-                                                let navigation = navigation.clone();
-                                                let album_id = album.id.clone();
-                                                let album_server_id = album.server_id.clone();
-                                                move |_| {
-                                                    navigation
-                                                        .navigate_to(
-                                                            AppView::AlbumDetailView {
-                                                                album_id: album_id.clone(),
-                                                                server_id: album_server_id.clone(),
-                                                            },
-                                                        )
+                                div { class: "overflow-x-auto",
+                                    div { class: "flex gap-4 pb-2 min-w-min",
+                                        for album in albums {
+                                            div { class: "w-32 flex-shrink-0",
+                                                AlbumCard {
+                                                    album: album.clone(),
+                                                    onclick: {
+                                                        let navigation = navigation.clone();
+                                                        let album_id = album.id.clone();
+                                                        let album_server_id = album.server_id.clone();
+                                                        move |_| {
+                                                            navigation
+                                                                .navigate_to(AppView::AlbumDetailView {
+                                                                    album_id: album_id.clone(),
+                                                                    server_id: album_server_id.clone(),
+                                                                })
+                                                        }
+                                                    },
                                                 }
-                                            },
+                                            }
                                         }
                                     }
                                 }
@@ -465,24 +459,26 @@ pub fn HomeView() -> Element {
                     {
                         match random_albums() {
                             Some(albums) => rsx! {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
-                                    for album in albums {
-                                        AlbumCard {
-                                            album: album.clone(),
-                                            onclick: {
-                                                let navigation = navigation.clone();
-                                                let album_id = album.id.clone();
-                                                let album_server_id = album.server_id.clone();
-                                                move |_| {
-                                                    navigation
-                                                        .navigate_to(
-                                                            AppView::AlbumDetailView {
-                                                                album_id: album_id.clone(),
-                                                                server_id: album_server_id.clone(),
-                                                            },
-                                                        )
+                                div { class: "overflow-x-auto",
+                                    div { class: "flex gap-4 pb-2 min-w-min",
+                                        for album in albums {
+                                            div { class: "w-32 flex-shrink-0",
+                                                AlbumCard {
+                                                    album: album.clone(),
+                                                    onclick: {
+                                                        let navigation = navigation.clone();
+                                                        let album_id = album.id.clone();
+                                                        let album_server_id = album.server_id.clone();
+                                                        move |_| {
+                                                            navigation
+                                                                .navigate_to(AppView::AlbumDetailView {
+                                                                    album_id: album_id.clone(),
+                                                                    server_id: album_server_id.clone(),
+                                                                })
+                                                        }
+                                                    },
                                                 }
-                                            },
+                                            }
                                         }
                                     }
                                 }

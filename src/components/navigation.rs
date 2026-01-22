@@ -2,8 +2,6 @@ use dioxus::prelude::*;
 
 use crate::components::app_view::AppView;
 
-const NAV_HISTORY_LIMIT: usize = 64;
-
 #[derive(Clone)]
 pub struct Navigation {
     history: Signal<Vec<AppView>>,

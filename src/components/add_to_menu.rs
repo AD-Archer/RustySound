@@ -3,6 +3,7 @@ use crate::components::{Icon, Navigation, AppView};
 use dioxus::prelude::*;
 
 #[derive(Clone)]
+#[allow(dead_code)]
 pub enum AddTarget {
     Song(Song),
     Songs(Vec<Song>),
@@ -32,6 +33,7 @@ impl AddIntent {
         }
     }
 
+    #[allow(dead_code)]
     pub fn from_songs(label: String, songs: Vec<Song>) -> Self {
         Self {
             label,

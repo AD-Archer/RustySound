@@ -13,11 +13,12 @@ pub fn RandomView() -> Element {
     let shuffle_enabled = use_context::<Signal<bool>>();
 
     let refresh_counter = use_signal(|| 0);
+    let mut shuffled_songs = use_signal(|| Vec::<Song>::new());
 
     let active_servers: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
     let counter = refresh_counter();
 
-    let songs = use_resource(move || {
+    let songs_resource = use_resource(move || {
         let servers = active_servers.clone();
         let _counter = counter; // Force refresh dependency
         async move {
@@ -35,25 +36,34 @@ pub fn RandomView() -> Element {
         }
     });
 
+    // Update shuffled_songs when songs resource changes
+    use_effect(move || {
+        if let Some(new_songs) = songs_resource() {
+            shuffled_songs.set(new_songs);
+        }
+    });
+
     let on_play_all = {
-        let songs_ref = songs.clone();
+        let shuffled_songs = shuffled_songs.clone();
         move |_| {
-            if let Some(songs) = songs_ref() {
-                if !songs.is_empty() {
-                    queue.set(songs.clone());
-                    queue_index.set(0);
-                    now_playing.set(Some(songs[0].clone()));
-                    is_playing.set(true);
-                }
+            let songs = shuffled_songs();
+            if !songs.is_empty() {
+                queue.set(songs.clone());
+                queue_index.set(0);
+                now_playing.set(Some(songs[0].clone()));
+                is_playing.set(true);
             }
         }
     };
 
     let on_shuffle = {
-        let mut shuffle_enabled = shuffle_enabled.clone();
+        let mut shuffled_songs = shuffled_songs.clone();
         move |_: MouseEvent| {
-            let current = shuffle_enabled();
-            shuffle_enabled.set(!current);
+            let mut current_songs = shuffled_songs();
+            if !current_songs.is_empty() {
+                shuffle_songs(&mut current_songs);
+                shuffled_songs.set(current_songs);
+            }
         }
     };
 
@@ -76,7 +86,7 @@ pub fn RandomView() -> Element {
                         "Play All"
                     }
                     button {
-                        class: if shuffle_enabled() { "px-6 py-2 rounded-xl bg-zinc-800 text-emerald-400 border border-emerald-500/50 font-medium transition-colors" } else { "px-6 py-2 rounded-xl bg-zinc-800 text-zinc-200 border border-zinc-700/60 font-medium transition-colors" },
+                        class: "px-6 py-2 rounded-xl bg-zinc-800 text-zinc-200 border border-zinc-700/60 hover:border-zinc-500 transition-colors flex items-center gap-2",
                         onclick: on_shuffle,
                         Icon {
                             name: "shuffle".to_string(),
@@ -88,8 +98,9 @@ pub fn RandomView() -> Element {
             }
 
             {
-                match songs() {
-                    Some(songs) if !songs.is_empty() => rsx! {
+                let songs = shuffled_songs();
+                if !songs.is_empty() {
+                    rsx! {
                         div { class: "space-y-1",
                             for (index , song) in songs.iter().enumerate() {
                                 SongRow {
@@ -108,8 +119,18 @@ pub fn RandomView() -> Element {
                                 }
                             }
                         }
-                            },
-                    Some(_) => rsx! {
+                    }
+                } else if songs_resource().is_none() {
+                    rsx! {
+                        div { class: "flex items-center justify-center py-20",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-zinc-500".to_string(),
+                            }
+                        }
+                    }
+                } else {
+                    rsx! {
                         div { class: "flex flex-col items-center justify-center py-20",
                             Icon {
                                 name: "shuffle".to_string(),
@@ -118,15 +139,7 @@ pub fn RandomView() -> Element {
                             h2 { class: "text-xl font-semibold text-white mb-2", "No songs available" }
                             p { class: "text-zinc-400", "Connect a server with music to get random picks" }
                         }
-                    },
-                    None => rsx! {
-                        div { class: "flex items-center justify-center py-20",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-zinc-500".to_string(),
-                            }
-                        }
-                    },
+                    }
                 }
             }
         }

@@ -139,6 +139,10 @@ pub struct Playlist {
     pub starred: Option<String>,
     #[serde(default)]
     pub server_id: String,
+    #[serde(default)]
+    pub created: Option<String>,
+    #[serde(default)]
+    pub changed: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

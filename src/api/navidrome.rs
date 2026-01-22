@@ -748,15 +748,20 @@ impl NavidromeClient {
     pub async fn remove_songs_from_playlist(
         &self,
         playlist_id: &str,
-        song_ids: &[String],
+        song_indices: &[usize],
     ) -> Result<(), String> {
-        if song_ids.is_empty() {
+        if song_indices.is_empty() {
             return Ok(());
         }
 
         let mut params = vec![("playlistId".to_string(), playlist_id.to_string())];
-        for song_id in song_ids {
-            params.push(("songIdToRemove".to_string(), song_id.clone()));
+        // Sort indices in descending order to remove from end to beginning
+        // This prevents index shifting issues
+        let mut sorted_indices = song_indices.to_vec();
+        sorted_indices.sort_by(|a, b| b.cmp(a));
+        
+        for &index in &sorted_indices {
+            params.push(("songIndexToRemove".to_string(), index.to_string()));
         }
 
         let url = self.build_url_owned("updatePlaylist", params);

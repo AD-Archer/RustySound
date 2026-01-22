@@ -211,7 +211,7 @@ pub fn AudioController() -> Element {
         let mut audio_state = audio_state.clone();
 
         use_effect(move || {
-            let Some(audio) = get_or_create_audio_element() else {
+            let Some(_audio) = get_or_create_audio_element() else {
                 return;
             };
 
