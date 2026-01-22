@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 use futures_util::future::join_all;
 
@@ -177,7 +177,7 @@ pub fn HomeView() -> Element {
                         class: "px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-medium rounded-xl transition-colors",
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Settings)
+                            move |_| nav.navigate_to(AppView::SettingsView {})
                         },
                         "Add Server"
                     }
@@ -190,7 +190,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-purple-600 to-indigo-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Random)
+                            move |_| nav.navigate_to(AppView::RandomView {})
                         },
                     }
                     QuickPlayCard {
@@ -198,7 +198,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-sky-600 to-cyan-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Songs)
+                            move |_| nav.navigate_to(AppView::SongsView {})
                         },
                     }
                     QuickPlayCard {
@@ -206,7 +206,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-rose-600 to-pink-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Favorites)
+                            move |_| nav.navigate_to(AppView::FavoritesView {})
                         },
                     }
                     QuickPlayCard {
@@ -214,7 +214,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-indigo-500 to-blue-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Bookmarks)
+                            move |_| nav.navigate_to(AppView::BookmarksView {})
                         },
                     }
                     QuickPlayCard {
@@ -222,7 +222,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-emerald-600 to-teal-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Radio)
+                            move |_| nav.navigate_to(AppView::RadioView {})
                         },
                     }
                     QuickPlayCard {
@@ -230,7 +230,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-amber-600 to-orange-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Albums(None))
+                            move |_| nav.navigate_to(AppView::Albums {})
                         },
                     }
                     QuickPlayCard {
@@ -238,7 +238,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-amber-600 to-orange-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Playlists)
+                            move |_| nav.navigate_to(AppView::PlaylistsView {})
                         },
                     }
                     QuickPlayCard {
@@ -246,7 +246,7 @@ pub fn HomeView() -> Element {
                         gradient: "from-purple-600 to-indigo-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Artists)
+                            move |_| nav.navigate_to(AppView::ArtistsView {})
                         },
                     }
                 }
@@ -259,7 +259,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums(None))
+                                move |_| nav.navigate_to(AppView::Albums {})
                             },
                             "See all"
                         }
@@ -276,7 +276,7 @@ pub fn HomeView() -> Element {
                                                 let navigation = navigation.clone();
                                                 let genre_name = genre.clone();
                                                 move |_| {
-                                                    navigation.navigate_to(AppView::Albums(Some(genre_name.clone())));
+                                                    navigation.navigate_to(AppView::AlbumsWithGenre { genre: genre_name.clone() });
                                                 }
                                             },
                                         }
@@ -303,7 +303,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums(None))
+                                move |_| nav.navigate_to(AppView::Albums {})
                             },
                             "See all"
                         }
@@ -323,7 +323,10 @@ pub fn HomeView() -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: album_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },
@@ -351,7 +354,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums(None))
+                                move |_| nav.navigate_to(AppView::Albums {})
                             },
                             "See all"
                         }
@@ -371,7 +374,10 @@ pub fn HomeView() -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: album_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },
@@ -399,7 +405,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums(None))
+                                move |_| nav.navigate_to(AppView::Albums {})
                             },
                             "See all"
                         }
@@ -419,7 +425,10 @@ pub fn HomeView() -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: album_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },
@@ -447,7 +456,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums(None))
+                                move |_| nav.navigate_to(AppView::Albums {})
                             },
                             "See all"
                         }
@@ -467,7 +476,10 @@ pub fn HomeView() -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: album_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },
@@ -495,7 +507,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Songs)
+                                move |_| nav.navigate_to(AppView::SongsView {})
                             },
                             "See all"
                         }
@@ -582,6 +594,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let add_menu = use_context::<AddMenuController>();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
 
@@ -597,15 +610,15 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
 
     let artist_id = song.artist_id.clone();
 
-    let make_on_add_queue = {
-        let queue = queue.clone();
+    let make_on_open_menu = {
+        let add_menu = add_menu.clone();
         let song = song.clone();
         move || {
-            let mut queue = queue.clone();
+            let mut add_menu = add_menu.clone();
             let song = song.clone();
             move |evt: MouseEvent| {
                 evt.stop_propagation();
-                queue.with_mut(|q| q.push(song.clone()));
+                add_menu.open(AddIntent::from_song(song.clone()));
             }
         }
     };
@@ -683,7 +696,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 button {
                     class: "absolute top-2 right-2 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",
-                    onclick: make_on_add_queue(),
+                    onclick: make_on_open_menu(),
                     Icon {
                         name: "plus".to_string(),
                         class: "w-3 h-3".to_string(),
@@ -735,7 +748,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 button {
                     class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
                     aria_label: "Add to queue",
-                    onclick: make_on_add_queue(),
+                    onclick: make_on_open_menu(),
                     Icon {
                         name: "plus".to_string(),
                         class: "w-4 h-4".to_string(),
@@ -750,7 +763,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
 pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
-    let queue = use_context::<Signal<Vec<Song>>>();
+    let add_menu = use_context::<AddMenuController>();
 
     let cover_url = servers()
         .iter()
@@ -763,26 +776,12 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                 .map(|ca| client.get_cover_art_url(ca, 300))
         });
 
-    let on_add_album = {
-        let album_id = album.id.clone();
-        let server_id = album.server_id.clone();
-        let servers = servers.clone();
-        let mut queue = queue.clone();
+    let on_open_menu = {
+        let mut add_menu = add_menu.clone();
+        let album = album.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            let album_id = album_id.clone();
-            let server = servers()
-                .iter()
-                .find(|s| s.id == server_id)
-                .map(|s| s.clone());
-            if let Some(server) = server {
-                spawn(async move {
-                    let client = NavidromeClient::new(server);
-                    if let Ok((_, songs)) = client.get_album(&album_id).await {
-                        queue.with_mut(|q| q.extend(songs));
-                    }
-                });
-            }
+            add_menu.open(AddIntent::from_album(&album));
         }
     };
 
@@ -793,14 +792,17 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(artist_id) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
+                navigation.navigate_to(AppView::ArtistDetailView {
+                    artist_id,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
 
     rsx! {
         div {
-            class: "group text-left cursor-pointer w-full max-w-48 overflow-hidden",
+            class: "group text-left cursor-pointer w-full max-w-48 overflow-hidden relative",
             onclick: move |e| onclick.call(e),
             // Album cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
@@ -820,9 +822,9 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                     }
                 }
                 button {
-                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
                     aria_label: "Add album to queue",
-                    onclick: on_add_album,
+                    onclick: on_open_menu,
                     Icon {
                         name: "plus".to_string(),
                         class: "w-4 h-4".to_string(),
@@ -867,6 +869,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let add_menu = use_context::<AddMenuController>();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
 
@@ -891,7 +894,10 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
@@ -903,17 +909,20 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
 
-    let on_add_queue = {
-        let mut queue = queue.clone();
+    let on_open_menu = {
+        let mut add_menu = add_menu.clone();
         let song = song.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            queue.with_mut(|q| q.push(song.clone()));
+            add_menu.open(AddIntent::from_song(song.clone()));
         }
     };
 
@@ -1054,7 +1063,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                 button {
                     class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",
-                    onclick: on_add_queue,
+                    onclick: on_open_menu,
                     Icon {
                         name: "plus".to_string(),
                         class: "w-4 h-4".to_string(),

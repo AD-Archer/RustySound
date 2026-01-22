@@ -4,6 +4,20 @@ use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 #[component]
+pub fn Albums() -> Element {
+    rsx! {
+        AlbumsView { genre: None }
+    }
+}
+
+#[component]
+pub fn AlbumsWithGenre(genre: String) -> Element {
+    rsx! {
+        AlbumsView { genre: Some(genre) }
+    }
+}
+
+#[component]
 pub fn AlbumsView(genre: Option<String>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
@@ -123,9 +137,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
                         let has_query = !query.is_empty();
-                        if albums.is_empty()
-                            && album_type() == "recent"
-                            && !has_query
+                        if albums.is_empty() && album_type() == "recent" && !has_query
                             && !fallback_applied()
                         {
                             fallback_applied.set(true);
@@ -157,7 +169,10 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: album_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },

@@ -17,7 +17,7 @@ mod songs;
 mod stats;
 
 pub use album_detail::AlbumDetailView;
-pub use albums::AlbumsView;
+pub use albums::{Albums, AlbumsWithGenre};
 pub use artist_detail::ArtistDetailView;
 pub use artists::ArtistsView;
 pub use bookmarks::BookmarksView;

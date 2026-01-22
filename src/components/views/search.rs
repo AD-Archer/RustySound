@@ -2,7 +2,6 @@ use crate::api::*;
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
-
 #[component]
 pub fn SearchView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -29,14 +28,18 @@ pub fn SearchView() -> Element {
         spawn(async move {
             let mut combined = SearchResult::default();
 
+            // Fetch more results for better fuzzy matching
             for server in active_servers {
                 let client = NavidromeClient::new(server);
-                if let Ok(result) = client.search(&query, 20, 20, 50).await {
+                if let Ok(result) = client.search(&query, 50, 100, 200).await {
                     combined.artists.extend(result.artists);
                     combined.albums.extend(result.albums);
                     combined.songs.extend(result.songs);
                 }
             }
+
+            // Apply fuzzy search scoring and filtering
+            combined = filter_and_score_results(combined, &query);
 
             search_results.set(Some(combined));
             is_searching.set(false);
@@ -119,11 +122,10 @@ pub fn SearchView() -> Element {
 
 
 
-                                                        .navigate_to(
-
-
-                                                            AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
-                                                        )
+                                                        .navigate_to(AppView::ArtistDetailView {
+                                                            artist_id: artist_id.clone(),
+                                                            server_id: artist_server_id.clone(),
+                                                        })
                                                 }
                                             },
                                         }
@@ -147,7 +149,10 @@ pub fn SearchView() -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: album_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },
@@ -263,4 +268,135 @@ pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element 
             p { class: "text-xs text-zinc-400", "{artist.album_count} albums" }
         }
     }
+}
+
+/// Tokenize and normalize search query
+fn tokenize(text: &str) -> Vec<String> {
+    text.to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|s| !s.is_empty())
+        .map(String::from)
+        .collect()
+}
+
+/// Calculate fuzzy match score for a field against query tokens
+fn calculate_score(field: &str, tokens: &[String]) -> i32 {
+    let field_lower = field.to_lowercase();
+    let mut score = 0;
+
+    for token in tokens {
+        // Exact full match (highest score)
+        if field_lower == *token {
+            score += 100;
+        }
+        // Starts with token (high score)
+        else if field_lower.starts_with(token) {
+            score += 80;
+        }
+        // Contains token as word (medium-high score)
+        else if field_lower.split_whitespace().any(|word| word == token) {
+            score += 60;
+        }
+        // Contains token anywhere (medium score)
+        else if field_lower.contains(token) {
+            score += 40;
+        }
+        // Partial match (low score)
+        else if token.len() >= 2
+            && field_lower
+                .chars()
+                .collect::<Vec<_>>()
+                .windows(token.len())
+                .any(|w| w.iter().collect::<String>() == *token)
+        {
+            score += 20;
+        }
+    }
+
+    score
+}
+
+/// Score songs based on fuzzy matching across title, artist, and album
+fn score_song(song: &Song, tokens: &[String]) -> i32 {
+    let title_score = calculate_score(&song.title, tokens) * 3; // Title is most important
+    let artist_score = song
+        .artist
+        .as_deref()
+        .map_or(0, |artist| calculate_score(artist, tokens))
+        * 2; // Artist is second
+    let album_score = song
+        .album
+        .as_deref()
+        .map_or(0, |album| calculate_score(album, tokens)); // Album is third
+
+    title_score + artist_score + album_score
+}
+
+/// Score albums based on fuzzy matching across name and artist
+fn score_album(album: &Album, tokens: &[String]) -> i32 {
+    let name_score = calculate_score(&album.name, tokens) * 3;
+    let artist_score = calculate_score(&album.artist, tokens) * 2;
+
+    name_score + artist_score
+}
+
+/// Score artists based on fuzzy matching on name
+fn score_artist(artist: &Artist, tokens: &[String]) -> i32 {
+    calculate_score(&artist.name, tokens) * 4 // Artists only have name, so weight it heavily
+}
+
+/// Filter and score all search results with fuzzy matching
+fn filter_and_score_results(mut results: SearchResult, query: &str) -> SearchResult {
+    let tokens = tokenize(query);
+
+    if tokens.is_empty() {
+        return results;
+    }
+
+    // Score and filter songs
+    let mut song_scores: Vec<(Song, i32)> = results
+        .songs
+        .into_iter()
+        .map(|song| {
+            let score = score_song(&song, &tokens);
+            (song, score)
+        })
+        .filter(|(_, score)| *score > 0) // Only keep songs with positive scores
+        .collect();
+
+    song_scores.sort_by(|a, b| b.1.cmp(&a.1)); // Sort by score descending
+    results.songs = song_scores.into_iter().map(|(song, _)| song).collect();
+
+    // Score and filter albums
+    let mut album_scores: Vec<(Album, i32)> = results
+        .albums
+        .into_iter()
+        .map(|album| {
+            let score = score_album(&album, &tokens);
+            (album, score)
+        })
+        .filter(|(_, score)| *score > 0)
+        .collect();
+
+    album_scores.sort_by(|a, b| b.1.cmp(&a.1));
+    results.albums = album_scores.into_iter().map(|(album, _)| album).collect();
+
+    // Score and filter artists
+    let mut artist_scores: Vec<(Artist, i32)> = results
+        .artists
+        .into_iter()
+        .map(|artist| {
+            let score = score_artist(&artist, &tokens);
+            (artist, score)
+        })
+        .filter(|(_, score)| *score > 0)
+        .collect();
+
+    artist_scores.sort_by(|a, b| b.1.cmp(&a.1));
+    results.artists = artist_scores
+        .into_iter()
+        .map(|(artist, _)| artist)
+        .collect();
+
+    results
 }

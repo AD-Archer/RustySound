@@ -1,6 +1,6 @@
 use crate::api::*;
 use crate::components::Icon;
-use crate::components::{AppView, Navigation};
+use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
 use dioxus::prelude::*;
 
 #[component]
@@ -253,6 +253,7 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let add_menu = use_context::<AddMenuController>();
     let rating = song.user_rating.unwrap_or(0).min(5);
 
     let cover_url = servers()
@@ -277,7 +278,10 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
@@ -289,17 +293,20 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
         move |evt: MouseEvent| {
             evt.stop_propagation();
             if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album_id_val, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
 
-    let on_add_queue = {
-        let mut queue = queue.clone();
+    let on_open_menu = {
+        let mut add_menu = add_menu.clone();
         let song = song.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            queue.with_mut(|q| q.push(song.clone()));
+            add_menu.open(AddIntent::from_song(song.clone()));
         }
     };
 
@@ -470,7 +477,7 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
                 button {
                     class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",
-                    onclick: on_add_queue,
+                    onclick: on_open_menu,
                     Icon {
                         name: "plus".to_string(),
                         class: "w-4 h-4".to_string(),

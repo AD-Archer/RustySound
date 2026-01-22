@@ -594,6 +594,9 @@ pub fn SettingsView() -> Element {
             // Connected servers
             section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
                 h2 { class: "text-lg font-semibold text-white mb-4", "Connected Servers" }
+                p { class: "text-sm text-amber-200/80 bg-amber-500/10 border border-amber-500/40 rounded-xl px-3 py-2 mb-4",
+                    "Playlists can only be managed when a single server is active. Enabling one server will automatically disable the others."
+                }
 
                 if server_list.is_empty() {
                     div { class: "flex flex-col items-center justify-center py-12 text-center",
@@ -616,8 +619,22 @@ pub fn SettingsView() -> Element {
                                     move |_| {
                                         servers
                                             .with_mut(|list| {
-                                                if let Some(s) = list.iter_mut().find(|s| s.id == server_id) {
-                                                    s.active = !s.active;
+                                                let new_state = list
+                                                    .iter()
+                                                    .find(|s| s.id == server_id)
+                                                    .map(|s| !s.active)
+                                                    .unwrap_or(false);
+
+                                                if new_state {
+                                                    for srv in list.iter_mut() {
+                                                        srv.active = false;
+                                                    }
+                                                }
+
+                                                if let Some(s) =
+                                                    list.iter_mut().find(|s| s.id == server_id)
+                                                {
+                                                    s.active = new_state;
                                                 }
                                             });
                                     }

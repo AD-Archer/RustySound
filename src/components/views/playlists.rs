@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AppView, AddIntent, AddMenuController, Icon, Navigation};
 use dioxus::prelude::*;
 
 #[component]
@@ -8,10 +8,12 @@ pub fn PlaylistsView() -> Element {
     let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
     let limit = use_signal(|| 30usize);
+    let refresh = use_signal(|| 0usize);
+    let single_active_server = servers().iter().filter(|s| s.active).count() == 1;
 
     let playlists = use_resource(move || {
         let servers = servers();
-        let limit = limit();
+        let _refresh = refresh(); // dependency to force reload
         async move {
             let mut playlists = Vec::new();
             for server in servers.into_iter().filter(|s| s.active) {
@@ -20,7 +22,6 @@ pub fn PlaylistsView() -> Element {
                     playlists.extend(server_playlists);
                 }
             }
-            playlists.truncate(limit);
             playlists
         }
     });
@@ -31,6 +32,11 @@ pub fn PlaylistsView() -> Element {
                 div {
                     h1 { class: "page-title", "Playlists" }
                     p { class: "page-subtitle", "Your playlists from all servers" }
+                    if !single_active_server {
+                        p { class: "text-sm text-amber-200/80 bg-amber-500/10 border border-amber-500/40 rounded-lg px-3 py-2 mt-2",
+                            "Playlist creation and merging require exactly one active server."
+                        }
+                    }
                 }
                 div { class: "relative w-full md:max-w-xs",
                     Icon {
@@ -49,6 +55,14 @@ pub fn PlaylistsView() -> Element {
                         },
                     }
                 }
+                button {
+                    class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                    onclick: {
+                        let mut refresh = refresh.clone();
+                        move |_| refresh.set(refresh() + 1)
+                    },
+                    "Refresh"
+                }
             }
 
             {
@@ -57,15 +71,11 @@ pub fn PlaylistsView() -> Element {
                     Some(playlists) => {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
-                        let mut filtered = Vec::new();
-                        if query.is_empty() {
-                            filtered = playlists.clone();
-                        } else {
-                            for playlist in &playlists {
-                                if playlist.name.to_lowercase().contains(&query) {
-                                    filtered.push(playlist.clone());
-                                }
-                            }
+                        let mut filtered = playlists.clone();
+                        // Newest first: sort descending by creation if available, fallback name
+                        filtered.sort_by(|a, b| b.id.cmp(&a.id));
+                        if !query.is_empty() {
+                            filtered.retain(|p| p.name.to_lowercase().contains(&query));
                         }
                         let has_query = !query.is_empty();
                         let more_available = filtered.len() > limit();
@@ -98,12 +108,10 @@ pub fn PlaylistsView() -> Element {
                                                 let playlist_server_id = playlist.server_id.clone();
                                                 move |_| {
                                                     navigation
-                                                        .navigate_to(
-                                                            AppView::PlaylistDetail(
-                                                                playlist_id.clone(),
-                                                                playlist_server_id.clone(),
-                                                            ),
-                                                        )
+                                                        .navigate_to(AppView::PlaylistDetailView {
+                                                            playlist_id: playlist_id.clone(),
+                                                            server_id: playlist_server_id.clone(),
+                                                        })
                                                 }
                                             },
                                         }
@@ -141,6 +149,16 @@ pub fn PlaylistsView() -> Element {
 #[component]
 fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let add_menu = use_context::<AddMenuController>();
+
+    let on_open_menu = {
+        let mut add_menu = add_menu.clone();
+        let playlist = playlist.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            add_menu.open(AddIntent::from_playlist(&playlist));
+        }
+    };
 
     let cover_url = servers()
         .iter()
@@ -170,6 +188,15 @@ fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Elemen
                                 }
                             }
                         },
+                    }
+                }
+                button {
+                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
+                    aria_label: "Add playlist to queue",
+                    onclick: on_open_menu,
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
                     }
                 }
                 // Play overlay

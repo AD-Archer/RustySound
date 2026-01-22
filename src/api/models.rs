@@ -136,6 +136,8 @@ pub struct Playlist {
     #[serde(default, alias = "coverArt")]
     pub cover_art: Option<String>,
     #[serde(default)]
+    pub starred: Option<String>,
+    #[serde(default)]
     pub server_id: String,
 }
 

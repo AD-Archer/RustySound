@@ -73,6 +73,17 @@ impl NavidromeClient {
         url
     }
 
+    fn build_url_owned(&self, endpoint: &str, extra_params: Vec<(String, String)>) -> String {
+        let auth = self.auth_params();
+        let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
+
+        for (key, value) in extra_params {
+            url.push_str(&format!("&{}={}", key, urlencoding_simple(&value)));
+        }
+
+        url
+    }
+
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {
         self.build_url(
             "getCoverArt",
@@ -620,6 +631,174 @@ impl NavidromeClient {
 
         let playlist = playlist_with_entries.playlist;
         Ok((playlist, songs))
+    }
+
+    pub async fn create_playlist(
+        &self,
+        name: &str,
+        comment: Option<&str>,
+        song_ids: &[String],
+    ) -> Result<Option<String>, String> {
+        let mut params = vec![("name".to_string(), name.to_string())];
+        if let Some(comment) = comment {
+            let trimmed = comment.trim();
+            if !trimmed.is_empty() {
+                params.push(("comment".to_string(), trimmed.to_string()));
+            }
+        }
+        for song_id in song_ids {
+            params.push(("songId".to_string(), song_id.clone()));
+        }
+
+        let url = self.build_url_owned("createPlaylist", params);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        let playlist_id = json.subsonic_response.playlist.map(|p| p.id.clone());
+        Ok(playlist_id)
+    }
+
+    pub async fn add_songs_to_playlist(
+        &self,
+        playlist_id: &str,
+        song_ids: &[String],
+    ) -> Result<(), String> {
+        if song_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut params = vec![("playlistId".to_string(), playlist_id.to_string())];
+        for song_id in song_ids {
+            params.push(("songIdToAdd".to_string(), song_id.clone()));
+        }
+
+        let url = self.build_url_owned("updatePlaylist", params);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn add_album_to_playlist(
+        &self,
+        playlist_id: &str,
+        album_id: &str,
+    ) -> Result<(), String> {
+        let (_, songs) = self.get_album(album_id).await?;
+        let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+        self.add_songs_to_playlist(playlist_id, &song_ids).await
+    }
+
+    pub async fn add_playlist_to_playlist(
+        &self,
+        source_playlist_id: &str,
+        target_playlist_id: &str,
+    ) -> Result<(), String> {
+        let (_, songs) = self.get_playlist(source_playlist_id).await?;
+        let song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+        self.add_songs_to_playlist(target_playlist_id, &song_ids)
+            .await
+    }
+
+    pub async fn delete_playlist(&self, playlist_id: &str) -> Result<(), String> {
+        let url = self.build_url("deletePlaylist", &[("id", playlist_id)]);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(
+                json.subsonic_response
+                    .error
+                    .map(|e| e.message)
+                    .unwrap_or_else(|| "Unknown error".to_string()),
+            );
+        }
+
+        Ok(())
+    }
+
+    pub async fn remove_songs_from_playlist(
+        &self,
+        playlist_id: &str,
+        song_ids: &[String],
+    ) -> Result<(), String> {
+        if song_ids.is_empty() {
+            return Ok(());
+        }
+
+        let mut params = vec![("playlistId".to_string(), playlist_id.to_string())];
+        for song_id in song_ids {
+            params.push(("songIdToRemove".to_string(), song_id.clone()));
+        }
+
+        let url = self.build_url_owned("updatePlaylist", params);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
+    pub async fn create_similar_playlist(
+        &self,
+        seed_song_id: &str,
+        name: Option<&str>,
+        count: u32,
+    ) -> Result<Option<String>, String> {
+        let songs = self.get_similar_songs(seed_song_id, count).await?;
+        let mut song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
+        if song_ids.is_empty() {
+            song_ids.push(seed_song_id.to_string());
+        }
+        let playlist_name = name
+            .filter(|n| !n.trim().is_empty())
+            .map(|n| n.to_string())
+            .unwrap_or_else(|| "Similar Mix".to_string());
+        self.create_playlist(
+            &playlist_name,
+            Some("Auto-generated from similar songs"),
+            &song_ids,
+        )
+        .await
     }
 
     pub async fn get_internet_radio_stations(&self) -> Result<Vec<RadioStation>, String> {

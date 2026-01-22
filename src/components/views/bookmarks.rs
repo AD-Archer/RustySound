@@ -61,7 +61,7 @@ pub fn BookmarksView() -> Element {
                         class: "mt-6 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-medium rounded-xl transition-colors",
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Settings)
+                            move |_| nav.navigate_to(AppView::SettingsView {})
                         },
                         "Add server"
                     }
@@ -169,7 +169,10 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
         let server_id = song.server_id.clone();
         move |_| {
             if let Some(album) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
@@ -180,7 +183,10 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
         let server_id = song.server_id.clone();
         move |_| {
             if let Some(album) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetail(album, server_id.clone()));
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };
@@ -191,7 +197,10 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
         let server_id = song.server_id.clone();
         move |_| {
             if let Some(artist) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetail(artist, server_id.clone()));
+                navigation.navigate_to(AppView::ArtistDetailView {
+                    artist_id: artist,
+                    server_id: server_id.clone(),
+                });
             }
         }
     };

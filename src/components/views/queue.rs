@@ -93,7 +93,10 @@ pub fn QueueView() -> Element {
                                                             evt.stop_propagation();
                                                             if let Some(album_id) = album_id.clone() {
                                                                 navigation
-                                                                    .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                        .navigate_to(AppView::AlbumDetailView {
+                                                            album_id,
+                                                            server_id: server_id.clone(),
+                                                        });
                                                             }
                                                         }
                                                     },
@@ -152,7 +155,10 @@ pub fn QueueView() -> Element {
                                                                 evt.stop_propagation();
                                                                 if let Some(artist_id) = artist_id.clone() {
                                                                     navigation
-                                                                        .navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
+                                                                        .navigate_to(AppView::ArtistDetailView {
+                                                                            artist_id,
+                                                                            server_id: server_id.clone(),
+                                                                        });
                                                                 }
                                                             }
                                                         },
@@ -223,7 +229,10 @@ pub fn QueueView() -> Element {
                                                             evt.stop_propagation();
                                                             if let Some(album_id) = album_id.clone() {
                                                                 navigation
-                                                                    .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                        .navigate_to(AppView::AlbumDetailView {
+                                                            album_id,
+                                                            server_id: server_id.clone(),
+                                                        });
                                                             }
                                                         }
                                                     },
@@ -282,7 +291,10 @@ pub fn QueueView() -> Element {
                                                                 evt.stop_propagation();
                                                                 if let Some(artist_id) = artist_id.clone() {
                                                                     navigation
-                                                                        .navigate_to(AppView::ArtistDetail(artist_id, server_id.clone()));
+                                                                        .navigate_to(AppView::ArtistDetailView {
+                                                                            artist_id,
+                                                                            server_id: server_id.clone(),
+                                                                        });
                                                                 }
                                                             }
                                                         },
@@ -304,7 +316,10 @@ pub fn QueueView() -> Element {
                                                                 evt.stop_propagation();
                                                                 if let Some(album_id) = album_id.clone() {
                                                                     navigation
-                                                                        .navigate_to(AppView::AlbumDetail(album_id, server_id.clone()));
+                                                                        .navigate_to(AppView::AlbumDetailView {
+                                                                            album_id,
+                                                                            server_id: server_id.clone(),
+                                                                        });
                                                                 }
                                                             }
                                                         },

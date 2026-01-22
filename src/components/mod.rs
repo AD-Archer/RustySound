@@ -1,5 +1,6 @@
 //! The components module contains all shared pieces of the UI.
 
+mod add_to_menu;
 mod app;
 mod app_view;
 mod audio_manager;
@@ -22,6 +23,7 @@ pub struct PlaybackPositionSignal(pub Signal<f64>);
 #[derive(Clone)]
 pub struct SeekRequestSignal(pub Signal<Option<(String, f64)>>);
 
+pub use add_to_menu::*;
 pub use app::*;
 pub use app_view::{view_label, AppView};
 pub use audio_manager::*;

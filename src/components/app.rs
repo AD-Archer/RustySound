@@ -1,21 +1,22 @@
 use crate::api::*;
-use crate::components::views::*;
 use crate::components::{
-    view_label, AppView, AudioController, AudioState, Icon, Navigation, PlaybackPositionSignal,
-    Player, SeekRequestSignal, Sidebar, VolumeSignal,
+    view_label, AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController,
+    AudioState, Icon, Navigation, PlaybackPositionSignal, Player, SeekRequestSignal, Sidebar,
+    VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
     save_servers, save_settings, AppSettings, PlaybackState, QueueItem,
 };
 #[cfg(target_arch = "wasm32")]
+use dioxus::core::{Runtime, RuntimeGuard};
+use dioxus_router::components::Outlet;
+#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::closure::Closure;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use web_sys::window;
-#[cfg(target_arch = "wasm32")]
-use dioxus::core::{Runtime, RuntimeGuard};
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
@@ -37,7 +38,7 @@ fn normalize_volume(mut value: f64) -> f64 {
 #[component]
 pub fn AppShell() -> Element {
     let mut servers = use_signal(Vec::<ServerConfig>::new);
-    let current_view = use_signal(|| AppView::Home);
+    let current_view = use_route::<AppView>();
     let now_playing = use_signal(|| None::<Song>);
     let queue = use_signal(Vec::<Song>::new);
     let mut queue_index = use_signal(|| 0usize);
@@ -51,15 +52,18 @@ pub fn AppShell() -> Element {
     let audio_state = use_signal(AudioState::default);
     let sidebar_open = use_signal(|| false);
     let navigation_stack = use_signal(Vec::<AppView>::new);
-    let navigation = Navigation::new(current_view.clone(), navigation_stack.clone());
+    let navigation = Navigation::new(navigation_stack.clone());
     let seek_request = use_signal(|| None::<(String, f64)>);
     let mut resume_bookmark_loaded = use_signal(|| false);
     let swipe_start = use_signal(|| None::<f64>);
+    let add_menu_intent = use_signal(|| None::<AddIntent>);
+    let add_menu = AddMenuController::new(add_menu_intent.clone());
 
     // Provide state via context
     use_context_provider(|| servers);
     use_context_provider(|| current_view);
     use_context_provider(|| navigation.clone());
+    use_context_provider(|| add_menu.clone());
 
     let on_pointer_down = {
         let mut swipe_start = swipe_start.clone();
@@ -349,7 +353,7 @@ pub fn AppShell() -> Element {
         }
     });
 
-    let view = current_view();
+    let view = use_route::<AppView>();
     let sidebar_signal = sidebar_open.clone();
     let can_go_back = navigation.can_go_back();
 
@@ -412,7 +416,7 @@ pub fn AppShell() -> Element {
                             aria_label: "Open queue",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Queue)
+                                move |_| nav.navigate_to(AppView::QueueView {})
                             },
                             Icon {
                                 name: "bars".to_string(),
@@ -430,58 +434,7 @@ pub fn AppShell() -> Element {
                         onpointermove: on_pointer_move,
                         onpointerup: on_pointer_up,
                         onpointercancel: on_pointer_cancel,
-                        {
-                            match view {
-                                AppView::Home => rsx! {
-                                    HomeView {}
-                                },
-                                AppView::Search => rsx! {
-                                    SearchView {}
-                                },
-                                AppView::Songs => rsx! {
-                                    SongsView {}
-                                },
-                                AppView::Albums(genre) => rsx! {
-                                    AlbumsView { genre: genre.clone() }
-                                },
-                                AppView::Artists => rsx! {
-                                    ArtistsView {}
-                                },
-                                AppView::Playlists => rsx! {
-                                    PlaylistsView {}
-                                },
-                                AppView::Radio => rsx! {
-                                    RadioView {}
-                                },
-                                AppView::Bookmarks => rsx! {
-                                    BookmarksView {}
-                                },
-                                AppView::Favorites => rsx! {
-                                    FavoritesView {}
-                                },
-                                AppView::Random => rsx! {
-                                    RandomView {}
-                                },
-                                AppView::Settings => rsx! {
-                                    SettingsView {}
-                                },
-                                AppView::Stats => rsx! {
-                                    StatsView {}
-                                },
-                                AppView::Queue => rsx! {
-                                    QueueView {}
-                                },
-                                AppView::AlbumDetail(album_id, server_id) => rsx! {
-                                    AlbumDetailView { album_id: album_id.clone(), server_id: server_id.clone() }
-                                },
-                                AppView::ArtistDetail(artist_id, server_id) => rsx! {
-                                    ArtistDetailView { artist_id: artist_id.clone(), server_id: server_id.clone() }
-                                },
-                                AppView::PlaylistDetail(playlist_id, server_id) => rsx! {
-                                    PlaylistDetailView { playlist_id: playlist_id.clone(), server_id: server_id.clone() }
-                                },
-                            }
-                        }
+                        Outlet::<AppView> {}
                     }
                 }
             }
@@ -489,6 +442,8 @@ pub fn AppShell() -> Element {
             // Fixed bottom player
             Player {}
         }
+
+        AddToMenuOverlay { controller: add_menu.clone() }
 
         // Audio controller - manages playback separately from UI
         AudioController {}

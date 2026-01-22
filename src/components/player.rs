@@ -94,7 +94,7 @@ pub fn Player() -> Element {
 
     let on_open_queue = {
         let navigation = navigation.clone();
-        move |_| navigation.navigate_to(AppView::Queue)
+        move |_| navigation.navigate_to(AppView::QueueView {})
     };
 
     // Favorite toggle handler
@@ -138,10 +138,10 @@ pub fn Player() -> Element {
         move |_| {
             if let Some(ref s) = song {
                 if let Some(artist_id) = &s.artist_id {
-                    navigation.navigate_to(AppView::ArtistDetail(
-                        artist_id.clone(),
-                        s.server_id.clone(),
-                    ));
+                    navigation.navigate_to(AppView::ArtistDetailView {
+                        artist_id: artist_id.clone(),
+                        server_id: s.server_id.clone(),
+                    });
                 }
             }
         }
@@ -169,7 +169,10 @@ pub fn Player() -> Element {
                                                 if let Some(album_id) = &s.album_id {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
+                                                            AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: s.server_id.clone(),
+                                                            },
                                                         );
                                                 }
                                             }
@@ -202,10 +205,10 @@ pub fn Player() -> Element {
                                             move |_| {
                                                 if let Some(ref s) = song {
                                                     if let Some(album_id) = &s.album_id {
-                                                        navigation
-                                                            .navigate_to(
-                                                                AppView::AlbumDetail(album_id.clone(), s.server_id.clone()),
-                                                            );
+                                                        navigation.navigate_to(AppView::AlbumDetailView {
+                                                            album_id: album_id.clone(),
+                                                            server_id: s.server_id.clone(),
+                                                        });
                                                     }
                                                 }
                                             }

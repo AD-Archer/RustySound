@@ -1,51 +1,73 @@
 //! Defines the shared application view state.
 
-#[derive(Clone, PartialEq)]
+use crate::components::views::*;
+use crate::components::AppShell;
+use dioxus::prelude::*;
+
+#[derive(Routable, Clone, PartialEq)]
 #[allow(dead_code)]
 pub enum AppView {
-    Home,
-    Search,
-    Songs,
-    Albums(Option<String>),
-    Artists,
-    Playlists,
-    Radio,
-    Bookmarks,
-    Favorites,
-    Random,
-    Settings,
-    Stats,
-    Queue,
-    AlbumDetail(String, String),
-    ArtistDetail(String, String),
-    PlaylistDetail(String, String),
+    #[layout(AppShell)]
+    #[route("/")]
+    HomeView {},
+    #[route("/search")]
+    SearchView {},
+    #[route("/songs")]
+    SongsView {},
+    #[route("/albums")]
+    Albums {},
+    #[route("/albums/:genre")]
+    AlbumsWithGenre { genre: String },
+    #[route("/artists")]
+    ArtistsView {},
+    #[route("/playlists")]
+    PlaylistsView {},
+    #[route("/radio")]
+    RadioView {},
+    #[route("/bookmarks")]
+    BookmarksView {},
+    #[route("/favorites")]
+    FavoritesView {},
+    #[route("/random")]
+    RandomView {},
+    #[route("/settings")]
+    SettingsView {},
+    #[route("/stats")]
+    StatsView {},
+    #[route("/queue")]
+    QueueView {},
+    #[route("/album/:album_id/:server_id")]
+    AlbumDetailView { album_id: String, server_id: String },
+    #[route("/artist/:artist_id/:server_id")]
+    ArtistDetailView {
+        artist_id: String,
+        server_id: String,
+    },
+    #[route("/playlist/:playlist_id/:server_id")]
+    PlaylistDetailView {
+        playlist_id: String,
+        server_id: String,
+    },
 }
 
 pub fn view_label(view: &AppView) -> &'static str {
     match view {
-        AppView::Home => "Home",
-        AppView::Search => "Search",
-        AppView::Songs => "Songs",
-        AppView::Albums(genre) => {
-            if let Some(ref _genre_name) = genre {
-                // We can't return a reference to the String, so we return a static string
-                // The actual title will be handled in the component
-                "Albums"
-            } else {
-                "Albums"
-            }
-        }
-        AppView::Artists => "Artists",
-        AppView::Playlists => "Playlists",
-        AppView::Radio => "Radio",
-        AppView::Bookmarks => "Bookmarks",
-        AppView::Favorites => "Favorites",
-        AppView::Random => "Random",
-        AppView::Settings => "Settings",
-        AppView::Stats => "Stats",
-        AppView::Queue => "Queue",
-        AppView::AlbumDetail(_, _) => "Album",
-        AppView::ArtistDetail(_, _) => "Artist",
-        AppView::PlaylistDetail(_, _) => "Playlist",
+        AppView::HomeView {} => "Home",
+        AppView::SearchView {} => "Search",
+        AppView::SongsView {} => "Songs",
+        AppView::Albums {} => "Albums",
+        AppView::AlbumsWithGenre { .. } => "Albums",
+        AppView::ArtistsView {} => "Artists",
+        AppView::PlaylistsView {} => "Playlists",
+        AppView::RadioView {} => "Radio",
+        AppView::BookmarksView {} => "Bookmarks",
+        AppView::FavoritesView {} => "Favorites",
+        AppView::RandomView {} => "Random",
+        AppView::SettingsView {} => "Settings",
+        AppView::StatsView {} => "Stats",
+        AppView::QueueView {} => "Queue",
+        AppView::AlbumDetailView { .. } => "Album",
+        AppView::ArtistDetailView { .. } => "Artist",
+        AppView::PlaylistDetailView { .. } => "Playlist",
     }
 }

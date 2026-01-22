@@ -5,9 +5,8 @@ use dioxus::prelude::*;
 #[component]
 pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let current_view = use_context::<Signal<AppView>>();
     let navigation = use_context::<Navigation>();
-    let view = current_view();
+    let view = use_route::<AppView>();
 
     let is_open = sidebar_open();
 
@@ -33,8 +32,12 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
             // Logo
             div { class: "p-5 md:p-6 border-b border-zinc-800/60 flex items-center justify-between",
                 div { class: "flex items-center gap-3",
-                    div { class: "w-10 h-10 rounded-xl bg-gradient-to-br from-emerald-500 to-teal-600 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-emerald-500/20",
-                        "R"
+                    div { class: "w-10 h-10 rounded-xl bg-zinc-800/50 flex items-center justify-center shadow-lg overflow-hidden",
+                        img {
+                            src: asset!("/assets/favicon.svg"),
+                            alt: "RustySound Logo",
+                            class: "w-8 h-8 object-contain",
+                        }
                     }
                     div {
                         h1 { class: "text-lg font-bold text-white", "RustySound" }
@@ -62,20 +65,20 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                     NavItem {
                         icon: "home",
                         label: "Home",
-                        active: matches!(view, AppView::Home),
-                        onclick: nav_to(AppView::Home),
+                        active: matches!(view, AppView::HomeView {}),
+                        onclick: nav_to(AppView::HomeView {}),
                     }
                     NavItem {
                         icon: "search",
                         label: "Search",
-                        active: matches!(view, AppView::Search),
-                        onclick: nav_to(AppView::Search),
+                        active: matches!(view, AppView::SearchView {}),
+                        onclick: nav_to(AppView::SearchView {}),
                     }
                     NavItem {
                         icon: "shuffle",
                         label: "Random",
-                        active: matches!(view, AppView::Random),
-                        onclick: nav_to(AppView::Random),
+                        active: matches!(view, AppView::RandomView {}),
+                        onclick: nav_to(AppView::RandomView {}),
                     }
                 }
 
@@ -87,32 +90,32 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                     NavItem {
                         icon: "album",
                         label: "Albums",
-                        active: matches!(view, AppView::Albums(_)),
-                        onclick: nav_to(AppView::Albums(None)),
+                        active: matches!(view, AppView::Albums {}),
+                        onclick: nav_to(AppView::Albums {}),
                     }
                     NavItem {
                         icon: "music",
                         label: "Songs",
-                        active: matches!(view, AppView::Songs),
-                        onclick: nav_to(AppView::Songs),
+                        active: matches!(view, AppView::SongsView {}),
+                        onclick: nav_to(AppView::SongsView {}),
                     }
                     NavItem {
                         icon: "artist",
                         label: "Artists",
-                        active: matches!(view, AppView::Artists),
-                        onclick: nav_to(AppView::Artists),
+                        active: matches!(view, AppView::ArtistsView {}),
+                        onclick: nav_to(AppView::ArtistsView {}),
                     }
                     NavItem {
                         icon: "playlist",
                         label: "Playlists",
-                        active: matches!(view, AppView::Playlists),
-                        onclick: nav_to(AppView::Playlists),
+                        active: matches!(view, AppView::PlaylistsView {}),
+                        onclick: nav_to(AppView::PlaylistsView {}),
                     }
                     NavItem {
                         icon: "radio",
                         label: "Radio",
-                        active: matches!(view, AppView::Radio),
-                        onclick: nav_to(AppView::Radio),
+                        active: matches!(view, AppView::RadioView {}),
+                        onclick: nav_to(AppView::RadioView {}),
                     }
                 }
 
@@ -124,20 +127,20 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                     NavItem {
                         icon: "heart",
                         label: "Favorites",
-                        active: matches!(view, AppView::Favorites),
-                        onclick: nav_to(AppView::Favorites),
+                        active: matches!(view, AppView::FavoritesView {}),
+                        onclick: nav_to(AppView::FavoritesView {}),
                     }
                     NavItem {
                         icon: "bookmark",
                         label: "Bookmarks",
-                        active: matches!(view, AppView::Bookmarks),
-                        onclick: nav_to(AppView::Bookmarks),
+                        active: matches!(view, AppView::BookmarksView {}),
+                        onclick: nav_to(AppView::BookmarksView {}),
                     }
                     NavItem {
                         icon: "queue",
                         label: "Queue",
-                        active: matches!(view, AppView::Queue),
-                        onclick: nav_to(AppView::Queue),
+                        active: matches!(view, AppView::QueueView {}),
+                        onclick: nav_to(AppView::QueueView {}),
                     }
                 }
 
@@ -146,8 +149,8 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                     NavItem {
                         icon: "settings",
                         label: "Settings",
-                        active: matches!(view, AppView::Settings),
-                        onclick: nav_to(AppView::Settings),
+                        active: matches!(view, AppView::SettingsView {}),
+                        onclick: nav_to(AppView::SettingsView {}),
                     }
 
                 }

@@ -1,19 +1,18 @@
 use crate::api::*;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AppView, AddIntent, AddMenuController, Icon, Navigation};
 use dioxus::prelude::*;
 
 fn render_album_item(
-    album: &Album,
+    album: Album,
     servers: Signal<Vec<ServerConfig>>,
     navigation: Navigation,
-    queue: Signal<Vec<Song>>,
+    add_menu: AddMenuController,
 ) -> Element {
     let album_id = album.id.clone();
     let album_server_id = album.server_id.clone();
     let album_id_for_nav = album_id.clone();
     let album_server_id_for_nav = album_server_id.clone();
-    let album_id_for_add = album_id.clone();
-    let album_server_id_for_add = album_server_id.clone();
+    let album_clone_for_add = album.clone();
     let album_cover = servers()
         .iter()
         .find(|s| s.id == album.server_id)
@@ -49,34 +48,20 @@ fn render_album_item(
             onclick: move |_| {
                 let navigation = navigation.clone();
                 navigation
-                    .navigate_to(
-                        AppView::AlbumDetail(
-                            album_id_for_nav.clone(),
-                            album_server_id_for_nav.clone(),
-                        ),
-                    );
+                    .navigate_to(AppView::AlbumDetailView {
+                        album_id: album_id_for_nav.clone(),
+                        server_id: album_server_id_for_nav.clone(),
+                    });
             },
             div { class: "aspect-square rounded-xl bg-zinc-800 overflow-hidden mb-3 shadow-lg group-hover:shadow-emerald-500/20 transition-shadow relative",
                 {album_cover_element}
                 button {
                     class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add album to queue",
+                    aria_label: "Add album",
                     onclick: move |evt: MouseEvent| {
                         evt.stop_propagation();
-                        let servers = servers.clone();
-                        let album_id = album_id_for_add.clone();
-                        let album_server_id = album_server_id_for_add.clone();
-                        let mut queue = queue.clone();
-                        let album_id = album_id.clone();
-                        let server = servers().iter().find(|s| s.id == album_server_id).cloned();
-                        if let Some(server) = server {
-                            spawn(async move {
-                                let client = NavidromeClient::new(server);
-                                if let Ok((_, songs)) = client.get_album(&album_id).await {
-                                    queue.with_mut(|q| q.extend(songs));
-                                }
-                            });
-                        }
+                        let mut add_menu = add_menu.clone();
+                        add_menu.open(AddIntent::from_album(&album_clone_for_add));
                     },
                     Icon {
                         name: "plus".to_string(),
@@ -111,6 +96,10 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let add_menu = use_context::<AddMenuController>();
+    let _now_playing = use_context::<Signal<Option<Song>>>();
+    let _queue_index = use_context::<Signal<usize>>();
+    let _is_playing = use_context::<Signal<bool>>();
 
     let server = servers().into_iter().find(|s| s.id == server_id);
 
@@ -190,7 +179,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
             onclick: move |_| {
                 if navigation.go_back().is_none() {
-                    navigation.navigate_to(AppView::Artists);
+                    navigation.navigate_to(AppView::ArtistsView {});
                 }
             },
             Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
@@ -271,7 +260,14 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                 {
                                     albums
                                         .iter()
-                                        .map(|album| render_album_item(album, servers, navigation.clone(), queue))
+                                        .map(|album| {
+                                            render_album_item(
+                                                album.clone(),
+                                                servers.clone(),
+                                                navigation.clone(),
+                                                add_menu.clone(),
+                                            )
+                                        })
                                 }
                             }
                         }

@@ -7,7 +7,7 @@
 name = "RustySound"
 
 # The icon to use for the app (PNG, ICNS, or ICO)
-icon = "assets/logo.ico"
+icon = "assets/favicon.icns"
 
 # Mobile app configuration  
 [application.mobile]
@@ -16,7 +16,7 @@ icon = "assets/logo.ico"
 name = "RustySound"
 
 # The icon to use for the app (PNG)
-icon = "assets/logo.png"
+icon = "assets/web-app-manifest-192x192.png"
 
 [web.app]
 

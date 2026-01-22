@@ -222,8 +222,8 @@ pub fn AudioController() -> Element {
                     Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
                 let touch_cb =
                     Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
-                let _ =
-                    doc.add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
+                let _ = doc
+                    .add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
                 let _ = doc
                     .add_event_listener_with_callback("keydown", key_cb.as_ref().unchecked_ref());
                 let _ = doc.add_event_listener_with_callback(
@@ -399,9 +399,7 @@ pub fn AudioController() -> Element {
                                 servers_snapshot.iter().find(|s| s.id == server_id).cloned()
                             {
                                 let client = NavidromeClient::new(server);
-                                let _ = client
-                                    .create_bookmark(&song_id, position_ms, None)
-                                    .await;
+                                let _ = client.create_bookmark(&song_id, position_ms, None).await;
                             }
                         });
                     }
@@ -544,7 +542,8 @@ pub fn AudioController() -> Element {
                 let server_id = song.server_id.clone();
                 spawn(async move {
                     last_bookmark.set(Some((song_id.clone(), position_ms)));
-                    if let Some(server) = servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                    if let Some(server) =
+                        servers_snapshot.iter().find(|s| s.id == server_id).cloned()
                     {
                         let client = NavidromeClient::new(server);
                         let _ = client.create_bookmark(&song_id, position_ms, None).await;
@@ -591,7 +590,11 @@ pub fn get_duration() -> f64 {
     get_or_create_audio_element()
         .map(|a| {
             let d = a.duration();
-            if d.is_nan() { 0.0 } else { d }
+            if d.is_nan() {
+                0.0
+            } else {
+                d
+            }
         })
         .unwrap_or(0.0)
 }

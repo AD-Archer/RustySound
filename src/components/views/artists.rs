@@ -106,7 +106,10 @@ pub fn ArtistsView() -> Element {
                                                 move |_| {
                                                     navigation
                                                         .navigate_to(
-                                                            AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
+                                                            AppView::ArtistDetailView {
+                                                                artist_id: artist_id.clone(),
+                                                                server_id: artist_server_id.clone(),
+                                                            },
                                                         )
                                                 }
                                             },

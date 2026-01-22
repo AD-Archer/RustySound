@@ -1,6 +1,6 @@
 use crate::api::*;
 use crate::components::views::album_song_row::AlbumSongRow;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 #[component]
@@ -11,6 +11,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
+    let add_menu = use_context::<AddMenuController>();
 
     let server = servers().into_iter().find(|s| s.id == server_id);
 
@@ -43,14 +44,12 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         }
     };
 
-    let on_add_album = {
+    let on_open_album_menu = {
         let album_data_ref = album_data.clone();
-        let mut queue = queue.clone();
-        move |_| {
-            if let Some(Some((_, songs))) = album_data_ref() {
-                if !songs.is_empty() {
-                    queue.with_mut(|q| q.extend(songs.clone()));
-                }
+        let mut add_menu = add_menu.clone();
+        move |_: MouseEvent| {
+            if let Some(Some((album, _))) = album_data_ref() {
+                add_menu.open(AddIntent::from_album(&album));
             }
         }
     };
@@ -94,7 +93,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
                 onclick: move |_| {
                     if navigation.go_back().is_none() {
-                        navigation.navigate_to(AppView::Albums(None));
+                        navigation.navigate_to(AppView::Albums {});
                     }
                 },
                 Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
@@ -165,12 +164,13 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
                             // Set the full album as queue
 
+                
+                
 
-
-
-                                                        .navigate_to(
-                                                            AppView::ArtistDetail(artist_id.clone(), server_id.clone()),
-                                                        );
+                                                        .navigate_to(AppView::ArtistDetailView {
+                                                            artist_id: artist_id.clone(),
+                                                            server_id: server_id.clone(),
+                                                        });
                                                 }
                                             },
                                             "{album.artist}"
@@ -185,7 +185,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                         span { "{album.song_count} songs" }
                                         span { "{format_duration(album.duration / 1000)}" }
                                     }
-                                    div { class: "flex gap-3 mt-6",
+                                    div { class: "flex gap-3 mt-6 flex-wrap",
                                         button {
                                             class: "px-8 py-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
                                             onclick: on_play_all,
@@ -193,10 +193,24 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             "Play"
                                         }
                                         button {
-                                            class: "px-6 py-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center gap-2",
-                                            onclick: on_add_album,
-                                            Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
-                                            "Add to Queue"
+                                            class: "p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors",
+                                            onclick: {
+                                                let album_data_ref = album_data.clone();
+                                                move |_: MouseEvent| {
+                                                    if let Some(Some((_, songs))) = album_data_ref() {
+                                                        if !songs.is_empty() {
+                                                            let mut shuffled = songs.clone();
+                                                            use rand::seq::SliceRandom;
+                                                            shuffled.shuffle(&mut rand::thread_rng());
+                                                            queue.set(shuffled.clone());
+                                                            queue_index.set(0);
+                                                            now_playing.set(Some(shuffled[0].clone()));
+                                                            is_playing.set(true);
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
                                         }
                                         button {
                                             class: "p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors",
@@ -206,10 +220,15 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                 class: "w-5 h-5".to_string(),
                                             }
                                         }
+                                        button {
+                                            class: "p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors",
+                                            onclick: on_open_album_menu,
+                                            Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
+                                        }
                                     }
                                 }
                             }
-
+                
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {
                                     {
