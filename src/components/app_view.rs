@@ -1,11 +1,12 @@
 //! Defines the shared application view state.
 
 #[derive(Clone, PartialEq)]
+#[allow(dead_code)]
 pub enum AppView {
     Home,
     Search,
     Songs,
-    Albums,
+    Albums(Option<String>),
     Artists,
     Playlists,
     Radio,
@@ -24,7 +25,15 @@ pub fn view_label(view: &AppView) -> &'static str {
         AppView::Home => "Home",
         AppView::Search => "Search",
         AppView::Songs => "Songs",
-        AppView::Albums => "Albums",
+        AppView::Albums(genre) => {
+            if let Some(ref _genre_name) = genre {
+                // We can't return a reference to the String, so we return a static string
+                // The actual title will be handled in the component
+                "Albums"
+            } else {
+                "Albums"
+            }
+        },
         AppView::Artists => "Artists",
         AppView::Playlists => "Playlists",
         AppView::Radio => "Radio",

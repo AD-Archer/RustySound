@@ -4,7 +4,7 @@ use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 #[component]
-pub fn AlbumsView() -> Element {
+pub fn AlbumsView(genre: Option<String>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
 
@@ -12,11 +12,13 @@ pub fn AlbumsView() -> Element {
     let mut search_query = use_signal(String::new);
     let limit = use_signal(|| 30u32);
 
+    let genre_for_title = genre.clone();
     let albums = use_resource(move || {
         let servers = servers();
         let album_type = album_type();
         let limit = limit();
         let query = search_query();
+        let genre_filter = genre.clone();
         async move {
             let mut albums = Vec::new();
             let mut more_available = false;
@@ -46,6 +48,14 @@ pub fn AlbumsView() -> Element {
                     }
                 }
             }
+            
+            // Filter by genre if specified
+            if let Some(ref genre_name) = genre_filter {
+                albums.retain(|album| {
+                    album.genre.as_ref().map_or(false, |g| g == genre_name)
+                });
+            }
+            
             (albums, more_available)
         }
     });
@@ -61,7 +71,13 @@ pub fn AlbumsView() -> Element {
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header gap-4",
-                h1 { class: "page-title", "Albums" }
+                h1 { class: "page-title",
+                    if let Some(ref genre_name) = genre_for_title {
+                        "{genre_name} Albums"
+                    } else {
+                        "Albums"
+                    }
+                }
 
                 div { class: "flex flex-col gap-3 md:flex-row md:items-center md:justify-between",
                     // Filter tabs
@@ -116,7 +132,7 @@ pub fn AlbumsView() -> Element {
                                     }
                                 }
                             } else {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4 overflow-x-hidden",
                                     for album in albums {
                                         AlbumCard {
                                             album: album.clone(),

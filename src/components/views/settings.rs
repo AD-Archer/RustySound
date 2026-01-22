@@ -42,6 +42,9 @@ pub fn SettingsView() -> Element {
         let user = server_user.clone();
         let pass = server_pass.clone();
         move |_| {
+            if is_testing() {
+                return;
+            }
             let url = url().trim().to_string();
             let user = user().trim().to_string();
             let pass = pass().trim().to_string();
@@ -156,6 +159,9 @@ pub fn SettingsView() -> Element {
     let mut on_test_existing = {
         let servers = servers.clone();
         move |server_id: String| {
+            if is_testing_connection() {
+                return;
+            }
             if let Some(server) = servers().iter().find(|s| s.id == server_id).cloned() {
                 is_testing_connection.set(true);
                 connection_test_result.set(None);
@@ -621,6 +627,7 @@ pub fn SettingsView() -> Element {
                                             });
                                     }
                                 },
+                                is_testing: is_testing_connection(),
                             }
                         }
                     }
@@ -656,6 +663,7 @@ fn ServerCard(
     on_remove: EventHandler<MouseEvent>,
     on_edit: EventHandler<MouseEvent>,
     on_test: EventHandler<MouseEvent>,
+    is_testing: bool,
 ) -> Element {
     let initials: String = server
         .name
@@ -705,6 +713,7 @@ fn ServerCard(
                 div { class: "flex items-center gap-1",
                     button {
                         class: "p-2 rounded-lg text-zinc-500 hover:text-blue-400 hover:bg-blue-500/10 transition-colors",
+                        disabled: is_testing,
                         onclick: move |e| on_test.call(e),
                         title: "Test Connection",
                         Icon {

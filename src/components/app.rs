@@ -281,8 +281,8 @@ pub fn AppShell() -> Element {
                                 AppView::Songs => rsx! {
                                     SongsView {}
                                 },
-                                AppView::Albums => rsx! {
-                                    AlbumsView {}
+                                AppView::Albums(genre) => rsx! {
+                                    AlbumsView { genre: genre.clone() }
                                 },
                                 AppView::Artists => rsx! {
                                     ArtistsView {}

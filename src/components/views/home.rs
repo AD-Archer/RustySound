@@ -220,7 +220,15 @@ pub fn HomeView() -> Element {
                         gradient: "from-amber-600 to-orange-600".to_string(),
                         onclick: {
                             let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Albums)
+                            move |_| nav.navigate_to(AppView::Albums(None))
+                        },
+                    }
+                    QuickPlayCard {
+                        title: "Playlists".to_string(),
+                        gradient: "from-amber-600 to-orange-600".to_string(),
+                        onclick: {
+                            let nav = navigation.clone();
+                            move |_| nav.navigate_to(AppView::Playlists)
                         },
                     }
                 }
@@ -233,7 +241,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums)
+                                move |_| nav.navigate_to(AppView::Albums(None))
                             },
                             "See all"
                         }
@@ -248,9 +256,9 @@ pub fn HomeView() -> Element {
                                             genre: genre.clone(),
                                             onclick: {
                                                 let navigation = navigation.clone();
+                                                let genre_name = genre.clone();
                                                 move |_| {
-                                                    // For now, navigate to albums - could be enhanced to filter by genre
-                                                    navigation.navigate_to(AppView::Albums);
+                                                    navigation.navigate_to(AppView::Albums(Some(genre_name.clone())));
                                                 }
                                             },
                                         }
@@ -277,7 +285,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums)
+                                move |_| nav.navigate_to(AppView::Albums(None))
                             },
                             "See all"
                         }
@@ -286,7 +294,7 @@ pub fn HomeView() -> Element {
                     {
                         match recent_albums() {
                             Some(albums) => rsx! {
-                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
                                     for album in albums {
                                         AlbumCard {
                                             album: album.clone(),
@@ -325,7 +333,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums)
+                                move |_| nav.navigate_to(AppView::Albums(None))
                             },
                             "See all"
                         }
@@ -334,7 +342,7 @@ pub fn HomeView() -> Element {
                     {
                         match most_played_albums() {
                             Some(albums) => rsx! {
-                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
                                     for album in albums {
                                         AlbumCard {
                                             album: album.clone(),
@@ -373,7 +381,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums)
+                                move |_| nav.navigate_to(AppView::Albums(None))
                             },
                             "See all"
                         }
@@ -382,7 +390,7 @@ pub fn HomeView() -> Element {
                     {
                         match recently_played_albums() {
                             Some(albums) => rsx! {
-                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
                                     for album in albums {
                                         AlbumCard {
                                             album: album.clone(),
@@ -421,7 +429,7 @@ pub fn HomeView() -> Element {
                             class: "text-sm text-zinc-400 hover:text-white transition-colors",
                             onclick: {
                                 let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::Albums)
+                                move |_| nav.navigate_to(AppView::Albums(None))
                             },
                             "See all"
                         }
@@ -430,7 +438,7 @@ pub fn HomeView() -> Element {
                     {
                         match random_albums() {
                             Some(albums) => rsx! {
-                                div { class: "flex gap-4 overflow-x-auto pb-2",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
                                     for album in albums {
                                         AlbumCard {
                                             album: album.clone(),
@@ -771,7 +779,7 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 
     rsx! {
         div {
-            class: "group text-left cursor-pointer flex-shrink-0 w-48",
+            class: "group text-left cursor-pointer w-full max-w-48 overflow-hidden",
             onclick: move |e| onclick.call(e),
             // Album cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
@@ -811,18 +819,23 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
             }
             // Album info
             p {
-                class: "font-medium text-white text-sm group-hover:text-emerald-400 transition-colors",
-                style: "overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; word-break: break-word;",
+                class: "font-medium text-white text-sm group-hover:text-emerald-400 transition-colors truncate",
+                title: "{album.name}",
                 "{album.name}"
             }
             if album.artist_id.is_some() {
                 button {
                     class: "text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors",
+                    title: "{album.artist}",
                     onclick: on_artist_click,
                     "{album.artist}"
                 }
             } else {
-                p { class: "text-xs text-zinc-400 truncate", "{album.artist}" }
+                p {
+                    class: "text-xs text-zinc-400 truncate",
+                    title: "{album.artist}",
+                    "{album.artist}"
+                }
             }
         }
     }

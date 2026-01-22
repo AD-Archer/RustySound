@@ -92,7 +92,7 @@ pub fn FavoritesView() -> Element {
                                     if albums.is_empty() {
                                         EmptyFavorites { item_type: "albums".to_string() }
                                     } else {
-                                        div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4",
+                                        div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 overflow-x-hidden",
                                             for album in albums {
                                                 AlbumCard {
                                                     album: album.clone(),
@@ -101,10 +101,10 @@ pub fn FavoritesView() -> Element {
                                                         let album_id = album.id.clone();
                                                         let album_server_id = album.server_id.clone();
                                                         move |_| {
-                                                            navigation.navigate_to(AppView::AlbumDetail(
-                                                                album_id.clone(),
-                                                                album_server_id.clone(),
-                                                            ))
+                                                            navigation
+                                                                .navigate_to(
+                                                                    AppView::AlbumDetail(album_id.clone(), album_server_id.clone()),
+                                                                )
                                                         }
                                                     },
                                                 }
@@ -125,10 +125,10 @@ pub fn FavoritesView() -> Element {
                                                         let artist_id = artist.id.clone();
                                                         let artist_server_id = artist.server_id.clone();
                                                         move |_| {
-                                                            navigation.navigate_to(AppView::ArtistDetail(
-                                                                artist_id.clone(),
-                                                                artist_server_id.clone(),
-                                                            ))
+                                                            navigation
+                                                                .navigate_to(
+                                                                    AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
+                                                                )
                                                         }
                                                     },
                                                 }

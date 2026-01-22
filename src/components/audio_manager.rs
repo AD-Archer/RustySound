@@ -386,7 +386,7 @@ pub fn AudioController() -> Element {
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         let idx = queue_index();
-        let queue_list = queue.peek();
+        let queue_list = queue();
         let mut now_playing_mut = now_playing;
 
         if let Some(song) = queue_list.get(idx) {

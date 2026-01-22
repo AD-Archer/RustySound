@@ -79,12 +79,14 @@ pub fn SongsView() -> Element {
                     }
 
                     // Filters
-                    div { class: "flex flex-wrap gap-3 justify-center",
+                    div { class: "flex flex-wrap gap-2 justify-center items-center",
                         // Sort by
-                        div { class: "flex items-center gap-2",
-                            span { class: "text-sm text-zinc-400", "Sort:" }
+                        div { class: "flex items-center gap-1",
+                            span { class: "text-xs text-zinc-400 whitespace-nowrap",
+                                "Sort:"
+                            }
                             select {
-                                class: "px-3 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/50",
+                                class: "px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded text-xs text-white focus:outline-none focus:border-emerald-500/50 min-w-0",
                                 value: sort_by,
                                 oninput: move |e| sort_by.set(e.value()),
                                 option { value: "last_played", "Last Played" }
@@ -95,10 +97,12 @@ pub fn SongsView() -> Element {
                         }
 
                         // Min rating filter
-                        div { class: "flex items-center gap-2",
-                            span { class: "text-sm text-zinc-400", "Min Rating:" }
+                        div { class: "flex items-center gap-1",
+                            span { class: "text-xs text-zinc-400 whitespace-nowrap",
+                                "Min:"
+                            }
                             select {
-                                class: "px-3 py-1.5 bg-zinc-800/50 border border-zinc-700/50 rounded-lg text-sm text-white focus:outline-none focus:border-emerald-500/50",
+                                class: "px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded text-xs text-white focus:outline-none focus:border-emerald-500/50 min-w-0",
                                 value: "{filter_min_rating}",
                                 oninput: move |e| {
                                     if let Ok(rating) = e.value().parse::<i32>() {
@@ -106,11 +110,11 @@ pub fn SongsView() -> Element {
                                     }
                                 },
                                 option { value: "0", "Any" }
-                                option { value: "1", "1+ Stars" }
-                                option { value: "2", "2+ Stars" }
-                                option { value: "3", "3+ Stars" }
-                                option { value: "4", "4+ Stars" }
-                                option { value: "5", "5 Stars" }
+                                option { value: "1", "1+" }
+                                option { value: "2", "2+" }
+                                option { value: "3", "3+" }
+                                option { value: "4", "4+" }
+                                option { value: "5", "5" }
                             }
                         }
                     }
@@ -165,9 +169,8 @@ pub fn SongsView() -> Element {
                                 });
                         }
                         match sort_option.as_str() {
-                            "last_played" => {
-                                // Keep server order as-is to approximate last played/random order
-                            }
+                            // Keep server order as-is to approximate last played/random order
+                            "last_played" => {}
                             "rating" => {
                                 filtered
                                     .sort_by(|a, b| {

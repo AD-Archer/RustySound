@@ -87,8 +87,8 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                     NavItem {
                         icon: "album",
                         label: "Albums",
-                        active: matches!(view, AppView::Albums),
-                        onclick: nav_to(AppView::Albums),
+                        active: matches!(view, AppView::Albums(_)),
+                        onclick: nav_to(AppView::Albums(None)),
                     }
                     NavItem {
                         icon: "music",
@@ -143,7 +143,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                         active: matches!(view, AppView::Settings),
                         onclick: nav_to(AppView::Settings),
                     }
-
+                
                 }
             }
         }

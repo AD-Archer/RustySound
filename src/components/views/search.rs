@@ -96,7 +96,7 @@ pub fn SearchView() -> Element {
                         if has_artists {
                             section { class: "mb-8",
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Artists" }
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
                                     for artist in artists {
                                         ArtistCard {
                                             key: "{artist.id}-{artist.server_id}",
@@ -108,11 +108,17 @@ pub fn SearchView() -> Element {
                                                 move |_| {
                                                     navigation
 
-                                                        // Albums
+                        // Albums
 
-                                                        // Songs
+                        // Songs
+
+        
+
+        
+        
 
                                                         .navigate_to(
+        
 
                                                             AppView::ArtistDetail(artist_id.clone(), artist_server_id.clone()),
                                                         )
@@ -123,12 +129,11 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-
-
+        
                         if has_albums {
                             section { class: "mb-8",
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Albums" }
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4",
+                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4 overflow-x-hidden",
                                     for album in albums {
                                         AlbumCard {
                                             key: "{album.id}-{album.server_id}",
@@ -149,7 +154,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-
+        
                         if has_songs {
                             section {
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Songs" }
@@ -168,7 +173,7 @@ pub fn SearchView() -> Element {
                                 }
                             }
                         }
-
+        
                         if no_results {
                             div { class: "flex flex-col items-center justify-center py-20",
                                 Icon {

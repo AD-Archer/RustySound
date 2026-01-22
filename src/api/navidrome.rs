@@ -699,6 +699,7 @@ impl NavidromeClient {
 
     /// Report playback to Navidrome/Subsonic. If submission is false, it updates "Now Playing";
     /// when true, it scrobbles the play as finished.
+    #[allow(dead_code)]
     pub async fn scrobble(&self, id: &str, submission: bool) -> Result<(), String> {
         let millis = Utc::now().timestamp_millis().to_string();
         let url = self.build_url(

@@ -27,6 +27,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         }
     });
 
+    let mut is_favorited = use_signal(|| false);
+
     let on_play_all = {
         let album_data_ref = album_data.clone();
         move |_| {
@@ -53,6 +55,38 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         }
     };
 
+    use_effect(move || {
+        if let Some(Some((album, _))) = album_data() {
+            is_favorited.set(album.starred.is_some());
+        }
+    });
+
+    let on_favorite_toggle = move |_| {
+        if let Some(Some((album, _))) = album_data() {
+            let server_list = servers();
+            if let Some(server) = server_list
+                .iter()
+                .find(|s| s.id == album.server_id)
+                .cloned()
+            {
+                let album_id = album.id.clone();
+                let should_star = !is_favorited();
+                let mut is_favorited = is_favorited;
+                spawn(async move {
+                    let client = NavidromeClient::new(server);
+                    let result = if should_star {
+                        client.star(&album_id, "album").await
+                    } else {
+                        client.unstar(&album_id, "album").await
+                    };
+                    if result.is_ok() {
+                        is_favorited.set(should_star);
+                    }
+                });
+            }
+        }
+    };
+
     rsx! {
         div { class: "space-y-8 overflow-x-hidden",
             // Back button
@@ -60,7 +94,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
                 onclick: move |_| {
                     if navigation.go_back().is_none() {
-                        navigation.navigate_to(AppView::Albums);
+                        navigation.navigate_to(AppView::Albums(None));
                     }
                 },
                 Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
@@ -131,8 +165,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
                             // Set the full album as queue
 
-
-
+                
+                
 
                                                         .navigate_to(
                                                             AppView::ArtistDetail(artist_id.clone(), server_id.clone()),
@@ -164,13 +198,18 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
                                             "Add to Queue"
                                         }
-                                        button { class: "p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors",
-                                            Icon { name: "heart".to_string(), class: "w-5 h-5".to_string() }
+                                        button {
+                                            class: "p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors",
+                                            onclick: on_favorite_toggle,
+                                            Icon {
+                                                name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                                class: "w-5 h-5".to_string(),
+                                            }
                                         }
                                     }
                                 }
                             }
-
+                
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {
                                     {
