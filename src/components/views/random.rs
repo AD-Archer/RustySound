@@ -97,7 +97,10 @@ pub fn RandomView() -> Element {
                                     index: index + 1,
                                     onclick: {
                                         let song = song.clone();
+                                        let songs_for_queue = songs.clone();
                                         move |_| {
+                                            queue.set(songs_for_queue.clone());
+                                            queue_index.set(index);
                                             now_playing.set(Some(song.clone()));
                                             is_playing.set(true);
                                         }
@@ -105,7 +108,7 @@ pub fn RandomView() -> Element {
                                 }
                             }
                         }
-                    },
+                            },
                     Some(_) => rsx! {
                         div { class: "flex flex-col items-center justify-center py-20",
                             Icon {

@@ -13,6 +13,8 @@ enum RadioFormMode {
 pub fn RadioView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
 
     let form_mode = use_signal(|| RadioFormMode::Closed);
@@ -381,6 +383,8 @@ pub fn RadioView() -> Element {
                                                 server_id: station.server_id.clone(),
                                                 server_name: "Radio".to_string(),
                                             };
+                                            queue.set(vec![radio_song.clone()]);
+                                            queue_index.set(0);
                                             now_playing.set(Some(radio_song));
                                             is_playing.set(true);
                                         }

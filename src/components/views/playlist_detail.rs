@@ -130,7 +130,10 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         index: index + 1,
                                         onclick: {
                                             let song = song.clone();
+                                            let songs_for_queue = songs.clone();
                                             move |_| {
+                                                queue.set(songs_for_queue.clone());
+                                                queue_index.set(index);
                                                 now_playing.set(Some(song.clone()));
                                                 is_playing.set(true);
                                             }

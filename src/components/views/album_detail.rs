@@ -214,11 +214,14 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                 for (index , song) in songs.iter().enumerate() {
                                     {
                                         let song_clone = song.clone();
+                                        let songs_for_queue = songs.clone();
                                         rsx! {
                                             AlbumSongRow {
                                                 song: song.clone(),
                                                 index: index + 1,
                                                 onclick: move |_| {
+                                                    queue.set(songs_for_queue.clone());
+                                                    queue_index.set(index);
                                                     now_playing.set(Some(song_clone.clone()));
                                                     is_playing.set(true);
                                                 },

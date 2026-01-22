@@ -8,6 +8,8 @@ pub fn HomeView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
 
     // Fetch recent albums from all active servers
@@ -509,7 +511,10 @@ pub fn HomeView() -> Element {
                                             index: index + 1,
                                             onclick: {
                                                 let song = song.clone();
+                                                let songs_for_queue = songs.clone();
                                                 move |_| {
+                                                    queue.set(songs_for_queue.clone());
+                                                    queue_index.set(index);
                                                     now_playing.set(Some(song.clone()));
                                                     is_playing.set(true);
                                                 }

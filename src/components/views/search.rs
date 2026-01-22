@@ -8,6 +8,8 @@ pub fn SearchView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
 
     let mut search_query = use_signal(String::new);
@@ -159,14 +161,20 @@ pub fn SearchView() -> Element {
                             section {
                                 h2 { class: "text-xl font-semibold text-white mb-4", "Songs" }
                                 div { class: "space-y-1",
-                                    for (index , song) in songs.into_iter().enumerate() {
+                                    for (index , song) in songs.iter().enumerate() {
                                         SongRow {
                                             key: "{song.id}-{song.server_id}",
                                             song: song.clone(),
                                             index: index + 1,
-                                            onclick: move |_| {
-                                                now_playing.set(Some(song.clone()));
-                                                is_playing.set(true);
+                                            onclick: {
+                                                let song = song.clone();
+                                                let songs_for_queue = songs.clone();
+                                                move |_| {
+                                                    queue.set(songs_for_queue.clone());
+                                                    queue_index.set(index);
+                                                    now_playing.set(Some(song.clone()));
+                                                    is_playing.set(true);
+                                                }
                                             },
                                         }
                                     }

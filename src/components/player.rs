@@ -367,16 +367,17 @@ fn BookmarkButton() -> Element {
             id: "bookmark-btn",
             r#type: "button",
             disabled: !has_song || saving(),
-            class: if saved() {
-                format!("{base_class} p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors")
-            } else {
-                format!("{base_class} p-3 md:p-2 text-zinc-400 hover:text-white transition-colors")
-            },
+            class: if saved() { format!(
+                "{base_class} p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors",
+            ) } else { format!("{base_class} p-3 md:p-2 text-zinc-400 hover:text-white transition-colors") },
             onclick: on_save,
             if saving() {
                 Icon { name: "loader".to_string(), class: "w-5 h-5".to_string() }
             } else {
-                Icon { name: "bookmark".to_string(), class: "w-5 h-5".to_string() }
+                Icon {
+                    name: "bookmark".to_string(),
+                    class: "w-5 h-5".to_string(),
+                }
             }
         }
     }
@@ -447,7 +448,10 @@ fn RatingButton() -> Element {
                 disabled: !has_song,
                 class: if current_rating > 0 { "p-3 md:p-2 text-amber-400 hover:text-amber-300 transition-colors" } else { "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors" },
                 onclick: move |_| rating_open.set(!rating_open()),
-                Icon { name: if current_rating > 0 { "star-filled".to_string() } else { "star".to_string() }, class: "w-5 h-5".to_string() }
+                Icon {
+                    name: if current_rating > 0 { "star-filled".to_string() } else { "star".to_string() },
+                    class: "w-5 h-5".to_string(),
+                }
             }
             if rating_open() && has_song {
                 div { class: "absolute bottom-12 left-1/2 -translate-x-1/2 bg-zinc-900/95 border border-zinc-800 rounded-xl px-3 py-2 shadow-xl flex items-center gap-2",
@@ -459,7 +463,10 @@ fn RatingButton() -> Element {
                                 let on_rate = on_rate.clone();
                                 move |_| on_rate(value)
                             },
-                            Icon { name: if value <= current_rating { "star-filled".to_string() } else { "star".to_string() }, class: "w-4 h-4".to_string() }
+                            Icon {
+                                name: if value <= current_rating { "star-filled".to_string() } else { "star".to_string() },
+                                class: "w-4 h-4".to_string(),
+                            }
                         }
                     }
                     button {
@@ -512,6 +519,7 @@ fn PlayPauseButton() -> Element {
 fn PrevButton() -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let mut now_playing = use_context::<Signal<Option<Song>>>();
 
     rsx! {
         button {
@@ -522,7 +530,11 @@ fn PrevButton() -> Element {
                 let idx = queue_index();
                 let queue_list = queue();
                 if idx > 0 && !queue_list.is_empty() {
-                    queue_index.set(idx - 1);
+                    let next_idx = idx - 1;
+                    if let Some(song) = queue_list.get(next_idx).cloned() {
+                        queue_index.set(next_idx);
+                        now_playing.set(Some(song));
+                    }
                 }
             },
             Icon { name: "prev".to_string(), class: "w-5 h-5".to_string() }
@@ -535,12 +547,13 @@ fn PrevButton() -> Element {
 fn NextButton() -> Element {
     #[cfg(target_arch = "wasm32")]
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    #[cfg(target_arch = "wasm32")]
+    let is_playing = use_context::<Signal<bool>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
-    #[cfg(target_arch = "wasm32")]
-    let now_playing = use_context::<Signal<Option<Song>>>();
+    let mut now_playing = use_context::<Signal<Option<Song>>>();
 
     rsx! {
         button {
@@ -563,23 +576,38 @@ fn NextButton() -> Element {
                             servers.peek().clone(),
                             queue.clone(),
                             queue_index.clone(),
+                            now_playing.clone(),
+                            is_playing.clone(),
                             now_playing.peek().clone(),
+                            None,
                         );
                     } else if idx < queue_list.len().saturating_sub(1) {
-                        queue_index.set(idx + 1);
+                        if let Some(song) = queue_list.get(idx + 1).cloned() {
+                            queue_index.set(idx + 1);
+                            now_playing.set(Some(song));
+                        }
                     } else {
                         #[cfg(target_arch = "wasm32")]
                         spawn_shuffle_queue(
                             servers.peek().clone(),
                             queue.clone(),
                             queue_index.clone(),
+                            now_playing.clone(),
+                            is_playing.clone(),
                             now_playing.peek().clone(),
+                            None,
                         );
                     }
                 } else if idx < queue_list.len().saturating_sub(1) {
-                    queue_index.set(idx + 1);
+                    if let Some(song) = queue_list.get(idx + 1).cloned() {
+                        queue_index.set(idx + 1);
+                        now_playing.set(Some(song));
+                    }
                 } else if repeat == RepeatMode::All && !queue_list.is_empty() {
-                    queue_index.set(0);
+                    if let Some(song) = queue_list.get(0).cloned() {
+                        queue_index.set(0);
+                        now_playing.set(Some(song));
+                    }
                 }
             },
             Icon { name: "next".to_string(), class: "w-5 h-5".to_string() }
@@ -618,6 +646,26 @@ fn RepeatButton() -> Element {
                 },
                 class: "w-5 h-5".to_string(),
             }
+        }
+    }
+}
+
+/// Shuffle button - toggle shuffle mode
+#[component]
+fn ShuffleButton() -> Element {
+    let mut shuffle_enabled = use_context::<Signal<bool>>();
+    let enabled = shuffle_enabled();
+
+    rsx! {
+        button {
+            id: "shuffle-btn",
+            r#type: "button",
+            class: if enabled { "p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors" },
+            onclick: move |_| {
+                let current = shuffle_enabled();
+                shuffle_enabled.set(!current);
+            },
+            Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
         }
     }
 }

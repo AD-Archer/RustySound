@@ -1,5 +1,5 @@
-//! Audio Manager - Handles audio playback outside of the component render cycle
-//! This prevents audio from restarting when unrelated state changes.
+//! Audio Manager - Handles audio playback outside of the component render cycle.
+//! Keeps audio side-effects isolated and defers signal writes to avoid borrow loops.
 
 use dioxus::prelude::*;
 
@@ -19,7 +19,7 @@ use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{window, HtmlAudioElement};
 
-/// Global audio state that persists across renders
+/// Global audio state that persists across renders.
 #[derive(Clone)]
 pub struct AudioState {
     pub current_time: Signal<f64>,
@@ -38,23 +38,18 @@ impl Default for AudioState {
     }
 }
 
-/// Initialize the global audio element once
+/// Initialize the global audio element once.
 #[cfg(target_arch = "wasm32")]
 pub fn get_or_create_audio_element() -> Option<HtmlAudioElement> {
     let document = window()?.document()?;
 
-    // Check if audio element already exists
     if let Some(existing) = document.get_element_by_id("rustysound-audio") {
         return existing.dyn_into::<HtmlAudioElement>().ok();
     }
 
-    // Create new audio element
     let audio: HtmlAudioElement = document.create_element("audio").ok()?.dyn_into().ok()?;
     audio.set_id("rustysound-audio");
-    // Keep preload light so we stream instead of buffering entire files
     audio.set_attribute("preload", "metadata").ok()?;
-
-    // Append to body (hidden)
     document.body()?.append_child(&audio).ok()?;
 
     Some(audio)
@@ -66,20 +61,33 @@ pub fn get_or_create_audio_element() -> Option<()> {
     None
 }
 
-/// Audio controller hook - manages playback imperatively
+#[cfg(target_arch = "wasm32")]
+fn defer_signal_update<F>(f: F)
+where
+    F: FnOnce() + 'static,
+{
+    spawn(async move {
+        gloo_timers::future::TimeoutFuture::new(0).await;
+        f();
+    });
+}
+
+/// Audio controller hook - manages playback imperatively.
 #[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn AudioController() -> Element {
     rsx! {}
 }
 
-/// Audio controller hook - manages playback imperatively
 #[cfg(target_arch = "wasm32")]
 pub(crate) fn spawn_shuffle_queue(
     servers: Vec<ServerConfig>,
     mut queue: Signal<Vec<Song>>,
     mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut is_playing: Signal<bool>,
     seed_song: Option<Song>,
+    play_state: Option<bool>,
 ) {
     let active_servers: Vec<ServerConfig> = servers.into_iter().filter(|s| s.active).collect();
     if active_servers.is_empty() {
@@ -120,16 +128,55 @@ pub(crate) fn spawn_shuffle_queue(
             songs.swap(i, j);
         }
         songs.truncate(50);
-        queue.set(songs);
-        queue_index.set(0);
+
+        let first = songs.get(0).cloned();
+        defer_signal_update(move || {
+            queue.set(songs);
+            queue_index.set(0);
+            now_playing.set(first);
+            if let Some(play_state) = play_state {
+                is_playing.set(play_state);
+            }
+        });
     });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
+    if let Some(url) = song
+        .stream_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(url);
+    }
+
+    servers
+        .iter()
+        .find(|s| s.id == song.server_id)
+        .map(|server| {
+            let client = NavidromeClient::new(server.clone());
+            client.get_stream_url(&song.id)
+        })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
+    let server = servers.iter().find(|s| s.id == song.server_id).cloned();
+    if let Some(server) = server {
+        let song_id = song.id.clone();
+        spawn(async move {
+            let client = NavidromeClient::new(server);
+            let _ = client.scrobble(&song_id, finished).await;
+        });
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
 #[component]
 pub fn AudioController() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let now_playing = use_context::<Signal<Option<Song>>>();
+    let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
     let volume = use_context::<VolumeSignal>().0;
     let mut queue = use_context::<Signal<Vec<Song>>>();
@@ -138,29 +185,36 @@ pub fn AudioController() -> Element {
     let shuffle_enabled = use_context::<Signal<bool>>();
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let mut seek_request = use_context::<SeekRequestSignal>().0;
+    let mut audio_state = use_context::<Signal<AudioState>>();
+
+    let mut last_song_id = use_signal(|| None::<String>);
+    let mut last_src = use_signal(|| None::<String>);
     let mut last_bookmark = use_signal(|| None::<(String, u64)>);
     let mut last_song_for_bookmark = use_signal(|| None::<Song>);
-    let audio_state = use_context::<Signal<AudioState>>();
-    // Keep user interaction flag in a simple thread-local Cell (non-reactive) to avoid cross-scope Signal issues
+
     thread_local! {
         static USER_INTERACTED: Cell<bool> = Cell::new(false);
     }
     let mark_user_interacted = || USER_INTERACTED.with(|c| c.set(true));
     let has_user_interacted = || USER_INTERACTED.with(|c| c.get());
 
-    // Track the current song ID to detect changes
-    let mut last_song_id = use_signal(|| Option::<String>::None);
-    let mut last_src = use_signal(|| Option::<String>::None);
+    // One-time setup: create audio element and attach listeners.
+    {
+        let servers = servers.clone();
+        let mut now_playing = now_playing.clone();
+        let mut is_playing = is_playing.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let repeat_mode = repeat_mode.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
+        let playback_position = playback_position.clone();
+        let mut audio_state = audio_state.clone();
 
-    // Initialize audio element and set up event listeners
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let Some(audio) = get_or_create_audio_element() else {
-            return;
-        };
+        use_effect(move || {
+            let Some(audio) = get_or_create_audio_element() else {
+                return;
+            };
 
-        // Mark user interaction on first click/keydown/touch
-        if !has_user_interacted() {
             if let Some(doc) = window().and_then(|w| w.document()) {
                 let click_cb =
                     Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
@@ -168,8 +222,8 @@ pub fn AudioController() -> Element {
                     Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
                 let touch_cb =
                     Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
-                let _ = doc
-                    .add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
+                let _ =
+                    doc.add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
                 let _ = doc
                     .add_event_listener_with_callback("keydown", key_cb.as_ref().unchecked_ref());
                 let _ = doc.add_event_listener_with_callback(
@@ -180,313 +234,330 @@ pub fn AudioController() -> Element {
                 key_cb.forget();
                 touch_cb.forget();
             }
-        }
 
-        // Set up time update listener
-        let mut current_time_signal = audio_state().current_time;
-        let mut playback_pos = playback_position;
-        // Throttle updates to ~5fps to avoid excessive re-renders
-        let mut last_emit = 0.0f64;
-        let time_closure = Closure::wrap(Box::new(move || {
-            if let Some(audio) = get_or_create_audio_element() {
-                let time = audio.current_time();
-                if (time - last_emit).abs() >= 0.2 {
-                    // 200ms cadence
-                    last_emit = time;
-                    current_time_signal.set(time);
-                    playback_pos.set(time);
-                }
-            }
-        }) as Box<dyn FnMut()>);
-        audio.set_ontimeupdate(Some(time_closure.as_ref().unchecked_ref()));
-        time_closure.forget();
+            let mut current_time_signal = audio_state.peek().current_time;
+            let mut duration_signal = audio_state.peek().duration;
+            let mut playback_pos = playback_position.clone();
+            let mut queue = queue.clone();
+            let mut queue_index = queue_index.clone();
+            let mut now_playing = now_playing.clone();
+            let mut is_playing = is_playing.clone();
+            let repeat_mode = repeat_mode.clone();
+            let shuffle_enabled = shuffle_enabled.clone();
+            let servers = servers.clone();
 
-        // Set up duration change listener
-        let mut duration_signal = audio_state().duration;
-        let dur_closure = Closure::wrap(Box::new(move || {
-            if let Some(audio) = get_or_create_audio_element() {
-                let dur = audio.duration();
-                if !dur.is_nan() {
-                    duration_signal.set(dur);
-                }
-            }
-        }) as Box<dyn FnMut()>);
-        audio.set_onloadedmetadata(Some(dur_closure.as_ref().unchecked_ref()));
-        dur_closure.forget();
+            audio_state.write().is_initialized.set(true);
 
-        // Set up ended listener for auto-next
-        let end_closure = Closure::wrap(Box::new(move || {
-            let idx = *queue_index.peek();
-            let queue_list = queue();
-            let current_repeat = *repeat_mode.peek();
-            let current_shuffle = *shuffle_enabled.peek();
+            spawn(async move {
+                let mut last_emit = 0.0f64;
+                let mut last_duration = -1.0f64;
+                let mut ended_for_song: Option<String> = None;
 
-            // Mark current track as finished for Navidrome (server "Now Playing"/history)
-            if let Some(current) = now_playing.peek().clone() {
-                if let Some(server) = servers.peek().iter().find(|s| s.id == current.server_id) {
-                    let song_id = current.id.clone();
-                    let server = server.clone();
-                    spawn(async move {
-                        let client = NavidromeClient::new(server);
-                        let _ = client.scrobble(&song_id, true).await;
-                    });
-                }
-            }
+                loop {
+                    gloo_timers::future::TimeoutFuture::new(200).await;
 
-            match current_repeat {
-                RepeatMode::One => {
-                    // Repeat-one is handled by audio.set_loop(true)
-                }
-                RepeatMode::All => {
-                    if idx < queue_list.len().saturating_sub(1) {
-                        queue_index.set(idx + 1);
-                    } else if !queue_list.is_empty() {
-                        queue_index.set(0);
-                    } else {
-                        is_playing.set(false);
+                    let Some(audio) = get_or_create_audio_element() else {
+                        continue;
+                    };
+
+                    let time = audio.current_time();
+                    if (time - last_emit).abs() >= 0.2 {
+                        last_emit = time;
+                        current_time_signal.set(time);
+                        playback_pos.set(time);
                     }
-                }
-                RepeatMode::Off => {
-                    if current_shuffle {
-                        if queue_list.is_empty() {
-                            spawn_shuffle_queue(
-                                servers.peek().clone(),
-                                queue.clone(),
-                                queue_index.clone(),
-                                now_playing.peek().clone(),
-                            );
-                        } else if idx < queue_list.len().saturating_sub(1) {
-                            queue_index.set(idx + 1);
-                        } else {
-                            spawn_shuffle_queue(
-                                servers.peek().clone(),
-                                queue.clone(),
-                                queue_index.clone(),
-                                now_playing.peek().clone(),
-                            );
-                        }
-                    } else if idx < queue_list.len().saturating_sub(1) {
-                        queue_index.set(idx + 1);
-                    } else {
-                        is_playing.set(false);
+
+                    let dur = audio.duration();
+                    if !dur.is_nan() && (dur - last_duration).abs() > 0.5 {
+                        last_duration = dur;
+                        duration_signal.set(dur);
                     }
-                }
-            }
-        }) as Box<dyn FnMut()>);
-        audio.set_onended(Some(end_closure.as_ref().unchecked_ref()));
-        end_closure.forget();
 
-        audio_state().is_initialized.set(true);
-    });
-
-    // Update song source when song changes
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let song = now_playing();
-        let song_id = song.as_ref().map(|s| s.id.clone());
-        let previous_song = last_song_for_bookmark();
-        let mut last_bookmark = last_bookmark.clone();
-
-        // Save a bookmark for the previous song when switching tracks (keeps position even if user never hit pause)
-        if let Some(prev) = previous_song {
-            if Some(prev.id.clone()) != song_id {
-                let position_ms = (playback_position() * 1000.0).round().max(0.0) as u64;
-                if position_ms > 1500 {
-                    let servers = servers.peek().clone();
-                    let song_id = prev.id.clone();
-                    let server_id = prev.server_id.clone();
-                    last_bookmark.set(Some((song_id.clone(), position_ms)));
-                    spawn(async move {
-                        if let Some(server) = servers.iter().find(|s| s.id == server_id).cloned() {
-                            let client = NavidromeClient::new(server);
-                            let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                    if audio.ended() {
+                        let current_song = { now_playing.read().clone() };
+                        let current_id = current_song.as_ref().map(|s| s.id.clone());
+                        if ended_for_song == current_id {
+                            continue;
                         }
-                    });
-                }
-            }
-        }
+                        ended_for_song = current_id.clone();
 
-        // Only update if song actually changed
-        if song_id != last_song_id() {
-            last_song_id.set(song_id.clone());
-            last_song_for_bookmark.set(song.clone());
+                        let queue_snapshot = { queue.read().clone() };
+                        let idx = { *queue_index.read() };
+                        let repeat = { *repeat_mode.read() };
+                        let shuffle = { *shuffle_enabled.read() };
+                        let servers_snapshot = { servers.read().clone() };
 
-            if let Some(song) = song {
-                let server_list = servers();
-                let direct_url = song.stream_url.clone().filter(|url| !url.trim().is_empty());
-                let resolved_url = if let Some(url) = direct_url {
-                    Some(url)
-                } else {
-                    server_list
-                        .iter()
-                        .find(|s| s.id == song.server_id)
-                        .map(|server| {
-                            let client = NavidromeClient::new(server.clone());
-                            client.get_stream_url(&song.id)
-                        })
-                };
+                        if let Some(song) = current_song.clone() {
+                            scrobble_song(&servers_snapshot, &song, true);
+                        }
 
-                if let Some(url) = resolved_url {
-                    if Some(url.clone()) != last_src() {
-                        last_src.set(Some(url.clone()));
+                        if repeat == RepeatMode::One {
+                            continue;
+                        }
 
-                        if let Some(audio) = get_or_create_audio_element() {
-                            audio.set_src(&url);
-                            audio.set_volume(volume().clamp(0.0, 1.0));
-                            let pending_seek = seek_request.peek().clone();
-                            if let Some((target_id, target_pos)) = pending_seek {
-                                if target_id == song.id {
-                                    audio.set_current_time(target_pos);
-                                    seek_request.set(None);
+                        let len = queue_snapshot.len();
+                        if len == 0 {
+                            is_playing.set(false);
+                            continue;
+                        }
+
+                        let should_shuffle = repeat == RepeatMode::Off && shuffle;
+                        if should_shuffle {
+                            if idx < len.saturating_sub(1) {
+                                if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
+                                    queue_index.set(idx + 1);
+                                    now_playing.set(Some(song));
                                 }
-                            }
-                            // Only autoplay if user already interacted
-                            if has_user_interacted() && is_playing() {
-                                let _ = audio.play();
                             } else {
-                                let _ = audio.pause();
-                                is_playing.set(false);
+                                spawn_shuffle_queue(
+                                    servers_snapshot,
+                                    queue.clone(),
+                                    queue_index.clone(),
+                                    now_playing.clone(),
+                                    is_playing.clone(),
+                                    current_song,
+                                    Some(true),
+                                );
                             }
+                            continue;
                         }
+
+                        if idx < len.saturating_sub(1) {
+                            if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
+                                queue_index.set(idx + 1);
+                                now_playing.set(Some(song));
+                            }
+                        } else if repeat == RepeatMode::All {
+                            if let Some(song) = queue_snapshot.get(0).cloned() {
+                                queue_index.set(0);
+                                now_playing.set(Some(song));
+                            }
+                        } else {
+                            is_playing.set(false);
+                        }
+                    } else {
+                        ended_for_song = None;
                     }
-                    // Report "now playing" to Navidrome for server-side visibility
-                    if let Some(server) =
-                        server_list.iter().find(|s| s.id == song.server_id).cloned()
-                    {
-                        let song_id = song.id.clone();
-                        spawn(async move {
-                            let client = NavidromeClient::new(server);
-                            let _ = client.scrobble(&song_id, false).await;
+                }
+            });
+        });
+    }
+
+    // Keep queue_index aligned when now_playing changes and the song is in the queue.
+    {
+        let mut queue_index = queue_index.clone();
+        let queue = queue.clone();
+        let now_playing = now_playing.clone();
+        use_effect(move || {
+            let song = now_playing();
+            let queue_list = queue();
+            if let Some(song) = song {
+                if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+                    if pos != queue_index() {
+                        defer_signal_update(move || {
+                            queue_index.set(pos);
                         });
                     }
-                } else if let Some(audio) = get_or_create_audio_element() {
-                    audio.set_src("");
-                    is_playing.set(false);
                 }
             }
-        }
-    });
+        });
+    }
 
-    // Handle play/pause state changes
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let playing = is_playing();
-        if let Some(audio) = get_or_create_audio_element() {
-            if playing {
-                if has_user_interacted() {
-                    if audio.paused() {
-                        let _ = audio.play();
-                    }
-                } else {
-                    // Ensure we request playback once the user interacts to keep streaming behavior
-                    if let Some(doc) = window().and_then(|w| w.document()) {
-                        let play_cb = Closure::wrap(Box::new(move || {
-                            mark_user_interacted();
-                        }) as Box<dyn FnMut()>);
-                        let _ = doc.add_event_listener_with_callback(
-                            "click",
-                            play_cb.as_ref().unchecked_ref(),
-                        );
-                        play_cb.forget();
-                    }
-                }
-            } else if !audio.paused() {
-                let _ = audio.pause();
-            }
-        }
-    });
-
-    // Handle repeat mode changes (RepeatMode::One should loop natively)
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let mode = repeat_mode();
-        if let Some(audio) = get_or_create_audio_element() {
-            audio.set_loop(mode == RepeatMode::One);
-        }
-    });
-
-    // Automatically persist a server bookmark when playback stops/pauses
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let playing = is_playing();
-        let song = now_playing();
-        // Use the audio_state clock for the freshest position at pause time
-        let position_ms = ((audio_state().current_time)() * 1000.0).round().max(0.0) as u64;
+    // Update audio source and track changes for bookmarks/scrobbles.
+    {
+        let servers = servers.clone();
+        let volume = volume.clone();
+        let mut now_playing = now_playing.clone();
+        let mut is_playing = is_playing.clone();
+        let mut playback_position = playback_position.clone();
+        let mut audio_state = audio_state.clone();
+        let mut seek_request = seek_request.clone();
+        let mut last_song_id = last_song_id.clone();
+        let mut last_src = last_src.clone();
         let mut last_bookmark = last_bookmark.clone();
+        let mut last_song_for_bookmark = last_song_for_bookmark.clone();
+        use_effect(move || {
+            let song = now_playing();
+            let song_id = song.as_ref().map(|s| s.id.clone());
+            let previous_song = last_song_for_bookmark.peek().clone();
 
-        if !playing {
-            if let Some(song) = song {
-                let should_save = match last_bookmark.peek().clone() {
-                    Some((id, pos)) => id != song.id || position_ms.abs_diff(pos) >= 2000,
-                    None => true,
-                };
-
-                if should_save && position_ms > 1500 {
-                    let servers = servers.peek().clone();
-                    let song_id = song.id.clone();
-                    let server_id = song.server_id.clone();
-                    last_bookmark.set(Some((song_id.clone(), position_ms)));
-
-                    spawn(async move {
-                        if let Some(server) = servers.iter().find(|s| s.id == server_id).cloned() {
-                            let client = NavidromeClient::new(server);
-                            let _ = client.create_bookmark(&song_id, position_ms, None).await;
-                        }
-                    });
+            if let Some(prev) = previous_song {
+                if Some(prev.id.clone()) != song_id {
+                    let position_ms = get_or_create_audio_element()
+                        .map(|a| a.current_time())
+                        .unwrap_or(0.0)
+                        .mul_add(1000.0, 0.0)
+                        .round()
+                        .max(0.0) as u64;
+                    if position_ms > 1500 {
+                        let servers_snapshot = servers.peek().clone();
+                        let song_id = prev.id.clone();
+                        let server_id = prev.server_id.clone();
+                        spawn(async move {
+                            last_bookmark.set(Some((song_id.clone(), position_ms)));
+                            if let Some(server) =
+                                servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                            {
+                                let client = NavidromeClient::new(server);
+                                let _ = client
+                                    .create_bookmark(&song_id, position_ms, None)
+                                    .await;
+                            }
+                        });
+                    }
                 }
             }
-        }
-    });
 
-    // Handle volume changes
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let vol = volume().clamp(0.0, 1.0);
-        if let Some(audio) = get_or_create_audio_element() {
-            audio.set_volume(vol);
-        }
-    });
+            let last_id = last_song_id.peek().clone();
+            if song_id != last_id {
+                last_song_id.set(song_id.clone());
+                last_song_for_bookmark.set(song.clone());
+            }
 
-    // Handle queue index changes (switching songs)
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let idx = queue_index();
-        let queue_list = queue();
-        let mut now_playing_mut = now_playing;
-
-        if let Some(song) = queue_list.get(idx) {
-            let is_same = {
-                let current = now_playing_mut.peek();
-                current.as_ref().map(|s| s.id.as_str()) == Some(song.id.as_str())
+            let Some(song) = song else {
+                if let Some(audio) = get_or_create_audio_element() {
+                    audio.set_src("");
+                }
+                last_src.set(None);
+                is_playing.set(false);
+                return;
             };
-            if !is_same {
-                now_playing_mut.set(Some(song.clone()));
-            }
-        }
-    });
 
-    // Ensure the active song always exists in the queue
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let song = now_playing();
-        if let Some(current) = song {
-            let queue_list = queue();
-            if let Some(pos) = queue_list.iter().position(|s| s.id == current.id) {
-                if *queue_index.peek() != pos {
-                    queue_index.set(pos);
+            let servers_snapshot = servers.peek().clone();
+            if let Some(url) = resolve_stream_url(&song, &servers_snapshot) {
+                if Some(url.clone()) != *last_src.peek() {
+                    last_src.set(Some(url.clone()));
+                    if let Some(audio) = get_or_create_audio_element() {
+                        audio.set_src(&url);
+                        audio.set_volume(volume.peek().clamp(0.0, 1.0));
+
+                        if let Some((target_id, target_pos)) = seek_request.peek().clone() {
+                            if target_id == song.id {
+                                audio.set_current_time(target_pos);
+                                let mut playback_position = playback_position.clone();
+                                let mut audio_state = audio_state.clone();
+                                defer_signal_update(move || {
+                                    playback_position.set(target_pos);
+                                    audio_state.write().current_time.set(target_pos);
+                                    seek_request.set(None);
+                                });
+                            }
+                        }
+
+                        let was_playing = *is_playing.peek();
+                        if has_user_interacted() && was_playing {
+                            let _ = audio.play();
+                        } else {
+                            let _ = audio.pause();
+                            is_playing.set(false);
+                        }
+                    }
                 }
-            } else {
-                queue.set(vec![current]);
-                queue_index.set(0);
-            }
-        }
-    });
 
-    // Return empty element - this component just manages state
+                scrobble_song(&servers_snapshot, &song, false);
+            } else if let Some(audio) = get_or_create_audio_element() {
+                audio.set_src("");
+                last_src.set(None);
+                is_playing.set(false);
+            }
+        });
+    }
+
+    // Handle play/pause state changes.
+    {
+        let mut is_playing = is_playing.clone();
+        use_effect(move || {
+            let playing = is_playing();
+            if let Some(audio) = get_or_create_audio_element() {
+                if playing {
+                    if has_user_interacted() {
+                        if audio.paused() {
+                            let _ = audio.play();
+                        }
+                    } else {
+                        is_playing.set(false);
+                    }
+                } else if !audio.paused() {
+                    let _ = audio.pause();
+                }
+            }
+        });
+    }
+
+    // Handle repeat mode changes.
+    {
+        let repeat_mode = repeat_mode.clone();
+        use_effect(move || {
+            let mode = repeat_mode();
+            if let Some(audio) = get_or_create_audio_element() {
+                audio.set_loop(mode == RepeatMode::One);
+            }
+        });
+    }
+
+    // Handle volume changes.
+    {
+        let volume = volume.clone();
+        use_effect(move || {
+            let vol = volume().clamp(0.0, 1.0);
+            if let Some(audio) = get_or_create_audio_element() {
+                audio.set_volume(vol);
+            }
+        });
+    }
+
+    // Persist a server bookmark when playback stops/pauses.
+    {
+        let servers = servers.clone();
+        let mut last_bookmark = last_bookmark.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
+        use_effect(move || {
+            let playing = is_playing();
+            if playing {
+                return;
+            }
+
+            let Some(song) = now_playing() else {
+                return;
+            };
+
+            let position_ms = get_or_create_audio_element()
+                .map(|a| a.current_time())
+                .unwrap_or(0.0)
+                .mul_add(1000.0, 0.0)
+                .round()
+                .max(0.0) as u64;
+
+            if position_ms <= 1500 {
+                return;
+            }
+
+            let should_save = match last_bookmark.peek().clone() {
+                Some((id, pos)) => id != song.id || position_ms.abs_diff(pos) >= 2000,
+                None => true,
+            };
+
+            if should_save {
+                let servers_snapshot = servers.peek().clone();
+                let song_id = song.id.clone();
+                let server_id = song.server_id.clone();
+                spawn(async move {
+                    last_bookmark.set(Some((song_id.clone(), position_ms)));
+                    if let Some(server) = servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                    {
+                        let client = NavidromeClient::new(server);
+                        let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                    }
+                });
+            }
+        });
+    }
+
     rsx! {}
 }
 
-/// Seek to a specific position in the current track
+/// Seek to a specific position in the current track.
 #[cfg(target_arch = "wasm32")]
 pub fn seek_to(position: f64) {
     if let Some(audio) = get_or_create_audio_element() {
@@ -498,7 +569,7 @@ pub fn seek_to(position: f64) {
 #[allow(dead_code)]
 pub fn seek_to(_position: f64) {}
 
-/// Get the current playback position
+/// Get the current playback position.
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 pub fn get_current_time() -> f64 {
@@ -513,18 +584,14 @@ pub fn get_current_time() -> f64 {
     0.0
 }
 
-/// Get the current track duration
+/// Get the current track duration.
 #[cfg(target_arch = "wasm32")]
 #[allow(dead_code)]
 pub fn get_duration() -> f64 {
     get_or_create_audio_element()
         .map(|a| {
             let d = a.duration();
-            if d.is_nan() {
-                0.0
-            } else {
-                d
-            }
+            if d.is_nan() { 0.0 } else { d }
         })
         .unwrap_or(0.0)
 }
@@ -533,4 +600,37 @@ pub fn get_duration() -> f64 {
 #[allow(dead_code)]
 pub fn get_duration() -> f64 {
     0.0
+}
+
+/// Helper function to play a song and keep queue/now_playing aligned.
+#[cfg(target_arch = "wasm32")]
+#[allow(dead_code)]
+pub fn play_song(
+    song: Song,
+    mut now_playing: Signal<Option<Song>>,
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut is_playing: Signal<bool>,
+) {
+    let queue_list = queue.read().clone();
+    if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+        queue_index.set(pos);
+        now_playing.set(Some(song));
+    } else {
+        queue.set(vec![song.clone()]);
+        queue_index.set(0);
+        now_playing.set(Some(song));
+    }
+    is_playing.set(true);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[allow(dead_code)]
+pub fn play_song(
+    _song: crate::api::Song,
+    _now_playing: Signal<Option<crate::api::Song>>,
+    _queue: Signal<Vec<crate::api::Song>>,
+    _queue_index: Signal<usize>,
+    _is_playing: Signal<bool>,
+) {
 }

@@ -14,6 +14,8 @@ use wasm_bindgen::closure::Closure;
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use web_sys::window;
+#[cfg(target_arch = "wasm32")]
+use dioxus::core::{Runtime, RuntimeGuard};
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
@@ -93,7 +95,7 @@ pub fn AppShell() -> Element {
             swipe_start.set(None);
         }
     };
-    let nav_for_swipe = navigation.clone();
+    let _nav_for_swipe = navigation.clone();
     // Global pointer listeners so back swipe works anywhere on the screen (PWA-like)
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
@@ -101,16 +103,21 @@ pub fn AppShell() -> Element {
             return;
         };
 
+        let runtime = Runtime::current();
         let mut swipe_start = swipe_start.clone();
-        let nav = nav_for_swipe.clone();
+        let nav = _nav_for_swipe.clone();
 
+        let runtime_down = runtime.clone();
         let down_cb = Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
+            let _guard = RuntimeGuard::new(runtime_down.clone());
             swipe_start.set(Some(e.client_x() as f64));
         }) as Box<dyn FnMut(_)>);
         let move_cb = {
             let mut swipe_start = swipe_start.clone();
             let nav = nav.clone();
+            let runtime_move = runtime.clone();
             Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
+                let _guard = RuntimeGuard::new(runtime_move.clone());
                 if let Some(start) = swipe_start() {
                     let delta = e.client_x() as f64 - start;
                     if delta > BACK_SWIPE_THRESHOLD && nav.can_go_back() {
@@ -122,13 +129,17 @@ pub fn AppShell() -> Element {
         };
         let up_cb = {
             let mut swipe_start = swipe_start.clone();
+            let runtime_up = runtime.clone();
             Closure::wrap(Box::new(move |_e: web_sys::PointerEvent| {
+                let _guard = RuntimeGuard::new(runtime_up.clone());
                 swipe_start.set(None);
             }) as Box<dyn FnMut(_)>)
         };
         let cancel_cb = {
             let mut swipe_start = swipe_start.clone();
+            let runtime_cancel = runtime.clone();
             Closure::wrap(Box::new(move |_e: web_sys::PointerEvent| {
+                let _guard = RuntimeGuard::new(runtime_cancel.clone());
                 swipe_start.set(None);
             }) as Box<dyn FnMut(_)>)
         };
@@ -357,39 +368,39 @@ pub fn AppShell() -> Element {
             // Sidebar
             Sidebar { sidebar_open: sidebar_signal }
 
-                // Main content area
-                div { class: "flex-1 flex flex-col overflow-hidden",
-                    header { class: "md:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
-                        div { class: "flex items-center justify-between px-4 py-3",
-                            if can_go_back {
-                                button {
-                                    class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                    aria_label: "Go back",
-                                    onclick: {
-                                        let navigation = navigation.clone();
-                                        move |_| {
-                                            let _ = navigation.go_back();
-                                        }
-                                    },
-                                    Icon {
-                                        name: "arrow-left".to_string(),
-                                        class: "w-5 h-5".to_string(),
+            // Main content area
+            div { class: "flex-1 flex flex-col overflow-hidden",
+                header { class: "md:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
+                    div { class: "flex items-center justify-between px-4 py-3",
+                        if can_go_back {
+                            button {
+                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                                aria_label: "Go back",
+                                onclick: {
+                                    let navigation = navigation.clone();
+                                    move |_| {
+                                        let _ = navigation.go_back();
                                     }
-                                }
-                            } else {
-                                button {
-                                    class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                    aria_label: "Open menu",
-                                    onclick: {
-                                        let mut sidebar_open = sidebar_open.clone();
-                                        move |_| sidebar_open.set(true)
-                                    },
-                                    Icon {
-                                        name: "menu".to_string(),
-                                        class: "w-5 h-5".to_string(),
-                                    }
+                                },
+                                Icon {
+                                    name: "arrow-left".to_string(),
+                                    class: "w-5 h-5".to_string(),
                                 }
                             }
+                        } else {
+                            button {
+                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                                aria_label: "Open menu",
+                                onclick: {
+                                    let mut sidebar_open = sidebar_open.clone();
+                                    move |_| sidebar_open.set(true)
+                                },
+                                Icon {
+                                    name: "menu".to_string(),
+                                    class: "w-5 h-5".to_string(),
+                                }
+                            }
+                        }
                         div { class: "flex flex-col items-center text-center",
                             span { class: "text-xs uppercase tracking-widest text-zinc-500",
                                 "RustySound"
