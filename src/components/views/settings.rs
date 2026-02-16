@@ -3,6 +3,15 @@ use crate::components::{Icon, VolumeSignal};
 use crate::db::{save_settings, AppSettings};
 use dioxus::prelude::*;
 
+fn resolve_server_name(name: &str, url: &str) -> String {
+    let trimmed_name = name.trim();
+    if trimmed_name.is_empty() {
+        url.trim().to_string()
+    } else {
+        trimmed_name.to_string()
+    }
+}
+
 #[derive(Clone)]
 struct ScanResultEntry {
     server_name: String,
@@ -29,8 +38,7 @@ pub fn SettingsView() -> Element {
     let mut save_status = use_signal(|| None::<String>);
 
     let can_add = use_memo(move || {
-        !server_name().trim().is_empty()
-            && !server_url().trim().is_empty()
+        !server_url().trim().is_empty()
             && !server_user().trim().is_empty()
             && !server_pass().trim().is_empty()
             && test_result().is_some_and(|r: Result<(), String>| r.is_ok())
@@ -89,12 +97,12 @@ pub fn SettingsView() -> Element {
 
     let on_save_edit = move |_| {
         if let Some(editing) = editing_server() {
-            let name = server_name().trim().to_string();
             let url = server_url().trim().to_string();
+            let name = resolve_server_name(&server_name(), &url);
             let user = server_user().trim().to_string();
             let pass = server_pass().trim().to_string();
 
-            if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
+            if url.is_empty() || user.is_empty() || pass.is_empty() {
                 return;
             }
 
@@ -127,12 +135,12 @@ pub fn SettingsView() -> Element {
     };
 
     let on_add = move |_| {
-        let name = server_name().trim().to_string();
         let url = server_url().trim().to_string();
+        let name = resolve_server_name(&server_name(), &url);
         let user = server_user().trim().to_string();
         let pass = server_pass().trim().to_string();
 
-        if name.is_empty() || url.is_empty() || user.is_empty() || pass.is_empty() {
+        if url.is_empty() || user.is_empty() || pass.is_empty() {
             return;
         }
 

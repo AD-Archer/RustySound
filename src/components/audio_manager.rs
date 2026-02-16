@@ -45,13 +45,14 @@ use std::sync::{Mutex, Once};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
-use web_sys::{window, HtmlAudioElement};
+use web_sys::{window, HtmlAudioElement, HtmlElement, KeyboardEvent};
 
 /// Global audio state that persists across renders.
 #[derive(Clone)]
 pub struct AudioState {
     pub current_time: Signal<f64>,
     pub duration: Signal<f64>,
+    pub playback_error: Signal<Option<String>>,
     #[allow(dead_code)]
     pub is_initialized: Signal<bool>,
 }
@@ -61,6 +62,7 @@ impl Default for AudioState {
         Self {
             current_time: Signal::new(0.0),
             duration: Signal::new(0.0),
+            playback_error: Signal::new(None),
             is_initialized: Signal::new(false),
         }
     }
@@ -90,6 +92,52 @@ pub fn get_or_create_audio_element() -> Option<()> {
 }
 
 #[cfg(target_arch = "wasm32")]
+fn web_playback_error_message(audio: &HtmlAudioElement, song: Option<&Song>) -> Option<String> {
+    let audio_js = wasm_bindgen::JsValue::from(audio.clone());
+    let error_js = js_sys::Reflect::get(&audio_js, &"error".into()).ok()?;
+    if error_js.is_null() || error_js.is_undefined() {
+        return None;
+    }
+    let code = js_sys::Reflect::get(&error_js, &"code".into())
+        .ok()
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.0) as u16;
+    let is_radio = song.map(|s| s.server_name == "Radio").unwrap_or(false);
+    let station_name = song
+        .and_then(|s| s.album.clone().or_else(|| s.artist.clone()))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| "this station".to_string());
+
+    Some(match code {
+        1 => "Playback was aborted before the stream loaded.".to_string(),
+        2 => {
+            if is_radio {
+                format!("No station found: \"{station_name}\" is unreachable right now.")
+            } else {
+                "Network error while loading this track.".to_string()
+            }
+        }
+        3 => "Audio playback failed due to a decode error.".to_string(),
+        4 => {
+            if is_radio {
+                format!(
+                    "No station found: \"{station_name}\" has no supported stream source."
+                )
+            } else {
+                "Failed to load audio because no supported source was found.".to_string()
+            }
+        }
+        _ => {
+            if is_radio {
+                format!("No station found: \"{station_name}\" could not be loaded.")
+            } else {
+                "Unable to load this audio source.".to_string()
+            }
+        }
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
 fn defer_signal_update<F>(f: F)
 where
     F: FnOnce() + 'static,
@@ -98,6 +146,188 @@ where
         gloo_timers::future::TimeoutFuture::new(0).await;
         f();
     });
+}
+
+#[cfg(target_arch = "wasm32")]
+fn is_editable_shortcut_target(event: &KeyboardEvent) -> bool {
+    let Some(target) = event.target() else {
+        return false;
+    };
+
+    let mut current = target.dyn_into::<web_sys::Element>().ok();
+    while let Some(element) = current {
+        let tag = element.tag_name().to_ascii_lowercase();
+        if tag == "input" || tag == "textarea" || tag == "select" {
+            return true;
+        }
+        if element.has_attribute("contenteditable")
+            && element
+                .get_attribute("contenteditable")
+                .map(|v| v.to_ascii_lowercase() != "false")
+                .unwrap_or(true)
+        {
+            return true;
+        }
+        current = element.parent_element();
+    }
+
+    false
+}
+
+#[cfg(target_arch = "wasm32")]
+fn shortcut_action_from_key(event: &KeyboardEvent) -> Option<&'static str> {
+    if event.default_prevented() || event.is_composing() || is_editable_shortcut_target(event) {
+        return None;
+    }
+
+    let key = event.key();
+    let code = event.code();
+    let key_code = event.key_code();
+    let meta_or_ctrl = event.meta_key() || event.ctrl_key();
+
+    if key == "MediaTrackNext"
+        || key == "MediaNextTrack"
+        || key == "AudioTrackNext"
+        || key == "AudioNext"
+        || key == "NextTrack"
+        || code == "MediaTrackNext"
+        || key == "F9"
+        || key_code == 176
+    {
+        return Some("next");
+    }
+    if key == "MediaTrackPrevious"
+        || key == "MediaPreviousTrack"
+        || code == "MediaTrackPrevious"
+        || key == "AudioTrackPrevious"
+        || key == "AudioPrev"
+        || key == "PreviousTrack"
+        || key == "F7"
+        || key_code == 177
+    {
+        return Some("previous");
+    }
+    if key == "MediaPlayPause"
+        || code == "MediaPlayPause"
+        || key == "AudioPlay"
+        || key == "AudioPause"
+        || key == "F8"
+        || key_code == 179
+    {
+        return Some("toggle_play");
+    }
+
+    if meta_or_ctrl && !event.alt_key() && !event.shift_key() {
+        if key == "ArrowRight" {
+            return Some("next");
+        }
+        if key == "ArrowLeft" {
+            return Some("previous");
+        }
+    }
+
+    if !event.meta_key()
+        && !event.ctrl_key()
+        && !event.alt_key()
+        && (key == " " || key == "Spacebar" || code == "Space")
+    {
+        return Some("toggle_play");
+    }
+
+    None
+}
+
+#[cfg(target_arch = "wasm32")]
+fn click_player_control_button(id: &str) {
+    if let Some(doc) = window().and_then(|w| w.document()) {
+        if let Some(element) = doc.get_element_by_id(id) {
+            if let Ok(html) = element.dyn_into::<HtmlElement>() {
+                html.click();
+            }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn ensure_web_media_session_shortcuts() {
+    let _ = js_sys::eval(
+        r#"
+(() => {
+  if (window.__rustysoundWebMediaSessionInit) {
+    return true;
+  }
+
+  const audio = document.getElementById("rustysound-audio");
+  if (!audio) {
+    return false;
+  }
+
+  if (!("mediaSession" in navigator)) {
+    window.__rustysoundWebMediaSessionInit = true;
+    return true;
+  }
+
+  const clickById = (id) => {
+    const element = document.getElementById(id);
+    if (element && typeof element.click === "function") {
+      element.click();
+    }
+  };
+
+  const updatePlaybackState = () => {
+    try {
+      navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+    } catch (_err) {}
+  };
+
+  const updatePositionState = () => {
+    if (!navigator.mediaSession.setPositionState) return;
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: audio.duration,
+        playbackRate: audio.playbackRate || 1,
+        position: Math.max(0, Math.min(audio.currentTime || 0, audio.duration)),
+      });
+    } catch (_err) {}
+  };
+
+  try {
+    navigator.mediaSession.setActionHandler("play", () => {
+      audio.play().catch(() => {});
+    });
+  } catch (_err) {}
+  try {
+    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+  } catch (_err) {}
+  try {
+    navigator.mediaSession.setActionHandler("nexttrack", () => clickById("next-btn"));
+  } catch (_err) {}
+  try {
+    navigator.mediaSession.setActionHandler("previoustrack", () => clickById("prev-btn"));
+  } catch (_err) {}
+  try {
+    navigator.mediaSession.setActionHandler("seekto", (details) => {
+      if (details && typeof details.seekTime === "number") {
+        try {
+          audio.currentTime = Math.max(0, details.seekTime);
+        } catch (_err) {}
+        updatePositionState();
+      }
+    });
+  } catch (_err) {}
+
+  audio.addEventListener("play", updatePlaybackState);
+  audio.addEventListener("pause", updatePlaybackState);
+  audio.addEventListener("timeupdate", updatePositionState);
+  audio.addEventListener("durationchange", updatePositionState);
+  audio.addEventListener("ratechange", updatePositionState);
+
+  window.__rustysoundWebMediaSessionInit = true;
+  return true;
+})();
+"#,
+    );
 }
 
 /// Audio controller hook - manages playback imperatively.
@@ -126,10 +356,14 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     } catch (_err) {}
   };
 
+  let isLiveStream = false;
+
   const setMetadata = (meta) => {
     if (!meta || !("mediaSession" in navigator) || typeof MediaMetadata === "undefined") {
       return;
     }
+
+    isLiveStream = !!meta.is_live;
 
     const artwork = meta.artwork
       ? [{ src: meta.artwork, sizes: "512x512", type: "image/png" }]
@@ -156,7 +390,10 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) {
       return;
     }
-    if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
+    if (isLiveStream || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+      try {
+        navigator.mediaSession.setPositionState();
+      } catch (_err) {}
       return;
     }
     try {
@@ -166,6 +403,24 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
         position: Math.max(0, Math.min(audio.currentTime || 0, audio.duration)),
       });
     } catch (_err) {}
+  };
+
+  const isEditableTarget = (target) => {
+    let element = target;
+    while (element && element.tagName) {
+      const tag = (element.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") {
+        return true;
+      }
+
+      const contentEditable = element.getAttribute && element.getAttribute("contenteditable");
+      if (contentEditable !== null && String(contentEditable).toLowerCase() !== "false") {
+        return true;
+      }
+
+      element = element.parentElement || null;
+    }
+    return false;
   };
 
   const bridge = {
@@ -230,10 +485,14 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
           audio.removeAttribute("src");
           audio.load();
           bridge.currentSongId = null;
+          isLiveStream = false;
           if ("mediaSession" in navigator) {
             try {
               navigator.mediaSession.metadata = null;
               navigator.mediaSession.playbackState = "none";
+              if (navigator.mediaSession.setPositionState) {
+                navigator.mediaSession.setPositionState();
+              }
             } catch (_err) {}
           }
           break;
@@ -252,16 +511,101 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     },
   };
 
+  const pushRemoteAction = (action) => {
+    if (!action) return;
+    bridge.remoteActions.push(action);
+  };
+
+  const handleShortcutKeyDown = (event) => {
+    if (!event || event.defaultPrevented || event.isComposing) return;
+    if (isEditableTarget(event.target)) return;
+
+    const key = event.key || "";
+    const code = event.code || "";
+    const keyCode = event.keyCode || event.which || 0;
+    const metaOrCtrl = !!(event.metaKey || event.ctrlKey);
+
+    if (
+      key === "MediaTrackNext" ||
+      key === "MediaNextTrack" ||
+      key === "AudioTrackNext" ||
+      key === "AudioNext" ||
+      key === "NextTrack" ||
+      code === "MediaTrackNext" ||
+      key === "F9" ||
+      keyCode === 176
+    ) {
+      event.preventDefault();
+      pushRemoteAction("next");
+      return;
+    }
+    if (
+      key === "MediaTrackPrevious" ||
+      key === "MediaPreviousTrack" ||
+      code === "MediaTrackPrevious" ||
+      key === "AudioTrackPrevious" ||
+      key === "AudioPrev" ||
+      key === "PreviousTrack" ||
+      key === "F7" ||
+      keyCode === 177
+    ) {
+      event.preventDefault();
+      pushRemoteAction("previous");
+      return;
+    }
+    if (
+      key === "MediaPlayPause" ||
+      code === "MediaPlayPause" ||
+      key === "AudioPlay" ||
+      key === "AudioPause" ||
+      key === "F8" ||
+      keyCode === 179
+    ) {
+      event.preventDefault();
+      pushRemoteAction("toggle_play");
+      return;
+    }
+
+    if (metaOrCtrl && !event.altKey && !event.shiftKey) {
+      if (key === "ArrowRight") {
+        event.preventDefault();
+        pushRemoteAction("next");
+        return;
+      }
+      if (key === "ArrowLeft") {
+        event.preventDefault();
+        pushRemoteAction("previous");
+        return;
+      }
+    }
+
+    if (!event.metaKey && !event.ctrlKey && !event.altKey) {
+      if (key === " " || key === "Spacebar" || code === "Space") {
+        event.preventDefault();
+        pushRemoteAction("toggle_play");
+      }
+    }
+  };
+
   if ("mediaSession" in navigator) {
     const session = navigator.mediaSession;
     try {
-      session.setActionHandler("play", () => safePlay());
+      session.setActionHandler("play", () => {
+        safePlay();
+        pushRemoteAction("play");
+      });
     } catch (_err) {}
     try {
-      session.setActionHandler("pause", () => audio.pause());
+      session.setActionHandler("pause", () => {
+        audio.pause();
+        pushRemoteAction("pause");
+      });
     } catch (_err) {}
     try {
       session.setActionHandler("seekto", (details) => {
+        if (isLiveStream || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+          return;
+        }
         if (details && typeof details.seekTime === "number") {
           try {
             audio.currentTime = Math.max(0, details.seekTime);
@@ -271,25 +615,45 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
       });
     } catch (_err) {}
     try {
-      session.setActionHandler("nexttrack", () => bridge.remoteActions.push("next"));
+      session.setActionHandler("nexttrack", () => {
+        if (isLiveStream) return;
+        bridge.remoteActions.push("next");
+      });
     } catch (_err) {}
     try {
-      session.setActionHandler("previoustrack", () => bridge.remoteActions.push("previous"));
+      session.setActionHandler("previoustrack", () => {
+        if (isLiveStream) return;
+        bridge.remoteActions.push("previous");
+      });
     } catch (_err) {}
     try {
-      session.setActionHandler("seekforward", null);
+      // Map macOS +/- controls to track skip when present.
+      session.setActionHandler("seekforward", () => {
+        if (isLiveStream) return;
+        bridge.remoteActions.push("next");
+      });
     } catch (_err) {}
     try {
-      session.setActionHandler("seekbackward", null);
+      session.setActionHandler("seekbackward", () => {
+        if (isLiveStream) return;
+        bridge.remoteActions.push("previous");
+      });
     } catch (_err) {}
   }
 
   audio.addEventListener("timeupdate", updatePositionState);
   audio.addEventListener("durationchange", updatePositionState);
   audio.addEventListener("ratechange", updatePositionState);
-  audio.addEventListener("play", setPlaybackState);
-  audio.addEventListener("pause", setPlaybackState);
+  audio.addEventListener("play", () => {
+    setPlaybackState();
+    bridge.remoteActions.push("play");
+  });
+  audio.addEventListener("pause", () => {
+    setPlaybackState();
+    bridge.remoteActions.push("pause");
+  });
   audio.addEventListener("ended", () => bridge.remoteActions.push("ended"));
+  document.addEventListener("keydown", handleShortcutKeyDown, true);
 
   window.__rustysoundAudioBridge = bridge;
   return true;
@@ -298,6 +662,7 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
 
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Clone, Debug, Default, Deserialize)]
+#[serde(default)]
 struct NativeAudioSnapshot {
     current_time: f64,
     duration: f64,
@@ -315,6 +680,7 @@ struct NativeTrackMetadata {
     album: String,
     artwork: Option<String>,
     duration: f64,
+    is_live: bool,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -1145,16 +1511,26 @@ fn native_audio_command(value: serde_json::Value) {
 async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     ensure_native_audio_bridge();
     let eval = document::eval(
-        r#"(function () {
+        r#"return (function () {
             const bridge = window.__rustysoundAudioBridge;
-            if (!bridge) return null;
-            return bridge.snapshot();
+            const raw = (bridge && typeof bridge.snapshot === "function")
+              ? (bridge.snapshot() || {})
+              : {};
+            const currentTime = Number.isFinite(raw.current_time) ? raw.current_time : 0;
+            const duration = Number.isFinite(raw.duration) ? raw.duration : 0;
+            const paused = !!raw.paused;
+            const ended = !!raw.ended;
+            const action = typeof raw.action === "string" ? raw.action : null;
+            return {
+              current_time: currentTime,
+              duration,
+              paused,
+              ended,
+              action,
+            };
         })();"#,
     );
-    eval.join::<Option<NativeAudioSnapshot>>()
-        .await
-        .ok()
-        .flatten()
+    eval.join::<NativeAudioSnapshot>().await.ok()
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -1165,7 +1541,7 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
 #[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 async fn native_delay_ms(ms: u64) {
     let script = format!(
-        r#"(async function () {{
+        r#"return (async function () {{
             await new Promise(resolve => setTimeout(resolve, {ms}));
             return true;
         }})();"#
@@ -1180,20 +1556,39 @@ async fn native_delay_ms(ms: u64) {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
-    let title = song.title.clone();
+    let is_live = song.server_name == "Radio";
+    let title = if is_live && song.title.trim().eq_ignore_ascii_case("unknown song") {
+        song.artist
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "Unknown Song".to_string())
+    } else {
+        song.title.clone()
+    };
     let artist = song
         .artist
         .clone()
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "Unknown Artist".to_string());
+        .unwrap_or_else(|| {
+            if is_live {
+                "Internet Radio".to_string()
+            } else {
+                "Unknown Artist".to_string()
+            }
+        });
 
-    let mut album = song
-        .album
-        .clone()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "Unknown Album".to_string());
-    if let Some(year) = song.year {
-        album = format!("{album} ({year})");
+    let mut album = if is_live {
+        "LIVE".to_string()
+    } else {
+        song.album
+            .clone()
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| "Unknown Album".to_string())
+    };
+    if !is_live {
+        if let Some(year) = song.year {
+            album = format!("{album} ({year})");
+        }
     }
 
     let artwork = servers
@@ -1211,6 +1606,7 @@ fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
         album,
         artwork,
         duration: song.duration as f64,
+        is_live,
     }
 }
 
@@ -1255,6 +1651,8 @@ pub fn AudioController() -> Element {
             audio_state.write().is_initialized.set(true);
 
             spawn(async move {
+                let mut paused_streak: u8 = 0;
+                let mut playing_streak: u8 = 0;
                 loop {
                     native_delay_ms(250).await;
 
@@ -1275,14 +1673,32 @@ pub fn AudioController() -> Element {
                     playback_position.set(current_time);
                     audio_state.write().current_time.set(current_time);
 
-                    let currently_playing = !snapshot.paused;
-                    if !snapshot.ended && *is_playing.peek() != currently_playing {
-                        is_playing.set(currently_playing);
+                    if snapshot.paused {
+                        paused_streak = paused_streak.saturating_add(1);
+                        playing_streak = 0;
+                    } else {
+                        playing_streak = playing_streak.saturating_add(1);
+                        paused_streak = 0;
                     }
+
+                    // Debounced sync from native player to UI state:
+                    // avoid immediate false flips while a track is starting.
+                    if *is_playing.peek() && paused_streak >= 3 && !snapshot.ended {
+                        is_playing.set(false);
+                    } else if !*is_playing.peek() && playing_streak >= 2 {
+                        is_playing.set(true);
+                    }
+
+                    let currently_playing = *is_playing.peek();
 
                     let ended_action = matches!(snapshot.action.as_deref(), Some("ended"));
 
                     if let Some(action) = snapshot.action.as_deref() {
+                        let current_is_radio = now_playing
+                            .peek()
+                            .as_ref()
+                            .map(|song| song.server_name == "Radio")
+                            .unwrap_or(false);
                         let queue_snapshot = queue.peek().clone();
                         let idx = *queue_index.peek();
                         let repeat = *repeat_mode.peek();
@@ -1303,7 +1719,19 @@ pub fn AudioController() -> Element {
                         }
 
                         match action {
+                            "toggle_play" | "playpause" => {
+                                is_playing.set(!currently_playing);
+                            }
+                            "play" => {
+                                is_playing.set(true);
+                            }
+                            "pause" => {
+                                is_playing.set(false);
+                            }
                             "next" => {
+                                if current_is_radio {
+                                    continue;
+                                }
                                 let len = queue_snapshot.len();
                                 if len == 0 {
                                     spawn_shuffle_queue(
@@ -1364,6 +1792,9 @@ pub fn AudioController() -> Element {
                                 }
                             }
                             "previous" => {
+                                if current_is_radio {
+                                    continue;
+                                }
                                 let len = queue_snapshot.len();
                                 if len > 0 {
                                     if idx > 0 {
@@ -1560,6 +1991,7 @@ pub fn AudioController() -> Element {
                 native_audio_command(serde_json::json!({ "type": "clear" }));
                 last_src.set(None);
                 is_playing.set(false);
+                audio_state.write().playback_error.set(None);
                 return;
             };
 
@@ -1589,6 +2021,7 @@ pub fn AudioController() -> Element {
                     last_src.set(Some(url.clone()));
                     playback_position.set(target_start);
                     audio_state.write().current_time.set(target_start);
+                    audio_state.write().playback_error.set(None);
                     if known_duration > 0.0 {
                         audio_state.write().duration.set(known_duration);
                     } else {
@@ -1631,6 +2064,12 @@ pub fn AudioController() -> Element {
                 native_audio_command(serde_json::json!({ "type": "clear" }));
                 last_src.set(None);
                 is_playing.set(false);
+                let message = if song.server_name == "Radio" {
+                    "No station found: this station has no stream URL.".to_string()
+                } else {
+                    "Unable to load this audio source.".to_string()
+                };
+                audio_state.write().playback_error.set(Some(message));
             }
         });
     }
@@ -1921,7 +2360,6 @@ pub fn AudioController() -> Element {
     thread_local! {
         static USER_INTERACTED: Cell<bool> = Cell::new(false);
     }
-    let mark_user_interacted = || USER_INTERACTED.with(|c| c.set(true));
     let has_user_interacted = || USER_INTERACTED.with(|c| c.get());
 
     // One-time setup: create audio element and attach listeners.
@@ -1940,14 +2378,27 @@ pub fn AudioController() -> Element {
             let Some(_audio) = get_or_create_audio_element() else {
                 return;
             };
+            ensure_web_media_session_shortcuts();
 
             if let Some(doc) = window().and_then(|w| w.document()) {
                 let click_cb =
-                    Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
-                let key_cb =
-                    Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
+                    Closure::wrap(Box::new(move || USER_INTERACTED.with(|c| c.set(true)))
+                        as Box<dyn FnMut()>);
+                let key_cb = Closure::wrap(Box::new(move |event: KeyboardEvent| {
+                    USER_INTERACTED.with(|c| c.set(true));
+                    if let Some(action) = shortcut_action_from_key(&event) {
+                        event.prevent_default();
+                        match action {
+                            "next" => click_player_control_button("next-btn"),
+                            "previous" => click_player_control_button("prev-btn"),
+                            "toggle_play" => click_player_control_button("play-pause-btn"),
+                            _ => {}
+                        }
+                    }
+                }) as Box<dyn FnMut(KeyboardEvent)>);
                 let touch_cb =
-                    Closure::wrap(Box::new(move || mark_user_interacted()) as Box<dyn FnMut()>);
+                    Closure::wrap(Box::new(move || USER_INTERACTED.with(|c| c.set(true)))
+                        as Box<dyn FnMut()>);
                 let _ = doc
                     .add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
                 let _ = doc
@@ -1963,6 +2414,7 @@ pub fn AudioController() -> Element {
 
             let mut current_time_signal = audio_state.peek().current_time;
             let mut duration_signal = audio_state.peek().duration;
+            let mut playback_error_signal = audio_state.peek().playback_error;
             let mut playback_pos = playback_position.clone();
             let mut queue = queue.clone();
             let mut queue_index = queue_index.clone();
@@ -2000,8 +2452,19 @@ pub fn AudioController() -> Element {
                         duration_signal.set(dur);
                     }
 
+                    let current_song = { now_playing.read().clone() };
+                    if let Some(message) = web_playback_error_message(&audio, current_song.as_ref()) {
+                        if playback_error_signal.peek().as_ref() != Some(&message) {
+                            playback_error_signal.set(Some(message));
+                        }
+                    } else if playback_error_signal.peek().is_some() {
+                        let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !audio.paused();
+                        if has_started {
+                            playback_error_signal.set(None);
+                        }
+                    }
+
                     if audio.ended() {
-                        let current_song = { now_playing.read().clone() };
                         let current_id = current_song.as_ref().map(|s| s.id.clone());
                         if ended_for_song == current_id {
                             continue;
@@ -2163,6 +2626,7 @@ pub fn AudioController() -> Element {
                 }
                 last_src.set(None);
                 is_playing.set(false);
+                audio_state.write().playback_error.set(None);
                 return;
             };
 
@@ -2170,6 +2634,7 @@ pub fn AudioController() -> Element {
             if let Some(url) = resolve_stream_url(&song, &servers_snapshot) {
                 if Some(url.clone()) != *last_src.peek() {
                     last_src.set(Some(url.clone()));
+                    audio_state.write().playback_error.set(None);
                     if let Some(audio) = get_or_create_audio_element() {
                         audio.set_src(&url);
                         audio.set_volume(volume.peek().clamp(0.0, 1.0));
@@ -2202,6 +2667,18 @@ pub fn AudioController() -> Element {
                 audio.set_src("");
                 last_src.set(None);
                 is_playing.set(false);
+                let message = if song.server_name == "Radio" {
+                    let station_name = song
+                        .album
+                        .clone()
+                        .or_else(|| song.artist.clone())
+                        .filter(|value| !value.trim().is_empty())
+                        .unwrap_or_else(|| "this station".to_string());
+                    format!("No station found: \"{station_name}\" has no playable stream URL.")
+                } else {
+                    "Unable to load this audio source.".to_string()
+                };
+                audio_state.write().playback_error.set(Some(message));
             }
         });
     }

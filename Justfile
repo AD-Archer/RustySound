@@ -9,6 +9,7 @@ serve *args:
 serve-ios *args:
     ./scripts/serve-ios.sh {{args}}
 
+dx
 # iOS serve variant with an optional URL env override.
 # Note: app support for this env var is optional and app-specific.
 serve-ios-url url *args:

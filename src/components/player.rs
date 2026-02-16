@@ -26,6 +26,7 @@ pub fn Player() -> Element {
     // Get time from audio state (Signal fields need to be read with ())
     let current_time = (audio_state().current_time)();
     let duration = (audio_state().duration)();
+    let playback_error = (audio_state().playback_error)();
 
     // Get cover art URL if available
     let cover_url = current_song.as_ref().and_then(|song| {
@@ -149,6 +150,13 @@ pub fn Player() -> Element {
     };
 
     rsx! {
+        if let Some(message) = playback_error.clone() {
+            div { class: "fixed left-0 right-0 bottom-28 md:bottom-24 px-3 md:px-6 z-[60] pointer-events-none",
+                div { class: "rounded-lg border border-rose-500/35 bg-rose-500/10 px-3 py-2 text-center text-xs text-rose-200 shadow-lg",
+                    "{message}"
+                }
+            }
+        }
         div { class: "player-shell fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 z-50 md:h-24",
             div { class: "h-full flex flex-col md:flex-row md:items-center md:justify-between px-4 md:px-6 gap-3 md:gap-8 py-2 md:py-0",
                 // Now playing info
@@ -214,12 +222,53 @@ pub fn Player() -> Element {
                                                 }
                                             }
                                         },
-                                        "{song.title}"
+                                        {
+                                            if song.server_name == "Radio" {
+                                                if song.title.trim().is_empty()
+                                                    || song.title.trim().eq_ignore_ascii_case("unknown song")
+                                                {
+                                                    "Unknown Song".to_string()
+                                                } else {
+                                                    song.title.clone()
+                                                }
+                                            } else {
+                                                song.title.clone()
+                                            }
+                                        }
                                     }
                                     button {
                                         class: "text-xs text-zinc-400 truncate hover:text-white transition-colors cursor-pointer block text-left w-full",
                                         onclick: on_artist_click,
-                                        "{song.artist.clone().unwrap_or_default()}"
+                                        {
+                                            if song.server_name == "Radio" {
+                                                let station_name = song
+                                                    .album
+                                                    .clone()
+                                                    .or_else(|| song.artist.clone())
+                                                    .filter(|name| !name.trim().is_empty())
+                                                    .unwrap_or_else(|| "Internet Radio".to_string());
+                                                let song_artist = song
+                                                    .artist
+                                                    .clone()
+                                                    .filter(|name| {
+                                                        let trimmed = name.trim();
+                                                        !trimmed.is_empty()
+                                                            && !trimmed.eq_ignore_ascii_case("unknown artist")
+                                                            && !trimmed.eq_ignore_ascii_case(&station_name)
+                                                    });
+                                                if song.title.trim().is_empty()
+                                                    || song.title.trim().eq_ignore_ascii_case("unknown song")
+                                                {
+                                                    station_name
+                                                } else if let Some(artist_name) = song_artist {
+                                                    format!("{artist_name} • {station_name}")
+                                                } else {
+                                                    station_name
+                                                }
+                                            } else {
+                                                song.artist.clone().unwrap_or_default()
+                                            }
+                                        }
                                     }
                                 }
                                 button {
@@ -274,7 +323,13 @@ pub fn Player() -> Element {
                     // Progress bar
                     div { class: "flex items-center gap-2 md:gap-3 w-full",
                         span { class: "text-xs text-zinc-500 w-10 text-right",
-                            "{format_duration(current_time as u32)}"
+                            {
+                                if is_radio {
+                                    "LIVE".to_string()
+                                } else {
+                                    format_duration(current_time as u32)
+                                }
+                            }
                         }
                         input {
                             r#type: "range",
@@ -288,10 +343,14 @@ pub fn Player() -> Element {
                         }
                         span { class: "text-xs text-zinc-500 w-10",
                             {
-                                current_song
-                                    .as_ref()
-                                    .map(|s| format_duration(s.duration))
-                                    .unwrap_or_else(|| "--:--".to_string())
+                                if is_radio {
+                                    "LIVE".to_string()
+                                } else {
+                                    current_song
+                                        .as_ref()
+                                        .map(|s| format_duration(s.duration))
+                                        .unwrap_or_else(|| "--:--".to_string())
+                                }
                             }
                         }
                     }
@@ -525,14 +584,23 @@ fn PrevButton() -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
+    let current_song = now_playing();
+    let is_radio = current_song
+        .as_ref()
+        .map(|song| song.server_name == "Radio")
+        .unwrap_or(false);
     let was_playing = is_playing();
 
     rsx! {
         button {
             id: "prev-btn",
             r#type: "button",
-            class: "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors",
+            disabled: is_radio,
+            class: if is_radio { "p-3 md:p-2 text-zinc-600 cursor-not-allowed" } else { "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors" },
             onclick: move |_| {
+                if is_radio {
+                    return;
+                }
                 let idx = queue_index();
                 let queue_list = queue();
                 if idx > 0 && !queue_list.is_empty() {
@@ -561,13 +629,22 @@ fn NextButton() -> Element {
     let repeat_mode = use_context::<Signal<RepeatMode>>();
     let shuffle_enabled = use_context::<Signal<bool>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let current_song = now_playing();
+    let is_radio = current_song
+        .as_ref()
+        .map(|song| song.server_name == "Radio")
+        .unwrap_or(false);
 
     rsx! {
         button {
             id: "next-btn",
             r#type: "button",
-            class: "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors",
+            disabled: is_radio,
+            class: if is_radio { "p-3 md:p-2 text-zinc-600 cursor-not-allowed" } else { "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors" },
             onclick: move |_| {
+                if is_radio {
+                    return;
+                }
                 let was_playing = *is_playing.peek();
                 let repeat = *repeat_mode.peek();
                 if repeat == RepeatMode::One {

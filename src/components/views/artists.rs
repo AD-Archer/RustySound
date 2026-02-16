@@ -3,17 +3,60 @@ use crate::components::views::search::ArtistCard;
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn artists_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn artists_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
 #[component]
 pub fn ArtistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
+    let debounced_query = use_signal(String::new);
+    let debounce_generation = use_signal(|| 0u64);
     let limit = use_signal(|| 30usize);
+
+    {
+        let mut debounced_query = debounced_query.clone();
+        let mut debounce_generation = debounce_generation.clone();
+        use_effect(move || {
+            let raw_query = search_query();
+            let query = raw_query.trim().to_string();
+            debounce_generation.with_mut(|value| *value += 1);
+            let generation = debounce_generation();
+
+            if query.is_empty() {
+                debounced_query.set(String::new());
+                return;
+            }
+
+            if query.len() < 2 {
+                debounced_query.set(String::new());
+                return;
+            }
+
+            let mut debounced_query = debounced_query.clone();
+            let debounce_generation = debounce_generation.clone();
+            spawn(async move {
+                artists_delay_ms(220).await;
+                if debounce_generation() != generation {
+                    return;
+                }
+                debounced_query.set(query);
+            });
+        });
+    }
 
     let artists = use_resource(move || {
         let servers = servers();
         let limit = limit();
-        let query = search_query();
+        let query = debounced_query();
         async move {
             let mut artists = Vec::new();
             let mut more_available = false;
@@ -64,10 +107,7 @@ pub fn ArtistsView() -> Element {
                         placeholder: "Search artists",
                         value: search_query,
                         oninput: move |e| {
-                            let value = e.value();
-                            if value.is_empty() || value.len() >= 2 {
-                                search_query.set(value);
-                            }
+                            search_query.set(e.value());
                         },
                     }
                 }

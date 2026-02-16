@@ -129,6 +129,22 @@ body {
   scroll-padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 6rem);
 }
 
+/* Extra bottom clearance on phones so long forms (Settings) stay above the player. */
+@media (max-width: 767px) {
+  .app-container {
+    --player-height: 13rem;
+  }
+
+  .page-shell {
+    padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 8rem);
+  }
+
+  .main-scroll {
+    padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 8rem);
+    scroll-padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 8rem);
+  }
+}
+
 .vertical-range {
   writing-mode: vertical-lr;
   direction: rtl;

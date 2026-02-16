@@ -2,6 +2,18 @@ use crate::api::*;
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
+use std::collections::HashSet;
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn search_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn search_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
 #[component]
 pub fn SearchView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -10,39 +22,103 @@ pub fn SearchView() -> Element {
     let mut is_playing = use_context::<Signal<bool>>();
 
     let mut search_query = use_signal(String::new);
-    let mut search_results = use_signal(|| None::<SearchResult>);
-    let mut is_searching = use_signal(|| false);
+    let debounced_query = use_signal(String::new);
+    let search_results = use_signal(|| None::<SearchResult>);
+    let is_searching = use_signal(|| false);
+    let debounce_generation = use_signal(|| 0u64);
+    let search_generation = use_signal(|| 0u64);
 
-    let mut on_search = move |_| {
-        let query = search_query().trim().to_string();
-        if query.is_empty() {
-            return;
-        }
+    // Debounce typing to avoid firing search requests on every keystroke.
+    {
+        let mut debounced_query = debounced_query.clone();
+        let mut search_results = search_results.clone();
+        let mut is_searching = is_searching.clone();
+        let mut debounce_generation = debounce_generation.clone();
+        let mut search_generation = search_generation.clone();
+        use_effect(move || {
+            let raw_query = search_query();
+            let query = raw_query.trim().to_string();
+            debounce_generation.with_mut(|value| *value += 1);
+            let generation = debounce_generation();
 
-        let active_servers: Vec<ServerConfig> =
-            servers().into_iter().filter(|s| s.active).collect();
-        is_searching.set(true);
-
-        spawn(async move {
-            let mut combined = SearchResult::default();
-
-            // Fetch more results for better fuzzy matching
-            for server in active_servers {
-                let client = NavidromeClient::new(server);
-                if let Ok(result) = client.search(&query, 50, 100, 200).await {
-                    combined.artists.extend(result.artists);
-                    combined.albums.extend(result.albums);
-                    combined.songs.extend(result.songs);
-                }
+            if query.is_empty() {
+                search_generation.with_mut(|value| *value += 1);
+                debounced_query.set(String::new());
+                search_results.set(None);
+                is_searching.set(false);
+                return;
             }
 
-            // Apply fuzzy search scoring and filtering
-            combined = filter_and_score_results(combined, &query);
+            if query.len() < 2 {
+                search_generation.with_mut(|value| *value += 1);
+                debounced_query.set(String::new());
+                search_results.set(None);
+                is_searching.set(false);
+                return;
+            }
 
-            search_results.set(Some(combined));
-            is_searching.set(false);
+            let mut debounced_query = debounced_query.clone();
+            let debounce_generation = debounce_generation.clone();
+            spawn(async move {
+                search_delay_ms(220).await;
+                if debounce_generation() != generation {
+                    return;
+                }
+                debounced_query.set(query);
+            });
         });
-    };
+    }
+
+    // Execute search for the debounced query and drop stale responses.
+    {
+        let servers = servers.clone();
+        let debounced_query = debounced_query.clone();
+        let mut search_results = search_results.clone();
+        let mut is_searching = is_searching.clone();
+        let mut search_generation = search_generation.clone();
+        use_effect(move || {
+            let query = debounced_query().trim().to_string();
+            if query.is_empty() {
+                return;
+            }
+
+            let active_servers: Vec<ServerConfig> =
+                servers().into_iter().filter(|s| s.active).collect();
+            if active_servers.is_empty() {
+                search_results.set(Some(SearchResult::default()));
+                is_searching.set(false);
+                return;
+            }
+
+            search_generation.with_mut(|value| *value += 1);
+            let generation = search_generation();
+            is_searching.set(true);
+
+            spawn(async move {
+                let mut combined = SearchResult::default();
+
+                // Keep result counts bounded so scoring doesn't block UI.
+                for server in active_servers {
+                    let client = NavidromeClient::new(server);
+                    if let Ok(result) = client.search(&query, 24, 48, 96).await {
+                        combined.artists.extend(result.artists);
+                        combined.albums.extend(result.albums);
+                        combined.songs.extend(result.songs);
+                    }
+                }
+
+                combined = dedupe_search_results(combined);
+                combined = filter_and_score_results(combined, &query);
+
+                if search_generation() != generation {
+                    return;
+                }
+
+                search_results.set(Some(combined));
+                is_searching.set(false);
+            });
+        });
+    }
 
     let results = search_results();
     let searching = is_searching();
@@ -64,13 +140,7 @@ pub fn SearchView() -> Element {
                         value: search_query,
                         oninput: move |e| {
                             let value = e.value();
-                            search_query.set(value.clone());
-                            if value.is_empty() {
-                                search_results.set(None);
-                                is_searching.set(false);
-                            } else if value.len() >= 2 {
-                                on_search(());
-                            }
+                            search_query.set(value);
                         },
                     }
                 }
@@ -274,6 +344,25 @@ fn tokenize(text: &str) -> Vec<String> {
         .collect()
 }
 
+fn dedupe_search_results(mut results: SearchResult) -> SearchResult {
+    let mut artist_seen = HashSet::new();
+    results
+        .artists
+        .retain(|artist| artist_seen.insert(format!("{}::{}", artist.server_id, artist.id)));
+
+    let mut album_seen = HashSet::new();
+    results
+        .albums
+        .retain(|album| album_seen.insert(format!("{}::{}", album.server_id, album.id)));
+
+    let mut song_seen = HashSet::new();
+    results
+        .songs
+        .retain(|song| song_seen.insert(format!("{}::{}", song.server_id, song.id)));
+
+    results
+}
+
 /// Calculate fuzzy match score for a field against query tokens
 fn calculate_score(field: &str, tokens: &[String]) -> i32 {
     let field_lower = field.to_lowercase();
@@ -295,16 +384,6 @@ fn calculate_score(field: &str, tokens: &[String]) -> i32 {
         // Contains token anywhere (medium score)
         else if field_lower.contains(token) {
             score += 40;
-        }
-        // Partial match (low score)
-        else if token.len() >= 2
-            && field_lower
-                .chars()
-                .collect::<Vec<_>>()
-                .windows(token.len())
-                .any(|w| w.iter().collect::<String>() == *token)
-        {
-            score += 20;
         }
     }
 

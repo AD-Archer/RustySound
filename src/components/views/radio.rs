@@ -58,15 +58,16 @@ pub fn RadioView() -> Element {
                 return;
             };
 
-            // Radio entries are synthetic songs with no album and no known duration.
-            if song.duration > 0 || song.album.is_some() {
+            // Only poll ICY metadata for synthetic radio entries.
+            if song.server_name != "Radio" || song.duration > 0 {
                 return;
             }
 
             let song_id = song.id.clone();
-            let fallback_artist = song
-                .artist
+            let fallback_station = song
+                .album
                 .clone()
+                .or_else(|| song.artist.clone())
                 .filter(|value| !value.trim().is_empty())
                 .unwrap_or_else(|| "Internet Radio".to_string());
 
@@ -96,8 +97,18 @@ pub fn RadioView() -> Element {
 
                         if !meta.raw_title.is_empty() && meta.raw_title != last_raw_title {
                             last_raw_title = meta.raw_title.clone();
-                            let next_title = meta.title;
-                            let next_artist = meta.artist.unwrap_or_else(|| fallback_artist.clone());
+                            let mut next_title = meta.title.trim().to_string();
+                            let next_artist = meta
+                                .artist
+                                .filter(|value| !value.trim().is_empty())
+                                .unwrap_or_else(|| fallback_station.clone());
+
+                            if next_title.is_empty()
+                                || next_title.eq_ignore_ascii_case(&fallback_station)
+                                || next_title.eq_ignore_ascii_case(&next_artist)
+                            {
+                                next_title = "Unknown Song".to_string();
+                            }
 
                             now_playing.with_mut(|current_song| {
                                 if let Some(song) = current_song {
@@ -465,8 +476,8 @@ pub fn RadioView() -> Element {
                                             let radio_song = Song {
                                                 id: station.id.clone(),
                                                 title: "Unknown Song".to_string(),
-                                                artist: Some(station.name.clone()),
-                                                album: None,
+                                                artist: Some("Unknown Artist".to_string()),
+                                                album: Some(station.name.clone()),
                                                 album_id: None,
                                                 artist_id: None,
                                                 duration: 0,

@@ -148,8 +148,25 @@ jobs:
           codesign --verify --deep "$APP_PATH"
         fi
 
+        DMG_STAGE_DIR="$(mktemp -d)"
+        cp -R "$APP_PATH" "$DMG_STAGE_DIR/"
+        cat > "$DMG_STAGE_DIR/INSTALL.txt" <<EOF
+        RustySound macOS Install Instructions
+        =====================================
+
+        1. Drag ${APP_NAME}.app to Applications.
+        2. Open ${APP_NAME}.app from Applications.
+        3. If blocked by macOS, go to:
+           System Settings > Privacy & Security > Open Anyway
+
+        Terminal fallback:
+        xattr -dr com.apple.quarantine /Applications/${APP_NAME}.app
+        open /Applications/${APP_NAME}.app
+        EOF
+
         rm -f dist/apple/macos/*.dmg
-        hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+        hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_STAGE_DIR" -ov -format UDZO "$DMG_PATH"
+        rm -rf "$DMG_STAGE_DIR"
 
         if [[ "$DO_NOTARIZE" -eq 1 ]]; then
           xcrun notarytool submit "$DMG_PATH" \

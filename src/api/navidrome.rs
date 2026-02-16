@@ -4,6 +4,8 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(target_arch = "wasm32")]
+use dioxus::document;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
@@ -17,7 +19,7 @@ pub struct NavidromeClient {
     pub server: ServerConfig,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct IcyNowPlaying {
     pub title: String,
     pub artist: Option<String>,
@@ -117,8 +119,123 @@ impl NavidromeClient {
     }
 
     #[cfg(target_arch = "wasm32")]
-    pub async fn read_icy_now_playing(_stream_url: &str) -> Result<Option<IcyNowPlaying>, String> {
-        Ok(None)
+    pub async fn read_icy_now_playing(stream_url: &str) -> Result<Option<IcyNowPlaying>, String> {
+        let seed_url = serde_json::to_string(stream_url).map_err(|e| e.to_string())?;
+        let script = format!(
+            r#"return (async () => {{
+                const seedUrl = {seed_url};
+                if (!seedUrl) return null;
+
+                const urls = [seedUrl];
+                try {{
+                    const parsed = new URL(seedUrl);
+                    const path = parsed.pathname || "";
+                    if (!path.endsWith(";")) {{
+                        parsed.pathname = path.endsWith("/") ? `${{path}};` : `${{path}}/;`;
+                        const fallback = parsed.toString();
+                        if (fallback !== seedUrl) {{
+                            urls.push(fallback);
+                        }}
+                    }}
+                }} catch (_err) {{}}
+
+                const parseStreamTitle = (rawTitle) => {{
+                    if (typeof rawTitle !== "string") return null;
+                    const trimmed = rawTitle.trim();
+                    if (!trimmed) return null;
+
+                    let artist = null;
+                    let title = trimmed;
+                    const parts = trimmed.split(" - ");
+                    if (parts.length >= 2) {{
+                        const left = (parts.shift() || "").trim();
+                        const right = parts.join(" - ").trim();
+                        if (left && right) {{
+                            artist = left;
+                            title = right;
+                        }}
+                    }}
+
+                    return {{
+                        title,
+                        artist,
+                        raw_title: trimmed,
+                    }};
+                }};
+
+                const metadataUrls = urls.filter((candidate) => {{
+                    try {{
+                        const parsed = new URL(candidate, window.location.href);
+                        return parsed.origin === window.location.origin;
+                    }} catch (_err) {{
+                        return false;
+                    }}
+                }});
+
+                if (metadataUrls.length === 0) {{
+                    return null;
+                }}
+
+                const parseMetadataText = (text) => {{
+                    if (!text) return null;
+                    const match = text.match(/StreamTitle\s*=\s*['"]([^'"]+)['"]/i);
+                    if (!match || !match[1]) return null;
+                    return parseStreamTitle(match[1]);
+                }};
+
+                for (const url of metadataUrls) {{
+                    try {{
+                        const response = await fetch(url, {{
+                            method: "GET",
+                            headers: {{
+                                "Icy-MetaData": "1",
+                                "Accept": "*/*",
+                            }},
+                            cache: "no-store",
+                            mode: "cors",
+                            credentials: "omit",
+                        }});
+
+                        if (!response || !response.body) {{
+                            continue;
+                        }}
+
+                        const reader = response.body.getReader();
+                        const decoder = new TextDecoder("utf-8");
+                        let carry = "";
+                        let totalBytes = 0;
+                        const maxBytes = 512 * 1024;
+
+                        while (totalBytes < maxBytes) {{
+                            const {{ value, done }} = await reader.read();
+                            if (done) break;
+                            if (!value) continue;
+
+                            totalBytes += value.byteLength || value.length || 0;
+                            const chunk = decoder.decode(value, {{ stream: true }});
+                            const combined = carry + chunk;
+                            const parsed = parseMetadataText(combined);
+                            if (parsed) {{
+                                try {{ await reader.cancel(); }} catch (_err) {{}}
+                                return parsed;
+                            }}
+                            carry = combined.slice(-2048);
+                        }}
+
+                        try {{ await reader.cancel(); }} catch (_err) {{}}
+                    }} catch (_err) {{
+                        // Try next candidate URL.
+                    }}
+                }}
+
+                return null;
+            }})();"#
+        );
+
+        document::eval(&script)
+            .join::<Option<IcyNowPlaying>>()
+            .await
+            .map_err(|e| e.to_string())
     }
 
     pub async fn ping(&self) -> Result<bool, String> {

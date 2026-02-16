@@ -8,6 +8,36 @@ IOS_OUT_DIR="${DIST_DIR}/ios"
 IOS_TARGET="${IOS_TARGET:-aarch64-apple-ios}"
 APP_NAME="${APP_NAME:-RustySound}"
 IOS_ICON_SOURCE="${IOS_ICON_SOURCE:-${ROOT_DIR}/assets/web-app-manifest-512x512.png}"
+DMG_INSTALL_FILE_NAME="${DMG_INSTALL_FILE_NAME:-INSTALL.txt}"
+
+create_macos_dmg_with_instructions() {
+    local app_path="$1"
+    local dmg_path="$2"
+    local app_name="$3"
+    local dmg_stage_dir
+    dmg_stage_dir="$(mktemp -d)"
+
+    cp -R "${app_path}" "${dmg_stage_dir}/"
+    cat > "${dmg_stage_dir}/${DMG_INSTALL_FILE_NAME}" <<EOF
+RustySound macOS Install Instructions
+=====================================
+
+1. Drag ${app_name}.app to the Applications folder.
+2. Open ${app_name}.app from Applications.
+3. If macOS blocks it:
+   - Open System Settings > Privacy & Security
+   - Click "Open Anyway" for ${app_name}.app
+   - Or right-click the app and choose Open
+
+If needed, in Terminal:
+xattr -dr com.apple.quarantine /Applications/${app_name}.app
+open /Applications/${app_name}.app
+EOF
+
+    rm -f "${dmg_path}"
+    hdiutil create -volname "${app_name}" -srcfolder "${dmg_stage_dir}" -ov -format UDZO "${dmg_path}"
+    rm -rf "${dmg_stage_dir}"
+}
 
 if ! command -v dx >/dev/null 2>&1; then
     echo "dx CLI is required (https://dioxuslabs.com/learn/0.7/getting_started)." >&2
@@ -41,14 +71,6 @@ echo "Bundling macOS app (.app)..."
 dx bundle \
     --macos \
     --package-types macos \
-    --features desktop \
-    --release \
-    --out-dir "${MACOS_OUT_DIR}"
-
-echo "Bundling macOS installer (.dmg)..."
-dx bundle \
-    --macos \
-    --package-types dmg \
     --features desktop \
     --release \
     --out-dir "${MACOS_OUT_DIR}"
@@ -143,17 +165,16 @@ cp -R "${IOS_APP_PATH}" "${TMP_DIR}/Payload/"
 )
 
 MACOS_APP_PATH="$(find "${MACOS_OUT_DIR}" -maxdepth 1 -type d -name '*.app' | head -n 1)"
-MACOS_DMG_PATH="$(find "${MACOS_OUT_DIR}" -maxdepth 1 -type f -name '*.dmg' | head -n 1)"
 
 if [[ -z "${MACOS_APP_PATH}" ]]; then
     echo "Could not find a macOS .app in ${MACOS_OUT_DIR}" >&2
     exit 1
 fi
 
-if [[ -z "${MACOS_DMG_PATH}" ]]; then
-    echo "Could not find a macOS .dmg in ${MACOS_OUT_DIR}" >&2
-    exit 1
-fi
+MACOS_APP_NAME="$(basename "${MACOS_APP_PATH}" .app)"
+MACOS_DMG_PATH="${MACOS_OUT_DIR}/${MACOS_APP_NAME}.dmg"
+echo "Creating macOS installer (.dmg) with install instructions..."
+create_macos_dmg_with_instructions "${MACOS_APP_PATH}" "${MACOS_DMG_PATH}" "${MACOS_APP_NAME}"
 
 echo "macOS bundle output: ${MACOS_OUT_DIR}"
 echo "macOS app: ${MACOS_APP_PATH}"
