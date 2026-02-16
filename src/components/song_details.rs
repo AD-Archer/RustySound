@@ -561,6 +561,7 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
     let volume = use_context::<VolumeSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
+    let mut rating_open = use_signal(|| false);
 
     let now_playing_song = now_playing();
     let queue_snapshot = queue();
@@ -832,6 +833,21 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
             repeat_mode.set(next);
         }
     };
+    let on_set_now_playing_rating = {
+        let servers = servers.clone();
+        let now_playing = now_playing.clone();
+        let queue = queue.clone();
+        let mut rating_open = rating_open.clone();
+        move |rating: u32| {
+            set_now_playing_rating(
+                servers.clone(),
+                now_playing.clone(),
+                queue.clone(),
+                rating,
+            );
+            rating_open.set(false);
+        }
+    };
 
     rsx! {
         div { class: "space-y-5",
@@ -1018,49 +1034,48 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                                 }
                             }
 
-                            div { class: "flex items-center gap-1",
-                                for value in 1u32..=5u32 {
-                                    button {
-                                        class: if value <= now_playing_rating {
-                                            "text-amber-400 hover:text-amber-300 transition-colors"
-                                        } else {
-                                            "text-zinc-500 hover:text-zinc-300 transition-colors"
-                                        },
-                                        onclick: {
-                                            let servers = servers.clone();
-                                            let now_playing = now_playing.clone();
-                                            let queue = queue.clone();
-                                            move |_| {
-                                                set_now_playing_rating(
-                                                    servers.clone(),
-                                                    now_playing.clone(),
-                                                    queue.clone(),
-                                                    value,
-                                                );
-                                            }
-                                        },
-                                        Icon {
-                                            name: if value <= now_playing_rating { "star-filled".to_string() } else { "star".to_string() },
-                                            class: "w-4 h-4".to_string(),
-                                        }
+                            div { class: "relative",
+                                button {
+                                    class: if now_playing_rating > 0 {
+                                        "p-2 rounded-full border border-amber-500/50 text-amber-400 hover:text-amber-300 transition-colors"
+                                    } else {
+                                        "p-2 rounded-full border border-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                                    },
+                                    onclick: move |_| rating_open.set(!rating_open()),
+                                    title: "Rate now playing",
+                                    Icon {
+                                        name: if now_playing_rating > 0 { "star-filled".to_string() } else { "star".to_string() },
+                                        class: "w-4 h-4".to_string(),
                                     }
                                 }
-                                button {
-                                    class: "ml-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors",
-                                    onclick: {
-                                        let servers = servers.clone();
-                                        let now_playing = now_playing.clone();
-                                        let queue = queue.clone();
-                                        move |_| {
-                                            set_now_playing_rating(
-                                                servers.clone(),
-                                                now_playing.clone(),
-                                                queue.clone(),
-                                                0,
-                                            );
+                                if rating_open() {
+                                    div { class: "absolute right-0 bottom-11 z-20 bg-zinc-950/95 border border-zinc-800 rounded-xl px-3 py-2 shadow-xl flex items-center gap-2",
+                                        for value in 1u32..=5u32 {
+                                            button {
+                                                class: if value <= now_playing_rating {
+                                                    "text-amber-400 hover:text-amber-300 transition-colors"
+                                                } else {
+                                                    "text-zinc-500 hover:text-zinc-300 transition-colors"
+                                                },
+                                                onclick: {
+                                                    let mut on_set_now_playing_rating = on_set_now_playing_rating.clone();
+                                                    move |_| on_set_now_playing_rating(value)
+                                                },
+                                                Icon {
+                                                    name: if value <= now_playing_rating { "star-filled".to_string() } else { "star".to_string() },
+                                                    class: "w-4 h-4".to_string(),
+                                                }
+                                            }
                                         }
-                                    },
-                                    "Clear"
+                                        button {
+                                            class: "ml-1 text-[11px] text-zinc-500 hover:text-zinc-300 transition-colors",
+                                            onclick: {
+                                                let mut on_set_now_playing_rating = on_set_now_playing_rating.clone();
+                                                move |_| on_set_now_playing_rating(0)
+                                            },
+                                            "Clear"
+                                        }
+                                    }
                                 }
                             }
                         }

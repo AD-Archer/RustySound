@@ -544,7 +544,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             spawn(async move {
                 let client = NavidromeClient::new(active);
                 let mut playlists = playlists;
-                // Collect song ids first so we can force-add after creation.
+                // Collect song ids up front so we can add them exactly once after creation.
                 let song_ids: Result<Vec<String>, String> = match target {
                     AddTarget::Song(song) => Ok(vec![song.id.clone()]),
                     AddTarget::Songs(songs) => Ok(songs.iter().map(|s| s.id.clone()).collect()),
@@ -562,10 +562,18 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
 
                 match song_ids {
                     Err(err) => message.set(Some((false, err))),
-                    Ok(ids) => match client.create_playlist(&name, None, &ids).await {
+                    Ok(ids) => match client.create_playlist(&name, None, &[]).await {
                         Ok(created_id) => {
-                            // Some servers ignore songId on create; ensure songs are added if we got an id.
-                            if let (Some(pid), true) = (created_id, !ids.is_empty()) {
+                            if !ids.is_empty() {
+                                let Some(pid) = created_id else {
+                                    message.set(Some((
+                                        false,
+                                        "Playlist was created but the server did not return an id, so songs could not be added."
+                                            .to_string(),
+                                    )));
+                                    is_processing.set(false);
+                                    return;
+                                };
                                 if let Err(err) = client.add_songs_to_playlist(&pid, &ids).await {
                                     message.set(Some((
                                         false,

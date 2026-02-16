@@ -729,6 +729,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     }
                                 } else {
                                     PlaylistSongRow {
+                                        key: "{song.server_id}:{song.id}:{index}",
                                         song: song.clone(),
                                         display_index: index + 1,
                                         songs: songs.clone(),

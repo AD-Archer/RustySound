@@ -1,4 +1,6 @@
-use crate::api::{default_lyrics_provider_order, models::ServerConfig};
+use crate::api::{
+    default_lyrics_provider_order, models::ServerConfig, normalize_lyrics_provider_order,
+};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -76,6 +78,22 @@ pub struct AppSettings {
 
 fn default_lyrics_request_timeout_secs() -> u32 {
     4
+}
+
+fn migrate_lyrics_provider_order(mut settings: AppSettings) -> AppSettings {
+    let normalized = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
+    let legacy_default = vec![
+        "netease".to_string(),
+        "lrclib".to_string(),
+        "genius".to_string(),
+    ];
+
+    settings.lyrics_provider_order = if normalized == legacy_default {
+        default_lyrics_provider_order()
+    } else {
+        normalized
+    };
+    settings
 }
 
 impl Default for AppSettings {
@@ -216,7 +234,9 @@ pub async fn load_settings() -> Result<AppSettings, DbError> {
     );
 
     match result {
-        Ok(json) => serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string())),
+        Ok(json) => serde_json::from_str(&json)
+            .map(migrate_lyrics_provider_order)
+            .map_err(|e| DbError::new(e.to_string())),
         Err(_) => Ok(AppSettings::default()),
     }
 }
@@ -224,7 +244,7 @@ pub async fn load_settings() -> Result<AppSettings, DbError> {
 #[cfg(target_arch = "wasm32")]
 pub async fn load_settings() -> Result<AppSettings, StorageError> {
     match LocalStorage::get(SETTINGS_KEY) {
-        Ok(settings) => Ok(settings),
+        Ok(settings) => Ok(migrate_lyrics_provider_order(settings)),
         Err(_) => Ok(AppSettings::default()),
     }
 }

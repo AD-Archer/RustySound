@@ -2431,6 +2431,8 @@ pub fn AudioController() -> Element {
                 let mut last_duration = -1.0f64;
                 let mut ended_for_song: Option<String> = None;
                 let mut repeat_one_replayed_song: Option<String> = None;
+                let mut paused_streak: u8 = 0;
+                let mut playing_streak: u8 = 0;
 
                 loop {
                     gloo_timers::future::TimeoutFuture::new(200).await;
@@ -2451,6 +2453,23 @@ pub fn AudioController() -> Element {
                         last_duration = dur;
                         duration_signal.set(dur);
                     }
+                    let paused = audio.paused();
+
+                    // Keep UI play/pause signals synced when playback is controlled
+                    // outside app buttons (browser media controls, hardware keys, etc.).
+                    if paused {
+                        paused_streak = paused_streak.saturating_add(1);
+                        playing_streak = 0;
+                    } else {
+                        playing_streak = playing_streak.saturating_add(1);
+                        paused_streak = 0;
+                    }
+
+                    if *is_playing.peek() && paused_streak >= 2 && !audio.ended() {
+                        is_playing.set(false);
+                    } else if !*is_playing.peek() && playing_streak >= 2 {
+                        is_playing.set(true);
+                    }
 
                     let current_song = { now_playing.read().clone() };
                     if let Some(message) = web_playback_error_message(&audio, current_song.as_ref()) {
@@ -2458,7 +2477,7 @@ pub fn AudioController() -> Element {
                             playback_error_signal.set(Some(message));
                         }
                     } else if playback_error_signal.peek().is_some() {
-                        let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !audio.paused();
+                        let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !paused;
                         if has_started {
                             playback_error_signal.set(None);
                         }
