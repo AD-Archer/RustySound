@@ -26,38 +26,30 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 - **Progressive Web App**: Installable PWA support
 
 
-### Desktop(currently disabled)
+### Desktop 
 
-- **macOS**: DMG installer and native .app bundle
-- **Windows**: MSI installer and portable EXE
-- **Linux**: AppImage bundle
+- **macOS**: DMG installer 
+- **Windows**: MSI installer and portable EXE (currently disabled)
+- **Linux**: AppImage bundle (currently disabled)
 
-### Mobile(currently disabled)
+### Mobile
 
-- **iOS**: unsigned .app 
-- **Android**: apk 
+- **iOS**: unsigned .ipa 
+- **Android**: apk (currently disabled)
 
 
 ## Installation
 
 ### Desktop
 
+#### IOS
+1. Download the latest `.ipa` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
+2. Sign the IPA, Personally I sign the ipa using [Live Container](https://github.com/LiveContainer/LiveContainer) which I installed using [Altstore/Altserver](https://altstore.io/)
+
 #### macOS
 
 1. Download the latest `.dmg` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Open the DMG and drag RustySound to your Applications folder
-
-#### Windows
-
-1. Download the latest `.msi` installer from [Releases](https://github.com/AD-Archer/RustySound/releases)
-2. Run the installer and follow the setup wizard
-
-#### Linux
-
-1. Download the latest `.AppImage` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
-2. Make it executable: `chmod +x RustySound-*.AppImage`
-3. Run: `./RustySound-*.AppImage`
-
 
 ### Web
 
