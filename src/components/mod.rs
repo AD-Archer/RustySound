@@ -24,6 +24,9 @@ pub struct PlaybackPositionSignal(pub Signal<f64>);
 #[derive(Clone)]
 pub struct SeekRequestSignal(pub Signal<Option<(String, f64)>>);
 
+#[derive(Clone)]
+pub struct SidebarOpenSignal(pub Signal<bool>);
+
 pub use add_to_menu::*;
 pub use app::*;
 pub use app_view::{view_label, AppView};

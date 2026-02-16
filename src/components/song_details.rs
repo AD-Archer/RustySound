@@ -1,13 +1,15 @@
 use crate::api::{
-    fetch_lyrics_with_fallback, format_duration, search_lyrics_candidates, LyricLine, LyricsQuery,
-    LyricsResult, LyricsSearchCandidate, NavidromeClient, ServerConfig, Song,
+    fetch_lyrics_with_fallback, format_duration, normalize_lyrics_provider_order,
+    search_lyrics_candidates, LyricLine, LyricsQuery, LyricsResult, LyricsSearchCandidate,
+    NavidromeClient, ServerConfig, Song,
 };
 use crate::components::{
     seek_to, spawn_shuffle_queue, AddIntent, AddMenuController, AppView, AudioState, Icon,
-    Navigation, PlaybackPositionSignal, VolumeSignal,
+    Navigation, PlaybackPositionSignal, SidebarOpenSignal, VolumeSignal,
 };
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
+use futures_util::stream::{FuturesUnordered, StreamExt};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SongDetailsTab {
@@ -97,6 +99,7 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
+    let sidebar_open = use_context::<SidebarOpenSignal>().0;
     let app_settings = use_context::<Signal<AppSettings>>();
     let audio_state = use_context::<Signal<AudioState>>();
     let create_queue_busy = use_signal(|| false);
@@ -177,9 +180,9 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                     return Err("No song selected.".to_string());
                 };
                 let query = query_override.unwrap_or_else(|| LyricsQuery::from_song(&song));
-                fetch_lyrics_with_fallback(
-                    &query,
-                    &settings.lyrics_provider_order,
+                fetch_first_available_lyrics(
+                    query,
+                    settings.lyrics_provider_order.clone(),
                     settings.lyrics_request_timeout_secs,
                 )
                 .await
@@ -244,6 +247,37 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
             }
         })
     };
+    let lrclib_upgrade_resource = {
+        let controller = controller.clone();
+        let app_settings = app_settings.clone();
+        let lyrics_query_override = lyrics_query_override.clone();
+        let lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
+        use_resource(move || {
+            let song = controller.current().song;
+            let settings = app_settings();
+            let query_override = lyrics_query_override();
+            let _refresh_nonce = lyrics_refresh_nonce();
+            async move {
+                if settings.lyrics_unsynced_mode {
+                    return Ok(None);
+                }
+                let Some(song) = song else {
+                    return Ok(None);
+                };
+                let query = query_override.unwrap_or_else(|| LyricsQuery::from_song(&song));
+                match fetch_lyrics_with_fallback(
+                    &query,
+                    &["lrclib".to_string()],
+                    settings.lyrics_request_timeout_secs,
+                )
+                .await
+                {
+                    Ok(result) => Ok(Some(result)),
+                    Err(err) => Err(err),
+                }
+            }
+        })
+    };
 
     if !state.is_open {
         return rsx! {};
@@ -255,6 +289,11 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
 
     let settings = app_settings();
     let sync_lyrics = !settings.lyrics_unsynced_mode;
+    let selected_lyrics = pick_display_lyrics(
+        sync_lyrics,
+        lyrics_resource(),
+        lrclib_upgrade_resource(),
+    );
 
     let desktop_tab = match state.active_tab {
         SongDetailsTab::Details => SongDetailsTab::Lyrics,
@@ -287,17 +326,31 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
             div {
                 class: "w-full h-full border border-zinc-800/80 bg-zinc-950 overflow-hidden flex flex-col",
                 div { class: "flex items-center justify-between px-4 md:px-6 py-4 border-b border-zinc-800/80",
-                    div {
-                        p { class: "text-xs uppercase tracking-[0.2em] text-zinc-500", "Song Menu" }
-                        h2 { class: "text-lg md:text-2xl font-semibold text-white truncate", "{song_title}" }
+                    div { class: "flex items-center gap-3 min-w-0",
+                        button {
+                            class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors",
+                            aria_label: "Open navigation menu",
+                            onclick: {
+                                let mut sidebar_open = sidebar_open.clone();
+                                move |_| sidebar_open.set(true)
+                            },
+                            Icon { name: "menu".to_string(), class: "w-5 h-5".to_string() }
+                        }
+                        div { class: "min-w-0",
+                            p { class: "text-xs uppercase tracking-[0.2em] text-zinc-500", "Song Menu" }
+                            h2 { class: "text-lg md:text-2xl font-semibold text-white truncate", "{song_title}" }
+                        }
                     }
-                    button {
-                        class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors",
-                        onclick: {
-                            let mut controller = controller.clone();
-                            move |_| controller.close()
-                        },
-                        Icon { name: "x".to_string(), class: "w-5 h-5".to_string() }
+                    div { class: "flex items-center gap-2",
+                        button {
+                            class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors",
+                            aria_label: "Close song details",
+                            onclick: {
+                                let mut controller = controller.clone();
+                                move |_| controller.close()
+                            },
+                            Icon { name: "x".to_string(), class: "w-5 h-5".to_string() }
+                        }
                     }
                 }
 
@@ -344,7 +397,7 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                                 LyricsPanel {
                                     key: "{song.server_id}:{song.id}:desktop",
                                     panel_dom_key: format!("{}:{}:desktop", song.server_id, song.id),
-                                    lyrics: lyrics_resource(),
+                                    lyrics: selected_lyrics.clone(),
                                     lyrics_candidates: lyrics_candidates_resource(),
                                     lyrics_candidates_search_term: lyrics_candidate_search_term(),
                                     selected_query_override: lyrics_query_override(),
@@ -463,7 +516,7 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                             LyricsPanel {
                                 key: "{song.server_id}:{song.id}:mobile",
                                 panel_dom_key: format!("{}:{}:mobile", song.server_id, song.id),
-                                lyrics: lyrics_resource(),
+                                lyrics: selected_lyrics,
                                 lyrics_candidates: lyrics_candidates_resource(),
                                 lyrics_candidates_search_term: lyrics_candidate_search_term(),
                                 selected_query_override: lyrics_query_override(),
@@ -1867,6 +1920,73 @@ fn song_cover_url(song: &Song, servers: &[ServerConfig], size: u32) -> Option<St
     let cover_art = song.cover_art.as_ref()?;
     let client = NavidromeClient::new(server.clone());
     Some(client.get_cover_art_url(cover_art, size))
+}
+
+async fn fetch_first_available_lyrics(
+    query: LyricsQuery,
+    provider_order: Vec<String>,
+    timeout_seconds: u32,
+) -> Result<LyricsResult, String> {
+    let providers = normalize_lyrics_provider_order(&provider_order);
+    if providers.is_empty() {
+        return Err("No lyrics providers configured.".to_string());
+    }
+
+    let mut pending = FuturesUnordered::new();
+    for provider in providers {
+        let query = query.clone();
+        pending.push(async move {
+            let result =
+                fetch_lyrics_with_fallback(&query, &[provider.clone()], timeout_seconds).await;
+            (provider, result)
+        });
+    }
+
+    let mut errors = Vec::<String>::new();
+    while let Some((provider, result)) = pending.next().await {
+        match result {
+            Ok(lyrics) => return Ok(lyrics),
+            Err(error) => errors.push(format!("{provider} failed: {error}")),
+        }
+    }
+
+    if errors.is_empty() {
+        Err("No lyrics providers configured.".to_string())
+    } else {
+        Err(errors.join(" | "))
+    }
+}
+
+fn pick_display_lyrics(
+    sync_lyrics: bool,
+    primary: Option<Result<LyricsResult, String>>,
+    lrclib_upgrade: Option<Result<Option<LyricsResult>, String>>,
+) -> Option<Result<LyricsResult, String>> {
+    if sync_lyrics {
+        if let Some(Ok(Some(upgrade))) = lrclib_upgrade.as_ref() {
+            if !upgrade.synced_lines.is_empty() {
+                return Some(Ok(upgrade.clone()));
+            }
+        }
+    }
+
+    if let Some(primary_result) = primary.clone() {
+        match primary_result {
+            Ok(lyrics) => return Some(Ok(lyrics)),
+            Err(error) => {
+                if let Some(Ok(Some(upgrade))) = lrclib_upgrade {
+                    return Some(Ok(upgrade));
+                }
+                return Some(Err(error));
+            }
+        }
+    }
+
+    if let Some(Ok(Some(upgrade))) = lrclib_upgrade {
+        return Some(Ok(upgrade));
+    }
+
+    None
 }
 
 fn active_lyric_index(lines: &[LyricLine], playback_seconds: f64) -> Option<usize> {

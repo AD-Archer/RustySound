@@ -358,8 +358,23 @@
   .z-\[80\] {
     z-index: 80;
   }
+  .z-\[90\] {
+    z-index: 90;
+  }
   .z-\[95\] {
     z-index: 95;
+  }
+  .z-\[100\] {
+    z-index: 100;
+  }
+  .z-\[110\] {
+    z-index: 110;
+  }
+  .z-\[115\] {
+    z-index: 115;
+  }
+  .z-\[120\] {
+    z-index: 120;
   }
   .col-span-4 {
     grid-column: span 4 / span 4;

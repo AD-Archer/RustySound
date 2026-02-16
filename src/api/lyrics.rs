@@ -15,7 +15,7 @@ static LYRICS_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::ne
 static LYRICS_SUCCESS_CACHE: Lazy<Mutex<HashMap<String, LyricsResult>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub const DEFAULT_LYRICS_PROVIDER_KEYS: [&str; 3] = ["lrclib", "netease", "genius"];
+pub const DEFAULT_LYRICS_PROVIDER_KEYS: [&str; 3] = ["genius", "lrclib", "netease"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LyricsProvider {

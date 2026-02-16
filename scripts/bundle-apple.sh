@@ -18,6 +18,7 @@ create_macos_dmg_with_instructions() {
     dmg_stage_dir="$(mktemp -d)"
 
     cp -R "${app_path}" "${dmg_stage_dir}/"
+    ln -s /Applications "${dmg_stage_dir}/Applications"
     cat > "${dmg_stage_dir}/${DMG_INSTALL_FILE_NAME}" <<EOF
 RustySound macOS Install Instructions
 =====================================

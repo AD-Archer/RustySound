@@ -1,11 +1,12 @@
 use crate::api::ServerConfig;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AppView, Icon, Navigation, SongDetailsController};
 use dioxus::prelude::*;
 
 #[component]
-pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
+pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
+    let song_details = use_context::<SongDetailsController>();
     let view = use_route::<AppView>();
 
     let is_open = sidebar_open();
@@ -18,17 +19,28 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
     } else {
         "-translate-x-full"
     };
+    let sidebar_class = if overlay_mode {
+        format!(
+            "fixed inset-y-0 left-0 z-[120] w-72 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out shadow-2xl shadow-black/30 {slide_class}"
+        )
+    } else {
+        format!(
+            "fixed inset-y-0 left-0 z-40 w-72 2xl:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out 2xl:translate-x-0 2xl:static 2xl:z-auto shadow-2xl shadow-black/30 2xl:shadow-none {slide_class}"
+        )
+    };
     let nav_to = |target: AppView| {
         let navigation = navigation.clone();
         let mut sidebar_open = sidebar_open.clone();
+        let mut song_details = song_details.clone();
         move |_| {
             navigation.navigate_to(target.clone());
+            song_details.close();
             sidebar_open.set(false);
         }
     };
 
     rsx! {
-        aside { class: "fixed inset-y-0 left-0 z-40 w-72 2xl:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out 2xl:translate-x-0 2xl:static 2xl:z-auto shadow-2xl shadow-black/30 2xl:shadow-none {slide_class}",
+        aside { class: "{sidebar_class}",
             // Logo
             div { class: "p-5 2xl:p-6 border-b border-zinc-800/60 flex items-center justify-between",
                 div { class: "flex items-center gap-3",

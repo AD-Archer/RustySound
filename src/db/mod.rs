@@ -82,13 +82,20 @@ fn default_lyrics_request_timeout_secs() -> u32 {
 
 fn migrate_lyrics_provider_order(mut settings: AppSettings) -> AppSettings {
     let normalized = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
-    let legacy_default = vec![
+    let legacy_default_v1 = vec![
         "netease".to_string(),
         "lrclib".to_string(),
         "genius".to_string(),
     ];
+    let legacy_default_v2 = vec![
+        "lrclib".to_string(),
+        "netease".to_string(),
+        "genius".to_string(),
+    ];
 
-    settings.lyrics_provider_order = if normalized == legacy_default {
+    settings.lyrics_provider_order = if normalized == legacy_default_v1
+        || normalized == legacy_default_v2
+    {
         default_lyrics_provider_order()
     } else {
         normalized

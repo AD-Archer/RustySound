@@ -2,7 +2,7 @@ use crate::api::*;
 use crate::components::{
     view_label, AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController,
     AudioState, Icon, Navigation, PlaybackPositionSignal, Player, SeekRequestSignal, Sidebar,
-    SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    SidebarOpenSignal, SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -173,6 +173,7 @@ pub fn AppShell() -> Element {
     use_context_provider(|| app_settings);
     use_context_provider(|| PlaybackPositionSignal(playback_position));
     use_context_provider(|| SeekRequestSignal(seek_request));
+    use_context_provider(|| SidebarOpenSignal(sidebar_open));
     use_context_provider(|| shuffle_enabled);
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
@@ -360,10 +361,11 @@ pub fn AppShell() -> Element {
     let view = use_route::<AppView>();
     let sidebar_signal = sidebar_open.clone();
     let can_go_back = navigation.can_go_back();
+    let song_details_open = song_details_state().is_open;
 
     rsx! {
         div { class: "app-container flex min-h-screen text-white overflow-hidden",
-            if sidebar_open() {
+            if sidebar_open() && !song_details_open {
                 div {
                     class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
                     onclick: {
@@ -374,7 +376,7 @@ pub fn AppShell() -> Element {
             }
 
             // Sidebar
-            Sidebar { sidebar_open: sidebar_signal }
+            Sidebar { sidebar_open: sidebar_signal, overlay_mode: false }
 
             // Main content area
             div { class: "flex-1 flex flex-col overflow-hidden",
@@ -451,6 +453,19 @@ pub fn AppShell() -> Element {
         AddToMenuOverlay { controller: add_menu.clone() }
 
         SongDetailsOverlay { controller: song_details.clone() }
+
+        if song_details_open {
+            if sidebar_open() {
+                div {
+                    class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[115]",
+                    onclick: {
+                        let mut sidebar_open = sidebar_open.clone();
+                        move |_| sidebar_open.set(false)
+                    },
+                }
+            }
+            Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
+        }
 
         // Audio controller - manages playback separately from UI
         AudioController {}
