@@ -98,6 +98,69 @@ jobs:
     - run: cargo install dioxus-cli
     - name: Build macOS + iOS bundles
       run: ./scripts/bundle-apple.sh
+    - name: Ad-hoc sign macOS app (no Apple account)
+      if: ${{ secrets.MACOS_CERT_P12_BASE64 == '' || secrets.MACOS_CERT_PASSWORD == '' || secrets.MACOS_SIGNING_IDENTITY == '' }}
+      run: |
+        set -euo pipefail
+        APP_PATH="$(find dist/apple/macos -maxdepth 1 -type d -name '*.app' | head -n 1)"
+        APP_NAME="$(basename "$APP_PATH" .app)"
+        DMG_PATH="dist/apple/macos/${APP_NAME}.dmg"
+
+        # Ad-hoc sign to make bundle structure/signature internally consistent.
+        codesign --force --deep --sign - "$APP_PATH"
+        codesign --verify --deep "$APP_PATH"
+
+        # Recreate DMG so it contains the ad-hoc signed app.
+        rm -f dist/apple/macos/*.dmg
+        hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+    - name: Sign + notarize macOS app (optional)
+      if: ${{ secrets.MACOS_CERT_P12_BASE64 != '' && secrets.MACOS_CERT_PASSWORD != '' && secrets.MACOS_SIGNING_IDENTITY != '' && secrets.APPLE_ID != '' && secrets.APPLE_APP_SPECIFIC_PASSWORD != '' && secrets.APPLE_TEAM_ID != '' }}
+      env:
+        MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}
+        MACOS_CERT_PASSWORD: ${{ secrets.MACOS_CERT_PASSWORD }}
+        MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+        APPLE_ID: ${{ secrets.APPLE_ID }}
+        APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+      run: |
+        set -euo pipefail
+
+        APP_PATH="$(find dist/apple/macos -maxdepth 1 -type d -name '*.app' | head -n 1)"
+        APP_NAME="$(basename "$APP_PATH" .app)"
+        DMG_PATH="dist/apple/macos/${APP_NAME}.dmg"
+        CERT_PATH="$RUNNER_TEMP/macos-signing-cert.p12"
+        KEYCHAIN_PATH="$RUNNER_TEMP/macos-signing.keychain-db"
+
+        printf '%s' "$MACOS_CERT_P12_BASE64" | base64 --decode > "$CERT_PATH" 2>/dev/null || printf '%s' "$MACOS_CERT_P12_BASE64" | base64 -D > "$CERT_PATH"
+
+        security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+        security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        security import "$CERT_PATH" -P "$MACOS_CERT_PASSWORD" -A -f pkcs12 -k "$KEYCHAIN_PATH"
+        security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+        security list-keychains -d user -s "$KEYCHAIN_PATH"
+
+        codesign --force --deep --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$APP_PATH"
+        codesign --verify --deep --strict "$APP_PATH"
+
+        APP_ZIP="$RUNNER_TEMP/${APP_NAME}-notarize.zip"
+        ditto -c -k --keepParent "$APP_PATH" "$APP_ZIP"
+        xcrun notarytool submit "$APP_ZIP" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+        xcrun stapler staple "$APP_PATH"
+
+        rm -f dist/apple/macos/*.dmg
+        hdiutil create -volname "$APP_NAME" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_PATH"
+        xcrun notarytool submit "$DMG_PATH" \
+          --apple-id "$APPLE_ID" \
+          --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+          --team-id "$APPLE_TEAM_ID" \
+          --wait
+        xcrun stapler staple "$DMG_PATH"
     - name: Prepare Apple artifacts
       run: |
         mkdir -p artifacts
@@ -106,6 +169,18 @@ jobs:
         ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "artifacts/${APP_NAME}-macos.zip"
         cp dist/apple/macos/*.dmg artifacts/
         cp dist/apple/ios/*-unsigned.ipa artifacts/
+        cat > artifacts/MACOS-UNSIGNED-INSTALL.txt <<'EOF'
+        This build is not notarized by Apple.
+        If macOS blocks it, use one of these options:
+
+        1) Right-click the app in Finder and choose "Open", then confirm.
+        2) Or remove quarantine from Terminal:
+
+        xattr -dr com.apple.quarantine /Applications/Rustysound.app
+        open /Applications/Rustysound.app
+
+        For public distribution, configure signing + notarization secrets in GitHub Actions.
+        EOF
     - name: Upload Apple bundle artifacts
       uses: actions/upload-artifact@v4
       with:

@@ -51,6 +51,18 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 1. Download the latest `.dmg` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Open the DMG and drag RustySound to your Applications folder
 
+If macOS says the app is damaged or won't open:
+
+1. In Finder, right-click `RustySound.app` and choose **Open**, then confirm.
+2. Or run:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/RustySound.app
+open /Applications/RustySound.app
+```
+
+Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization secrets are not configured in CI. For public distribution without warnings, a paid Apple Developer signing + notarization flow is required.
+
 ### Web
 
 Visit [rustysound](https://rustysound-demo.adarcher.app) to use the web version.
