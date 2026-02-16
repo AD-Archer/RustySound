@@ -1,8 +1,8 @@
 use crate::api::*;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
-use std::rc::Rc;
-use std::cell::RefCell;
 use dioxus::prelude::*;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 #[component]
 fn PlaylistSongRow(
@@ -18,6 +18,10 @@ fn PlaylistSongRow(
 ) -> Element {
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
+    let is_current = now_playing()
+        .as_ref()
+        .map(|current| current.id == song.id)
+        .unwrap_or(false);
 
     let cover_url = servers()
         .iter()
@@ -82,11 +86,21 @@ fn PlaylistSongRow(
 
     rsx! {
         div {
-            class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
+            class: if is_current {
+                "w-full flex items-center gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer"
+            } else {
+                "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer"
+            },
             onclick: on_click_row,
-            span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{display_index}" }
-            span { class: "w-6 text-sm text-white hidden group-hover:block",
-                Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+            if is_current {
+                span { class: "w-6 text-sm text-emerald-400",
+                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                }
+            } else {
+                span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{display_index}" }
+                span { class: "w-6 text-sm text-white hidden group-hover:block",
+                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                }
             }
             div { class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
                 match cover_url {
@@ -101,7 +115,7 @@ fn PlaylistSongRow(
                 }
             }
             div { class: "flex-1 min-w-0 text-center md:text-left",
-                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                p { class: if is_current { "text-sm font-medium text-emerald-400 truncate transition-colors" } else { "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors" },
                     "{song.title}"
                 }
                 p { class: "text-xs text-zinc-400 truncate",
@@ -280,8 +294,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     if let Some(index) = song_index {
                         spawn(async move {
                             let client = NavidromeClient::new(server);
-                            let result =
-                                client.remove_songs_from_playlist(&playlist_id, &[index]).await;
+                            let result = client
+                                .remove_songs_from_playlist(&playlist_id, &[index])
+                                .await;
                             if result.is_ok() {
                                 song_list.with_mut(|list| list.retain(|s| s.id != song_id));
                             }
@@ -409,14 +424,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 match cover_url {
                                     Some(url) => rsx! {
 
-            
-                    
-            
+
+
+
 
                                         img { class: "w-full h-full object-cover", src: "{url}" }
                                     },
                                     None => rsx! {
-                    
+
 
                                         div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
                                             Icon {
@@ -521,7 +536,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 }
                             }
                         }
-            
+
                         div { class: "space-y-1",
                             for (index , song) in song_list().iter().enumerate() {
                                 if edit_mode() {
@@ -584,7 +599,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 }
                             }
                         }
-            
+
                         if editing_allowed && edit_mode() {
                             div { class: "mt-6 space-y-3 p-4 rounded-xl bg-zinc-900/60 border border-zinc-800",
                                 h3 { class: "text-sm font-semibold text-white", "Add songs to this playlist" }

@@ -28,9 +28,9 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
     };
 
     rsx! {
-        aside { class: "fixed inset-y-0 left-0 z-40 w-72 md:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out md:translate-x-0 md:static md:z-auto shadow-2xl shadow-black/30 md:shadow-none {slide_class}",
+        aside { class: "fixed inset-y-0 left-0 z-40 w-72 2xl:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out 2xl:translate-x-0 2xl:static 2xl:z-auto shadow-2xl shadow-black/30 2xl:shadow-none {slide_class}",
             // Logo
-            div { class: "p-5 md:p-6 border-b border-zinc-800/60 flex items-center justify-between",
+            div { class: "p-5 2xl:p-6 border-b border-zinc-800/60 flex items-center justify-between",
                 div { class: "flex items-center gap-3",
                     div { class: "w-10 h-10 rounded-xl bg-zinc-800/50 flex items-center justify-center shadow-lg overflow-hidden",
                         img {
@@ -45,7 +45,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>) -> Element {
                     }
                 }
                 button {
-                    class: "md:hidden p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                    class: "2xl:hidden p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/60 transition-colors",
                     aria_label: "Close menu",
                     onclick: {
                         let mut sidebar_open = sidebar_open.clone();

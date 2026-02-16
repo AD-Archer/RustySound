@@ -164,8 +164,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
                             // Set the full album as queue
 
-                
-                
+
+
 
                                                         .navigate_to(AppView::ArtistDetailView {
                                                             artist_id: artist_id.clone(),
@@ -228,7 +228,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
-                
+
                             div { class: "space-y-1",
                                 for (index , song) in songs.iter().enumerate() {
                                     {

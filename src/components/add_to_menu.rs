@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::{Icon, Navigation, AppView};
+use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 #[derive(Clone)]
@@ -91,6 +91,7 @@ impl AddMenuController {
 pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let queue_index = use_context::<Signal<usize>>();
 
     let show_playlist_picker = use_signal(|| false);
     let mut playlist_filter = use_signal(String::new);
@@ -266,7 +267,12 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let intent = intent_for_display.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            if let AddTarget::Album { album_id, server_id, .. } = &intent.target {
+            if let AddTarget::Album {
+                album_id,
+                server_id,
+                ..
+            } = &intent.target
+            {
                 controller.close();
                 navigation.navigate_to(AppView::AlbumDetailView {
                     album_id: album_id.clone(),
@@ -276,10 +282,13 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         }
     };
 
-    let enqueue_items = |mut queue: Signal<Vec<Song>>, items: Vec<Song>, mode: &str| {
+    let enqueue_items = |mut queue: Signal<Vec<Song>>,
+                         queue_index: Signal<usize>,
+                         items: Vec<Song>,
+                         mode: &str| {
         queue.with_mut(|q| match mode {
             "next" => {
-                let insert_at = 1.min(q.len());
+                let insert_at = queue_index().saturating_add(1).min(q.len());
                 for (idx, song) in items.into_iter().enumerate() {
                     q.insert(insert_at + idx, song);
                 }
@@ -292,6 +301,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let mut controller = controller.clone();
         let servers = servers.clone();
         let queue = queue.clone();
+        let queue_index = queue_index.clone();
         let mut is_processing = is_processing.clone();
         let mut message = message.clone();
         let intent = intent_for_queue.clone();
@@ -303,33 +313,36 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
 
             match intent.target.clone() {
                 AddTarget::Song(song) => {
-                    enqueue_items(queue.clone(), vec![song], mode);
+                    enqueue_items(queue.clone(), queue_index, vec![song], mode);
                     controller.close();
                 }
                 AddTarget::Songs(songs) => {
-                    enqueue_items(queue.clone(), songs, mode);
+                    enqueue_items(queue.clone(), queue_index, songs, mode);
                     controller.close();
                 }
-                AddTarget::Album { album_id, server_id, .. } => {
+                AddTarget::Album {
+                    album_id,
+                    server_id,
+                    ..
+                } => {
                     let server = servers().into_iter().find(|s| s.id == server_id);
                     if let Some(server) = server {
                         let album_id = album_id.clone();
                         is_processing.set(true);
                         let queue = queue.clone();
+                        let queue_index = queue_index.clone();
                         let mut controller = controller.clone();
                         let mut message = message.clone();
                         spawn(async move {
                             let client = NavidromeClient::new(server);
                             match client.get_album(&album_id).await {
                                 Ok((_, songs)) => {
-                                    enqueue_items(queue.clone(), songs, mode);
+                                    enqueue_items(queue.clone(), queue_index, songs, mode);
                                     controller.close();
                                 }
                                 Err(err) => {
-                                    message.set(Some((
-                                        false,
-                                        format!("Failed to load album: {err}"),
-                                    )));
+                                    message
+                                        .set(Some((false, format!("Failed to load album: {err}"))));
                                 }
                             }
                             is_processing.set(false);
@@ -341,19 +354,24 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                         )));
                     }
                 }
-                AddTarget::Playlist { playlist_id, server_id, .. } => {
+                AddTarget::Playlist {
+                    playlist_id,
+                    server_id,
+                    ..
+                } => {
                     let server = servers().into_iter().find(|s| s.id == server_id);
                     if let Some(server) = server {
                         let playlist_id = playlist_id.clone();
                         is_processing.set(true);
                         let queue = queue.clone();
+                        let queue_index = queue_index.clone();
                         let mut controller = controller.clone();
                         let mut message = message.clone();
                         spawn(async move {
                             let client = NavidromeClient::new(server);
                             match client.get_playlist(&playlist_id).await {
                                 Ok((_, songs)) => {
-                                    enqueue_items(queue.clone(), songs, mode);
+                                    enqueue_items(queue.clone(), queue_index, songs, mode);
                                     controller.close();
                                 }
                                 Err(err) => {

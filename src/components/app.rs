@@ -93,12 +93,13 @@ pub fn AppShell() -> Element {
         }
     };
 
-    let on_pointer_cancel = {
+    let on_pointer_leave = {
         let mut swipe_start = swipe_start.clone();
         move |_| {
             swipe_start.set(None);
         }
     };
+
     let _nav_for_swipe = navigation.clone();
     // Global pointer listeners so back swipe works anywhere on the screen (PWA-like)
     #[cfg(target_arch = "wasm32")]
@@ -361,7 +362,7 @@ pub fn AppShell() -> Element {
         div { class: "app-container flex min-h-screen text-white overflow-hidden",
             if sidebar_open() {
                 div {
-                    class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden",
+                    class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
                     onclick: {
                         let mut sidebar_open = sidebar_open.clone();
                         move |_| sidebar_open.set(false)
@@ -374,7 +375,7 @@ pub fn AppShell() -> Element {
 
             // Main content area
             div { class: "flex-1 flex flex-col overflow-hidden",
-                header { class: "md:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
+                header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
                     div { class: "flex items-center justify-between px-4 py-3",
                         if can_go_back {
                             button {
@@ -427,13 +428,14 @@ pub fn AppShell() -> Element {
                 }
 
                 // Main scrollable content
-                main { class: "flex-1 overflow-y-auto main-scroll",
+                main {
+                    class: "flex-1 overflow-y-auto main-scroll",
+                    onpointerdown: on_pointer_down,
+                    onpointermove: on_pointer_move,
+                    onpointerup: on_pointer_up,
+                    onpointerleave: on_pointer_leave,
                     div {
                         class: "page-shell",
-                        onpointerdown: on_pointer_down,
-                        onpointermove: on_pointer_move,
-                        onpointerup: on_pointer_up,
-                        onpointercancel: on_pointer_cancel,
                         Outlet::<AppView> {}
                     }
                 }

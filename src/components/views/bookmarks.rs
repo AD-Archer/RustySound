@@ -44,19 +44,64 @@ pub fn BookmarksView() -> Element {
                     h1 { class: "page-title", "Bookmarks" }
                     p { class: "page-subtitle", "Resume where you left off across your library." }
                 }
-                button {
-                    class: "px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors flex items-center gap-2",
-                    onclick: move |_| refresh_key.set(refresh_key() + 1),
-                    Icon { name: "repeat".to_string(), class: "w-4 h-4".to_string() }
-                    "Refresh"
+                div { class: "flex gap-2",
+                    button {
+                        class: "px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors flex items-center gap-2",
+                        onclick: move |_| refresh_key.set(refresh_key() + 1),
+                        Icon {
+                            name: "repeat".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Refresh"
+                    }
+                    if let Some(list) = bookmarks() {
+                        if !list.is_empty() {
+                            button {
+                                class: "px-3 py-2 rounded-xl bg-red-800 hover:bg-red-700 text-red-300 hover:text-white transition-colors flex items-center gap-2",
+                                onclick: {
+                                    let bookmarks = list.clone();
+                                    let servers = servers.clone();
+                                    let mut refresh_key = refresh_key.clone();
+                                    move |_| {
+                                        let bookmarks = bookmarks.clone();
+                                        let servers = servers.clone();
+                                        spawn(async move {
+                                            for bookmark in bookmarks {
+                                                let servers = servers();
+                                                if let Some(server) = servers
+                                                    .iter()
+                                                    .find(|s| s.id == bookmark.server_id)
+                                                    .cloned()
+                                                {
+                                                    let client = NavidromeClient::new(server);
+                                                    let _ = client.delete_bookmark(&bookmark.entry.id).await;
+                                                }
+                                            }
+                                            refresh_key.set(refresh_key() + 1);
+                                        });
+                                    }
+                                },
+                                Icon {
+                                    name: "trash".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "Clear All"
+                            }
+                        }
+                    }
                 }
             }
 
             if !has_active_server {
                 div { class: "flex flex-col items-center justify-center py-20",
-                    Icon { name: "bookmark".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
+                    Icon {
+                        name: "bookmark".to_string(),
+                        class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
+                    }
                     h2 { class: "text-xl font-semibold text-white mb-2", "No servers connected" }
-                    p { class: "text-zinc-400 text-center max-w-md", "Add a Navidrome server to fetch your bookmarks." }
+                    p { class: "text-zinc-400 text-center max-w-md",
+                        "Add a Navidrome server to fetch your bookmarks."
+                    }
                     button {
                         class: "mt-6 px-6 py-3 bg-emerald-500 hover:bg-emerald-400 text-white font-medium rounded-xl transition-colors",
                         onclick: {
@@ -71,9 +116,14 @@ pub fn BookmarksView() -> Element {
                     Some(list) => rsx! {
                         if list.is_empty() {
                             div { class: "flex flex-col items-center justify-center py-20",
-                                Icon { name: "bookmark".to_string(), class: "w-16 h-16 text-zinc-600 mb-4".to_string() }
+                                Icon {
+                                    name: "bookmark".to_string(),
+                                    class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
+                                }
                                 h2 { class: "text-xl font-semibold text-white mb-2", "No bookmarks yet" }
-                                p { class: "text-zinc-400 text-center max-w-lg", "Create a bookmark while listening to jump back to that spot later." }
+                                p { class: "text-zinc-400 text-center max-w-lg",
+                                    "Create a bookmark while listening to jump back to that spot later."
+                                }
                             }
                         } else {
                             div { class: "grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4",
@@ -91,7 +141,10 @@ pub fn BookmarksView() -> Element {
                     },
                     None => rsx! {
                         div { class: "flex items-center justify-center py-20",
-                            Icon { name: "loader".to_string(), class: "w-8 h-8 text-zinc-500".to_string() }
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-zinc-500".to_string(),
+                            }
                         }
                     },
                 }
@@ -214,7 +267,9 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                         onclick: on_album_cover,
                         {
                             match cover_url {
-                                Some(url) => rsx! { img { src: "{url}", alt: "{song.title}", class: "w-full h-full object-cover" } },
+                                Some(url) => rsx! {
+                                    img { src: "{url}", alt: "{song.title}", class: "w-full h-full object-cover" }
+                                },
                                 None => rsx! {
                                     div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
                                         Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
@@ -227,7 +282,9 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                     div { class: "w-20 h-20 rounded-xl bg-zinc-800 overflow-hidden flex-shrink-0",
                         {
                             match cover_url {
-                                Some(url) => rsx! { img { src: "{url}", alt: "{song.title}", class: "w-full h-full object-cover" } },
+                                Some(url) => rsx! {
+                                    img { src: "{url}", alt: "{song.title}", class: "w-full h-full object-cover" }
+                                },
                                 None => rsx! {
                                     div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
                                         Icon { name: "music".to_string(), class: "w-5 h-5 text-zinc-500".to_string() }
@@ -248,7 +305,9 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                                     "{song.artist.clone().unwrap_or_default()}"
                                 }
                             } else {
-                                p { class: "text-sm text-zinc-400 truncate", "{song.artist.clone().unwrap_or_default()}" }
+                                p { class: "text-sm text-zinc-400 truncate",
+                                    "{song.artist.clone().unwrap_or_default()}"
+                                }
                             }
                             if song.album_id.is_some() {
                                 button {
@@ -257,20 +316,30 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                                     "{song.album.clone().unwrap_or_default()}"
                                 }
                             } else {
-                                p { class: "text-xs text-zinc-500 truncate", "{song.album.clone().unwrap_or_default()}" }
+                                p { class: "text-xs text-zinc-500 truncate",
+                                    "{song.album.clone().unwrap_or_default()}"
+                                }
                             }
                         }
                         div { class: "flex flex-col items-end gap-1 text-right",
-                            span { class: "text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-300", "{position}" }
+                            span { class: "text-xs px-2 py-1 rounded-full bg-zinc-800 text-zinc-300",
+                                "{position}"
+                            }
                             if let Some(ref comment) = bookmark.comment {
-                                span { class: "text-xs text-zinc-500 truncate max-w-[180px]", "{comment}" }
+                                span { class: "text-xs text-zinc-500 truncate max-w-[180px]",
+                                    "{comment}"
+                                }
                             }
                         }
                     }
                     div { class: "flex items-center gap-2",
-                        span { class: "text-xs text-zinc-500 px-2 py-1 rounded-full bg-zinc-800/80", "{song.server_name}" }
+                        span { class: "text-xs text-zinc-500 px-2 py-1 rounded-full bg-zinc-800/80",
+                            "{song.server_name}"
+                        }
                         if let Some(changed) = bookmark.changed.clone() {
-                            span { class: "text-xs text-zinc-500 px-2 py-1 rounded-full bg-zinc-800/80", "{changed}" }
+                            span { class: "text-xs text-zinc-500 px-2 py-1 rounded-full bg-zinc-800/80",
+                                "{changed}"
+                            }
                         }
                     }
                     div { class: "flex items-center gap-3 pt-2",
@@ -282,7 +351,10 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                         button {
                             class: "px-3 py-2 rounded-lg bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white text-sm transition-colors flex items-center gap-2",
                             onclick: on_delete,
-                            Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
+                            Icon {
+                                name: "trash".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
                             "Delete"
                         }
                     }

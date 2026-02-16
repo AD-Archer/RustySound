@@ -27,6 +27,9 @@ tokio = { version = "1", features = ["full"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 dirs = "5.0"
 
+[target.'cfg(target_os = "ios")'.dependencies]
+objc = "0.2"
+
 # Client-side dependencies  
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
@@ -41,4 +44,9 @@ wasm-bindgen-futures = "0.4"
 [features]
 default = ["web"]
 web = ["dioxus/web"]
+desktop = ["dioxus/desktop"]
+mobile = ["dioxus/mobile"]
 server = ["dioxus/server"]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("cargo-clippy"))'] }

@@ -89,8 +89,31 @@ jobs:
       id: deployment
       uses: actions/deploy-pages@v4
 
+  apple-bundles:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+    - run: cargo install dioxus-cli
+    - name: Build macOS + iOS bundles
+      run: ./scripts/bundle-apple.sh
+    - name: Prepare Apple artifacts
+      run: |
+        mkdir -p artifacts
+        APP_PATH="$(find dist/apple/macos -maxdepth 1 -type d -name '*.app' | head -n 1)"
+        APP_NAME="$(basename "$APP_PATH" .app)"
+        ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "artifacts/${APP_NAME}-macos.zip"
+        cp dist/apple/macos/*.dmg artifacts/
+        cp dist/apple/ios/*-unsigned.ipa artifacts/
+    - name: Upload Apple bundle artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: apple-bundles
+        path: artifacts/*
+
   release:
-    needs: [web-docker, web-pages]
+    needs: [web-docker, web-pages, apple-bundles]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
@@ -114,5 +137,9 @@ jobs:
         generate_release_notes: true
         draft: false
         prerelease: false
+        files: |
+          artifacts/**/*-macos.zip
+          artifacts/**/*.dmg
+          artifacts/**/*.ipa
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
