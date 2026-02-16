@@ -96,10 +96,9 @@ fn render_album_item(
 pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
-    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
 
     let artist_server = servers().into_iter().find(|s| s.id == server_id);
@@ -302,14 +301,11 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                     for (index, song) in top_songs.iter().enumerate() {
                                         {
                                             let song_for_queue = song.clone();
-                                            let songs_for_queue = top_songs.clone();
                                             rsx! {
                                                 SongRow {
                                                     song: song.clone(),
                                                     index: index + 1,
                                                     onclick: move |_| {
-                                                        queue.set(songs_for_queue.clone());
-                                                        queue_index.set(index);
                                                         now_playing.set(Some(song_for_queue.clone()));
                                                         is_playing.set(true);
                                                     },

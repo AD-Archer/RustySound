@@ -92,11 +92,14 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
+    let is_playing = use_context::<Signal<bool>>();
 
     let show_playlist_picker = use_signal(|| false);
     let mut playlist_filter = use_signal(String::new);
     let mut new_playlist_name = use_signal(String::new);
     let is_processing = use_signal(|| false);
+    let processing_label = use_signal(|| None::<String>);
     let message = use_signal(|| None::<(bool, String)>);
 
     let playlists = {
@@ -115,8 +118,28 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                     return Vec::new();
                 }
 
-                let client = NavidromeClient::new(active[0].clone());
-                client.get_playlists().await.unwrap_or_default()
+                let active_server = active[0].clone();
+                let username = active_server.username.trim().to_lowercase();
+                let client = NavidromeClient::new(active_server);
+                client
+                    .get_playlists()
+                    .await
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|playlist| {
+                        let owned_by_user = playlist
+                            .owner
+                            .as_ref()
+                            .map(|owner| owner.trim().eq_ignore_ascii_case(&username))
+                            .unwrap_or(false);
+                        let is_auto_imported = playlist
+                            .comment
+                            .as_ref()
+                            .map(|comment| comment.to_lowercase().contains("auto-imported"))
+                            .unwrap_or(false);
+                        owned_by_user && !is_auto_imported
+                    })
+                    .collect()
             }
         })
     };
@@ -127,6 +150,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let mut new_playlist_name = new_playlist_name.clone();
         let mut message = message.clone();
         let mut is_processing = is_processing.clone();
+        let mut processing_label = processing_label.clone();
         let controller = controller.clone();
         use_effect(move || {
             if controller.current().is_some() {
@@ -134,6 +158,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                 new_playlist_name.set(String::new());
                 message.set(None);
                 is_processing.set(false);
+                processing_label.set(None);
             }
         });
     }
@@ -157,7 +182,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let intent_for_display = intent.clone();
     let active_server_for_playlist = active_server.clone();
     let active_server_for_create = active_server.clone();
-    let active_server_for_similar = active_server.clone();
 
     let requires_single_server =
         |target: &AddTarget, active: &Option<ServerConfig>| -> Option<String> {
@@ -257,7 +281,13 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
 
     let on_close = {
         let mut controller = controller.clone();
-        move |_| controller.close()
+        let is_processing = is_processing.clone();
+        move |_| {
+            if *is_processing.peek() {
+                return;
+            }
+            controller.close()
+        }
     };
 
     let navigation = use_context::<Navigation>();
@@ -566,13 +596,17 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let on_create_similar = {
         let controller = controller.clone();
         let servers = servers.clone();
+        let mut queue = queue.clone();
+        let mut queue_index = queue_index.clone();
+        let mut now_playing = now_playing.clone();
+        let mut is_playing = is_playing.clone();
         let mut is_processing = is_processing.clone();
+        let mut processing_label = processing_label.clone();
         let mut message = message.clone();
         let intent = intent_for_similar.clone();
-        let active_server = active_server_for_similar.clone();
 
         move |_| {
-            if is_processing() {
+            if *is_processing.peek() {
                 return;
             }
 
@@ -580,26 +614,95 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                 return;
             };
 
-            if let Some(reason) = requires_single_server(&intent.target, &active_server) {
-                message.set(Some((false, reason)));
-                return;
-            }
-
-            let Some(active) = servers().into_iter().find(|s| s.active) else {
-                message.set(Some((false, "No active server found.".to_string())));
+            let Some(server) = servers().into_iter().find(|s| s.id == song.server_id) else {
+                message.set(Some((false, "Song server is not available.".to_string())));
                 return;
             };
 
+            let seed_song = song.clone();
             let seed_id = song.id.clone();
+            let seed_genre = song.genre.clone();
+            let seed_artist_id = song.artist_id.clone();
             let mut message = message.clone();
             let mut controller = controller.clone();
             is_processing.set(true);
+            processing_label.set(Some("Building similar mix...".to_string()));
             spawn(async move {
-                let client = NavidromeClient::new(active);
-                match client.create_similar_playlist(&seed_id, None, 40).await {
-                    Ok(_) => controller.close(),
-                    Err(err) => message.set(Some((false, format!("Could not create mix: {err}")))),
+                let client = NavidromeClient::new(server);
+                let mut similar = client.get_similar_songs(&seed_id, 50).await.unwrap_or_default();
+
+                // Fallbacks for servers without Last.fm similar-song support.
+                if similar.is_empty() {
+                    let random_pool = client.get_random_songs(80).await.unwrap_or_default();
+                    if let Some(genre) = seed_genre.as_deref() {
+                        let genre_lower = genre.to_lowercase();
+                        similar = random_pool
+                            .iter()
+                            .filter(|song| {
+                                song.genre
+                                    .as_ref()
+                                    .map(|value| value.to_lowercase() == genre_lower)
+                                    .unwrap_or(false)
+                            })
+                            .cloned()
+                            .collect();
+                    }
+                    if similar.is_empty() {
+                        similar = random_pool;
+                    }
                 }
+
+                if similar.is_empty() {
+                    if let Some(artist_id) = seed_artist_id.as_deref() {
+                        if let Ok((_, albums)) = client.get_artist(artist_id).await {
+                            for album in albums.into_iter().take(6) {
+                                if let Ok((_, mut album_songs)) = client.get_album(&album.id).await {
+                                    similar.append(&mut album_songs);
+                                }
+                                if similar.len() >= 50 {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if similar.is_empty() {
+                    similar = client.get_random_songs(50).await.unwrap_or_default();
+                }
+
+                let seed_key = format!("{}::{}", seed_song.server_id, seed_song.id);
+                let mut seen = std::collections::HashSet::new();
+                let mut mix = Vec::new();
+                seen.insert(seed_key.clone());
+                mix.push(seed_song.clone());
+
+                for track in similar {
+                    let track_key = format!("{}::{}", track.server_id, track.id);
+                    if track_key == seed_key {
+                        continue;
+                    }
+                    if seen.insert(track_key) {
+                        mix.push(track);
+                    }
+                    if mix.len() >= 50 {
+                        break;
+                    }
+                }
+
+                if mix.len() <= 1 {
+                    message.set(Some((
+                        false,
+                        "Could not find enough similar songs for this track.".to_string(),
+                    )));
+                } else {
+                    queue.set(mix.clone());
+                    queue_index.set(0);
+                    now_playing.set(Some(mix[0].clone()));
+                    is_playing.set(true);
+                    controller.close();
+                }
+                processing_label.set(None);
                 is_processing.set(false);
             });
         }
@@ -644,7 +747,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                         "Loading playlists..."
                     }
                 } else if limited.is_empty() {
-                    p { class: "text-sm text-zinc-400", "No playlists found on the active server." }
+                    p { class: "text-sm text-zinc-400", "No user-created playlists found on the active server." }
                 } else {
                     div { class: "max-h-56 overflow-y-auto space-y-2 pr-1",
                         for playlist in limited {
@@ -752,8 +855,9 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                         }
                     }
                     button {
-                        class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors",
+                        class: if is_processing() { "p-2 rounded-lg text-zinc-600 cursor-not-allowed" } else { "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" },
                         onclick: on_close,
+                        disabled: is_processing(),
                         Icon {
                             name: "x".to_string(),
                             class: "w-5 h-5".to_string(),
@@ -767,7 +871,20 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                     }
                 }
 
-                if show_playlist_picker() {
+                if is_processing() {
+                    div { class: "min-h-44 flex flex-col items-center justify-center gap-4 text-center",
+                        Icon {
+                            name: "loader".to_string(),
+                            class: "w-8 h-8 text-amber-300 animate-spin".to_string(),
+                        }
+                        p { class: "text-sm text-zinc-300",
+                            "{processing_label().unwrap_or_else(|| \"Working...\".to_string())}"
+                        }
+                        p { class: "text-xs text-zinc-500",
+                            "Please wait while RustySound builds your queue."
+                        }
+                    }
+                } else if show_playlist_picker() {
                     {render_playlist_picker()}
                 } else {
                     div { class: "space-y-3",

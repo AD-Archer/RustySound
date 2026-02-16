@@ -3,6 +3,65 @@ use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation}
 use dioxus::prelude::*;
 use futures_util::future::join_all;
 
+async fn fetch_albums_for_servers(
+    active_servers: &[ServerConfig],
+    album_type: &str,
+    limit: u32,
+) -> Vec<Album> {
+    let tasks = active_servers.iter().cloned().map(|server| async move {
+        let client = NavidromeClient::new(server);
+        client
+            .get_albums(album_type, limit, 0)
+            .await
+            .unwrap_or_default()
+    });
+    let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
+    albums.truncate(limit as usize);
+    albums
+}
+
+async fn fetch_random_songs_for_servers(active_servers: &[ServerConfig], limit: u32) -> Vec<Song> {
+    let tasks = active_servers.iter().cloned().map(|server| async move {
+        let client = NavidromeClient::new(server);
+        client.get_random_songs(limit).await.unwrap_or_default()
+    });
+    let mut songs: Vec<Song> = join_all(tasks).await.into_iter().flatten().collect();
+    songs.truncate((limit * 2) as usize);
+    songs
+}
+
+async fn fetch_genres_for_servers(active_servers: &[ServerConfig]) -> Vec<String> {
+    let mut genre_set = std::collections::HashSet::new();
+    let tasks = active_servers.iter().cloned().map(|server| async move {
+        let client = NavidromeClient::new(server);
+        client
+            .get_albums("alphabeticalByName", 48, 0)
+            .await
+            .unwrap_or_default()
+    });
+
+    for album in join_all(tasks).await.into_iter().flatten() {
+        if let Some(genre) = album.genre {
+            genre_set.insert(genre);
+        }
+    }
+
+    let mut genres: Vec<String> = genre_set.into_iter().collect();
+    genres.sort();
+    genres.truncate(12);
+    genres
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn home_fetch_yield() {
+    tokio::task::yield_now().await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn home_fetch_yield() {
+    gloo_timers::future::TimeoutFuture::new(0).await;
+}
+
 #[component]
 pub fn HomeView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -12,122 +71,93 @@ pub fn HomeView() -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
 
-    // Fetch recent albums from all active servers
-    let recent_albums = use_resource(move || {
-        let active_servers = servers()
-            .into_iter()
-            .filter(|s| s.active)
-            .collect::<Vec<_>>();
-        async move {
-            let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server);
-                client.get_albums("newest", 12, 0).await.unwrap_or_default()
-            });
-            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
-            albums.truncate(12);
-            albums
-        }
-    });
+    let recent_albums = use_signal(|| None::<Vec<Album>>);
+    let most_played_albums = use_signal(|| None::<Vec<Album>>);
+    let recently_played_albums = use_signal(|| None::<Vec<Album>>);
+    let random_albums = use_signal(|| None::<Vec<Album>>);
+    let genres = use_signal(|| None::<Vec<String>>);
+    let quick_picks = use_signal(|| None::<Vec<Song>>);
+    let load_generation = use_signal(|| 0u64);
 
-    // Fetch most played albums
-    let most_played_albums = use_resource(move || {
-        let active_servers = servers()
-            .into_iter()
-            .filter(|s| s.active)
-            .collect::<Vec<_>>();
-        async move {
-            let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server);
-                client
-                    .get_albums("frequent", 12, 0)
-                    .await
-                    .unwrap_or_default()
-            });
-            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
-            albums.truncate(12);
-            albums
-        }
-    });
+    {
+        let servers = servers.clone();
+        let mut recent_albums = recent_albums.clone();
+        let mut most_played_albums = most_played_albums.clone();
+        let mut recently_played_albums = recently_played_albums.clone();
+        let mut random_albums = random_albums.clone();
+        let mut genres = genres.clone();
+        let mut quick_picks = quick_picks.clone();
+        let mut load_generation = load_generation.clone();
 
-    // Fetch recently played albums
-    let recently_played_albums = use_resource(move || {
-        let active_servers = servers()
-            .into_iter()
-            .filter(|s| s.active)
-            .collect::<Vec<_>>();
-        async move {
-            let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server);
-                client.get_albums("recent", 12, 0).await.unwrap_or_default()
-            });
-            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
-            albums.truncate(12);
-            albums
-        }
-    });
+        use_effect(move || {
+            let active_servers: Vec<ServerConfig> =
+                servers().into_iter().filter(|s| s.active).collect();
 
-    // Fetch random albums
-    let random_albums = use_resource(move || {
-        let active_servers = servers()
-            .into_iter()
-            .filter(|s| s.active)
-            .collect::<Vec<_>>();
-        async move {
-            let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server);
-                client.get_albums("random", 12, 0).await.unwrap_or_default()
-            });
-            let mut albums: Vec<Album> = join_all(tasks).await.into_iter().flatten().collect();
-            albums.truncate(12);
-            albums
-        }
-    });
+            load_generation.with_mut(|value| *value += 1);
+            let generation = load_generation();
 
-    // Fetch genres from albums
-    let genres = use_resource(move || {
-        let active_servers = servers()
-            .into_iter()
-            .filter(|s| s.active)
-            .collect::<Vec<_>>();
-        async move {
-            let mut genre_set = std::collections::HashSet::new();
-            let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server);
-                client
-                    .get_albums("alphabeticalByName", 80, 0)
-                    .await
-                    .unwrap_or_default()
-            });
+            recent_albums.set(None);
+            most_played_albums.set(None);
+            recently_played_albums.set(None);
+            random_albums.set(None);
+            genres.set(None);
+            quick_picks.set(None);
 
-            for album in join_all(tasks).await.into_iter().flatten() {
-                if let Some(genre) = album.genre {
-                    genre_set.insert(genre);
-                }
+            if active_servers.is_empty() {
+                recent_albums.set(Some(Vec::new()));
+                most_played_albums.set(Some(Vec::new()));
+                recently_played_albums.set(Some(Vec::new()));
+                random_albums.set(Some(Vec::new()));
+                genres.set(Some(Vec::new()));
+                quick_picks.set(Some(Vec::new()));
+                return;
             }
 
-            let mut genres: Vec<String> = genre_set.into_iter().collect();
-            genres.sort();
-            genres.truncate(12);
-            genres
-        }
-    });
+            spawn(async move {
+                let recent = fetch_albums_for_servers(&active_servers, "newest", 12).await;
+                if load_generation() != generation {
+                    return;
+                }
+                recent_albums.set(Some(recent));
+                home_fetch_yield().await;
 
-    // Fetch quick picks (random songs)
-    let quick_picks = use_resource(move || {
-        let active_servers = servers()
-            .into_iter()
-            .filter(|s| s.active)
-            .collect::<Vec<_>>();
-        async move {
-            let tasks = active_servers.into_iter().map(|server| async move {
-                let client = NavidromeClient::new(server);
-                client.get_random_songs(12).await.unwrap_or_default()
+                let most_played = fetch_albums_for_servers(&active_servers, "frequent", 12).await;
+                if load_generation() != generation {
+                    return;
+                }
+                most_played_albums.set(Some(most_played));
+                home_fetch_yield().await;
+
+                let recent_played =
+                    fetch_albums_for_servers(&active_servers, "recent", 12).await;
+                if load_generation() != generation {
+                    return;
+                }
+                recently_played_albums.set(Some(recent_played));
+                home_fetch_yield().await;
+
+                let random = fetch_albums_for_servers(&active_servers, "random", 12).await;
+                if load_generation() != generation {
+                    return;
+                }
+                random_albums.set(Some(random));
+                home_fetch_yield().await;
+
+                let genres_list = fetch_genres_for_servers(&active_servers).await;
+                if load_generation() != generation {
+                    return;
+                }
+                genres.set(Some(genres_list));
+                home_fetch_yield().await;
+
+                let quick = fetch_random_songs_for_servers(&active_servers, 12).await;
+                if load_generation() != generation {
+                    return;
+                }
+                quick_picks.set(Some(quick));
             });
-            let mut songs: Vec<Song> = join_all(tasks).await.into_iter().flatten().collect();
-            songs.truncate(24);
-            songs
-        }
-    });
+        });
+    }
 
     let has_servers = servers().iter().any(|s| s.active);
 

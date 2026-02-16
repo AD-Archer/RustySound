@@ -4,6 +4,8 @@ use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::Duration;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 static AUTH_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
@@ -13,6 +15,13 @@ const API_VERSION: &str = "1.16.1";
 
 pub struct NavidromeClient {
     pub server: ServerConfig,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IcyNowPlaying {
+    pub title: String,
+    pub artist: Option<String>,
+    pub raw_title: String,
 }
 
 impl NavidromeClient {
@@ -94,6 +103,22 @@ impl NavidromeClient {
     #[allow(dead_code)]
     pub fn get_stream_url(&self, song_id: &str) -> String {
         self.build_url("stream", &[("id", song_id)])
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub async fn read_icy_now_playing(stream_url: &str) -> Result<Option<IcyNowPlaying>, String> {
+        for candidate_url in icy_metadata_candidate_urls(stream_url) {
+            if let Ok(Some(now_playing)) = read_icy_now_playing_from_url(&candidate_url).await {
+                return Ok(Some(now_playing));
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub async fn read_icy_now_playing(_stream_url: &str) -> Result<Option<IcyNowPlaying>, String> {
+        Ok(None)
     }
 
     pub async fn ping(&self) -> Result<bool, String> {
@@ -782,6 +807,7 @@ impl NavidromeClient {
         Ok(())
     }
 
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub async fn create_similar_playlist(
         &self,
         seed_song_id: &str,
@@ -1003,6 +1029,163 @@ impl NavidromeClient {
 
         Ok(())
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn icy_metadata_candidate_urls(stream_url: &str) -> Vec<String> {
+    let mut urls = vec![stream_url.to_string()];
+
+    if let Ok(mut parsed) = reqwest::Url::parse(stream_url) {
+        let path = parsed.path().to_string();
+        if !path.ends_with(';') {
+            let fallback_path = if path.ends_with('/') {
+                format!("{path};")
+            } else {
+                format!("{path}/;")
+            };
+            parsed.set_path(&fallback_path);
+            let fallback = parsed.to_string();
+            if fallback != stream_url {
+                urls.push(fallback);
+            }
+        }
+    }
+
+    urls
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn read_icy_now_playing_from_url(stream_url: &str) -> Result<Option<IcyNowPlaying>, String> {
+    let mut response = HTTP_CLIENT
+        .get(stream_url)
+        .header("Icy-MetaData", "1")
+        .header("User-Agent", CLIENT_NAME)
+        .timeout(Duration::from_secs(8))
+        .send()
+        .await
+        .map_err(|e| e.to_string())?;
+
+    let metaint = response
+        .headers()
+        .get("icy-metaint")
+        .or_else(|| response.headers().get("Icy-MetaInt"))
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.trim().parse::<usize>().ok())
+        .unwrap_or(0);
+
+    if metaint == 0 {
+        return Ok(None);
+    }
+
+    let mut buffer = Vec::<u8>::new();
+    let mut audio_remaining = metaint;
+    let mut metadata_len: Option<usize> = None;
+    let mut blocks_checked = 0usize;
+    let mut total_bytes = 0usize;
+    const MAX_BLOCKS: usize = 8;
+    const MAX_BYTES: usize = 1024 * 1024;
+
+    while blocks_checked < MAX_BLOCKS && total_bytes < MAX_BYTES {
+        let Some(chunk) = response.chunk().await.map_err(|e| e.to_string())? else {
+            break;
+        };
+        total_bytes += chunk.len();
+        buffer.extend_from_slice(&chunk);
+
+        loop {
+            if audio_remaining > 0 {
+                if buffer.len() < audio_remaining {
+                    audio_remaining -= buffer.len();
+                    buffer.clear();
+                    break;
+                }
+                buffer.drain(..audio_remaining);
+                audio_remaining = 0;
+            }
+
+            if metadata_len.is_none() {
+                if buffer.is_empty() {
+                    break;
+                }
+                let len = buffer[0] as usize * 16;
+                buffer.drain(..1);
+                if len == 0 {
+                    blocks_checked += 1;
+                    audio_remaining = metaint;
+                    continue;
+                }
+                metadata_len = Some(len);
+            }
+
+            let Some(len) = metadata_len else {
+                break;
+            };
+            if buffer.len() < len {
+                break;
+            }
+
+            let metadata_block: Vec<u8> = buffer.drain(..len).collect();
+            blocks_checked += 1;
+            metadata_len = None;
+            audio_remaining = metaint;
+
+            if let Some(now_playing) = parse_icy_metadata_block(&metadata_block) {
+                return Ok(Some(now_playing));
+            }
+        }
+    }
+
+    Ok(None)
+}
+
+fn parse_icy_metadata_block(block: &[u8]) -> Option<IcyNowPlaying> {
+    let raw = String::from_utf8_lossy(block).replace('\0', "");
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return None;
+    }
+
+    let stream_title = extract_icy_field(raw, "StreamTitle")?;
+    let stream_title = stream_title.trim();
+    if stream_title.is_empty() {
+        return None;
+    }
+
+    let (artist, title) = if let Some((artist, title)) = stream_title.split_once(" - ") {
+        let artist = artist.trim().to_string();
+        let title = title.trim().to_string();
+        if !artist.is_empty() && !title.is_empty() {
+            (Some(artist), title)
+        } else {
+            (None, stream_title.to_string())
+        }
+    } else {
+        (None, stream_title.to_string())
+    };
+
+    Some(IcyNowPlaying {
+        title,
+        artist,
+        raw_title: stream_title.to_string(),
+    })
+}
+
+fn extract_icy_field(raw: &str, field: &str) -> Option<String> {
+    let single = format!("{field}='");
+    if let Some(start) = raw.find(&single) {
+        let tail = &raw[start + single.len()..];
+        let end = tail.find("';").or_else(|| tail.find('\''))?;
+        return Some(tail[..end].to_string());
+    }
+
+    let double = format!("{field}=\"");
+    if let Some(start) = raw.find(&double) {
+        let tail = &raw[start + double.len()..];
+        let end = tail.find("\";").or_else(|| tail.find('"'))?;
+        return Some(tail[..end].to_string());
+    }
+
+    None
 }
 
 // Simple URL encoding for parameters

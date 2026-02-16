@@ -10,7 +10,6 @@ pub fn RandomView() -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    let shuffle_enabled = use_context::<Signal<bool>>();
 
     let refresh_counter = use_signal(|| 0);
     let mut shuffled_songs = use_signal(|| Vec::<Song>::new());
@@ -75,7 +74,6 @@ pub fn RandomView() -> Element {
                     p { class: "page-subtitle", "A random selection from your library" }
                 }
                 div { class: "flex flex-wrap gap-6",
-
                     button {
                         class: "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
                         onclick: on_play_all,

@@ -1234,6 +1234,7 @@ pub fn AudioController() -> Element {
     let last_bookmark = use_signal(|| None::<(String, u64)>);
     let last_song_for_bookmark = use_signal(|| None::<Song>);
     let last_ended_song = use_signal(|| None::<String>);
+    let repeat_one_replayed_song = use_signal(|| None::<String>);
 
     // One-time setup: bootstrap audio bridge and poll playback state.
     {
@@ -1247,6 +1248,7 @@ pub fn AudioController() -> Element {
         let mut playback_position = playback_position.clone();
         let mut audio_state = audio_state.clone();
         let mut last_ended_song = last_ended_song.clone();
+        let mut repeat_one_replayed_song = repeat_one_replayed_song.clone();
 
         use_effect(move || {
             ensure_native_audio_bridge();
@@ -1409,42 +1411,41 @@ pub fn AudioController() -> Element {
                         let shuffle = *shuffle_enabled.peek();
                         let servers_snapshot = servers.peek().clone();
 
+                        if repeat != RepeatMode::One && repeat_one_replayed_song.peek().is_some() {
+                            repeat_one_replayed_song.set(None);
+                        }
+
                         if let Some(song) = current_song.clone() {
                             scrobble_song(&servers_snapshot, &song, true);
                         }
 
                         if repeat == RepeatMode::One {
-                            native_audio_command(serde_json::json!({
-                                "type": "seek",
-                                "position": 0.0
-                            }));
-                            if *is_playing.peek() {
-                                native_audio_command(serde_json::json!({
-                                    "type": "play"
-                                }));
+                            if let Some(song_id) = current_id.clone() {
+                                if repeat_one_replayed_song.peek().as_ref() != Some(&song_id) {
+                                    repeat_one_replayed_song.set(Some(song_id));
+                                    native_audio_command(serde_json::json!({
+                                        "type": "seek",
+                                        "position": 0.0
+                                    }));
+                                    if *is_playing.peek() {
+                                        native_audio_command(serde_json::json!({
+                                            "type": "play"
+                                        }));
+                                    }
+                                } else {
+                                    // Repeat-one should replay exactly once, then stop.
+                                    repeat_one_replayed_song.set(None);
+                                    is_playing.set(false);
+                                }
+                            } else {
+                                is_playing.set(false);
                             }
                             continue;
                         }
 
                         let len = queue_snapshot.len();
                         if len == 0 {
-                            if repeat == RepeatMode::All {
-                                native_audio_command(serde_json::json!({
-                                    "type": "seek",
-                                    "position": 0.0
-                                }));
-                                native_audio_command(serde_json::json!({ "type": "play" }));
-                            } else {
-                                spawn_shuffle_queue(
-                                    servers_snapshot,
-                                    queue.clone(),
-                                    queue_index.clone(),
-                                    now_playing.clone(),
-                                    is_playing.clone(),
-                                    current_song.clone(),
-                                    Some(true),
-                                );
-                            }
+                            is_playing.set(false);
                             continue;
                         }
 
@@ -1482,16 +1483,6 @@ pub fn AudioController() -> Element {
                                 now_playing.set(Some(song));
                                 is_playing.set(true);
                             }
-                        } else if len <= 1 {
-                            spawn_shuffle_queue(
-                                servers_snapshot,
-                                queue.clone(),
-                                queue_index.clone(),
-                                now_playing.clone(),
-                                is_playing.clone(),
-                                current_song,
-                                Some(true),
-                            );
                         } else {
                             is_playing.set(false);
                         }
@@ -1660,9 +1651,11 @@ pub fn AudioController() -> Element {
     {
         let repeat_mode = repeat_mode.clone();
         use_effect(move || {
+            let _ = repeat_mode();
             native_audio_command(serde_json::json!({
                 "type": "loop",
-                "enabled": repeat_mode() == RepeatMode::One,
+                // Repeat behavior is handled in ended-event logic.
+                "enabled": false,
             }));
         });
     }
@@ -1985,6 +1978,7 @@ pub fn AudioController() -> Element {
                 let mut last_emit = 0.0f64;
                 let mut last_duration = -1.0f64;
                 let mut ended_for_song: Option<String> = None;
+                let mut repeat_one_replayed_song: Option<String> = None;
 
                 loop {
                     gloo_timers::future::TimeoutFuture::new(200).await;
@@ -2020,11 +2014,29 @@ pub fn AudioController() -> Element {
                         let shuffle = { *shuffle_enabled.read() };
                         let servers_snapshot = { servers.read().clone() };
 
+                        if repeat != RepeatMode::One {
+                            repeat_one_replayed_song = None;
+                        }
+
                         if let Some(song) = current_song.clone() {
                             scrobble_song(&servers_snapshot, &song, true);
                         }
 
                         if repeat == RepeatMode::One {
+                            if let Some(song_id) = current_id.clone() {
+                                if repeat_one_replayed_song.as_ref() != Some(&song_id) {
+                                    repeat_one_replayed_song = Some(song_id);
+                                    audio.set_current_time(0.0);
+                                    if *is_playing.read() {
+                                        let _ = audio.play();
+                                    }
+                                } else {
+                                    repeat_one_replayed_song = None;
+                                    is_playing.set(false);
+                                }
+                            } else {
+                                is_playing.set(false);
+                            }
                             continue;
                         }
 
@@ -2219,9 +2231,10 @@ pub fn AudioController() -> Element {
     {
         let repeat_mode = repeat_mode.clone();
         use_effect(move || {
-            let mode = repeat_mode();
+            let _ = repeat_mode();
             if let Some(audio) = get_or_create_audio_element() {
-                audio.set_loop(mode == RepeatMode::One);
+                // Repeat behavior is handled in ended-event logic.
+                audio.set_loop(false);
             }
         });
     }

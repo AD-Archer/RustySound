@@ -2,6 +2,16 @@ use crate::api::*;
 use crate::components::Icon;
 use dioxus::prelude::*;
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn radio_metadata_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn radio_metadata_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
 #[derive(Clone, PartialEq)]
 enum RadioFormMode {
     Closed,
@@ -25,6 +35,96 @@ pub fn RadioView() -> Element {
     let error_message = use_signal(|| None::<String>);
     let is_saving = use_signal(|| false);
     let refresh_key = use_signal(|| 0u32);
+    let metadata_poll_generation = use_signal(|| 0u64);
+
+    // Poll ICY metadata for the currently playing radio stream and update title/artist live.
+    {
+        let now_playing = now_playing.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let is_playing = is_playing.clone();
+        let mut metadata_poll_generation = metadata_poll_generation.clone();
+
+        use_effect(move || {
+            let current = now_playing();
+            metadata_poll_generation.with_mut(|value| *value += 1);
+            let generation = metadata_poll_generation();
+
+            let Some(song) = current else {
+                return;
+            };
+
+            let Some(stream_url) = song.stream_url.clone() else {
+                return;
+            };
+
+            // Radio entries are synthetic songs with no album and no known duration.
+            if song.duration > 0 || song.album.is_some() {
+                return;
+            }
+
+            let song_id = song.id.clone();
+            let fallback_artist = song
+                .artist
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "Internet Radio".to_string());
+
+            let mut now_playing = now_playing.clone();
+            let mut queue = queue.clone();
+            let queue_index = queue_index.clone();
+            let is_playing = is_playing.clone();
+            let metadata_poll_generation = metadata_poll_generation.clone();
+
+            spawn(async move {
+                let mut last_raw_title = String::new();
+
+                loop {
+                    if metadata_poll_generation() != generation {
+                        break;
+                    }
+
+                    if !*is_playing.peek() {
+                        radio_metadata_delay_ms(1200).await;
+                        continue;
+                    }
+
+                    if let Ok(Some(meta)) = NavidromeClient::read_icy_now_playing(&stream_url).await {
+                        if metadata_poll_generation() != generation {
+                            break;
+                        }
+
+                        if !meta.raw_title.is_empty() && meta.raw_title != last_raw_title {
+                            last_raw_title = meta.raw_title.clone();
+                            let next_title = meta.title;
+                            let next_artist = meta.artist.unwrap_or_else(|| fallback_artist.clone());
+
+                            now_playing.with_mut(|current_song| {
+                                if let Some(song) = current_song {
+                                    if song.id == song_id {
+                                        song.title = next_title.clone();
+                                        song.artist = Some(next_artist.clone());
+                                    }
+                                }
+                            });
+
+                            let idx = queue_index();
+                            queue.with_mut(|items| {
+                                if let Some(song) = items.get_mut(idx) {
+                                    if song.id == song_id {
+                                        song.title = next_title.clone();
+                                        song.artist = Some(next_artist.clone());
+                                    }
+                                }
+                            });
+                        }
+                    }
+
+                    radio_metadata_delay_ms(6500).await;
+                }
+            });
+        });
+    }
 
     let stations = use_resource(move || {
         let _ = refresh_key();
@@ -364,8 +464,8 @@ pub fn RadioView() -> Element {
                                         move |_| {
                                             let radio_song = Song {
                                                 id: station.id.clone(),
-                                                title: station.name.clone(),
-                                                artist: Some("Internet Radio".to_string()),
+                                                title: "Unknown Song".to_string(),
+                                                artist: Some(station.name.clone()),
                                                 album: None,
                                                 album_id: None,
                                                 artist_id: None,
