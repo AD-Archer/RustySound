@@ -54,6 +54,10 @@ fn App() -> Element {
         document::Link { rel: "manifest", href: "/assets/site.webmanifest" }
 
         // Theme color for mobile browsers
+        document::Meta {
+            name: "viewport",
+            content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+        }
         document::Meta { name: "theme-color", content: "#a38449" }
         document::Meta { name: "mobile-web-app-capable", content: "yes" }
         document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }

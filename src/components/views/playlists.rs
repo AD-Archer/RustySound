@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::{AppView, AddIntent, AddMenuController, Icon, Navigation};
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 #[component]

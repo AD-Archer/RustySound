@@ -734,12 +734,11 @@ impl NavidromeClient {
         let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
 
         if json.subsonic_response.status != "ok" {
-            return Err(
-                json.subsonic_response
-                    .error
-                    .map(|e| e.message)
-                    .unwrap_or_else(|| "Unknown error".to_string()),
-            );
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or_else(|| "Unknown error".to_string()));
         }
 
         Ok(())
@@ -759,7 +758,7 @@ impl NavidromeClient {
         // This prevents index shifting issues
         let mut sorted_indices = song_indices.to_vec();
         sorted_indices.sort_by(|a, b| b.cmp(a));
-        
+
         for &index in &sorted_indices {
             params.push(("songIndexToRemove".to_string(), index.to_string()));
         }

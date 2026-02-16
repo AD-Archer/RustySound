@@ -16,7 +16,7 @@ icon = "assets/favicon.icns"
 name = "RustySound"
 
 # The icon to use for the app (PNG)
-icon = "assets/web-app-manifest-192x192.png"
+icon = "assets/web-app-manifest-512x512.png"
 
 [web.app]
 
@@ -68,10 +68,21 @@ long_description = "RustySound is a cross-platform music streaming client that c
 copyright = "Copyright © 2026 AD-Archer"
 
 # Icons for different platforms
-icon = ["assets/logo.png", "assets/logo.icns"]
+icon = [
+    "assets/web-app-manifest-512x512.png",
+    "assets/web-app-manifest-192x192.png",
+    "assets/favicon.icns",
+]
 
 # The list of files to include in the bundle
-resources = ["assets/tailwind.css", "assets/styling/*", "assets/logo.png"]
+resources = [
+    "assets/tailwind.css",
+    "assets/styling/*",
+    "assets/*.png",
+    "assets/*.ico",
+    "assets/*.icns",
+    "assets/*.webmanifest",
+]
 
 # macOS specific settings
 [bundle.macos]
