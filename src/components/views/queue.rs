@@ -1,20 +1,40 @@
 use crate::api::models::format_duration;
 use crate::api::*;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AppView, Icon, Navigation, SongDetailsController};
 use dioxus::prelude::*;
 
 #[component]
 pub fn QueueView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
+    let song_details = use_context::<SongDetailsController>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
+    let drag_source_index = use_signal(|| None::<usize>);
+    let add_song_panel_open = use_signal(|| false);
+    let mut queue_search = use_signal(String::new);
 
     let current_index = queue_index();
     let songs: Vec<Song> = queue().into_iter().collect();
     let current_song = now_playing();
+
+    let add_song_results = {
+        let servers = servers.clone();
+        let add_song_panel_open = add_song_panel_open.clone();
+        use_resource(move || {
+            let query = queue_search();
+            let is_open = add_song_panel_open();
+            let servers_snapshot = servers();
+            async move {
+                if !is_open {
+                    return Vec::new();
+                }
+                search_queue_add_candidates(servers_snapshot, query).await
+            }
+        })
+    };
 
     let on_clear = move |_| {
         let current = now_playing();
@@ -28,6 +48,18 @@ pub fn QueueView() -> Element {
         }
     };
 
+    let on_toggle_add_song_panel = {
+        let mut add_song_panel_open = add_song_panel_open.clone();
+        let mut queue_search = queue_search.clone();
+        move |_| {
+            let next_state = !add_song_panel_open();
+            add_song_panel_open.set(next_state);
+            if !next_state {
+                queue_search.set(String::new());
+            }
+        }
+    };
+
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header page-header--split",
@@ -38,15 +70,148 @@ pub fn QueueView() -> Element {
                     }
                 }
 
-                if !songs.is_empty() {
+                div { class: "flex items-center gap-2",
                     button {
-                        class: "px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors flex items-center gap-2",
-                        onclick: on_clear,
+                        class: if add_song_panel_open() {
+                            "px-4 py-2 rounded-xl bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:text-white transition-colors flex items-center gap-2"
+                        } else {
+                            "px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors flex items-center gap-2"
+                        },
+                        onclick: on_toggle_add_song_panel,
                         Icon {
-                            name: "trash".to_string(),
+                            name: "plus".to_string(),
                             class: "w-4 h-4".to_string(),
                         }
-                        "Clear Queue"
+                        if add_song_panel_open() {
+                            "Close Add Songs"
+                        } else {
+                            "Add Songs"
+                        }
+                    }
+                    if !songs.is_empty() {
+                        button {
+                            class: "px-4 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-zinc-300 hover:text-white transition-colors flex items-center gap-2",
+                            onclick: on_clear,
+                            Icon {
+                                name: "trash".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
+                            "Clear Queue"
+                        }
+                    }
+                }
+            }
+
+            if add_song_panel_open() {
+                div { class: "rounded-2xl border border-zinc-700/40 bg-zinc-900/40 p-4 space-y-3",
+                    p { class: "text-xs uppercase tracking-wider text-zinc-500", "Add Songs To Queue" }
+                    input {
+                        class: "w-full px-3 py-2 rounded-lg bg-zinc-950/70 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
+                        placeholder: "Search songs",
+                        value: queue_search,
+                        oninput: move |evt| queue_search.set(evt.value()),
+                    }
+                    if queue_search().trim().len() < 2 {
+                        p { class: "text-sm text-zinc-500", "Type at least 2 characters to search." }
+                    } else {
+                        match add_song_results() {
+                            None => rsx! {
+                                div { class: "py-3 flex items-center gap-2 text-zinc-500 text-sm",
+                                    Icon { name: "loader".to_string(), class: "w-4 h-4".to_string() }
+                                    "Searching..."
+                                }
+                            },
+                            Some(results) => {
+                                if results.is_empty() {
+                                    rsx! {
+                                        p { class: "text-sm text-zinc-500", "No songs found." }
+                                    }
+                                } else {
+                                    rsx! {
+                                        div { class: "space-y-2 max-h-72 overflow-y-auto pr-1",
+                                            for result in results {
+                                                {
+                                                    let already_queued = songs.iter().any(|queued_song| {
+                                                        same_song_identity(queued_song, &result)
+                                                    });
+                                                    let cover_url = servers()
+                                                        .iter()
+                                                        .find(|server| server.id == result.server_id)
+                                                        .and_then(|server| {
+                                                            let client = NavidromeClient::new(server.clone());
+                                                            result
+                                                                .cover_art
+                                                                .as_ref()
+                                                                .map(|cover| client.get_cover_art_url(cover, 80))
+                                                        });
+                                                    rsx! {
+                                                        div {
+                                                            key: "{result.server_id}:{result.id}",
+                                                            class: "flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-zinc-800/50 transition-colors",
+                                                            {
+                                                                if let Some(url) = cover_url {
+                                                                    rsx! {
+                                                                        img {
+                                                                            class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                            src: "{url}",
+                                                                        }
+                                                                    }
+                                                                } else {
+                                                                    rsx! {
+                                                                        div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
+                                                                            Icon {
+                                                                                name: "music".to_string(),
+                                                                                class: "w-4 h-4 text-zinc-500".to_string(),
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                            div { class: "min-w-0 flex-1",
+                                                                p { class: "text-sm text-white truncate", "{result.title}" }
+                                                                p { class: "text-xs text-zinc-500 truncate",
+                                                                    "{result.artist.clone().unwrap_or_default()} • {result.album.clone().unwrap_or_default()}"
+                                                                }
+                                                            }
+                                                            button {
+                                                                class: if already_queued {
+                                                                    "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                                } else {
+                                                                    "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
+                                                                },
+                                                                disabled: already_queued,
+                                                                onclick: {
+                                                                    let queue = queue.clone();
+                                                                    let queue_index = queue_index.clone();
+                                                                    let now_playing = now_playing.clone();
+                                                                    let is_playing = is_playing.clone();
+                                                                    let song = result.clone();
+                                                                    move |evt: MouseEvent| {
+                                                                        evt.stop_propagation();
+                                                                        enqueue_song_to_queue(
+                                                                            queue.clone(),
+                                                                            queue_index.clone(),
+                                                                            now_playing.clone(),
+                                                                            is_playing.clone(),
+                                                                            song.clone(),
+                                                                        );
+                                                                    }
+                                                                },
+                                                                if already_queued {
+                                                                    "In Queue"
+                                                                } else {
+                                                                    "Add"
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -59,7 +224,7 @@ pub fn QueueView() -> Element {
                     }
                     p { class: "text-zinc-400", "Your queue is empty" }
                     p { class: "text-zinc-500 text-sm mt-2",
-                        "Add songs from albums or search to start listening"
+                        "Use Add Songs above to build a queue."
                     }
                 }
             } else {
@@ -84,20 +249,13 @@ pub fn QueueView() -> Element {
                                             if current.album_id.is_some() {
                                                 button {
                                                     class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
-                                                    aria_label: "Open album",
+                                                    aria_label: "Open song menu",
                                                     onclick: {
-                                                        let album_id = current.album_id.clone();
-                                                        let server_id = current.server_id.clone();
-                                                        let navigation = navigation.clone();
+                                                        let song = current.clone();
+                                                        let mut song_details = song_details.clone();
                                                         move |evt: MouseEvent| {
                                                             evt.stop_propagation();
-                                                            if let Some(album_id) = album_id.clone() {
-                                                                navigation
-                                                        .navigate_to(AppView::AlbumDetailView {
-                                                            album_id,
-                                                            server_id: server_id.clone(),
-                                                        });
-                                                            }
+                                                            song_details.open(song.clone());
                                                         }
                                                     },
                                                     {
@@ -195,12 +353,56 @@ pub fn QueueView() -> Element {
                                 rsx! {
                                     div {
                                         key: "{song_id}-{idx}",
-                                        class: if is_current { "p-3 bg-emerald-500/5 flex items-center justify-between" } else { "p-3 hover:bg-zinc-700/30 transition-colors flex items-center justify-between group cursor-pointer" },
+                                        draggable: true,
+                                        class: if drag_source_index() == Some(idx) {
+                                            "p-3 border-l-2 border-emerald-400 bg-emerald-500/10 flex items-center justify-between group opacity-70"
+                                        } else if is_current {
+                                            "p-3 bg-emerald-500/5 flex items-center justify-between group cursor-pointer"
+                                        } else {
+                                            "p-3 hover:bg-zinc-700/30 transition-colors flex items-center justify-between group cursor-pointer"
+                                        },
                                         onclick: move |_| {
                                             if !is_current {
                                                 queue_index.set(idx);
                                                 now_playing.set(Some(song.clone()));
                                                 is_playing.set(true);
+                                            }
+                                        },
+                                        ondragstart: {
+                                            let mut drag_source_index = drag_source_index.clone();
+                                            let source_index = idx;
+                                            move |_| {
+                                                drag_source_index.set(Some(source_index));
+                                            }
+                                        },
+                                        ondragend: {
+                                            let mut drag_source_index = drag_source_index.clone();
+                                            move |_| {
+                                                drag_source_index.set(None);
+                                            }
+                                        },
+                                        ondragover: move |evt| {
+                                            evt.prevent_default();
+                                        },
+                                        ondrop: {
+                                            let mut drag_source_index = drag_source_index.clone();
+                                            let queue = queue.clone();
+                                            let queue_index = queue_index.clone();
+                                            let now_playing = now_playing.clone();
+                                            let target_index = idx;
+                                            move |evt| {
+                                                evt.prevent_default();
+                                                let Some(source_index) = drag_source_index() else {
+                                                    return;
+                                                };
+                                                drag_source_index.set(None);
+                                                reorder_queue_entry(
+                                                    queue.clone(),
+                                                    queue_index.clone(),
+                                                    now_playing.clone(),
+                                                    source_index,
+                                                    target_index,
+                                                );
                                             }
                                         },
 
@@ -220,20 +422,13 @@ pub fn QueueView() -> Element {
                                             if song.album_id.is_some() {
                                                 button {
                                                     class: "w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
-                                                    aria_label: "Open album",
+                                                    aria_label: "Open song menu",
                                                     onclick: {
-                                                        let album_id = song.album_id.clone();
-                                                        let server_id = song.server_id.clone();
-                                                        let navigation = navigation.clone();
+                                                        let song = song.clone();
+                                                        let mut song_details = song_details.clone();
                                                         move |evt: MouseEvent| {
                                                             evt.stop_propagation();
-                                                            if let Some(album_id) = album_id.clone() {
-                                                                navigation
-                                                        .navigate_to(AppView::AlbumDetailView {
-                                                            album_id,
-                                                            server_id: server_id.clone(),
-                                                        });
-                                                            }
+                                                            song_details.open(song.clone());
                                                         }
                                                     },
                                                     {
@@ -338,38 +533,23 @@ pub fn QueueView() -> Element {
                                                 "{format_duration(song.duration)}"
                                             }
 
+                                            div {
+                                                class: "text-zinc-600 cursor-grab active:cursor-grabbing",
+                                                title: "Drag to reorder",
+                                                Icon { name: "bars".to_string(), class: "w-4 h-4".to_string() }
+                                            }
+
                                             button {
                                                 class: "p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
-                                                    let was_playing = is_playing();
-                                                    let q_len = queue().len();
-
-                                                    queue
-
-                                                        .with_mut(|q| {
-                                                            if idx < q.len() {
-                                                                q.remove(idx);
-                                                            }
-                                                        });
-                                                    if q_len <= 1 {
-                                                        queue_index.set(0);
-                                                        now_playing.set(None);
-                                                        is_playing.set(false);
-                                                    } else if idx < current_index {
-                                                        queue_index.set(current_index - 1);
-                                                    } else if idx == current_index {
-                                                        let new_queue = queue();
-                                                        let new_idx = idx.min(new_queue.len().saturating_sub(1));
-                                                        if let Some(new_song) = new_queue.get(new_idx) {
-                                                            now_playing.set(Some(new_song.clone()));
-                                                            queue_index.set(new_idx);
-                                                            is_playing.set(was_playing);
-                                                        } else {
-                                                            now_playing.set(None);
-                                                            is_playing.set(false);
-                                                        }
-                                                    }
+                                                    remove_queue_entry(
+                                                        queue.clone(),
+                                                        queue_index.clone(),
+                                                        now_playing.clone(),
+                                                        is_playing.clone(),
+                                                        idx,
+                                                    );
                                                 },
                                                 Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
                                             }
@@ -383,4 +563,194 @@ pub fn QueueView() -> Element {
             }
         }
     }
+}
+
+fn adjusted_queue_index_after_reorder(
+    current_index: usize,
+    source_index: usize,
+    target_index: usize,
+) -> usize {
+    if source_index == current_index {
+        target_index
+    } else if source_index < current_index && target_index >= current_index {
+        current_index.saturating_sub(1)
+    } else if source_index > current_index && target_index <= current_index {
+        current_index.saturating_add(1)
+    } else {
+        current_index
+    }
+}
+
+fn reorder_queue_entry(
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    source_index: usize,
+    target_index: usize,
+) {
+    let current_index = queue_index();
+    let mut reordered = false;
+    let mut next_index = current_index;
+
+    queue.with_mut(|items| {
+        if items.len() < 2
+            || source_index >= items.len()
+            || target_index >= items.len()
+            || source_index == target_index
+        {
+            return;
+        }
+
+        let moved_song = items.remove(source_index);
+        let insert_index = if source_index < target_index {
+            target_index.saturating_sub(1)
+        } else {
+            target_index
+        };
+        items.insert(insert_index, moved_song);
+        next_index = adjusted_queue_index_after_reorder(current_index, source_index, insert_index);
+        reordered = true;
+    });
+
+    if !reordered {
+        return;
+    }
+
+    let updated_queue = queue();
+    if updated_queue.is_empty() {
+        queue_index.set(0);
+        now_playing.set(None);
+        return;
+    }
+
+    let clamped_index = next_index.min(updated_queue.len().saturating_sub(1));
+    queue_index.set(clamped_index);
+    if now_playing().is_some() {
+        now_playing.set(updated_queue.get(clamped_index).cloned());
+    }
+}
+
+fn remove_queue_entry(
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut is_playing: Signal<bool>,
+    remove_index: usize,
+) {
+    let had_now_playing = now_playing().is_some();
+    let was_playing = is_playing();
+    let current_index = queue_index();
+    let mut removed = false;
+
+    queue.with_mut(|items| {
+        if remove_index >= items.len() {
+            return;
+        }
+        items.remove(remove_index);
+        removed = true;
+    });
+
+    if !removed {
+        return;
+    }
+
+    let updated_queue = queue();
+    if updated_queue.is_empty() {
+        queue_index.set(0);
+        now_playing.set(None);
+        is_playing.set(false);
+        return;
+    }
+
+    let mut next_index = current_index.min(updated_queue.len().saturating_sub(1));
+    if remove_index < current_index {
+        next_index = current_index.saturating_sub(1);
+    } else if remove_index == current_index {
+        next_index = remove_index.min(updated_queue.len().saturating_sub(1));
+    }
+
+    queue_index.set(next_index);
+    if had_now_playing {
+        now_playing.set(updated_queue.get(next_index).cloned());
+        is_playing.set(was_playing);
+    }
+}
+
+fn enqueue_song_to_queue(
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut is_playing: Signal<bool>,
+    song: Song,
+) {
+    let was_empty = queue().is_empty();
+    let mut inserted_index = None;
+
+    queue.with_mut(|items| {
+        if let Some(existing_index) = items
+            .iter()
+            .position(|entry| same_song_identity(entry, &song))
+        {
+            inserted_index = Some(existing_index);
+            return;
+        }
+        items.push(song.clone());
+        inserted_index = Some(items.len().saturating_sub(1));
+    });
+
+    if was_empty && now_playing().is_none() {
+        if let Some(index) = inserted_index {
+            let updated_queue = queue();
+            if let Some(first_song) = updated_queue.get(index).cloned() {
+                queue_index.set(index);
+                now_playing.set(Some(first_song));
+                is_playing.set(false);
+            }
+        }
+    }
+}
+
+async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) -> Vec<Song> {
+    let normalized_query = query.trim().to_string();
+    if normalized_query.len() < 2 {
+        return Vec::new();
+    }
+
+    let mut servers_to_search: Vec<ServerConfig> =
+        servers.iter().filter(|server| server.active).cloned().collect();
+    if servers_to_search.is_empty() {
+        servers_to_search = servers;
+    }
+
+    let mut results = Vec::<Song>::new();
+    for server in servers_to_search {
+        let client = NavidromeClient::new(server.clone());
+        let Ok(search) = client.search(&normalized_query, 0, 0, 20).await else {
+            continue;
+        };
+        for mut song in search.songs {
+            if song.server_id.trim().is_empty() {
+                song.server_id = server.id.clone();
+            }
+            if song.server_name.trim().is_empty() {
+                song.server_name = server.name.clone();
+            }
+            if results
+                .iter()
+                .any(|existing| same_song_identity(existing, &song))
+            {
+                continue;
+            }
+            results.push(song);
+            if results.len() >= 60 {
+                return results;
+            }
+        }
+    }
+
+    results
+}
+
+fn same_song_identity(left: &Song, right: &Song) -> bool {
+    left.id == right.id && left.server_id == right.server_id
 }

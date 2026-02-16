@@ -2,6 +2,7 @@ use crate::api::models::format_duration;
 use crate::api::*;
 use crate::components::{
     seek_to, AppView, Icon, Navigation, PlaybackPositionSignal, SeekRequestSignal,
+    SongDetailsController,
 };
 use dioxus::prelude::*;
 
@@ -156,6 +157,7 @@ pub fn BookmarksView() -> Element {
 #[component]
 fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
     let navigation = use_context::<Navigation>();
+    let song_details = use_context::<SongDetailsController>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
@@ -217,16 +219,10 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
     };
 
     let on_album_cover = {
-        let navigation = navigation.clone();
-        let album_id = song.album_id.clone();
-        let server_id = song.server_id.clone();
+        let song = song.clone();
+        let mut song_details = song_details.clone();
         move |_| {
-            if let Some(album) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id: album,
-                    server_id: server_id.clone(),
-                });
-            }
+            song_details.open(song.clone());
         }
     };
 

@@ -9,6 +9,7 @@ mod icons;
 mod navigation;
 mod player;
 mod sidebar;
+mod song_details;
 mod views;
 
 use dioxus::prelude::Signal;
@@ -31,4 +32,5 @@ pub use icons::*;
 pub use navigation::Navigation;
 pub use player::*;
 pub use sidebar::*;
+pub use song_details::*;
 // Views are accessed via views::ViewName

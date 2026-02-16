@@ -1,6 +1,6 @@
 use crate::api::*;
 use crate::components::Icon;
-use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
+use crate::components::{AddIntent, AddMenuController, AppView, Navigation, SongDetailsController};
 use dioxus::prelude::*;
 
 #[component]
@@ -252,6 +252,7 @@ pub fn SongsView() -> Element {
 fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
+    let song_details = use_context::<SongDetailsController>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
     let rating = song.user_rating.unwrap_or(0).min(5);
@@ -272,17 +273,11 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
     let is_favorited = use_signal(|| song.starred.is_some());
 
     let on_album_click_cover = {
-        let album_id = album_id.clone();
-        let server_id = server_id.clone();
-        let navigation = navigation.clone();
+        let song = song.clone();
+        let mut song_details = song_details.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id: album_id_val,
-                    server_id: server_id.clone(),
-                });
-            }
+            song_details.open(song.clone());
         }
     };
 
@@ -380,7 +375,7 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
             if album_id.is_some() {
                 button {
                     class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
-                    aria_label: "Open album",
+                    aria_label: "Open song menu",
                     onclick: on_album_click_cover,
                     {
                         match cover_url {

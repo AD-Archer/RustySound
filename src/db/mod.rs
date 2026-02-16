@@ -1,4 +1,4 @@
-use crate::api::models::ServerConfig;
+use crate::api::{default_lyrics_provider_order, models::ServerConfig};
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -64,6 +64,18 @@ pub struct AppSettings {
     pub cache_expiry_hours: u32,
     #[serde(default)]
     pub cache_images_enabled: bool,
+    #[serde(default = "default_lyrics_provider_order")]
+    pub lyrics_provider_order: Vec<String>,
+    #[serde(default = "default_lyrics_request_timeout_secs")]
+    pub lyrics_request_timeout_secs: u32,
+    #[serde(default)]
+    pub lyrics_offset_ms: i32,
+    #[serde(default)]
+    pub lyrics_unsynced_mode: bool,
+}
+
+fn default_lyrics_request_timeout_secs() -> u32 {
+    4
 }
 
 impl Default for AppSettings {
@@ -81,6 +93,10 @@ impl Default for AppSettings {
             cache_size_mb: 100,
             cache_expiry_hours: 24,
             cache_images_enabled: true,
+            lyrics_provider_order: default_lyrics_provider_order(),
+            lyrics_request_timeout_secs: default_lyrics_request_timeout_secs(),
+            lyrics_offset_ms: 0,
+            lyrics_unsynced_mode: false,
         }
     }
 }

@@ -2,7 +2,7 @@ use crate::api::*;
 use crate::components::{
     view_label, AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController,
     AudioState, Icon, Navigation, PlaybackPositionSignal, Player, SeekRequestSignal, Sidebar,
-    VolumeSignal,
+    SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -58,12 +58,15 @@ pub fn AppShell() -> Element {
     let swipe_start = use_signal(|| None::<f64>);
     let add_menu_intent = use_signal(|| None::<AddIntent>);
     let add_menu = AddMenuController::new(add_menu_intent.clone());
+    let song_details_state = use_signal(SongDetailsState::default);
+    let song_details = SongDetailsController::new(song_details_state.clone());
 
     // Provide state via context
     use_context_provider(|| servers);
     use_context_provider(|| current_view);
     use_context_provider(|| navigation.clone());
     use_context_provider(|| add_menu.clone());
+    use_context_provider(|| song_details.clone());
 
     let on_pointer_down = {
         let mut swipe_start = swipe_start.clone();
@@ -446,6 +449,8 @@ pub fn AppShell() -> Element {
         }
 
         AddToMenuOverlay { controller: add_menu.clone() }
+
+        SongDetailsOverlay { controller: song_details.clone() }
 
         // Audio controller - manages playback separately from UI
         AudioController {}

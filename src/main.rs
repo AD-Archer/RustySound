@@ -8,6 +8,7 @@ use components::AppView;
 
 const FAVICON: Asset = asset!("/assets/favicon.ico");
 const APPLE_TOUCH_ICON: Asset = asset!("/assets/apple-touch-icon.png");
+const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
 const APP_CSS: Asset = asset!("/assets/styling/app.css");
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
@@ -51,7 +52,7 @@ fn App() -> Element {
         }
 
         // Web app manifest
-        document::Link { rel: "manifest", href: "/assets/site.webmanifest" }
+        document::Link { rel: "manifest", href: WEB_MANIFEST }
 
         // Theme color for mobile browsers
         document::Meta {

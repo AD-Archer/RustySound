@@ -1,11 +1,11 @@
 use crate::api::models::*;
 use chrono::Utc;
+#[cfg(target_arch = "wasm32")]
+use dioxus::document;
 use once_cell::sync::Lazy;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Mutex;
-#[cfg(target_arch = "wasm32")]
-use dioxus::document;
 #[cfg(not(target_arch = "wasm32"))]
 use std::time::Duration;
 
@@ -449,6 +449,30 @@ impl NavidromeClient {
         }
 
         Ok(self.normalize_song_list(json.subsonic_response.similar_songs))
+    }
+
+    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
+    pub async fn get_similar_songs2(&self, id: &str, count: u32) -> Result<Vec<Song>, String> {
+        let url = self.build_url(
+            "getSimilarSongs2",
+            &[("id", id), ("count", &count.to_string())],
+        );
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(self.normalize_song_list(json.subsonic_response.similar_songs2))
     }
 
     pub async fn get_top_songs(&self, artist: &str, count: u32) -> Result<Vec<Song>, String> {
@@ -924,6 +948,45 @@ impl NavidromeClient {
         Ok(())
     }
 
+    pub async fn reorder_playlist(
+        &self,
+        playlist_id: &str,
+        ordered_song_ids: &[String],
+        existing_song_count: usize,
+    ) -> Result<(), String> {
+        if ordered_song_ids.is_empty() && existing_song_count == 0 {
+            return Ok(());
+        }
+
+        let mut params = vec![("playlistId".to_string(), playlist_id.to_string())];
+
+        for index in (0..existing_song_count).rev() {
+            params.push(("songIndexToRemove".to_string(), index.to_string()));
+        }
+
+        for song_id in ordered_song_ids {
+            params.push(("songIdToAdd".to_string(), song_id.clone()));
+        }
+
+        let url = self.build_url_owned("updatePlaylist", params);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        Ok(())
+    }
+
     #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
     pub async fn create_similar_playlist(
         &self,
@@ -931,7 +994,7 @@ impl NavidromeClient {
         name: Option<&str>,
         count: u32,
     ) -> Result<Option<String>, String> {
-        let songs = self.get_similar_songs(seed_song_id, count).await?;
+        let songs = self.get_similar_songs2(seed_song_id, count).await?;
         let mut song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
         if song_ids.is_empty() {
             song_ids.push(seed_song_id.to_string());

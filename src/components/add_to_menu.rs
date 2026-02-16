@@ -826,7 +826,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     };
 
     rsx! {
-        div { class: "fixed inset-0 z-50 flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3",
+        div { class: "fixed inset-0 z-[95] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3",
             div { class: "w-full md:max-w-lg bg-zinc-900/95 border border-zinc-800 rounded-t-2xl md:rounded-2xl shadow-2xl p-5 space-y-5",
                 div { class: "flex items-center justify-between gap-3",
                     div { class: "flex items-center gap-3 min-w-0",

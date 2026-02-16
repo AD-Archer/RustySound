@@ -2,7 +2,8 @@ use crate::api::models::format_duration;
 use crate::api::*;
 use crate::components::audio_manager::spawn_shuffle_queue;
 use crate::components::{
-    seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, VolumeSignal,
+    seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, SongDetailsController,
+    VolumeSignal,
 };
 use crate::db::RepeatMode;
 use dioxus::prelude::*;
@@ -13,6 +14,7 @@ pub fn Player() -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let mut volume = use_context::<VolumeSignal>().0;
     let navigation = use_context::<Navigation>();
+    let song_details = use_context::<SongDetailsController>();
     let audio_state = use_context::<Signal<AudioState>>();
     let playback_position = use_context::<PlaybackPositionSignal>().0;
 
@@ -167,47 +169,47 @@ pub fn Player() -> Element {
                         // Favorite button
                         match &current_song {
                             Some(song) => rsx! {
-                                // Clickable album art
-                                button {
-                                    class: "w-12 h-12 md:w-14 md:h-14 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
-                                    onclick: {
-                                        let song = current_song_for_album.clone();
-                                        let navigation = navigation.clone();
-                                        move |_| {
-                                            if let Some(ref s) = song {
-                                                if let Some(album_id) = &s.album_id {
-                                                    navigation
-                                                        .navigate_to(
-                                                            AppView::AlbumDetailView {
-                                                                album_id: album_id.clone(),
-                                                                server_id: s.server_id.clone(),
-                                                            },
-                                                        );
+                                div { class: "relative flex-shrink-0",
+                                    div { class: "pointer-events-none absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-emerald-400 text-black shadow flex items-center justify-center border border-zinc-900",
+                                        Icon {
+                                            name: "arrow-left".to_string(),
+                                            class: "w-3.5 h-3.5 rotate-90".to_string(),
+                                        }
+                                    }
+                                    // Clickable album art
+                                    button {
+                                        class: "w-14 h-14 md:w-16 md:h-16 rounded-lg bg-zinc-800 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
+                                        onclick: {
+                                            let song = current_song_for_album.clone();
+                                            let mut song_details = song_details.clone();
+                                            move |_| {
+                                                if let Some(selected_song) = song.clone() {
+                                                    song_details.open(selected_song);
                                                 }
                                             }
-                                        }
-                                    },
-                                    {
-                                        match &cover_url {
-                                            Some(url) => rsx! {
-                                                img {
-                                                    src: "{url}",
-                                                    alt: "{song.title}",
-                                                    class: "w-full h-full object-cover",
-                                                    loading: "lazy",
-                                                }
-                                            },
-                                            None => rsx! {
-                                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700",
-                                                    Icon { name: "music".to_string(), class: "w-6 h-6 text-white/70".to_string() }
-                                                }
-                                            },
+                                        },
+                                        {
+                                            match &cover_url {
+                                                Some(url) => rsx! {
+                                                    img {
+                                                        src: "{url}",
+                                                        alt: "{song.title}",
+                                                        class: "w-full h-full object-cover",
+                                                        loading: "lazy",
+                                                    }
+                                                },
+                                                None => rsx! {
+                                                    div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700",
+                                                        Icon { name: "music".to_string(), class: "w-6 h-6 text-white/70".to_string() }
+                                                    }
+                                                },
+                                            }
                                         }
                                     }
                                 }
-                                div { class: "min-w-0 flex-1",
+                                div { class: "min-w-0 flex-1 overflow-hidden",
                                     button {
-                                        class: "text-sm font-medium text-white truncate hover:text-emerald-400 transition-colors cursor-pointer block text-left w-full",
+                                        class: "text-sm font-medium text-white truncate max-w-full hover:text-emerald-400 transition-colors cursor-pointer block text-left w-full",
                                         onclick: {
                                             let song = current_song_for_album.clone();
                                             let navigation = navigation.clone();
@@ -237,7 +239,7 @@ pub fn Player() -> Element {
                                         }
                                     }
                                     button {
-                                        class: "text-xs text-zinc-400 truncate hover:text-white transition-colors cursor-pointer block text-left w-full",
+                                        class: "text-xs text-zinc-400 truncate max-w-full hover:text-white transition-colors cursor-pointer block text-left w-full",
                                         onclick: on_artist_click,
                                         {
                                             if song.server_name == "Radio" {

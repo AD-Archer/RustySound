@@ -12,6 +12,12 @@ fn resolve_server_name(name: &str, url: &str) -> String {
     }
 }
 
+fn lyrics_provider_label(provider_key: &str) -> &'static str {
+    LyricsProvider::from_key(provider_key)
+        .map(|provider| provider.label())
+        .unwrap_or("Unknown")
+}
+
 #[derive(Clone)]
 struct ScanResultEntry {
     server_name: String,
@@ -223,6 +229,62 @@ pub fn SettingsView() -> Element {
         }
     };
 
+    let on_lyrics_sync_toggle = {
+        let mut app_settings = app_settings.clone();
+        move |_| {
+            let mut settings = app_settings();
+            settings.lyrics_unsynced_mode = !settings.lyrics_unsynced_mode;
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            spawn(async move {
+                let _ = save_settings(settings_clone).await;
+            });
+        }
+    };
+
+    let on_lyrics_timeout_change = {
+        let mut app_settings = app_settings.clone();
+        move |e: Event<FormData>| {
+            if let Ok(timeout) = e.value().parse::<u32>() {
+                let mut settings = app_settings();
+                settings.lyrics_request_timeout_secs = timeout.clamp(1, 20);
+                let settings_clone = settings.clone();
+                app_settings.set(settings);
+                spawn(async move {
+                    let _ = save_settings(settings_clone).await;
+                });
+            }
+        }
+    };
+
+    let on_lyrics_offset_change = {
+        let mut app_settings = app_settings.clone();
+        move |e: Event<FormData>| {
+            if let Ok(offset) = e.value().parse::<i32>() {
+                let mut settings = app_settings();
+                settings.lyrics_offset_ms = offset.clamp(-5000, 5000);
+                let settings_clone = settings.clone();
+                app_settings.set(settings);
+                spawn(async move {
+                    let _ = save_settings(settings_clone).await;
+                });
+            }
+        }
+    };
+
+    let on_lyrics_reset_offset = {
+        let mut app_settings = app_settings.clone();
+        move |_| {
+            let mut settings = app_settings();
+            settings.lyrics_offset_ms = 0;
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            spawn(async move {
+                let _ = save_settings(settings_clone).await;
+            });
+        }
+    };
+
     let on_start_scan = {
         let servers = servers.clone();
         let mut scan_results = scan_results.clone();
@@ -278,6 +340,8 @@ pub fn SettingsView() -> Element {
     let server_list = servers();
     let settings = app_settings();
     let current_volume = volume();
+    let lyrics_provider_order = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
+    let lyrics_sync_enabled = !settings.lyrics_unsynced_mode;
 
     rsx! {
         div { class: "space-y-8",
@@ -368,6 +432,138 @@ pub fn SettingsView() -> Element {
                             class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
                             onclick: on_replay_gain_toggle,
                             div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+                }
+            }
+
+            // Lyrics settings
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                h2 { class: "text-lg font-semibold text-white mb-3", "Lyrics Sync" }
+                p { class: "text-sm text-zinc-400 mb-5",
+                    "Configure provider priority, lookup timeout, and sync behavior for the song menu lyrics panel. Changes are auto-saved."
+                }
+                p { class: "text-xs text-zinc-500 mb-5",
+                    "Web note: browser CORS blocks direct Netease and Genius requests in web builds. Keep LRCLIB first on web. Desktop supports all providers."
+                }
+
+                div { class: "space-y-5",
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Sync lyrics" }
+                            p { class: "text-sm text-zinc-400", "Enable timeline-synced lyrics and tap-to-seek from the lyrics tab (default: ON)" }
+                        }
+                        button {
+                            class: if lyrics_sync_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_lyrics_sync_toggle,
+                            div { class: if lyrics_sync_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+
+                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Provider timeout (seconds)"
+                            }
+                            input {
+                                r#type: "number",
+                                min: "1",
+                                max: "20",
+                                value: settings.lyrics_request_timeout_secs,
+                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                oninput: on_lyrics_timeout_change,
+                            }
+                        }
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Sync offset (ms)"
+                            }
+                            div { class: "flex items-center gap-2",
+                                input {
+                                    r#type: "number",
+                                    min: "-5000",
+                                    max: "5000",
+                                    step: "50",
+                                    value: settings.lyrics_offset_ms,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    oninput: on_lyrics_offset_change,
+                                }
+                                button {
+                                    class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
+                                    onclick: on_lyrics_reset_offset,
+                                    "Reset"
+                                }
+                            }
+                        }
+                    }
+
+                    div { class: "space-y-2",
+                        p { class: "text-sm font-medium text-zinc-300", "Provider priority" }
+                        for (index, provider) in lyrics_provider_order.iter().enumerate() {
+                            div { class: "flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-zinc-700/60 bg-zinc-900/40",
+                                div { class: "flex items-center gap-2 min-w-0",
+                                    span { class: "text-xs text-zinc-500 w-6", "{index + 1}." }
+                                    span { class: "text-sm text-white truncate", "{lyrics_provider_label(provider)}" }
+                                }
+                                div { class: "flex items-center gap-2",
+                                    button {
+                                        class: "px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-white text-xs disabled:opacity-40",
+                                        disabled: index == 0,
+                                        onclick: {
+                                            let provider = provider.clone();
+                                            let mut app_settings = app_settings.clone();
+                                            move |_| {
+                                                let mut settings = app_settings();
+                                                let mut order = normalize_lyrics_provider_order(
+                                                    &settings.lyrics_provider_order,
+                                                );
+                                                if let Some(position) =
+                                                    order.iter().position(|entry| entry == &provider)
+                                                {
+                                                    if position > 0 {
+                                                        order.swap(position, position - 1);
+                                                        settings.lyrics_provider_order = order;
+                                                        let settings_clone = settings.clone();
+                                                        app_settings.set(settings);
+                                                        spawn(async move {
+                                                            let _ = save_settings(settings_clone).await;
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "Up"
+                                    }
+                                    button {
+                                        class: "px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-white text-xs disabled:opacity-40",
+                                        disabled: index + 1 >= lyrics_provider_order.len(),
+                                        onclick: {
+                                            let provider = provider.clone();
+                                            let mut app_settings = app_settings.clone();
+                                            move |_| {
+                                                let mut settings = app_settings();
+                                                let mut order = normalize_lyrics_provider_order(
+                                                    &settings.lyrics_provider_order,
+                                                );
+                                                if let Some(position) =
+                                                    order.iter().position(|entry| entry == &provider)
+                                                {
+                                                    if position + 1 < order.len() {
+                                                        order.swap(position, position + 1);
+                                                        settings.lyrics_provider_order = order;
+                                                        let settings_clone = settings.clone();
+                                                        app_settings.set(settings);
+                                                        spawn(async move {
+                                                            let _ = save_settings(settings_clone).await;
+                                                        });
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        "Down"
+                                    }
+                                }
+                            }
                         }
                     }
                 }
