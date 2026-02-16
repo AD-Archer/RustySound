@@ -1,19 +1,47 @@
 //! Audio Manager - Handles audio playback outside of the component render cycle.
 //! Keeps audio side-effects isolated and defers signal writes to avoid borrow loops.
+#![cfg_attr(
+    all(not(target_arch = "wasm32"), target_os = "ios"),
+    allow(unexpected_cfgs)
+)]
 
 use dioxus::prelude::*;
 
 #[cfg(target_arch = "wasm32")]
 use crate::api::*;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::api::*;
 #[cfg(target_arch = "wasm32")]
 use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal};
 #[cfg(target_arch = "wasm32")]
+use crate::db::RepeatMode;
+#[cfg(not(target_arch = "wasm32"))]
 use crate::db::RepeatMode;
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use objc::declare::ClassDecl;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use objc::runtime::{Object, BOOL, YES};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use objc::{class, msg_send, sel, sel_impl};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use once_cell::sync::Lazy;
+#[cfg(not(target_arch = "wasm32"))]
+use rand::seq::SliceRandom;
+#[cfg(not(target_arch = "wasm32"))]
+use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use std::cell::Cell;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::collections::VecDeque;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::ptr;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::sync::{Mutex, Once};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
@@ -73,9 +101,1626 @@ where
 }
 
 /// Audio controller hook - manages playback imperatively.
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
+(() => {
+  if (window.__rustysoundAudioBridge) {
+    return true;
+  }
+
+  const existing = document.getElementById("rustysound-audio-native");
+  const audio = existing || document.createElement("audio");
+  if (!existing) {
+    audio.id = "rustysound-audio-native";
+    audio.preload = "metadata";
+    audio.style.display = "none";
+    audio.setAttribute("playsinline", "true");
+    audio.setAttribute("webkit-playsinline", "true");
+    audio.setAttribute("x-webkit-airplay", "allow");
+    document.body.appendChild(audio);
+  }
+
+  const safePlay = async () => {
+    try {
+      await audio.play();
+    } catch (_err) {}
+  };
+
+  const setMetadata = (meta) => {
+    if (!meta || !("mediaSession" in navigator) || typeof MediaMetadata === "undefined") {
+      return;
+    }
+
+    const artwork = meta.artwork
+      ? [{ src: meta.artwork, sizes: "512x512", type: "image/png" }]
+      : undefined;
+
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: meta.title || "",
+        artist: meta.artist || "",
+        album: meta.album || "",
+        artwork,
+      });
+    } catch (_err) {}
+  };
+
+  const setPlaybackState = () => {
+    if (!("mediaSession" in navigator)) return;
+    try {
+      navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+    } catch (_err) {}
+  };
+
+  const updatePositionState = () => {
+    if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) {
+      return;
+    }
+    if (!Number.isFinite(audio.duration) || audio.duration <= 0) {
+      return;
+    }
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: audio.duration,
+        playbackRate: audio.playbackRate || 1,
+        position: Math.max(0, Math.min(audio.currentTime || 0, audio.duration)),
+      });
+    } catch (_err) {}
+  };
+
+  const bridge = {
+    audio,
+    currentSongId: null,
+    remoteActions: [],
+    apply(cmd) {
+      if (!cmd || !cmd.type) return;
+
+      switch (cmd.type) {
+        case "load":
+          if (cmd.src && audio.src !== cmd.src) {
+            audio.src = cmd.src;
+          }
+          if (typeof cmd.volume === "number") {
+            audio.volume = Math.max(0, Math.min(1, cmd.volume));
+          }
+          if (typeof cmd.position === "number" && Number.isFinite(cmd.position)) {
+            try {
+              audio.currentTime = Math.max(0, cmd.position);
+            } catch (_err) {}
+          }
+          bridge.currentSongId = cmd.song_id || null;
+          setMetadata(cmd.meta || null);
+          updatePositionState();
+          if (cmd.play === true) {
+            safePlay();
+          } else if (cmd.play === false) {
+            audio.pause();
+          }
+          setPlaybackState();
+          break;
+        case "play":
+          safePlay();
+          setPlaybackState();
+          break;
+        case "pause":
+          audio.pause();
+          setPlaybackState();
+          break;
+        case "seek":
+          if (typeof cmd.position === "number" && Number.isFinite(cmd.position)) {
+            try {
+              audio.currentTime = Math.max(0, cmd.position);
+            } catch (_err) {}
+          }
+          updatePositionState();
+          break;
+        case "volume":
+          if (typeof cmd.value === "number") {
+            audio.volume = Math.max(0, Math.min(1, cmd.value));
+          }
+          break;
+        case "loop":
+          audio.loop = !!cmd.enabled;
+          break;
+        case "metadata":
+          setMetadata(cmd.meta || null);
+          break;
+        case "clear":
+          audio.pause();
+          audio.removeAttribute("src");
+          audio.load();
+          bridge.currentSongId = null;
+          if ("mediaSession" in navigator) {
+            try {
+              navigator.mediaSession.metadata = null;
+              navigator.mediaSession.playbackState = "none";
+            } catch (_err) {}
+          }
+          break;
+      }
+    },
+    snapshot() {
+      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      return {
+        current_time: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+        duration,
+        paused: !!audio.paused,
+        ended: !!audio.ended,
+        song_id: bridge.currentSongId,
+        action: bridge.remoteActions.shift() || null,
+      };
+    },
+  };
+
+  if ("mediaSession" in navigator) {
+    const session = navigator.mediaSession;
+    try {
+      session.setActionHandler("play", () => safePlay());
+    } catch (_err) {}
+    try {
+      session.setActionHandler("pause", () => audio.pause());
+    } catch (_err) {}
+    try {
+      session.setActionHandler("seekto", (details) => {
+        if (details && typeof details.seekTime === "number") {
+          try {
+            audio.currentTime = Math.max(0, details.seekTime);
+          } catch (_err) {}
+          updatePositionState();
+        }
+      });
+    } catch (_err) {}
+    try {
+      session.setActionHandler("nexttrack", () => bridge.remoteActions.push("next"));
+    } catch (_err) {}
+    try {
+      session.setActionHandler("previoustrack", () => bridge.remoteActions.push("previous"));
+    } catch (_err) {}
+    try {
+      session.setActionHandler("seekforward", null);
+    } catch (_err) {}
+    try {
+      session.setActionHandler("seekbackward", null);
+    } catch (_err) {}
+  }
+
+  audio.addEventListener("timeupdate", updatePositionState);
+  audio.addEventListener("durationchange", updatePositionState);
+  audio.addEventListener("ratechange", updatePositionState);
+  audio.addEventListener("play", setPlaybackState);
+  audio.addEventListener("pause", setPlaybackState);
+  audio.addEventListener("ended", () => bridge.remoteActions.push("ended"));
+
+  window.__rustysoundAudioBridge = bridge;
+  return true;
+})();
+"#;
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug, Default, Deserialize)]
+struct NativeAudioSnapshot {
+    current_time: f64,
+    duration: f64,
+    paused: bool,
+    ended: bool,
+    #[serde(default)]
+    action: Option<String>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Debug, Deserialize, Serialize)]
+struct NativeTrackMetadata {
+    title: String,
+    artist: String,
+    album: String,
+    artwork: Option<String>,
+    duration: f64,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[repr(C)]
+#[derive(Copy, Clone, Default)]
+struct CMTime {
+    value: i64,
+    timescale: i32,
+    flags: u32,
+    epoch: i64,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[link(name = "AVFoundation", kind = "framework")]
+unsafe extern "C" {}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[link(name = "CoreMedia", kind = "framework")]
+unsafe extern "C" {
+    fn CMTimeMakeWithSeconds(seconds: f64, preferred_timescale: i32) -> CMTime;
+    fn CMTimeGetSeconds(time: CMTime) -> f64;
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[link(name = "MediaPlayer", kind = "framework")]
+unsafe extern "C" {}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+unsafe extern "C" {
+    static MPMediaItemPropertyTitle: *mut Object;
+    static MPMediaItemPropertyArtist: *mut Object;
+    static MPMediaItemPropertyAlbumTitle: *mut Object;
+    static MPMediaItemPropertyArtwork: *mut Object;
+    static MPMediaItemPropertyPlaybackDuration: *mut Object;
+    static MPNowPlayingInfoPropertyElapsedPlaybackTime: *mut Object;
+    static MPNowPlayingInfoPropertyPlaybackRate: *mut Object;
+    static MPNowPlayingInfoPropertyDefaultPlaybackRate: *mut Object;
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+struct IosAudioPlayer {
+    player: *mut Object,
+    current_song_id: Option<String>,
+    metadata: Option<NativeTrackMetadata>,
+    ended_sent_for_song: Option<String>,
+    last_known_elapsed: f64,
+    last_known_duration: f64,
+    pending_seek_target: Option<f64>,
+    pending_seek_ticks: u8,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+unsafe impl Send for IosAudioPlayer {}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+impl Drop for IosAudioPlayer {
+    fn drop(&mut self) {
+        unsafe {
+            let _: () = msg_send![self.player, pause];
+            let _: () = msg_send![self.player, release];
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+impl IosAudioPlayer {
+    fn new() -> Option<Self> {
+        configure_ios_audio_session();
+        configure_ios_remote_commands();
+        let player = unsafe {
+            let player_cls = class!(AVPlayer);
+            let player_alloc: *mut Object = msg_send![player_cls, alloc];
+            if player_alloc.is_null() {
+                return None;
+            }
+            let player: *mut Object = msg_send![player_alloc, init];
+            if player.is_null() {
+                return None;
+            }
+            player
+        };
+
+        Some(Self {
+            player,
+            current_song_id: None,
+            metadata: None,
+            ended_sent_for_song: None,
+            last_known_elapsed: 0.0,
+            last_known_duration: 0.0,
+            pending_seek_target: None,
+            pending_seek_ticks: 0,
+        })
+    }
+
+    fn apply(&mut self, cmd: serde_json::Value) {
+        let Some(cmd_type) = cmd.get("type").and_then(|v| v.as_str()) else {
+            return;
+        };
+
+        match cmd_type {
+            "load" => {
+                let src = cmd.get("src").and_then(|v| v.as_str()).unwrap_or_default();
+                if src.is_empty() {
+                    return;
+                }
+
+                let position = cmd
+                    .get("position")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                let volume = cmd.get("volume").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                let should_play = cmd.get("play").and_then(|v| v.as_bool()).unwrap_or(false);
+                let song_id = cmd
+                    .get("song_id")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                let metadata = cmd
+                    .get("meta")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<NativeTrackMetadata>(value).ok());
+
+                unsafe {
+                    if let Some(item) = make_player_item(src) {
+                        let _: () = msg_send![self.player, replaceCurrentItemWithPlayerItem: item];
+                        observe_ios_item_end(item);
+                        let _: () =
+                            msg_send![self.player, setVolume: volume.clamp(0.0, 1.0) as f32];
+                        self.seek(position);
+                        if should_play {
+                            let _: () = msg_send![self.player, play];
+                        } else {
+                            let _: () = msg_send![self.player, pause];
+                        }
+                    }
+                }
+
+                self.current_song_id = song_id;
+                self.metadata = metadata;
+                self.ended_sent_for_song = None;
+                self.last_known_elapsed = position;
+                self.last_known_duration = self
+                    .metadata
+                    .as_ref()
+                    .map(|m| m.duration)
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                self.pending_seek_target = Some(position);
+                self.pending_seek_ticks = 20;
+                self.update_now_playing_info_cached(if should_play { 1.0 } else { 0.0 });
+            }
+            "play" => unsafe {
+                let _: () = msg_send![self.player, play];
+                self.update_now_playing_info_cached(1.0);
+            },
+            "pause" => unsafe {
+                let _: () = msg_send![self.player, pause];
+                self.update_now_playing_info_cached(0.0);
+            },
+            "seek" => {
+                let target = cmd
+                    .get("position")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                self.seek(target);
+                self.ended_sent_for_song = None;
+                self.last_known_elapsed = target;
+                self.pending_seek_target = Some(target);
+                self.pending_seek_ticks = 20;
+                let rate: f32 = unsafe { msg_send![self.player, rate] };
+                self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+            }
+            "volume" => {
+                let volume = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                unsafe {
+                    let _: () = msg_send![self.player, setVolume: volume.clamp(0.0, 1.0) as f32];
+                }
+            }
+            "metadata" => {
+                self.metadata = cmd
+                    .get("meta")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<NativeTrackMetadata>(value).ok());
+                self.last_known_duration = self
+                    .metadata
+                    .as_ref()
+                    .map(|m| m.duration)
+                    .unwrap_or(self.last_known_duration)
+                    .max(0.0);
+                let rate: f32 = unsafe { msg_send![self.player, rate] };
+                self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+            }
+            "clear" => {
+                unsafe {
+                    let _: () = msg_send![self.player, pause];
+                    let nil_item: *mut Object = ptr::null_mut();
+                    let _: () = msg_send![self.player, replaceCurrentItemWithPlayerItem: nil_item];
+                }
+                self.current_song_id = None;
+                self.metadata = None;
+                self.ended_sent_for_song = None;
+                self.last_known_elapsed = 0.0;
+                self.last_known_duration = 0.0;
+                self.pending_seek_target = None;
+                self.pending_seek_ticks = 0;
+                observe_ios_item_end(ptr::null_mut());
+                clear_ios_now_playing_info();
+            }
+            "loop" => {}
+            _ => {}
+        }
+    }
+
+    fn seek(&self, position: f64) {
+        unsafe {
+            let time = CMTimeMakeWithSeconds(position.max(0.0), 1000);
+            let _: () = msg_send![self.player, seekToTime: time];
+        }
+    }
+
+    fn snapshot(&mut self) -> NativeAudioSnapshot {
+        let (current_time, duration) = self.current_time_and_duration();
+
+        let paused = unsafe {
+            let rate: f32 = msg_send![self.player, rate];
+            rate <= 0.0
+        };
+
+        let ended = duration > 0.0 && current_time >= (duration - 0.35).max(0.0) && paused;
+        let mut action = pop_ios_remote_action();
+
+        if ended {
+            let current_song = self.current_song_id.clone();
+            if self.ended_sent_for_song != current_song {
+                self.ended_sent_for_song = current_song;
+                if action.is_none() {
+                    action = Some("ended".to_string());
+                }
+            }
+        } else {
+            self.ended_sent_for_song = None;
+        }
+
+        // Keep lock-screen/command-center progress fresh while preserving
+        // monotonic time through transient AVPlayer glitches.
+        self.update_now_playing_info();
+
+        NativeAudioSnapshot {
+            current_time,
+            duration,
+            paused,
+            ended,
+            action,
+        }
+    }
+
+    fn current_time_and_duration(&mut self) -> (f64, f64) {
+        let mut current_time = unsafe {
+            let current: CMTime = msg_send![self.player, currentTime];
+            cmtime_seconds(current)
+        };
+        let playing = unsafe {
+            let rate: f32 = msg_send![self.player, rate];
+            rate > 0.0
+        };
+
+        let mut duration = unsafe {
+            let current_item: *mut Object = msg_send![self.player, currentItem];
+            if current_item.is_null() {
+                0.0
+            } else {
+                let duration: CMTime = msg_send![current_item, duration];
+                cmtime_seconds(duration)
+            }
+        };
+
+        if duration <= 0.0 {
+            if self.last_known_duration.is_finite() && self.last_known_duration > 0.0 {
+                duration = self.last_known_duration;
+            }
+        }
+
+        if duration <= 0.0 {
+            if let Some(meta) = &self.metadata {
+                if meta.duration.is_finite() && meta.duration > 0.0 {
+                    duration = meta.duration;
+                }
+            }
+        }
+
+        if duration > 0.0 {
+            current_time = current_time.min(duration);
+        }
+
+        if let Some(target) = self.pending_seek_target {
+            let clamped_target = if duration > 0.0 {
+                target.min(duration)
+            } else {
+                target.max(0.0)
+            };
+            let close_enough = (current_time - clamped_target).abs() <= 1.5;
+            if !close_enough && self.pending_seek_ticks > 0 {
+                current_time = clamped_target;
+                self.last_known_elapsed = clamped_target.max(0.0);
+                self.pending_seek_ticks = self.pending_seek_ticks.saturating_sub(1);
+            } else {
+                self.pending_seek_target = None;
+                self.pending_seek_ticks = 0;
+            }
+        }
+
+        // AVPlayer can briefly report 0 during app/background transitions.
+        // Preserve elapsed position unless we have a trustworthy newer value.
+        if current_time <= 0.05 && self.last_known_elapsed > 0.25 {
+            current_time = if duration > 0.0 {
+                self.last_known_elapsed.min(duration)
+            } else {
+                self.last_known_elapsed
+            };
+        } else if playing
+            && self.last_known_elapsed > 1.0
+            && current_time + 1.5 < self.last_known_elapsed
+        {
+            // Ignore abrupt backwards jumps while actively playing.
+            current_time = if duration > 0.0 {
+                self.last_known_elapsed.min(duration)
+            } else {
+                self.last_known_elapsed
+            };
+        } else {
+            self.last_known_elapsed = if duration > 0.0 {
+                current_time.min(duration).max(0.0)
+            } else {
+                current_time.max(0.0)
+            };
+        }
+
+        if duration.is_finite() && duration > 0.0 {
+            self.last_known_duration = duration;
+        }
+
+        (current_time, duration)
+    }
+
+    fn update_now_playing_info_cached(&mut self, rate: f64) {
+        let Some(meta) = self.metadata.clone() else {
+            clear_ios_now_playing_info();
+            return;
+        };
+
+        let mut duration = self.last_known_duration;
+        if !(duration.is_finite() && duration > 0.0) && meta.duration.is_finite() && meta.duration > 0.0 {
+            duration = meta.duration;
+        }
+
+        let mut elapsed = self.last_known_elapsed.max(0.0);
+        if duration.is_finite() && duration > 0.0 {
+            elapsed = elapsed.min(duration);
+            self.last_known_duration = duration;
+        }
+
+        set_ios_now_playing_info(&meta, elapsed, duration.max(0.0), rate.max(0.0));
+    }
+
+    fn update_now_playing_info(&mut self) {
+        let Some(meta) = self.metadata.clone() else {
+            clear_ios_now_playing_info();
+            return;
+        };
+
+        let (elapsed, duration) = self.current_time_and_duration();
+        let paused = unsafe {
+            let rate: f32 = msg_send![self.player, rate];
+            rate <= 0.0
+        };
+        set_ios_now_playing_info(&meta, elapsed, duration, if paused { 0.0 } else { 1.0 });
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_AUDIO_PLAYER: Lazy<Mutex<Option<IosAudioPlayer>>> = Lazy::new(|| Mutex::new(None));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_REMOTE_ACTIONS: Lazy<Mutex<VecDeque<String>>> =
+    Lazy::new(|| Mutex::new(VecDeque::new()));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_REMOTE_INIT: Once = Once::new();
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_REMOTE_OBSERVER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn with_ios_player<R>(f: impl FnOnce(&mut IosAudioPlayer) -> R) -> Option<R> {
+    let mut guard = IOS_AUDIO_PLAYER.lock().ok()?;
+    if guard.is_none() {
+        *guard = IosAudioPlayer::new();
+    }
+    guard.as_mut().map(f)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn push_ios_remote_action(action: &str) {
+    if let Ok(mut actions) = IOS_REMOTE_ACTIONS.lock() {
+        actions.push_back(action.to_string());
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn pop_ios_remote_action() -> Option<String> {
+    IOS_REMOTE_ACTIONS
+        .lock()
+        .ok()
+        .and_then(|mut actions| actions.pop_front())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_ios_remote_observer(observer: *mut Object) {
+    if let Ok(mut slot) = IOS_REMOTE_OBSERVER.lock() {
+        *slot = observer as usize;
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn get_ios_remote_observer() -> *mut Object {
+    IOS_REMOTE_OBSERVER
+        .lock()
+        .ok()
+        .map(|slot| *slot as *mut Object)
+        .unwrap_or(ptr::null_mut())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn cmtime_seconds(time: CMTime) -> f64 {
+    unsafe {
+        let seconds = CMTimeGetSeconds(time);
+        if seconds.is_finite() {
+            seconds.max(0.0)
+        } else {
+            0.0
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ns_string(value: &str) -> Option<*mut Object> {
+    unsafe {
+        let ns_string_cls = class!(NSString);
+        let alloc: *mut Object = msg_send![ns_string_cls, alloc];
+        if alloc.is_null() {
+            return None;
+        }
+
+        // UTF-8 encoding.
+        let encoded: *mut Object = msg_send![alloc,
+            initWithBytes: value.as_ptr()
+            length: value.len()
+            encoding: 4usize
+        ];
+
+        if encoded.is_null() {
+            None
+        } else {
+            Some(encoded)
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn make_player_item(src: &str) -> Option<*mut Object> {
+    unsafe {
+        let src_str = ns_string(src)?;
+        let url_cls = class!(NSURL);
+        let url: *mut Object = msg_send![url_cls, URLWithString: src_str];
+        let _: () = msg_send![src_str, release];
+        if url.is_null() {
+            return None;
+        }
+
+        let item_cls = class!(AVPlayerItem);
+        let item: *mut Object = msg_send![item_cls, playerItemWithURL: url];
+        if item.is_null() {
+            None
+        } else {
+            Some(item)
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn configure_ios_audio_session() {
+    unsafe {
+        let session_cls = class!(AVAudioSession);
+        let session: *mut Object = msg_send![session_cls, sharedInstance];
+        if session.is_null() {
+            return;
+        }
+
+        let Some(category) = ns_string("AVAudioSessionCategoryPlayback") else {
+            return;
+        };
+
+        let _: BOOL =
+            msg_send![session, setCategory: category error: ptr::null_mut::<*mut Object>()];
+        let _: () = msg_send![category, release];
+
+        let _: BOOL = msg_send![session, setActive: YES error: ptr::null_mut::<*mut Object>()];
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn remote_handler_class() -> &'static objc::runtime::Class {
+    static REGISTER: Once = Once::new();
+    static mut CLASS_PTR: *const objc::runtime::Class = std::ptr::null();
+
+    REGISTER.call_once(|| unsafe {
+        let superclass = class!(NSObject);
+        let mut decl = ClassDecl::new("RustySoundRemoteCommandHandler", superclass)
+            .expect("failed to create remote command handler class");
+
+        decl.add_method(
+            sel!(handlePlay:),
+            ios_handle_play as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handlePause:),
+            ios_handle_pause as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleNext:),
+            ios_handle_next as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handlePrevious:),
+            ios_handle_previous as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleSeek:),
+            ios_handle_seek as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleEnded:),
+            ios_handle_ended as extern "C" fn(&Object, objc::runtime::Sel, *mut Object),
+        );
+
+        let cls = decl.register();
+        CLASS_PTR = cls;
+    });
+
+    unsafe { &*CLASS_PTR }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_play(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "play" })));
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_pause(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    push_ios_remote_action("next");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_previous(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    push_ios_remote_action("previous");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_seek(_: &Object, _: objc::runtime::Sel, event: *mut Object) -> i64 {
+    unsafe {
+        if !event.is_null() {
+            let position: f64 = msg_send![event, positionTime];
+            let clamped = position.max(0.0);
+            let _ = with_ios_player(|player| {
+                player.apply(serde_json::json!({
+                    "type": "seek",
+                    "position": clamped,
+                }));
+            });
+            push_ios_remote_action(&format!("seek:{clamped}"));
+        }
+    }
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_ended(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
+    push_ios_remote_action("ended");
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn configure_ios_remote_commands() {
+    IOS_REMOTE_INIT.call_once(|| unsafe {
+        let cls = remote_handler_class();
+        let observer: *mut Object = msg_send![cls, new];
+        if observer.is_null() {
+            return;
+        }
+        set_ios_remote_observer(observer);
+
+        let center_cls = class!(MPRemoteCommandCenter);
+        let center: *mut Object = msg_send![center_cls, sharedCommandCenter];
+        if center.is_null() {
+            return;
+        }
+
+        let play_cmd: *mut Object = msg_send![center, playCommand];
+        let pause_cmd: *mut Object = msg_send![center, pauseCommand];
+        let next_cmd: *mut Object = msg_send![center, nextTrackCommand];
+        let previous_cmd: *mut Object = msg_send![center, previousTrackCommand];
+        let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
+        let skip_forward_cmd: *mut Object = msg_send![center, skipForwardCommand];
+        let skip_backward_cmd: *mut Object = msg_send![center, skipBackwardCommand];
+
+        let _: () = msg_send![play_cmd, addTarget: observer action: sel!(handlePlay:)];
+        let _: () = msg_send![pause_cmd, addTarget: observer action: sel!(handlePause:)];
+        let _: () = msg_send![next_cmd, addTarget: observer action: sel!(handleNext:)];
+        let _: () = msg_send![previous_cmd, addTarget: observer action: sel!(handlePrevious:)];
+        let _: () = msg_send![seek_cmd, addTarget: observer action: sel!(handleSeek:)];
+
+        let _: () = msg_send![play_cmd, setEnabled: YES];
+        let _: () = msg_send![pause_cmd, setEnabled: YES];
+        let _: () = msg_send![next_cmd, setEnabled: YES];
+        let _: () = msg_send![previous_cmd, setEnabled: YES];
+        let _: () = msg_send![seek_cmd, setEnabled: YES];
+
+        let no: BOOL = false;
+        let _: () = msg_send![skip_forward_cmd, setEnabled: no];
+        let _: () = msg_send![skip_backward_cmd, setEnabled: no];
+    });
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn observe_ios_item_end(item: *mut Object) {
+    unsafe {
+        let observer = get_ios_remote_observer();
+        if observer.is_null() {
+            return;
+        }
+
+        let center_cls = class!(NSNotificationCenter);
+        let center: *mut Object = msg_send![center_cls, defaultCenter];
+        if center.is_null() {
+            return;
+        }
+
+        let Some(notification_name) = ns_string("AVPlayerItemDidPlayToEndTimeNotification") else {
+            return;
+        };
+
+        let _: () = msg_send![center,
+            removeObserver: observer
+            name: notification_name
+            object: ptr::null_mut::<Object>()
+        ];
+        let _: () = msg_send![center, addObserver: observer selector: sel!(handleEnded:) name: notification_name object: item];
+        let _: () = msg_send![notification_name, release];
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_now_playing_string(dict: *mut Object, key: *mut Object, value: &str) {
+    if value.is_empty() {
+        return;
+    }
+    unsafe {
+        if key.is_null() {
+            return;
+        }
+        let Some(value_obj) = ns_string(value) else {
+            return;
+        };
+        let _: () = msg_send![dict, setObject: value_obj forKey: key];
+        let _: () = msg_send![value_obj, release];
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_now_playing_number(dict: *mut Object, key: *mut Object, value: f64) {
+    unsafe {
+        if key.is_null() {
+            return;
+        }
+        let number_cls = class!(NSNumber);
+        let value_obj: *mut Object = msg_send![number_cls, numberWithDouble: value];
+        if !value_obj.is_null() {
+            let _: () = msg_send![dict, setObject: value_obj forKey: key];
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn make_now_playing_artwork(artwork_url: &str) -> Option<*mut Object> {
+    unsafe {
+        let url_str = ns_string(artwork_url)?;
+        let url_cls = class!(NSURL);
+        let url: *mut Object = msg_send![url_cls, URLWithString: url_str];
+        let _: () = msg_send![url_str, release];
+        if url.is_null() {
+            return None;
+        }
+
+        let data_cls = class!(NSData);
+        let data: *mut Object = msg_send![data_cls, dataWithContentsOfURL: url];
+        if data.is_null() {
+            return None;
+        }
+
+        let image_cls = class!(UIImage);
+        let image: *mut Object = msg_send![image_cls, imageWithData: data];
+        if image.is_null() {
+            return None;
+        }
+
+        let artwork_cls = class!(MPMediaItemArtwork);
+        let artwork_alloc: *mut Object = msg_send![artwork_cls, alloc];
+        if artwork_alloc.is_null() {
+            return None;
+        }
+
+        let artwork: *mut Object = msg_send![artwork_alloc, initWithImage: image];
+        if artwork.is_null() {
+            None
+        } else {
+            Some(artwork)
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_ios_now_playing_info(meta: &NativeTrackMetadata, elapsed: f64, duration: f64, rate: f64) {
+    unsafe {
+        let center_cls = class!(MPNowPlayingInfoCenter);
+        let center: *mut Object = msg_send![center_cls, defaultCenter];
+        if center.is_null() {
+            return;
+        }
+
+        let dict_cls = class!(NSMutableDictionary);
+        let dict_alloc: *mut Object = msg_send![dict_cls, alloc];
+        if dict_alloc.is_null() {
+            return;
+        }
+        let dict: *mut Object = msg_send![dict_alloc, init];
+        if dict.is_null() {
+            return;
+        }
+
+        set_now_playing_string(dict, MPMediaItemPropertyTitle, &meta.title);
+        set_now_playing_string(dict, MPMediaItemPropertyArtist, &meta.artist);
+        set_now_playing_string(dict, MPMediaItemPropertyAlbumTitle, &meta.album);
+        set_now_playing_number(
+            dict,
+            MPNowPlayingInfoPropertyElapsedPlaybackTime,
+            elapsed.max(0.0),
+        );
+        if duration.is_finite() && duration > 0.0 {
+            set_now_playing_number(dict, MPMediaItemPropertyPlaybackDuration, duration);
+        }
+        set_now_playing_number(dict, MPNowPlayingInfoPropertyPlaybackRate, rate.max(0.0));
+        set_now_playing_number(dict, MPNowPlayingInfoPropertyDefaultPlaybackRate, 1.0);
+        if let Some(artwork_url) = &meta.artwork {
+            if let Some(artwork_obj) = make_now_playing_artwork(artwork_url) {
+                if !MPMediaItemPropertyArtwork.is_null() {
+                    let _: () =
+                        msg_send![dict, setObject: artwork_obj forKey: MPMediaItemPropertyArtwork];
+                }
+                let _: () = msg_send![artwork_obj, release];
+            }
+        }
+
+        let _: () = msg_send![center, setNowPlayingInfo: dict];
+        let _: () = msg_send![dict, release];
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn clear_ios_now_playing_info() {
+    unsafe {
+        let center_cls = class!(MPNowPlayingInfoCenter);
+        let center: *mut Object = msg_send![center_cls, defaultCenter];
+        if center.is_null() {
+            return;
+        }
+        let nil_info: *mut Object = ptr::null_mut();
+        let _: () = msg_send![center, setNowPlayingInfo: nil_info];
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+fn ensure_native_audio_bridge() {
+    let _ = document::eval(NATIVE_AUDIO_BOOTSTRAP_JS);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ensure_native_audio_bridge() {
+    let _ = with_ios_player(|_| ());
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+fn native_audio_command(value: serde_json::Value) {
+    ensure_native_audio_bridge();
+    let payload = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
+    let script = format!(
+        r#"(function () {{
+            const bridge = window.__rustysoundAudioBridge;
+            if (!bridge) return false;
+            bridge.apply({payload});
+            return true;
+        }})();"#
+    );
+    let _ = document::eval(&script);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn native_audio_command(value: serde_json::Value) {
+    let _ = with_ios_player(|player| player.apply(value));
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+    ensure_native_audio_bridge();
+    let eval = document::eval(
+        r#"(function () {
+            const bridge = window.__rustysoundAudioBridge;
+            if (!bridge) return null;
+            return bridge.snapshot();
+        })();"#,
+    );
+    eval.join::<Option<NativeAudioSnapshot>>()
+        .await
+        .ok()
+        .flatten()
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+    with_ios_player(|player| player.snapshot())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+async fn native_delay_ms(ms: u64) {
+    let script = format!(
+        r#"(async function () {{
+            await new Promise(resolve => setTimeout(resolve, {ms}));
+            return true;
+        }})();"#
+    );
+    let _ = document::eval(&script).await;
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+async fn native_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
+    let title = song.title.clone();
+    let artist = song
+        .artist
+        .clone()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "Unknown Artist".to_string());
+
+    let mut album = song
+        .album
+        .clone()
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "Unknown Album".to_string());
+    if let Some(year) = song.year {
+        album = format!("{album} ({year})");
+    }
+
+    let artwork = servers
+        .iter()
+        .find(|s| s.id == song.server_id)
+        .and_then(|server| {
+            song.cover_art
+                .as_ref()
+                .map(|cover| NavidromeClient::new(server.clone()).get_cover_art_url(cover, 512))
+        });
+
+    NativeTrackMetadata {
+        title,
+        artist,
+        album,
+        artwork,
+        duration: song.duration as f64,
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 #[component]
 pub fn AudioController() -> Element {
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
+    let is_playing = use_context::<Signal<bool>>();
+    let volume = use_context::<VolumeSignal>().0;
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let queue_index = use_context::<Signal<usize>>();
+    let repeat_mode = use_context::<Signal<RepeatMode>>();
+    let shuffle_enabled = use_context::<Signal<bool>>();
+    let playback_position = use_context::<PlaybackPositionSignal>().0;
+    let seek_request = use_context::<SeekRequestSignal>().0;
+    let audio_state = use_context::<Signal<AudioState>>();
+
+    let last_song_id = use_signal(|| None::<String>);
+    let last_src = use_signal(|| None::<String>);
+    let last_bookmark = use_signal(|| None::<(String, u64)>);
+    let last_song_for_bookmark = use_signal(|| None::<Song>);
+    let last_ended_song = use_signal(|| None::<String>);
+
+    // One-time setup: bootstrap audio bridge and poll playback state.
+    {
+        let servers = servers.clone();
+        let queue = queue.clone();
+        let mut queue_index = queue_index.clone();
+        let repeat_mode = repeat_mode.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
+        let mut now_playing = now_playing.clone();
+        let mut is_playing = is_playing.clone();
+        let mut playback_position = playback_position.clone();
+        let mut audio_state = audio_state.clone();
+        let mut last_ended_song = last_ended_song.clone();
+
+        use_effect(move || {
+            ensure_native_audio_bridge();
+            audio_state.write().is_initialized.set(true);
+
+            spawn(async move {
+                loop {
+                    native_delay_ms(250).await;
+
+                    let Some(snapshot) = native_audio_snapshot().await else {
+                        continue;
+                    };
+
+                    let mut effective_duration = *audio_state.peek().duration.peek();
+                    if snapshot.duration.is_finite() && snapshot.duration > 0.0 {
+                        effective_duration = snapshot.duration;
+                        audio_state.write().duration.set(snapshot.duration);
+                    }
+
+                    let mut current_time = snapshot.current_time.max(0.0);
+                    if effective_duration.is_finite() && effective_duration > 0.0 {
+                        current_time = current_time.min(effective_duration);
+                    }
+                    playback_position.set(current_time);
+                    audio_state.write().current_time.set(current_time);
+
+                    let currently_playing = !snapshot.paused;
+                    if !snapshot.ended && *is_playing.peek() != currently_playing {
+                        is_playing.set(currently_playing);
+                    }
+
+                    let ended_action = matches!(snapshot.action.as_deref(), Some("ended"));
+
+                    if let Some(action) = snapshot.action.as_deref() {
+                        let queue_snapshot = queue.peek().clone();
+                        let idx = *queue_index.peek();
+                        let repeat = *repeat_mode.peek();
+                        let shuffle = *shuffle_enabled.peek();
+                        let servers_snapshot = servers.peek().clone();
+                        let resume_after_skip = currently_playing;
+
+                        if let Some(raw_seek) = action.strip_prefix("seek:") {
+                            if let Ok(target) = raw_seek.parse::<f64>() {
+                                let mut clamped = target.max(0.0);
+                                if effective_duration.is_finite() && effective_duration > 0.0 {
+                                    clamped = clamped.min(effective_duration);
+                                }
+                                playback_position.set(clamped);
+                                audio_state.write().current_time.set(clamped);
+                            }
+                            continue;
+                        }
+
+                        match action {
+                            "next" => {
+                                let len = queue_snapshot.len();
+                                if len == 0 {
+                                    spawn_shuffle_queue(
+                                        servers_snapshot,
+                                        queue.clone(),
+                                        queue_index.clone(),
+                                        now_playing.clone(),
+                                        is_playing.clone(),
+                                        now_playing.peek().clone(),
+                                        Some(resume_after_skip),
+                                    );
+                                } else if repeat == RepeatMode::Off && shuffle {
+                                    if idx < len.saturating_sub(1) {
+                                        if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
+                                            queue_index.set(idx + 1);
+                                            now_playing.set(Some(song));
+                                            is_playing.set(resume_after_skip);
+                                        }
+                                    } else {
+                                        spawn_shuffle_queue(
+                                            servers_snapshot,
+                                            queue.clone(),
+                                            queue_index.clone(),
+                                            now_playing.clone(),
+                                            is_playing.clone(),
+                                            now_playing.peek().clone(),
+                                            Some(resume_after_skip),
+                                        );
+                                    }
+                                } else if idx < len.saturating_sub(1) {
+                                    if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
+                                        queue_index.set(idx + 1);
+                                        now_playing.set(Some(song));
+                                        is_playing.set(resume_after_skip);
+                                    }
+                                } else if repeat == RepeatMode::All {
+                                    if let Some(song) = queue_snapshot.first().cloned() {
+                                        queue_index.set(0);
+                                        now_playing.set(Some(song));
+                                        is_playing.set(resume_after_skip);
+                                    }
+                                } else if len <= 1 {
+                                    spawn_shuffle_queue(
+                                        servers_snapshot,
+                                        queue.clone(),
+                                        queue_index.clone(),
+                                        now_playing.clone(),
+                                        is_playing.clone(),
+                                        now_playing.peek().clone(),
+                                        Some(resume_after_skip),
+                                    );
+                                } else {
+                                    native_audio_command(serde_json::json!({
+                                        "type": "seek",
+                                        "position": 0.0
+                                    }));
+                                    is_playing.set(false);
+                                }
+                            }
+                            "previous" => {
+                                let len = queue_snapshot.len();
+                                if len > 0 {
+                                    if idx > 0 {
+                                        if let Some(song) = queue_snapshot.get(idx - 1).cloned() {
+                                            queue_index.set(idx - 1);
+                                            now_playing.set(Some(song));
+                                            is_playing.set(resume_after_skip);
+                                        }
+                                    } else if repeat == RepeatMode::All {
+                                        let last_idx = len.saturating_sub(1);
+                                        if let Some(song) = queue_snapshot.get(last_idx).cloned() {
+                                            queue_index.set(last_idx);
+                                            now_playing.set(Some(song));
+                                            is_playing.set(resume_after_skip);
+                                        }
+                                    } else {
+                                        native_audio_command(serde_json::json!({
+                                            "type": "seek",
+                                            "position": 0.0
+                                        }));
+                                        if resume_after_skip {
+                                            native_audio_command(serde_json::json!({
+                                                "type": "play"
+                                            }));
+                                        }
+                                    }
+                                }
+                            }
+                            "ended" => {}
+                            _ => {}
+                        }
+                    }
+
+                    if snapshot.ended || ended_action {
+                        let current_song = now_playing.peek().clone();
+                        let current_id = current_song.as_ref().map(|s| s.id.clone());
+                        if *last_ended_song.peek() == current_id {
+                            continue;
+                        }
+                        last_ended_song.set(current_id.clone());
+
+                        let queue_snapshot = queue.peek().clone();
+                        let idx = *queue_index.peek();
+                        let repeat = *repeat_mode.peek();
+                        let shuffle = *shuffle_enabled.peek();
+                        let servers_snapshot = servers.peek().clone();
+
+                        if let Some(song) = current_song.clone() {
+                            scrobble_song(&servers_snapshot, &song, true);
+                        }
+
+                        if repeat == RepeatMode::One {
+                            native_audio_command(serde_json::json!({
+                                "type": "seek",
+                                "position": 0.0
+                            }));
+                            if *is_playing.peek() {
+                                native_audio_command(serde_json::json!({
+                                    "type": "play"
+                                }));
+                            }
+                            continue;
+                        }
+
+                        let len = queue_snapshot.len();
+                        if len == 0 {
+                            if repeat == RepeatMode::All {
+                                native_audio_command(serde_json::json!({
+                                    "type": "seek",
+                                    "position": 0.0
+                                }));
+                                native_audio_command(serde_json::json!({ "type": "play" }));
+                            } else {
+                                spawn_shuffle_queue(
+                                    servers_snapshot,
+                                    queue.clone(),
+                                    queue_index.clone(),
+                                    now_playing.clone(),
+                                    is_playing.clone(),
+                                    current_song.clone(),
+                                    Some(true),
+                                );
+                            }
+                            continue;
+                        }
+
+                        let should_shuffle = repeat == RepeatMode::Off && shuffle;
+                        if should_shuffle {
+                            if idx < len.saturating_sub(1) {
+                                if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
+                                    queue_index.set(idx + 1);
+                                    now_playing.set(Some(song));
+                                    is_playing.set(true);
+                                }
+                            } else {
+                                spawn_shuffle_queue(
+                                    servers_snapshot,
+                                    queue.clone(),
+                                    queue_index.clone(),
+                                    now_playing.clone(),
+                                    is_playing.clone(),
+                                    current_song,
+                                    Some(true),
+                                );
+                            }
+                            continue;
+                        }
+
+                        if idx < len.saturating_sub(1) {
+                            if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
+                                queue_index.set(idx + 1);
+                                now_playing.set(Some(song));
+                                is_playing.set(true);
+                            }
+                        } else if repeat == RepeatMode::All {
+                            if let Some(song) = queue_snapshot.first().cloned() {
+                                queue_index.set(0);
+                                now_playing.set(Some(song));
+                                is_playing.set(true);
+                            }
+                        } else if len <= 1 {
+                            spawn_shuffle_queue(
+                                servers_snapshot,
+                                queue.clone(),
+                                queue_index.clone(),
+                                now_playing.clone(),
+                                is_playing.clone(),
+                                current_song,
+                                Some(true),
+                            );
+                        } else {
+                            is_playing.set(false);
+                        }
+                    } else if last_ended_song.peek().is_some() {
+                        last_ended_song.set(None);
+                    }
+                }
+            });
+        });
+    }
+
+    // Keep queue_index aligned when now_playing changes and the song is in the queue.
+    {
+        let mut queue_index = queue_index.clone();
+        let queue = queue.clone();
+        let now_playing = now_playing.clone();
+        use_effect(move || {
+            let song = now_playing();
+            let queue_list = queue();
+            if let Some(song) = song {
+                if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+                    if pos != queue_index() {
+                        queue_index.set(pos);
+                    }
+                }
+            }
+        });
+    }
+
+    // Update source + metadata and persist bookmark when songs change.
+    {
+        let servers = servers.clone();
+        let volume = volume.clone();
+        let now_playing = now_playing.clone();
+        let mut is_playing = is_playing.clone();
+        let mut playback_position = playback_position.clone();
+        let mut audio_state = audio_state.clone();
+        let mut seek_request = seek_request.clone();
+        let mut last_song_id = last_song_id.clone();
+        let mut last_src = last_src.clone();
+        let mut last_bookmark = last_bookmark.clone();
+        let mut last_song_for_bookmark = last_song_for_bookmark.clone();
+
+        use_effect(move || {
+            let song = now_playing();
+            let song_id = song.as_ref().map(|s| s.id.clone());
+            let previous_song = last_song_for_bookmark.peek().clone();
+
+            if let Some(prev) = previous_song {
+                if Some(prev.id.clone()) != song_id {
+                    let position_ms = (playback_position.peek().max(0.0) * 1000.0).round() as u64;
+                    if position_ms > 1500 {
+                        let servers_snapshot = servers.peek().clone();
+                        let song_id = prev.id.clone();
+                        let server_id = prev.server_id.clone();
+                        spawn(async move {
+                            last_bookmark.set(Some((song_id.clone(), position_ms)));
+                            if let Some(server) =
+                                servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                            {
+                                let client = NavidromeClient::new(server);
+                                let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                            }
+                        });
+                    }
+                }
+            }
+
+            if song_id != *last_song_id.peek() {
+                last_song_id.set(song_id.clone());
+                last_song_for_bookmark.set(song.clone());
+            }
+
+            let Some(song) = song else {
+                native_audio_command(serde_json::json!({ "type": "clear" }));
+                last_src.set(None);
+                is_playing.set(false);
+                return;
+            };
+
+            let servers_snapshot = servers.peek().clone();
+            if let Some(url) = resolve_stream_url(&song, &servers_snapshot) {
+                let requested_seek = seek_request.peek().clone().and_then(|(song_id, position)| {
+                    if song_id == song.id {
+                        Some(position)
+                    } else {
+                        None
+                    }
+                });
+
+                let should_reload = Some(url.clone()) != *last_src.peek();
+                let metadata = song_metadata(&song, &servers_snapshot);
+                let known_duration = if song.duration > 0 {
+                    song.duration as f64
+                } else {
+                    0.0
+                };
+                let mut target_start = requested_seek.unwrap_or(0.0).max(0.0);
+                if known_duration > 0.0 {
+                    target_start = target_start.min(known_duration);
+                }
+
+                if should_reload {
+                    last_src.set(Some(url.clone()));
+                    playback_position.set(target_start);
+                    audio_state.write().current_time.set(target_start);
+                    if known_duration > 0.0 {
+                        audio_state.write().duration.set(known_duration);
+                    } else {
+                        audio_state.write().duration.set(0.0);
+                    }
+                    native_audio_command(serde_json::json!({
+                        "type": "load",
+                        "src": url,
+                        "song_id": song.id,
+                        "position": target_start,
+                        "volume": volume.peek().clamp(0.0, 1.0),
+                        "play": *is_playing.peek(),
+                        "meta": metadata,
+                    }));
+                } else if let Some(target_pos) = requested_seek {
+                    native_audio_command(serde_json::json!({
+                        "type": "seek",
+                        "position": target_pos,
+                    }));
+                } else {
+                    native_audio_command(serde_json::json!({
+                        "type": "metadata",
+                        "meta": metadata,
+                    }));
+                }
+
+                if let Some(target_pos) = requested_seek {
+                    let mut clamped_pos = target_pos.max(0.0);
+                    let current_duration = *audio_state.peek().duration.peek();
+                    if current_duration > 0.0 {
+                        clamped_pos = clamped_pos.min(current_duration);
+                    }
+                    playback_position.set(clamped_pos);
+                    audio_state.write().current_time.set(clamped_pos);
+                    seek_request.set(None);
+                }
+
+                scrobble_song(&servers_snapshot, &song, false);
+            } else {
+                native_audio_command(serde_json::json!({ "type": "clear" }));
+                last_src.set(None);
+                is_playing.set(false);
+            }
+        });
+    }
+
+    // Handle play/pause state changes.
+    {
+        let is_playing = is_playing.clone();
+        use_effect(move || {
+            if is_playing() {
+                native_audio_command(serde_json::json!({ "type": "play" }));
+            } else {
+                native_audio_command(serde_json::json!({ "type": "pause" }));
+            }
+        });
+    }
+
+    // Handle repeat mode changes.
+    {
+        let repeat_mode = repeat_mode.clone();
+        use_effect(move || {
+            native_audio_command(serde_json::json!({
+                "type": "loop",
+                "enabled": repeat_mode() == RepeatMode::One,
+            }));
+        });
+    }
+
+    // Handle volume changes.
+    {
+        let volume = volume.clone();
+        use_effect(move || {
+            native_audio_command(serde_json::json!({
+                "type": "volume",
+                "value": volume().clamp(0.0, 1.0),
+            }));
+        });
+    }
+
+    // Persist a bookmark when playback pauses.
+    {
+        let servers = servers.clone();
+        let mut last_bookmark = last_bookmark.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
+        let playback_position = playback_position.clone();
+        use_effect(move || {
+            if is_playing() {
+                return;
+            }
+
+            let Some(song) = now_playing() else {
+                return;
+            };
+
+            let position_ms = (playback_position.peek().max(0.0) * 1000.0).round() as u64;
+            if position_ms <= 1500 {
+                return;
+            }
+
+            let should_save = match last_bookmark.peek().clone() {
+                Some((id, pos)) => id != song.id || position_ms.abs_diff(pos) >= 2000,
+                None => true,
+            };
+
+            if should_save {
+                let servers_snapshot = servers.peek().clone();
+                let song_id = song.id.clone();
+                let server_id = song.server_id.clone();
+                spawn(async move {
+                    last_bookmark.set(Some((song_id.clone(), position_ms)));
+                    if let Some(server) =
+                        servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                    {
+                        let client = NavidromeClient::new(server);
+                        let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                    }
+                });
+            }
+        });
+    }
+
     rsx! {}
 }
 
@@ -141,6 +1786,63 @@ pub(crate) fn spawn_shuffle_queue(
     });
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+pub(crate) fn spawn_shuffle_queue(
+    servers: Vec<ServerConfig>,
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut is_playing: Signal<bool>,
+    seed_song: Option<Song>,
+    play_state: Option<bool>,
+) {
+    let active_servers: Vec<ServerConfig> = servers.into_iter().filter(|s| s.active).collect();
+    if active_servers.is_empty() {
+        return;
+    }
+
+    spawn(async move {
+        let mut songs = Vec::new();
+        if let Some(seed) = seed_song {
+            if let Some(server) = active_servers
+                .iter()
+                .find(|s| s.id == seed.server_id)
+                .cloned()
+            {
+                let client = NavidromeClient::new(server);
+                if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
+                    songs.extend(similar);
+                }
+            }
+        }
+
+        if songs.is_empty() {
+            for server in active_servers.iter().cloned() {
+                let client = NavidromeClient::new(server);
+                if let Ok(server_songs) = client.get_random_songs(25).await {
+                    songs.extend(server_songs);
+                }
+            }
+        }
+
+        if songs.is_empty() {
+            return;
+        }
+
+        let mut rng = rand::thread_rng();
+        songs.shuffle(&mut rng);
+        songs.truncate(50);
+
+        let first = songs.first().cloned();
+        queue.set(songs);
+        queue_index.set(0);
+        now_playing.set(first);
+        if let Some(play_state) = play_state {
+            is_playing.set(play_state);
+        }
+    });
+}
+
 #[cfg(target_arch = "wasm32")]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
     if let Some(url) = song
@@ -160,7 +1862,38 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
         })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
+    if let Some(url) = song
+        .stream_url
+        .clone()
+        .filter(|value| !value.trim().is_empty())
+    {
+        return Some(url);
+    }
+
+    servers
+        .iter()
+        .find(|s| s.id == song.server_id)
+        .map(|server| {
+            let client = NavidromeClient::new(server.clone());
+            client.get_stream_url(&song.id)
+        })
+}
+
 #[cfg(target_arch = "wasm32")]
+fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
+    let server = servers.iter().find(|s| s.id == song.server_id).cloned();
+    if let Some(server) = server {
+        let song_id = song.id.clone();
+        spawn(async move {
+            let client = NavidromeClient::new(server);
+            let _ = client.scrobble(&song_id, finished).await;
+        });
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
     let server = servers.iter().find(|s| s.id == song.server_id).cloned();
     if let Some(server) = server {
@@ -565,8 +2298,12 @@ pub fn seek_to(position: f64) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub fn seek_to(_position: f64) {}
+pub fn seek_to(position: f64) {
+    native_audio_command(serde_json::json!({
+        "type": "seek",
+        "position": position.max(0.0),
+    }));
+}
 
 /// Get the current playback position.
 #[cfg(target_arch = "wasm32")]
@@ -630,10 +2367,20 @@ pub fn play_song(
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
 pub fn play_song(
-    _song: crate::api::Song,
-    _now_playing: Signal<Option<crate::api::Song>>,
-    _queue: Signal<Vec<crate::api::Song>>,
-    _queue_index: Signal<usize>,
-    _is_playing: Signal<bool>,
+    song: Song,
+    mut now_playing: Signal<Option<Song>>,
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut is_playing: Signal<bool>,
 ) {
+    let queue_list = queue.read().clone();
+    if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+        queue_index.set(pos);
+        now_playing.set(Some(song));
+    } else {
+        queue.set(vec![song.clone()]);
+        queue_index.set(0);
+        now_playing.set(Some(song));
+    }
+    is_playing.set(true);
 }

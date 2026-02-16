@@ -9,8 +9,13 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let queue = use_context::<Signal<Vec<Song>>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
+    let is_current = now_playing()
+        .as_ref()
+        .map(|current| current.id == song.id)
+        .unwrap_or(false);
 
     let cover_url = servers()
         .iter()
@@ -92,12 +97,22 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
 
     rsx! {
         div {
-            class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
+            class: if is_current {
+                "w-full flex items-center gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer"
+            } else {
+                "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer"
+            },
             onclick: move |e| onclick.call(e),
             // Index
-            span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{index}" }
-            span { class: "w-6 text-sm text-white hidden group-hover:block",
-                Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+            if is_current {
+                span { class: "w-6 text-sm text-emerald-400",
+                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                }
+            } else {
+                span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{index}" }
+                span { class: "w-6 text-sm text-white hidden group-hover:block",
+                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                }
             }
             // Cover
             if album_id.is_some() {
@@ -121,7 +136,7 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
             }
             // Song info
             div { class: "flex-1 min-w-0 text-left",
-                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors max-w-full",
+                p { class: if is_current { "text-sm font-medium text-emerald-400 truncate transition-colors max-w-full" } else { "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors max-w-full" },
                     "{song.title}"
                 }
                 if artist_id.is_some() {

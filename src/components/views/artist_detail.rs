@@ -1,5 +1,6 @@
 use crate::api::*;
-use crate::components::{AppView, AddIntent, AddMenuController, Icon, Navigation};
+use crate::components::views::home::SongRow;
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 fn render_album_item(
@@ -95,16 +96,18 @@ fn render_album_item(
 pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
-    let queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
-    let _now_playing = use_context::<Signal<Option<Song>>>();
-    let _queue_index = use_context::<Signal<usize>>();
-    let _is_playing = use_context::<Signal<bool>>();
+    let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
+    let mut is_playing = use_context::<Signal<bool>>();
 
-    let server = servers().into_iter().find(|s| s.id == server_id);
+    let artist_server = servers().into_iter().find(|s| s.id == server_id);
+    let artist_server_for_artist = artist_server.clone();
+    let artist_server_for_top = artist_server.clone();
 
     let artist_data = use_resource(move || {
-        let server = server.clone();
+        let server = artist_server_for_artist.clone();
         let artist_id = artist_id.clone();
         async move {
             if let Some(server) = server {
@@ -112,6 +115,26 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                 client.get_artist(&artist_id).await.ok()
             } else {
                 None
+            }
+        }
+    });
+
+    let top_songs_data = use_resource({
+        let server = artist_server_for_top.clone();
+        let artist_data = artist_data.clone();
+        move || {
+            let server = server.clone();
+            let artist_name = artist_data()
+                .and_then(|value| value.map(|(artist, _)| artist.name.clone()))
+                .filter(|name| !name.is_empty());
+            async move {
+                match (server, artist_name) {
+                    (Some(server), Some(artist_name)) => {
+                        let client = NavidromeClient::new(server);
+                        client.get_top_songs(&artist_name, 20).await.ok()
+                    }
+                    _ => None,
+                }
             }
         }
     });
@@ -189,6 +212,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         {
             match artist_data() {
                 Some(Some((artist, albums))) => {
+                    let top_songs = top_songs_data().flatten().unwrap_or_default();
                     let cover_url = servers()
                         .iter()
                         .find(|s| s.id == artist.server_id)
@@ -268,6 +292,31 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                 add_menu.clone(),
                                             )
                                         })
+                                }
+                            }
+                        }
+                        if !top_songs.is_empty() {
+                            section { class: "space-y-4 mt-10",
+                                h2 { class: "text-2xl font-bold text-white", "Popular Songs" }
+                                div { class: "rounded-2xl border border-zinc-800/80 bg-zinc-900/30 p-2",
+                                    for (index, song) in top_songs.iter().enumerate() {
+                                        {
+                                            let song_for_queue = song.clone();
+                                            let songs_for_queue = top_songs.clone();
+                                            rsx! {
+                                                SongRow {
+                                                    song: song.clone(),
+                                                    index: index + 1,
+                                                    onclick: move |_| {
+                                                        queue.set(songs_for_queue.clone());
+                                                        queue_index.set(index);
+                                                        now_playing.set(Some(song_for_queue.clone()));
+                                                        is_playing.set(true);
+                                                    },
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

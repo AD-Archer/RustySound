@@ -1,6 +1,5 @@
 use crate::api::models::format_duration;
 use crate::api::*;
-#[cfg(target_arch = "wasm32")]
 use crate::components::audio_manager::spawn_shuffle_queue;
 use crate::components::{
     seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, VolumeSignal,
@@ -15,10 +14,9 @@ pub fn Player() -> Element {
     let mut volume = use_context::<VolumeSignal>().0;
     let navigation = use_context::<Navigation>();
     let audio_state = use_context::<Signal<AudioState>>();
+    let playback_position = use_context::<PlaybackPositionSignal>().0;
 
     let mut is_favorited = use_signal(|| false);
-    let mut is_scrubbing = use_signal(|| false);
-    let mut scrub_percent = use_signal(|| 0.0f64);
 
     let current_song = now_playing();
     let current_song_for_fav = current_song.clone();
@@ -44,8 +42,6 @@ pub fn Player() -> Element {
             .map(|s| s.starred.is_some())
             .unwrap_or(false);
         is_favorited.set(starred);
-        is_scrubbing.set(false);
-        scrub_percent.set(0.0);
     });
 
     let on_volume_change = move |e: Event<FormData>| {
@@ -60,23 +56,27 @@ pub fn Player() -> Element {
         .unwrap_or(false);
 
     let on_seek_input = {
-        let mut scrub_percent = scrub_percent.clone();
-        let mut is_scrubbing = is_scrubbing.clone();
+        let mut playback_position = playback_position.clone();
+        let mut audio_state = audio_state.clone();
         move |e: Event<FormData>| {
             if is_radio {
                 return;
             }
             if let Ok(percent) = e.value().parse::<f64>() {
-                scrub_percent.set(percent.clamp(0.0, 100.0));
-                if !is_scrubbing() {
-                    is_scrubbing.set(true);
+                let percent = percent.clamp(0.0, 100.0);
+                if duration > 0.0 {
+                    let new_time = (percent / 100.0) * duration;
+                    playback_position.set(new_time);
+                    audio_state.write().current_time.set(new_time);
+                    seek_to(new_time);
                 }
             }
         }
     };
 
     let on_seek_commit = {
-        let mut is_scrubbing = is_scrubbing.clone();
+        let mut playback_position = playback_position.clone();
+        let mut audio_state = audio_state.clone();
         move |e: Event<FormData>| {
             if is_radio {
                 return;
@@ -84,11 +84,12 @@ pub fn Player() -> Element {
             if let Ok(percent) = e.value().parse::<f64>() {
                 let dur = duration;
                 if dur > 0.0 {
-                    let new_time = (percent / 100.0) * dur;
+                    let new_time = (percent.clamp(0.0, 100.0) / 100.0) * dur;
+                    playback_position.set(new_time);
+                    audio_state.write().current_time.set(new_time);
                     seek_to(new_time);
                 }
             }
-            is_scrubbing.set(false);
         }
     };
 
@@ -280,7 +281,7 @@ pub fn Player() -> Element {
                             min: "0",
                             max: "100",
                             disabled: is_radio,
-                            value: if is_scrubbing() { scrub_percent() as i32 } else if duration > 0.0 { (current_time / duration * 100.0) as i32 } else { 0 },
+                            value: if duration > 0.0 { (current_time / duration * 100.0).round() as i32 } else { 0 },
                             class: "flex-1 h-1.5 bg-zinc-800 rounded-full appearance-none cursor-pointer accent-emerald-500",
                             oninput: on_seek_input,
                             onchange: on_seek_commit,
@@ -523,6 +524,8 @@ fn PrevButton() -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let mut is_playing = use_context::<Signal<bool>>();
+    let was_playing = is_playing();
 
     rsx! {
         button {
@@ -537,6 +540,9 @@ fn PrevButton() -> Element {
                     if let Some(song) = queue_list.get(next_idx).cloned() {
                         queue_index.set(next_idx);
                         now_playing.set(Some(song));
+                        if was_playing {
+                            is_playing.set(true);
+                        }
                     }
                 }
             },
@@ -548,10 +554,8 @@ fn PrevButton() -> Element {
 /// Next button - completely isolated component
 #[component]
 fn NextButton() -> Element {
-    #[cfg(target_arch = "wasm32")]
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    #[cfg(target_arch = "wasm32")]
-    let is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<Signal<bool>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
@@ -564,9 +568,13 @@ fn NextButton() -> Element {
             r#type: "button",
             class: "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors",
             onclick: move |_| {
+                let was_playing = *is_playing.peek();
                 let repeat = *repeat_mode.peek();
                 if repeat == RepeatMode::One {
                     seek_to(0.0);
+                    if was_playing {
+                        is_playing.set(true);
+                    }
                     return;
                 }
                 let idx = *queue_index.peek();
@@ -574,7 +582,6 @@ fn NextButton() -> Element {
                 let can_shuffle = repeat == RepeatMode::Off;
                 if can_shuffle && *shuffle_enabled.peek() {
                     if queue_list.is_empty() {
-                        #[cfg(target_arch = "wasm32")]
                         spawn_shuffle_queue(
                             servers.peek().clone(),
                             queue.clone(),
@@ -582,15 +589,17 @@ fn NextButton() -> Element {
                             now_playing.clone(),
                             is_playing.clone(),
                             now_playing.peek().clone(),
-                            None,
+                            Some(was_playing),
                         );
                     } else if idx < queue_list.len().saturating_sub(1) {
                         if let Some(song) = queue_list.get(idx + 1).cloned() {
                             queue_index.set(idx + 1);
                             now_playing.set(Some(song));
+                            if was_playing {
+                                is_playing.set(true);
+                            }
                         }
                     } else {
-                        #[cfg(target_arch = "wasm32")]
                         spawn_shuffle_queue(
                             servers.peek().clone(),
                             queue.clone(),
@@ -598,18 +607,24 @@ fn NextButton() -> Element {
                             now_playing.clone(),
                             is_playing.clone(),
                             now_playing.peek().clone(),
-                            None,
+                            Some(was_playing),
                         );
                     }
                 } else if idx < queue_list.len().saturating_sub(1) {
                     if let Some(song) = queue_list.get(idx + 1).cloned() {
                         queue_index.set(idx + 1);
                         now_playing.set(Some(song));
+                        if was_playing {
+                            is_playing.set(true);
+                        }
                     }
                 } else if repeat == RepeatMode::All && !queue_list.is_empty() {
                     if let Some(song) = queue_list.get(0).cloned() {
                         queue_index.set(0);
                         now_playing.set(Some(song));
+                        if was_playing {
+                            is_playing.set(true);
+                        }
                     }
                 }
             },
