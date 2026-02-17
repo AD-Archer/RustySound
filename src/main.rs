@@ -1,8 +1,13 @@
 use dioxus::prelude::*;
 
 mod api;
+mod cache;
+mod cache_service;
+mod diagnostics;
 mod components;
 mod db;
+mod offline_art;
+mod offline_audio;
 
 use components::AppView;
 

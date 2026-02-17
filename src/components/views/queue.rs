@@ -1,16 +1,66 @@
 use crate::api::models::format_duration;
 use crate::api::*;
+use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::{
-    AddIntent, AddMenuController, AppView, Icon, Navigation, SongDetailsController,
+    AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
+    PreviewPlaybackSignal, SeekRequestSignal, SongDetailsController,
 };
+use crate::diagnostics::log_perf;
 use dioxus::prelude::*;
 use std::collections::HashSet;
+use std::rc::Rc;
+use std::time::Instant;
 
-const TOUCH_REORDER_SWIPE_THRESHOLD_PX: f64 = 16.0;
+const QUICK_PREVIEW_DURATION_MS: u64 = 12000;
 const AUTO_RECOMMENDATION_LIMIT: usize = 25;
 const AUTO_RECOMMENDATION_FIRST_SEED_COUNT: usize = 4;
 const AUTO_RECOMMENDATION_LAST_SEED_COUNT: usize = 4;
 const AUTO_RECOMMENDATION_RECENT_SEED_COUNT: usize = 17;
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn quick_preview_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn quick_preview_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn queue_search_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn queue_search_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
+async fn prefetch_lrclib_lyrics_for_queue(songs: Vec<Song>, max_songs: usize) {
+    if songs.is_empty() || max_songs == 0 {
+        return;
+    }
+
+    let providers = vec!["lrclib".to_string()];
+    let start = Instant::now();
+    let mut prefetched = 0usize;
+
+    for song in songs.into_iter().take(max_songs) {
+        if song.title.trim().is_empty() {
+            continue;
+        }
+        let query = LyricsQuery::from_song(&song);
+        let _ = fetch_lyrics_with_fallback(&query, &providers, 4).await;
+        prefetched += 1;
+    }
+
+    log_perf(
+        "queue.lyrics_prefetch",
+        start,
+        &format!("prefetched={prefetched}"),
+    );
+}
 
 #[component]
 pub fn QueueView() -> Element {
@@ -22,18 +72,142 @@ pub fn QueueView() -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
-    let drag_source_index = use_signal(|| None::<usize>);
-    let touch_reorder_start = use_signal(|| None::<(usize, f64)>);
+    let playback_position = use_context::<PlaybackPositionSignal>().0;
+    let seek_request = use_context::<SeekRequestSignal>().0;
+    let preview_playback = use_context::<PreviewPlaybackSignal>().0;
     let add_song_panel_open = use_signal(|| false);
     let mut queue_search = use_signal(String::new);
+    let queue_search_debounced = use_signal(String::new);
+    let queue_search_generation = use_signal(|| 0u64);
     let recently_added_seed = use_signal(|| None::<Song>);
     let dismissed_recommendations = use_signal(HashSet::<String>::new);
     let recommendation_refresh_nonce = use_signal(|| 0u64);
+    let preview_session = use_signal(|| 0u64);
+    let preview_song_key = use_signal(|| None::<String>);
+    let lyrics_prefetch_signature = use_signal(String::new);
 
     let current_index = queue_index();
     let songs: Vec<Song> = queue().into_iter().collect();
     let queue_len = songs.len();
     let current_song = now_playing();
+
+    {
+        let queue = queue.clone();
+        let mut lyrics_prefetch_signature = lyrics_prefetch_signature.clone();
+        use_effect(move || {
+            let snapshot = queue();
+            let signature = snapshot
+                .iter()
+                .take(6)
+                .map(song_identity_key)
+                .collect::<Vec<_>>()
+                .join("|");
+
+            if signature.is_empty() || signature == lyrics_prefetch_signature() {
+                return;
+            }
+            lyrics_prefetch_signature.set(signature);
+
+            let seeds: Vec<Song> = snapshot.into_iter().take(6).collect();
+            spawn(async move {
+                prefetch_lrclib_lyrics_for_queue(seeds, 6).await;
+            });
+        });
+    }
+
+    {
+        let mut queue_search_debounced = queue_search_debounced.clone();
+        let mut queue_search_generation = queue_search_generation.clone();
+        use_effect(move || {
+            let query = queue_search().trim().to_string();
+            queue_search_generation.with_mut(|value| *value = value.saturating_add(1));
+            let generation = *queue_search_generation.peek();
+
+            if query.len() < 2 {
+                queue_search_debounced.set(String::new());
+                return;
+            }
+
+            let mut queue_search_debounced = queue_search_debounced.clone();
+            let queue_search_generation = queue_search_generation.clone();
+            spawn(async move {
+                queue_search_delay_ms(220).await;
+                if *queue_search_generation.peek() != generation {
+                    return;
+                }
+                queue_search_debounced.set(query);
+            });
+        });
+    }
+
+    let on_preview_song = Rc::new({
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
+        let playback_position = playback_position.clone();
+        let seek_request = seek_request.clone();
+        let preview_playback = preview_playback.clone();
+        let preview_session = preview_session.clone();
+        let preview_song_key = preview_song_key.clone();
+        move |song: Song| {
+            let mut queue = queue.clone();
+            let mut queue_index = queue_index.clone();
+            let mut now_playing = now_playing.clone();
+            let mut is_playing = is_playing.clone();
+            let mut playback_position = playback_position.clone();
+            let mut seek_request = seek_request.clone();
+            let mut preview_playback = preview_playback.clone();
+            let mut preview_session = preview_session.clone();
+            let mut preview_song_key = preview_song_key.clone();
+            let saved_queue = queue();
+            let saved_queue_index = queue_index();
+            let saved_now_playing = now_playing();
+            let saved_is_playing = is_playing();
+            let saved_playback_position = playback_position();
+            let saved_seek_request = seek_request();
+            let saved_seek = saved_seek_request.or_else(|| {
+                saved_now_playing
+                    .as_ref()
+                    .map(|current| (current.id.clone(), saved_playback_position.max(0.0)))
+            });
+
+            preview_session.with_mut(|session| *session = session.saturating_add(1));
+            let session = preview_session();
+            preview_song_key.set(Some(song_identity_key(&song)));
+            preview_playback.set(true);
+
+            queue.set(vec![song.clone()]);
+            queue_index.set(0);
+            playback_position.set(0.0);
+            seek_request.set(Some((song.id.clone(), 0.0)));
+            now_playing.set(Some(song));
+            is_playing.set(true);
+
+            let mut queue = queue.clone();
+            let mut queue_index = queue_index.clone();
+            let mut now_playing = now_playing.clone();
+            let mut is_playing = is_playing.clone();
+            let mut playback_position = playback_position.clone();
+            let mut seek_request = seek_request.clone();
+            let preview_session = preview_session.clone();
+            let mut preview_song_key = preview_song_key.clone();
+            spawn(async move {
+                quick_preview_delay_ms(QUICK_PREVIEW_DURATION_MS).await;
+                if preview_session() != session {
+                    return;
+                }
+                queue.set(saved_queue);
+                queue_index.set(saved_queue_index);
+                now_playing.set(saved_now_playing);
+                is_playing.set(saved_is_playing);
+                playback_position.set(saved_playback_position.max(0.0));
+                seek_request.set(saved_seek);
+                preview_song_key.set(None);
+                preview_playback.set(false);
+            });
+        }
+    });
 
     let auto_recommendations = {
         let servers = servers.clone();
@@ -68,7 +242,7 @@ pub fn QueueView() -> Element {
         let servers = servers.clone();
         let add_song_panel_open = add_song_panel_open.clone();
         use_resource(move || {
-            let query = queue_search();
+            let query = queue_search_debounced();
             let is_open = add_song_panel_open();
             let servers_snapshot = servers();
             async move {
@@ -255,6 +429,33 @@ pub fn QueueView() -> Element {
                                                             }
                                                             div { class: "flex items-center gap-2",
                                                                 button {
+                                                                    class: if preview_song_key()
+                                                                        == Some(song_identity_key(&result))
+                                                                    {
+                                                                        "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                                    } else {
+                                                                        "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs"
+                                                                    },
+                                                                    title: "Play a short preview, then return to your current song",
+                                                                    disabled: preview_song_key()
+                                                                        == Some(song_identity_key(&result)),
+                                                                    onclick: {
+                                                                        let song = result.clone();
+                                                                        let on_preview_song = on_preview_song.clone();
+                                                                        move |evt: MouseEvent| {
+                                                                            evt.stop_propagation();
+                                                                            on_preview_song(song.clone());
+                                                                        }
+                                                                    },
+                                                                    if preview_song_key()
+                                                                        == Some(song_identity_key(&result))
+                                                                    {
+                                                                        "Previewing..."
+                                                                    } else {
+                                                                        "Preview"
+                                                                    }
+                                                                }
+                                                                button {
                                                                     class: if already_queued {
                                                                         "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
                                                                     } else {
@@ -383,37 +584,66 @@ pub fn QueueView() -> Element {
                                                                     "{result.artist.clone().unwrap_or_default()} • {result.album.clone().unwrap_or_default()}"
                                                                 }
                                                             }
-                                                            button {
-                                                                class: if already_queued {
-                                                                    "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
-                                                                } else {
-                                                                    "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
-                                                                },
-                                                                disabled: already_queued,
-                                                                onclick: {
-                                                                    let queue = queue.clone();
-                                                                    let queue_index = queue_index.clone();
-                                                                    let now_playing = now_playing.clone();
-                                                                    let is_playing = is_playing.clone();
-                                                                    let mut recently_added_seed = recently_added_seed.clone();
-                                                                    let song = result.clone();
-                                                                    move |evt: MouseEvent| {
-                                                                        evt.stop_propagation();
-                                                                        if enqueue_song_to_queue(
-                                                                            queue.clone(),
-                                                                            queue_index.clone(),
-                                                                            now_playing.clone(),
-                                                                            is_playing.clone(),
-                                                                            song.clone(),
-                                                                        ) {
-                                                                            recently_added_seed.set(Some(song.clone()));
+                                                            div { class: "flex items-center gap-2",
+                                                                button {
+                                                                    class: if preview_song_key()
+                                                                        == Some(song_identity_key(&result))
+                                                                    {
+                                                                        "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                                    } else {
+                                                                        "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs"
+                                                                    },
+                                                                    title: "Play a short preview, then return to your current song",
+                                                                    disabled: preview_song_key()
+                                                                        == Some(song_identity_key(&result)),
+                                                                    onclick: {
+                                                                        let song = result.clone();
+                                                                        let on_preview_song = on_preview_song.clone();
+                                                                        move |evt: MouseEvent| {
+                                                                            evt.stop_propagation();
+                                                                            on_preview_song(song.clone());
                                                                         }
+                                                                    },
+                                                                    if preview_song_key()
+                                                                        == Some(song_identity_key(&result))
+                                                                    {
+                                                                        "Previewing..."
+                                                                    } else {
+                                                                        "Preview"
                                                                     }
-                                                                },
-                                                                if already_queued {
-                                                                    "In Queue"
-                                                                } else {
-                                                                    "Add"
+                                                                }
+                                                                button {
+                                                                    class: if already_queued {
+                                                                        "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                                    } else {
+                                                                        "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
+                                                                    },
+                                                                    disabled: already_queued,
+                                                                    onclick: {
+                                                                        let queue = queue.clone();
+                                                                        let queue_index = queue_index.clone();
+                                                                        let now_playing = now_playing.clone();
+                                                                        let is_playing = is_playing.clone();
+                                                                        let mut recently_added_seed = recently_added_seed.clone();
+                                                                        let song = result.clone();
+                                                                        move |evt: MouseEvent| {
+                                                                            evt.stop_propagation();
+                                                                            if enqueue_song_to_queue(
+                                                                                queue.clone(),
+                                                                                queue_index.clone(),
+                                                                                now_playing.clone(),
+                                                                                is_playing.clone(),
+                                                                                song.clone(),
+                                                                            ) {
+                                                                                recently_added_seed.set(Some(song.clone()));
+                                                                            }
+                                                                        }
+                                                                    },
+                                                                    if already_queued {
+                                                                        "In Queue"
+                                                                    } else {
+                                                                        "Add"
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -556,22 +786,10 @@ pub fn QueueView() -> Element {
                             {
                                 let is_current = idx == current_index;
                                 let song_id = song.id.clone();
-                                let is_touch_dragging = touch_reorder_start()
-                                    .map(|(drag_idx, _)| drag_idx == idx)
-                                    .unwrap_or(false);
-                                let row_class = if drag_source_index() == Some(idx)
-                                    || is_touch_dragging
-                                {
-                                    "p-3 border-l-2 border-emerald-400 bg-emerald-500/12 flex items-center justify-between group opacity-85 scale-[1.01] shadow-lg shadow-emerald-500/10 transition-all select-none ios-drag-lock"
-                                } else if is_current {
+                                let row_class = if is_current {
                                     "p-3 bg-emerald-500/5 flex items-center justify-between group cursor-pointer select-none ios-drag-lock"
                                 } else {
                                     "p-3 hover:bg-zinc-700/30 transition-colors flex items-center justify-between group cursor-pointer select-none ios-drag-lock"
-                                };
-                                let reorder_handle_class = if is_touch_dragging {
-                                    "text-emerald-300 cursor-grabbing scale-110 transition-all select-none ios-drag-lock"
-                                } else {
-                                    "text-zinc-600 cursor-grab active:cursor-grabbing transition-all select-none ios-drag-lock"
                                 };
                                 let can_move_up = idx > 0;
                                 let can_move_down = idx + 1 < queue_len;
@@ -585,50 +803,12 @@ pub fn QueueView() -> Element {
                                 rsx! {
                                     div {
                                         key: "{song_id}-{idx}",
-                                        draggable: true,
                                         class: "{row_class}",
                                         onclick: move |_| {
                                             if !is_current {
                                                 queue_index.set(idx);
                                                 now_playing.set(Some(song.clone()));
                                                 is_playing.set(true);
-                                            }
-                                        },
-                                        ondragstart: {
-                                            let mut drag_source_index = drag_source_index.clone();
-                                            let source_index = idx;
-                                            move |_| {
-                                                drag_source_index.set(Some(source_index));
-                                            }
-                                        },
-                                        ondragend: {
-                                            let mut drag_source_index = drag_source_index.clone();
-                                            move |_| {
-                                                drag_source_index.set(None);
-                                            }
-                                        },
-                                        ondragover: move |evt| {
-                                            evt.prevent_default();
-                                        },
-                                        ondrop: {
-                                            let mut drag_source_index = drag_source_index.clone();
-                                            let queue = queue.clone();
-                                            let queue_index = queue_index.clone();
-                                            let now_playing = now_playing.clone();
-                                            let target_index = idx;
-                                            move |evt| {
-                                                evt.prevent_default();
-                                                let Some(source_index) = drag_source_index() else {
-                                                    return;
-                                                };
-                                                drag_source_index.set(None);
-                                                reorder_queue_entry(
-                                                    queue.clone(),
-                                                    queue_index.clone(),
-                                                    now_playing.clone(),
-                                                    source_index,
-                                                    target_index,
-                                                );
                                             }
                                         },
 
@@ -823,83 +1003,6 @@ pub fn QueueView() -> Element {
                                             }
 
                                             button {
-                                                r#type: "button",
-                                                class: "{reorder_handle_class}",
-                                                title: "Drag or swipe up/down to reorder",
-                                                style: "touch-action: none;",
-                                                onclick: move |evt: MouseEvent| evt.stop_propagation(),
-                                                onpointerdown: {
-                                                    let mut touch_reorder_start = touch_reorder_start.clone();
-                                                    let source_index = idx;
-                                                    move |evt: PointerEvent| {
-                                                        if evt.pointer_type() != "touch" {
-                                                            return;
-                                                        }
-                                                        evt.prevent_default();
-                                                        evt.stop_propagation();
-                                                        touch_reorder_start.set(Some((
-                                                            source_index,
-                                                            evt.client_coordinates().y,
-                                                        )));
-                                                    }
-                                                },
-                                                onpointerup: {
-                                                    let mut touch_reorder_start = touch_reorder_start.clone();
-                                                    move |evt: PointerEvent| {
-                                                        if evt.pointer_type() != "touch" {
-                                                            return;
-                                                        }
-                                                        evt.prevent_default();
-                                                        evt.stop_propagation();
-                                                        touch_reorder_start.set(None);
-                                                    }
-                                                },
-                                                onpointermove: {
-                                                    let mut touch_reorder_start = touch_reorder_start.clone();
-                                                    let queue = queue.clone();
-                                                    let queue_index = queue_index.clone();
-                                                    let now_playing = now_playing.clone();
-                                                    move |evt: PointerEvent| {
-                                                        if evt.pointer_type() != "touch" {
-                                                            return;
-                                                        }
-                                                        evt.prevent_default();
-                                                        evt.stop_propagation();
-                                                        let Some((source_index, start_y)) =
-                                                            touch_reorder_start()
-                                                        else {
-                                                            return;
-                                                        };
-                                                        let list_len = queue().len();
-                                                        let Some(target_index) = touch_swipe_target_index(
-                                                            source_index,
-                                                            start_y,
-                                                            evt.client_coordinates().y,
-                                                            list_len,
-                                                        ) else {
-                                                            return;
-                                                        };
-                                                        reorder_queue_entry(
-                                                            queue.clone(),
-                                                            queue_index.clone(),
-                                                            now_playing.clone(),
-                                                            source_index,
-                                                            target_index,
-                                                        );
-                                                        touch_reorder_start.set(Some((
-                                                            target_index,
-                                                            evt.client_coordinates().y,
-                                                        )));
-                                                    }
-                                                },
-                                                onpointerleave: {
-                                                    let mut touch_reorder_start = touch_reorder_start.clone();
-                                                    move |_| touch_reorder_start.set(None)
-                                                },
-                                                Icon { name: "bars".to_string(), class: "w-4 h-4".to_string() }
-                                            }
-
-                                            button {
                                                 class: "p-2 text-zinc-500 hover:text-red-400 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                                                 onclick: move |evt| {
                                                     evt.stop_propagation();
@@ -938,34 +1041,6 @@ fn adjusted_queue_index_after_reorder(
         current_index.saturating_add(1)
     } else {
         current_index
-    }
-}
-
-fn touch_swipe_target_index(
-    source_index: usize,
-    start_y: f64,
-    end_y: f64,
-    list_len: usize,
-) -> Option<usize> {
-    if list_len < 2 || source_index >= list_len {
-        return None;
-    }
-
-    let delta = end_y - start_y;
-    if delta.abs() < TOUCH_REORDER_SWIPE_THRESHOLD_PX {
-        return None;
-    }
-
-    if delta < 0.0 {
-        if source_index == 0 {
-            None
-        } else {
-            Some(source_index - 1)
-        }
-    } else if source_index + 1 < list_len {
-        Some(source_index + 1)
-    } else {
-        None
     }
 }
 
@@ -1105,6 +1180,7 @@ fn enqueue_song_to_queue(
 }
 
 async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) -> Vec<Song> {
+    let total_start = Instant::now();
     let normalized_query = query.trim().to_string();
     if normalized_query.len() < 2 {
         return Vec::new();
@@ -1119,10 +1195,34 @@ async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) 
         servers_to_search = servers;
     }
 
+    let mut cache_server_ids: Vec<String> =
+        servers_to_search.iter().map(|server| server.id.clone()).collect();
+    cache_server_ids.sort();
+    let cache_key = format!(
+        "search:queue_add:v1:{}:{}",
+        cache_server_ids.join("|"),
+        normalized_query.to_lowercase()
+    );
+    if let Some(cached) = cache_get_json::<Vec<Song>>(&cache_key) {
+        log_perf(
+            "queue.search.cache_hit",
+            total_start,
+            &format!("query={normalized_query} results={}", cached.len()),
+        );
+        return cached;
+    }
+
     let mut results = Vec::<Song>::new();
     for server in servers_to_search {
+        let server_start = Instant::now();
+        let server_name = server.name.clone();
         let client = NavidromeClient::new(server.clone());
         let Ok(search) = client.search(&normalized_query, 0, 0, 20).await else {
+            log_perf(
+                "queue.search.server",
+                server_start,
+                &format!("server={server_name} query={normalized_query} status=error"),
+            );
             continue;
         };
         for mut song in search.songs {
@@ -1140,10 +1240,39 @@ async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) 
             }
             results.push(song);
             if results.len() >= 60 {
+                log_perf(
+                    "queue.search.server",
+                    server_start,
+                    &format!(
+                        "server={server_name} query={normalized_query} status=ok results_so_far={}",
+                        results.len()
+                    ),
+                );
+                log_perf(
+                    "queue.search.total",
+                    total_start,
+                    &format!("query={normalized_query} results={}", results.len()),
+                );
+                let _ = cache_put_json(cache_key, &results, Some(4));
                 return results;
             }
         }
+        log_perf(
+            "queue.search.server",
+            server_start,
+            &format!(
+                "server={server_name} query={normalized_query} status=ok results_so_far={}",
+                results.len()
+            ),
+        );
     }
+
+    log_perf(
+        "queue.search.total",
+        total_start,
+        &format!("query={normalized_query} results={}", results.len()),
+    );
+    let _ = cache_put_json(cache_key, &results, Some(4));
 
     results
 }

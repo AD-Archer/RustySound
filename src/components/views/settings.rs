@@ -1,4 +1,8 @@
 use crate::api::*;
+use crate::cache_service::{
+    apply_settings as apply_cache_settings, clear_all as clear_cache_storage,
+    stats as current_cache_stats,
+};
 use crate::components::{Icon, VolumeSignal};
 use crate::db::{save_settings, AppSettings};
 use dioxus::prelude::*;
@@ -261,6 +265,82 @@ pub fn SettingsView() -> Element {
         });
     };
 
+    let on_cache_enabled_toggle = {
+        let mut app_settings = app_settings.clone();
+        move |_| {
+            let mut settings = app_settings();
+            settings.cache_enabled = !settings.cache_enabled;
+            apply_cache_settings(&settings);
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            spawn(async move {
+                let _ = save_settings(settings_clone).await;
+            });
+        }
+    };
+
+    let on_cache_images_toggle = {
+        let mut app_settings = app_settings.clone();
+        move |_| {
+            let mut settings = app_settings();
+            settings.cache_images_enabled = !settings.cache_images_enabled;
+            apply_cache_settings(&settings);
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            spawn(async move {
+                let _ = save_settings(settings_clone).await;
+            });
+        }
+    };
+
+    let on_cache_size_change = {
+        let mut app_settings = app_settings.clone();
+        move |e: Event<FormData>| {
+            if let Ok(size_mb) = e.value().parse::<u32>() {
+                let mut settings = app_settings();
+                settings.cache_size_mb = size_mb.clamp(25, 2048);
+                apply_cache_settings(&settings);
+                let settings_clone = settings.clone();
+                app_settings.set(settings);
+                spawn(async move {
+                    let _ = save_settings(settings_clone).await;
+                });
+            }
+        }
+    };
+
+    let on_cache_expiry_change = {
+        let mut app_settings = app_settings.clone();
+        move |e: Event<FormData>| {
+            if let Ok(expiry_hours) = e.value().parse::<u32>() {
+                let mut settings = app_settings();
+                settings.cache_expiry_hours = expiry_hours.clamp(1, 24 * 30);
+                apply_cache_settings(&settings);
+                let settings_clone = settings.clone();
+                app_settings.set(settings);
+                spawn(async move {
+                    let _ = save_settings(settings_clone).await;
+                });
+            }
+        }
+    };
+
+    let on_clear_cache = {
+        let mut save_status = save_status.clone();
+        move |_| {
+            clear_cache_storage();
+            save_status.set(Some("Cache cleared.".to_string()));
+            #[cfg(target_arch = "wasm32")]
+            {
+                use gloo_timers::future::TimeoutFuture;
+                spawn(async move {
+                    TimeoutFuture::new(2000).await;
+                    save_status.set(None);
+                });
+            }
+        }
+    };
+
     let on_lyrics_sync_toggle = {
         let mut app_settings = app_settings.clone();
         move |_| {
@@ -374,6 +454,13 @@ pub fn SettingsView() -> Element {
     let current_volume = volume();
     let lyrics_provider_order = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
     let lyrics_sync_enabled = !settings.lyrics_unsynced_mode;
+    let cache_stats = current_cache_stats();
+    let cache_used_mb = cache_stats.total_size_bytes as f64 / (1024.0 * 1024.0);
+    let cache_max_mb = cache_stats.max_size_bytes as f64 / (1024.0 * 1024.0);
+    let cache_usage_label = format!(
+        "Cache usage: {} entries | {:.1}MB / {:.1}MB",
+        cache_stats.entry_count, cache_used_mb, cache_max_mb
+    );
 
     rsx! {
         div { class: "space-y-8",
@@ -515,6 +602,78 @@ pub fn SettingsView() -> Element {
                             value: settings.bookmark_limit,
                             class: "w-full max-w-xs px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
                             oninput: on_bookmark_limit_change,
+                        }
+                    }
+                }
+            }
+
+            // Cache settings
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                h2 { class: "text-lg font-semibold text-white mb-3", "Cache & Offline" }
+                p { class: "text-sm text-zinc-400 mb-5",
+                    "Control metadata, artwork, and lyrics caching. Native apps also prefetch now playing + next songs for offline continuity."
+                }
+
+                div { class: "space-y-5",
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Enable cache" }
+                            p { class: "text-sm text-zinc-400", "Store song/artist/playlist/favorites metadata and lyrics locally." }
+                        }
+                        button {
+                            class: if settings.cache_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_cache_enabled_toggle,
+                            div { class: if settings.cache_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Cache album artwork" }
+                            p { class: "text-sm text-zinc-400", "Cache image responses for faster repeat views and fewer artwork requests." }
+                        }
+                        button {
+                            class: if settings.cache_images_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_cache_images_toggle,
+                            div { class: if settings.cache_images_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+
+                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Max cache size (MB)"
+                            }
+                            input {
+                                r#type: "number",
+                                min: "25",
+                                max: "2048",
+                                value: settings.cache_size_mb,
+                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                oninput: on_cache_size_change,
+                            }
+                        }
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Cache expiry (hours)"
+                            }
+                            input {
+                                r#type: "number",
+                                min: "1",
+                                max: "720",
+                                value: settings.cache_expiry_hours,
+                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                oninput: on_cache_expiry_change,
+                            }
+                        }
+                    }
+
+                    div { class: "flex items-center justify-between gap-3 pt-1",
+                        p { class: "text-xs text-zinc-500", "{cache_usage_label}" }
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-rose-500/60 transition-colors text-sm",
+                            onclick: on_clear_cache,
+                            "Clear cache"
                         }
                     }
                 }

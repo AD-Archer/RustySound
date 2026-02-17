@@ -1,9 +1,11 @@
 use crate::api::Song;
+use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use once_cell::sync::Lazy;
 use reqwest::header::HeaderMap;
 #[cfg(not(target_arch = "wasm32"))]
 use reqwest::header::{HeaderValue, REFERER, USER_AGENT};
 use serde::Deserialize;
+use serde::Serialize;
 #[cfg(not(target_arch = "wasm32"))]
 use serde_json::Value;
 use std::cmp::Ordering;
@@ -127,6 +129,54 @@ pub struct LyricsResult {
     pub synced_lines: Vec<LyricLine>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistentLyricLine {
+    timestamp_seconds: f64,
+    text: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistentLyricsResult {
+    provider_key: String,
+    plain_lyrics: String,
+    synced_lines: Vec<PersistentLyricLine>,
+}
+
+impl PersistentLyricsResult {
+    fn to_runtime(&self) -> Option<LyricsResult> {
+        let provider = LyricsProvider::from_key(&self.provider_key)?;
+        Some(LyricsResult {
+            provider,
+            plain_lyrics: self.plain_lyrics.clone(),
+            synced_lines: self
+                .synced_lines
+                .iter()
+                .map(|line| LyricLine {
+                    timestamp_seconds: line.timestamp_seconds,
+                    text: line.text.clone(),
+                })
+                .collect(),
+        })
+    }
+}
+
+impl From<&LyricsResult> for PersistentLyricsResult {
+    fn from(value: &LyricsResult) -> Self {
+        Self {
+            provider_key: value.provider.key().to_string(),
+            plain_lyrics: value.plain_lyrics.clone(),
+            synced_lines: value
+                .synced_lines
+                .iter()
+                .map(|line| PersistentLyricLine {
+                    timestamp_seconds: line.timestamp_seconds,
+                    text: line.text.clone(),
+                })
+                .collect(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LyricsSearchCandidate {
     pub provider: LyricsProvider,
@@ -149,10 +199,20 @@ pub async fn fetch_lyrics_with_fallback(
     let timeout_seconds = timeout_seconds.clamp(1, 20);
     let normalized_provider_order = normalize_lyrics_provider_selection(provider_order);
     let cache_key = lyrics_cache_key(query, &normalized_provider_order, timeout_seconds);
+    let persistent_cache_key = format!("lyrics:result:{cache_key}");
 
     if let Ok(cache) = LYRICS_SUCCESS_CACHE.lock() {
         if let Some(cached) = cache.get(&cache_key).cloned() {
             return Ok(cached);
+        }
+    }
+
+    if let Some(cached) = cache_get_json::<PersistentLyricsResult>(&persistent_cache_key) {
+        if let Some(runtime) = cached.to_runtime() {
+            if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
+                cache.insert(cache_key.clone(), runtime.clone());
+            }
+            return Ok(runtime);
         }
     }
 
@@ -169,6 +229,8 @@ pub async fn fetch_lyrics_with_fallback(
                 if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
                     cache.insert(cache_key.clone(), result.clone());
                 }
+                let persistent = PersistentLyricsResult::from(&result);
+                let _ = cache_put_json(persistent_cache_key.clone(), &persistent, Some(24 * 14));
                 return Ok(result);
             }
             Ok(None) => errors.push(format!("{} returned no lyrics", provider.label())),

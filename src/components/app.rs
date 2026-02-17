@@ -1,8 +1,10 @@
 use crate::api::*;
+use crate::cache_service::apply_settings as apply_cache_settings;
 use crate::components::{
     view_label, AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController,
     AudioState, Icon, Navigation, PlaybackPositionSignal, Player, SeekRequestSignal, Sidebar,
-    SidebarOpenSignal, SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    SidebarOpenSignal, SongDetailsController, SongDetailsOverlay, SongDetailsState,
+    PreviewPlaybackSignal, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -51,11 +53,13 @@ pub fn AppShell() -> Element {
     let mut volume = use_signal(|| 0.8f64);
     let mut app_settings = use_signal(AppSettings::default);
     let mut playback_position = use_signal(|| 0.0f64);
+    let mut last_playback_save = use_signal(|| None::<(String, String, u64, usize, usize)>);
     let mut db_initialized = use_signal(|| false);
     let mut settings_loaded = use_signal(|| false);
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let audio_state = use_signal(AudioState::default);
+    let preview_playback = use_signal(|| false);
     let sidebar_open = use_signal(|| false);
     let navigation = Navigation::new();
     let seek_request = use_signal(|| None::<(String, f64)>);
@@ -209,6 +213,7 @@ pub fn AppShell() -> Element {
     use_context_provider(|| PlaybackPositionSignal(playback_position));
     use_context_provider(|| SeekRequestSignal(seek_request));
     use_context_provider(|| SidebarOpenSignal(sidebar_open));
+    use_context_provider(|| PreviewPlaybackSignal(preview_playback));
     use_context_provider(|| shuffle_enabled);
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
@@ -220,6 +225,9 @@ pub fn AppShell() -> Element {
             if let Err(_e) = initialize_database().await {
                 #[cfg(not(target_arch = "wasm32"))]
                 eprintln!("Failed to initialize database: {}", _e);
+                db_initialized.set(true);
+                settings_loaded.set(true);
+                apply_cache_settings(&app_settings());
                 return;
             }
             db_initialized.set(true);
@@ -233,6 +241,7 @@ pub fn AppShell() -> Element {
             if let Ok(mut settings) = load_settings().await {
                 let original_volume = settings.volume;
                 settings.volume = normalize_volume(settings.volume);
+                apply_cache_settings(&settings);
                 volume.set(settings.volume);
                 shuffle_enabled.set(settings.shuffle_enabled);
                 repeat_mode.set(settings.repeat_mode);
@@ -241,6 +250,8 @@ pub fn AppShell() -> Element {
                 if (normalized_settings.volume - original_volume).abs() > f64::EPSILON {
                     let _ = save_settings(normalized_settings.clone()).await;
                 }
+            } else {
+                apply_cache_settings(&app_settings());
             }
             settings_loaded.set(true);
 
@@ -393,8 +404,38 @@ pub fn AppShell() -> Element {
         let pos = playback_position();
         let q = queue();
         let idx = queue_index();
+        let previewing = preview_playback();
 
-        if db_initialized() && song.is_some() {
+        if db_initialized() && song.is_some() && !previewing {
+            let current = song.as_ref().expect("checked is_some");
+            let song_id = current.id.clone();
+            let server_id = current.server_id.clone();
+            let position_ms = (pos.max(0.0) * 1000.0).round() as u64;
+            let queue_len = q.len();
+
+            let should_save = match last_playback_save() {
+                Some((prev_song_id, prev_server_id, prev_pos_ms, prev_idx, prev_queue_len)) => {
+                    prev_song_id != song_id
+                        || prev_server_id != server_id
+                        || prev_idx != idx
+                        || prev_queue_len != queue_len
+                        || position_ms.abs_diff(prev_pos_ms) >= 1500
+                }
+                None => true,
+            };
+
+            if !should_save {
+                return;
+            }
+
+            last_playback_save.set(Some((
+                song_id,
+                server_id,
+                position_ms,
+                idx,
+                queue_len,
+            )));
+
             let state = PlaybackState {
                 song_id: song.as_ref().map(|s| s.id.clone()),
                 server_id: song.as_ref().map(|s| s.server_id.clone()),
@@ -418,6 +459,7 @@ pub fn AppShell() -> Element {
     let sidebar_signal = sidebar_open.clone();
     let can_go_back = navigation.can_go_back();
     let song_details_open = song_details_state().is_open;
+    let is_bootstrapping = !db_initialized() || !settings_loaded();
     let app_container_class = if sidebar_open() {
         "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
     } else {
@@ -558,6 +600,23 @@ pub fn AppShell() -> Element {
                 }
             }
             Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
+        }
+
+        if is_bootstrapping {
+            div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
+                div { class: "max-w-md text-center space-y-3",
+                    div { class: "flex items-center justify-center",
+                        Icon {
+                            name: "loader".to_string(),
+                            class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+                        }
+                    }
+                    h2 { class: "text-lg font-semibold text-white", "Preparing RustySound" }
+                    p { class: "text-sm text-zinc-400",
+                        "Loading servers and settings, then warming local cache for faster navigation."
+                    }
+                }
+            }
         }
 
         // Audio controller - manages playback separately from UI

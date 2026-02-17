@@ -47,8 +47,8 @@ pub fn RadioView() -> Element {
 
         use_effect(move || {
             let current = now_playing();
-            metadata_poll_generation.with_mut(|value| *value += 1);
-            let generation = metadata_poll_generation();
+            metadata_poll_generation.with_mut(|value| *value = value.saturating_add(1));
+            let generation = *metadata_poll_generation.peek();
 
             let Some(song) = current else {
                 return;
@@ -81,7 +81,7 @@ pub fn RadioView() -> Element {
                 let mut last_raw_title = String::new();
 
                 loop {
-                    if metadata_poll_generation() != generation {
+                    if *metadata_poll_generation.peek() != generation {
                         break;
                     }
 
@@ -92,7 +92,7 @@ pub fn RadioView() -> Element {
 
                     if let Ok(Some(meta)) = NavidromeClient::read_icy_now_playing(&stream_url).await
                     {
-                        if metadata_poll_generation() != generation {
+                        if *metadata_poll_generation.peek() != generation {
                             break;
                         }
 

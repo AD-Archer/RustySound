@@ -1,6 +1,9 @@
 use crate::api::*;
+use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::diagnostics::log_perf;
 use dioxus::prelude::*;
+use std::time::Instant;
 
 async fn fetch_albums_for_servers(
     active_servers: &[ServerConfig],
@@ -53,6 +56,41 @@ fn dedupe_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
     output
 }
 
+async fn prefetch_lrclib_lyrics_for_songs(songs: Vec<Song>, limit: usize) {
+    if limit == 0 || songs.is_empty() {
+        return;
+    }
+
+    let providers = vec!["lrclib".to_string()];
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut prefetched = 0usize;
+    let start = Instant::now();
+
+    for song in songs {
+        let key = song_key(&song);
+        if !seen.insert(key) {
+            continue;
+        }
+        if song.title.trim().is_empty() {
+            continue;
+        }
+
+        let query = LyricsQuery::from_song(&song);
+        let _ = fetch_lyrics_with_fallback(&query, &providers, 4).await;
+        prefetched += 1;
+        if prefetched >= limit {
+            break;
+        }
+        home_fetch_yield().await;
+    }
+
+    log_perf(
+        "home.lyrics_prefetch",
+        start,
+        &format!("prefetched={prefetched}"),
+    );
+}
+
 async fn fetch_random_songs_for_servers(active_servers: &[ServerConfig], limit: u32) -> Vec<Song> {
     let mut songs = Vec::<Song>::new();
     for server in active_servers.iter().cloned() {
@@ -71,6 +109,7 @@ async fn fetch_random_songs_for_servers(active_servers: &[ServerConfig], limit: 
     dedupe_songs(songs, limit as usize)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn fetch_native_activity_songs_for_servers(
     active_servers: &[ServerConfig],
     sort: NativeSongSortField,
@@ -103,6 +142,17 @@ async fn fetch_native_activity_songs_for_servers(
     }
 
     dedupe_songs(songs, limit as usize)
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn fetch_native_activity_songs_for_servers(
+    active_servers: &[ServerConfig],
+    _sort: NativeSongSortField,
+    limit: u32,
+) -> Vec<Song> {
+    // Native API endpoints are expensive/unstable on web clients.
+    // Use regular Subsonic random songs for fast, reliable home loading.
+    fetch_random_songs_for_servers(active_servers, limit).await
 }
 
 async fn fetch_similar_songs_for_seeds(
@@ -143,6 +193,7 @@ async fn fetch_similar_songs_for_seeds(
     dedupe_songs(similar, total_limit)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 async fn build_quick_picks_mix(
     active_servers: &[ServerConfig],
     most_played_songs: &[Song],
@@ -207,6 +258,18 @@ async fn build_quick_picks_mix(
     mixed
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn build_quick_picks_mix(
+    active_servers: &[ServerConfig],
+    _most_played_songs: &[Song],
+    limit: usize,
+) -> Vec<Song> {
+    if limit == 0 {
+        return Vec::new();
+    }
+    fetch_random_songs_for_servers(active_servers, limit as u32).await
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 async fn home_fetch_yield() {
     tokio::task::yield_now().await;
@@ -247,16 +310,28 @@ pub fn HomeView() -> Element {
         use_effect(move || {
             let active_servers: Vec<ServerConfig> =
                 servers().into_iter().filter(|s| s.active).collect();
+            let mut cache_server_ids: Vec<String> = active_servers
+                .iter()
+                .map(|server| server.id.clone())
+                .collect();
+            cache_server_ids.sort();
+            let cache_prefix = format!("view:home:v1:{}", cache_server_ids.join("|"));
+            let recent_cache_key = format!("{cache_prefix}:recent_albums");
+            let most_played_album_cache_key = format!("{cache_prefix}:most_played_albums");
+            let recent_song_cache_key = format!("{cache_prefix}:recent_songs");
+            let most_played_song_cache_key = format!("{cache_prefix}:most_played_songs");
+            let random_song_cache_key = format!("{cache_prefix}:random_songs");
+            let quick_pick_cache_key = format!("{cache_prefix}:quick_picks");
 
-            load_generation.with_mut(|value| *value += 1);
-            let generation = load_generation();
+            load_generation.with_mut(|value| *value = value.saturating_add(1));
+            let generation = *load_generation.peek();
 
-            recent_albums.set(None);
-            most_played_albums.set(None);
-            recently_played_songs.set(None);
-            most_played_songs.set(None);
-            random_songs.set(None);
-            quick_picks.set(None);
+            recent_albums.set(cache_get_json::<Vec<Album>>(&recent_cache_key));
+            most_played_albums.set(cache_get_json::<Vec<Album>>(&most_played_album_cache_key));
+            recently_played_songs.set(cache_get_json::<Vec<Song>>(&recent_song_cache_key));
+            most_played_songs.set(cache_get_json::<Vec<Song>>(&most_played_song_cache_key));
+            random_songs.set(cache_get_json::<Vec<Song>>(&random_song_cache_key));
+            quick_picks.set(cache_get_json::<Vec<Song>>(&quick_pick_cache_key));
 
             if active_servers.is_empty() {
                 recent_albums.set(Some(Vec::new()));
@@ -269,60 +344,120 @@ pub fn HomeView() -> Element {
             }
 
             spawn(async move {
+                let total_start = Instant::now();
+
+                let recent_start = Instant::now();
                 let recent = fetch_albums_for_servers(&active_servers, "newest", 12).await;
-                if load_generation() != generation {
+                let _ = cache_put_json(recent_cache_key.clone(), &recent, Some(6));
+                log_perf(
+                    "home.recent_albums",
+                    recent_start,
+                    &format!("count={}", recent.len()),
+                );
+                if *load_generation.peek() != generation {
                     return;
                 }
                 recent_albums.set(Some(recent));
                 home_fetch_yield().await;
 
+                let most_played_start = Instant::now();
                 let most_played = fetch_albums_for_servers(&active_servers, "frequent", 12).await;
-                if load_generation() != generation {
+                let _ = cache_put_json(most_played_album_cache_key.clone(), &most_played, Some(6));
+                log_perf(
+                    "home.most_played_albums",
+                    most_played_start,
+                    &format!("count={}", most_played.len()),
+                );
+                if *load_generation.peek() != generation {
                     return;
                 }
                 most_played_albums.set(Some(most_played));
                 home_fetch_yield().await;
 
+                let recent_played_start = Instant::now();
                 let recent_played = fetch_native_activity_songs_for_servers(
                     &active_servers,
                     NativeSongSortField::PlayDate,
                     12,
                 )
                 .await;
-                if load_generation() != generation {
+                let _ = cache_put_json(recent_song_cache_key.clone(), &recent_played, Some(3));
+                log_perf(
+                    "home.recently_played_songs",
+                    recent_played_start,
+                    &format!("count={}", recent_played.len()),
+                );
+                if *load_generation.peek() != generation {
                     return;
                 }
-                recently_played_songs.set(Some(recent_played));
+                recently_played_songs.set(Some(recent_played.clone()));
                 home_fetch_yield().await;
 
+                let most_played_song_start = Instant::now();
                 let most_played_song_items = fetch_native_activity_songs_for_servers(
                     &active_servers,
                     NativeSongSortField::PlayCount,
                     12,
                 )
                 .await;
-                if load_generation() != generation {
+                let _ = cache_put_json(
+                    most_played_song_cache_key.clone(),
+                    &most_played_song_items,
+                    Some(6),
+                );
+                log_perf(
+                    "home.most_played_songs",
+                    most_played_song_start,
+                    &format!("count={}", most_played_song_items.len()),
+                );
+                if *load_generation.peek() != generation {
                     return;
                 }
                 most_played_songs.set(Some(most_played_song_items.clone()));
                 home_fetch_yield().await;
 
+                let random_start = Instant::now();
                 let random_song_items = fetch_random_songs_for_servers(&active_servers, 16).await;
-                if load_generation() != generation {
+                let _ = cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
+                log_perf(
+                    "home.random_songs",
+                    random_start,
+                    &format!("count={}", random_song_items.len()),
+                );
+                if *load_generation.peek() != generation {
                     return;
                 }
                 random_songs.set(Some(random_song_items));
                 home_fetch_yield().await;
 
+                let quick_pick_start = Instant::now();
                 let mut quick =
                     build_quick_picks_mix(&active_servers, &most_played_song_items, 12).await;
                 if quick.is_empty() {
                     quick = fetch_random_songs_for_servers(&active_servers, 12).await;
                 }
-                if load_generation() != generation {
+                let _ = cache_put_json(quick_pick_cache_key.clone(), &quick, Some(3));
+                log_perf(
+                    "home.quick_picks",
+                    quick_pick_start,
+                    &format!("count={}", quick.len()),
+                );
+                if *load_generation.peek() != generation {
                     return;
                 }
                 quick_picks.set(Some(quick));
+
+                log_perf(
+                    "home.total",
+                    total_start,
+                    &format!("servers={}", active_servers.len()),
+                );
+
+                let mut lyrics_seeds = most_played_song_items.clone();
+                lyrics_seeds.extend(recent_played.into_iter());
+                spawn(async move {
+                    prefetch_lrclib_lyrics_for_songs(lyrics_seeds, 8).await;
+                });
             });
         });
     }

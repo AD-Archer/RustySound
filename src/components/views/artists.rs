@@ -28,8 +28,8 @@ pub fn ArtistsView() -> Element {
         use_effect(move || {
             let raw_query = search_query();
             let query = raw_query.trim().to_string();
-            debounce_generation.with_mut(|value| *value += 1);
-            let generation = debounce_generation();
+            debounce_generation.with_mut(|value| *value = value.saturating_add(1));
+            let generation = *debounce_generation.peek();
 
             if query.is_empty() {
                 debounced_query.set(String::new());
@@ -45,7 +45,7 @@ pub fn ArtistsView() -> Element {
             let debounce_generation = debounce_generation.clone();
             spawn(async move {
                 artists_delay_ms(220).await;
-                if debounce_generation() != generation {
+                if *debounce_generation.peek() != generation {
                     return;
                 }
                 debounced_query.set(query);

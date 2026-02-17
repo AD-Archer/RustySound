@@ -387,6 +387,9 @@
   .z-\[120\] {
     z-index: 120;
   }
+  .z-\[210\] {
+    z-index: 210;
+  }
   .col-span-4 {
     grid-column: span 4 / span 4;
   }
@@ -2076,6 +2079,16 @@
         border-color: color-mix(in srgb, oklch(63.7% 0.237 25.331) 40%, transparent);
         @supports (color: color-mix(in lab, red, red)) {
           border-color: color-mix(in oklab, var(--color-red-500) 40%, transparent);
+        }
+      }
+    }
+  }
+  .hover\:border-rose-500\/60 {
+    &:hover {
+      @media (hover: hover) {
+        border-color: color-mix(in srgb, oklch(64.5% 0.246 16.439) 60%, transparent);
+        @supports (color: color-mix(in lab, red, red)) {
+          border-color: color-mix(in oklab, var(--color-rose-500) 60%, transparent);
         }
       }
     }

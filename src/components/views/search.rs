@@ -38,11 +38,11 @@ pub fn SearchView() -> Element {
         use_effect(move || {
             let raw_query = search_query();
             let query = raw_query.trim().to_string();
-            debounce_generation.with_mut(|value| *value += 1);
-            let generation = debounce_generation();
+            debounce_generation.with_mut(|value| *value = value.saturating_add(1));
+            let generation = *debounce_generation.peek();
 
             if query.is_empty() {
-                search_generation.with_mut(|value| *value += 1);
+                search_generation.with_mut(|value| *value = value.saturating_add(1));
                 debounced_query.set(String::new());
                 search_results.set(None);
                 is_searching.set(false);
@@ -50,7 +50,7 @@ pub fn SearchView() -> Element {
             }
 
             if query.len() < 2 {
-                search_generation.with_mut(|value| *value += 1);
+                search_generation.with_mut(|value| *value = value.saturating_add(1));
                 debounced_query.set(String::new());
                 search_results.set(None);
                 is_searching.set(false);
@@ -61,7 +61,7 @@ pub fn SearchView() -> Element {
             let debounce_generation = debounce_generation.clone();
             spawn(async move {
                 search_delay_ms(220).await;
-                if debounce_generation() != generation {
+                if *debounce_generation.peek() != generation {
                     return;
                 }
                 debounced_query.set(query);
@@ -90,8 +90,8 @@ pub fn SearchView() -> Element {
                 return;
             }
 
-            search_generation.with_mut(|value| *value += 1);
-            let generation = search_generation();
+            search_generation.with_mut(|value| *value = value.saturating_add(1));
+            let generation = *search_generation.peek();
             is_searching.set(true);
 
             spawn(async move {
@@ -110,7 +110,7 @@ pub fn SearchView() -> Element {
                 combined = dedupe_search_results(combined);
                 combined = filter_and_score_results(combined, &query);
 
-                if search_generation() != generation {
+                if *search_generation.peek() != generation {
                     return;
                 }
 

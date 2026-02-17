@@ -1,4 +1,9 @@
 use crate::api::models::*;
+use crate::cache_service::{
+    get_json as cache_get_json, put_json as cache_put_json, remove_by_prefix as cache_remove_prefix,
+};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::offline_art::{cached_cover_art_url, maybe_prefetch_cover_art};
 use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use dioxus::document;
@@ -194,6 +199,10 @@ impl NavidromeClient {
         )
     }
 
+    fn auth_params_for_binary(&self) -> String {
+        self.auth_params().replace("&f=json", "")
+    }
+
     fn build_url(&self, endpoint: &str, extra_params: &[(&str, &str)]) -> String {
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
@@ -235,6 +244,16 @@ impl NavidromeClient {
         let key = self.native_cache_key();
         let mut cache = NATIVE_AUTH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
         cache.remove(&key);
+    }
+
+    fn invalidate_favorites_cache(&self) {
+        let _ = cache_remove_prefix(&format!("api:getStarred2:v1:{}", self.server.id));
+        let _ = cache_remove_prefix("view:favorites:v1:");
+    }
+
+    fn invalidate_playlist_cache(&self) {
+        let _ = cache_remove_prefix(&format!("api:getPlaylists:v1:{}", self.server.id));
+        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:", self.server.id));
     }
 
     async fn ensure_native_auth_session(&self) -> Result<NativeAuthSession, String> {
@@ -425,15 +444,52 @@ impl NavidromeClient {
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {
-        self.build_url(
-            "getCoverArt",
-            &[("id", cover_art_id), ("size", &size.to_string())],
+        #[cfg(target_arch = "wasm32")]
+        let requested_size = size.min(160);
+        #[cfg(not(target_arch = "wasm32"))]
+        let requested_size = size;
+
+        let remote_url = self.build_cover_art_network_url(cover_art_id, requested_size);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if let Some(local_url) =
+                cached_cover_art_url(&self.server.id, cover_art_id, requested_size)
+            {
+                return local_url;
+            }
+
+            maybe_prefetch_cover_art(
+                self.server.id.clone(),
+                cover_art_id.to_string(),
+                requested_size,
+                remote_url.clone(),
+            );
+        }
+
+        remote_url
+    }
+
+    fn build_cover_art_network_url(&self, cover_art_id: &str, requested_size: u32) -> String {
+        let auth = self.auth_params_for_binary();
+        format!(
+            "{}/rest/getCoverArt?{}&id={}&size={}",
+            self.server.url,
+            auth,
+            urlencoding_simple(cover_art_id),
+            requested_size
         )
     }
 
     #[allow(dead_code)]
     pub fn get_stream_url(&self, song_id: &str) -> String {
-        self.build_url("stream", &[("id", song_id)])
+        let auth = self.auth_params_for_binary();
+        format!(
+            "{}/rest/stream?{}&id={}",
+            self.server.url,
+            auth,
+            urlencoding_simple(song_id)
+        )
     }
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -587,6 +643,11 @@ impl NavidromeClient {
     }
 
     pub async fn get_artists(&self) -> Result<Vec<Artist>, String> {
+        let cache_key = format!("api:getArtists:v1:{}", self.server.id);
+        if let Some(cached) = cache_get_json::<Vec<Artist>>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url("getArtists", &[]);
         let response = HTTP_CLIENT
             .get(&url)
@@ -613,6 +674,7 @@ impl NavidromeClient {
             }
         }
 
+        let _ = cache_put_json(cache_key, &artists, Some(24));
         Ok(artists)
     }
 
@@ -622,6 +684,14 @@ impl NavidromeClient {
         size: u32,
         offset: u32,
     ) -> Result<Vec<Album>, String> {
+        let cache_key = format!(
+            "api:getAlbumList2:v1:{}:{}:{}:{}",
+            self.server.id, album_type, size, offset
+        );
+        if let Some(cached) = cache_get_json::<Vec<Album>>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url(
             "getAlbumList2",
             &[
@@ -655,10 +725,16 @@ impl NavidromeClient {
             album.server_id = self.server.id.clone();
         }
 
+        let _ = cache_put_json(cache_key, &albums, Some(6));
         Ok(albums)
     }
 
     pub async fn get_album(&self, album_id: &str) -> Result<(Album, Vec<Song>), String> {
+        let cache_key = format!("api:getAlbum:v1:{}:{}", self.server.id, album_id);
+        if let Some(cached) = cache_get_json::<(Album, Vec<Song>)>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url("getAlbum", &[("id", album_id)]);
         let response = HTTP_CLIENT
             .get(&url)
@@ -685,13 +761,20 @@ impl NavidromeClient {
         }
 
         let album = album_with_songs.album;
-        Ok((album, songs))
+        let payload = (album, songs);
+        let _ = cache_put_json(cache_key, &payload, Some(12));
+        Ok(payload)
     }
 
     pub async fn get_song(&self, song_id: &str) -> Result<Song, String> {
         let song_id = song_id.trim();
         if song_id.is_empty() {
             return Err("Song not found".to_string());
+        }
+
+        let cache_key = format!("api:getSong:v1:{}:{}", self.server.id, song_id);
+        if let Some(cached) = cache_get_json::<Song>(&cache_key) {
+            return Ok(cached);
         }
 
         let url = self.build_url("getSong", &[("id", song_id)]);
@@ -713,10 +796,16 @@ impl NavidromeClient {
         let mut song = json.subsonic_response.song.ok_or("Song not found")?;
         song.server_id = self.server.id.clone();
         song.server_name = self.server.name.clone();
+        let _ = cache_put_json(cache_key, &song, Some(24));
         Ok(song)
     }
 
     pub async fn get_artist(&self, artist_id: &str) -> Result<(Artist, Vec<Album>), String> {
+        let cache_key = format!("api:getArtist:v1:{}:{}", self.server.id, artist_id);
+        if let Some(cached) = cache_get_json::<(Artist, Vec<Album>)>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url("getArtist", &[("id", artist_id)]);
         let response = HTTP_CLIENT
             .get(&url)
@@ -752,7 +841,9 @@ impl NavidromeClient {
             starred: artist_with_albums.starred,
             server_id: self.server.id.clone(),
         };
-        Ok((artist, albums))
+        let payload = (artist, albums);
+        let _ = cache_put_json(cache_key, &payload, Some(24));
+        Ok(payload)
     }
 
     pub async fn get_random_songs(&self, size: u32) -> Result<Vec<Song>, String> {
@@ -894,6 +985,11 @@ impl NavidromeClient {
     }
 
     pub async fn get_starred(&self) -> Result<(Vec<Artist>, Vec<Album>, Vec<Song>), String> {
+        let cache_key = format!("api:getStarred2:v1:{}", self.server.id);
+        if let Some(cached) = cache_get_json::<(Vec<Artist>, Vec<Album>, Vec<Song>)>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url("getStarred2", &[]);
         let response = HTTP_CLIENT
             .get(&url)
@@ -927,7 +1023,9 @@ impl NavidromeClient {
             song.server_name = self.server.name.clone();
         }
 
-        Ok((artists, albums, songs))
+        let payload = (artists, albums, songs);
+        let _ = cache_put_json(cache_key, &payload, Some(12));
+        Ok(payload)
     }
 
     pub async fn get_bookmarks(&self) -> Result<Vec<Bookmark>, String> {
@@ -991,6 +1089,11 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
+        if item_type == "playlist" {
+            self.invalidate_playlist_cache();
+        } else {
+            self.invalidate_favorites_cache();
+        }
         Ok(())
     }
 
@@ -1107,6 +1210,11 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
+        if item_type == "playlist" {
+            self.invalidate_playlist_cache();
+        } else {
+            self.invalidate_favorites_cache();
+        }
         Ok(())
     }
 
@@ -1131,6 +1239,11 @@ impl NavidromeClient {
     }
 
     pub async fn get_playlists(&self) -> Result<Vec<Playlist>, String> {
+        let cache_key = format!("api:getPlaylists:v1:{}", self.server.id);
+        if let Some(cached) = cache_get_json::<Vec<Playlist>>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url("getPlaylists", &[]);
         let response = HTTP_CLIENT
             .get(&url)
@@ -1157,10 +1270,16 @@ impl NavidromeClient {
             playlist.server_id = self.server.id.clone();
         }
 
+        let _ = cache_put_json(cache_key, &playlists, Some(12));
         Ok(playlists)
     }
 
     pub async fn get_playlist(&self, playlist_id: &str) -> Result<(Playlist, Vec<Song>), String> {
+        let cache_key = format!("api:getPlaylist:v1:{}:{}", self.server.id, playlist_id);
+        if let Some(cached) = cache_get_json::<(Playlist, Vec<Song>)>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url("getPlaylist", &[("id", playlist_id)]);
         let response = HTTP_CLIENT
             .get(&url)
@@ -1190,7 +1309,9 @@ impl NavidromeClient {
         }
 
         let playlist = playlist_with_entries.playlist;
-        Ok((playlist, songs))
+        let payload = (playlist, songs);
+        let _ = cache_put_json(cache_key, &payload, Some(12));
+        Ok(payload)
     }
 
     pub async fn create_playlist(
@@ -1227,6 +1348,7 @@ impl NavidromeClient {
         }
 
         let playlist_id = json.subsonic_response.playlist.map(|p| p.id.clone());
+        self.invalidate_playlist_cache();
         Ok(playlist_id)
     }
 
@@ -1260,6 +1382,9 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
+        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id));
+        self.invalidate_playlist_cache();
         Ok(())
     }
 
@@ -1303,6 +1428,9 @@ impl NavidromeClient {
                 .unwrap_or_else(|| "Unknown error".to_string()));
         }
 
+        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id));
+        self.invalidate_playlist_cache();
         Ok(())
     }
 
@@ -1341,6 +1469,9 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
+        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id));
+        self.invalidate_playlist_cache();
         Ok(())
     }
 
@@ -1380,6 +1511,9 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
+        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id));
+        self.invalidate_playlist_cache();
         Ok(())
     }
 
@@ -1527,6 +1661,18 @@ impl NavidromeClient {
         album_count: u32,
         song_count: u32,
     ) -> Result<SearchResult, String> {
+        let cache_key = format!(
+            "api:search3:v1:{}:{}:{}:{}:{}",
+            self.server.id,
+            query.trim().to_lowercase(),
+            artist_count,
+            album_count,
+            song_count
+        );
+        if let Some(cached) = cache_get_json::<SearchResult>(&cache_key) {
+            return Ok(cached);
+        }
+
         let url = self.build_url(
             "search3",
             &[
@@ -1568,11 +1714,13 @@ impl NavidromeClient {
             song.server_name = self.server.name.clone();
         }
 
-        Ok(SearchResult {
+        let payload = SearchResult {
             artists,
             albums,
             songs,
-        })
+        };
+        let _ = cache_put_json(cache_key, &payload, Some(4));
+        Ok(payload)
     }
 
     /// Report playback to Navidrome/Subsonic. If submission is false, it updates "Now Playing";

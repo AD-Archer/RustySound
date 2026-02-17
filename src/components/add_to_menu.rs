@@ -1,7 +1,22 @@
 use crate::api::*;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{
+    AppView, Icon, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
+};
 use dioxus::prelude::*;
 use std::collections::HashSet;
+use std::rc::Rc;
+
+const QUICK_PREVIEW_DURATION_MS: u64 = 12000;
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn quick_preview_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn quick_preview_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -231,6 +246,9 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let is_playing = use_context::<Signal<bool>>();
+    let playback_position = use_context::<PlaybackPositionSignal>().0;
+    let seek_request = use_context::<SeekRequestSignal>().0;
+    let preview_playback = use_context::<PreviewPlaybackSignal>().0;
 
     let show_playlist_picker = use_signal(|| false);
     let mut playlist_filter = use_signal(String::new);
@@ -241,6 +259,9 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let suggestion_destination = use_signal(|| None::<SuggestionDestination>);
     let suggestion_candidates = use_signal(Vec::<Song>::new);
     let suggestions_loading = use_signal(|| false);
+    let preview_session = use_signal(|| 0u64);
+    let preview_song_key = use_signal(|| None::<String>);
+    let was_open = use_signal(|| false);
 
     let playlists = {
         let controller = controller.clone();
@@ -294,9 +315,14 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let mut suggestion_destination = suggestion_destination.clone();
         let mut suggestion_candidates = suggestion_candidates.clone();
         let mut suggestions_loading = suggestions_loading.clone();
+        let mut preview_session = preview_session.clone();
+        let mut preview_song_key = preview_song_key.clone();
+        let mut was_open = was_open.clone();
         let controller = controller.clone();
         use_effect(move || {
-            if controller.current().is_some() {
+            let is_open = controller.current().is_some();
+            let previously_open = was_open();
+            if is_open && !previously_open {
                 show_playlist_picker.set(false);
                 new_playlist_name.set(String::new());
                 message.set(None);
@@ -305,6 +331,11 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                 suggestion_destination.set(None);
                 suggestion_candidates.set(Vec::new());
                 suggestions_loading.set(false);
+                preview_session.with_mut(|session| *session = session.saturating_add(1));
+                preview_song_key.set(None);
+            }
+            if previously_open != is_open {
+                was_open.set(is_open);
             }
         });
     }
@@ -435,6 +466,75 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             controller.close()
         }
     };
+
+    let on_preview_song = Rc::new({
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
+        let playback_position = playback_position.clone();
+        let seek_request = seek_request.clone();
+        let preview_playback = preview_playback.clone();
+        let preview_session = preview_session.clone();
+        let preview_song_key = preview_song_key.clone();
+        move |song: Song| {
+            let mut queue = queue.clone();
+            let mut queue_index = queue_index.clone();
+            let mut now_playing = now_playing.clone();
+            let mut is_playing = is_playing.clone();
+            let mut playback_position = playback_position.clone();
+            let mut seek_request = seek_request.clone();
+            let mut preview_playback = preview_playback.clone();
+            let mut preview_session = preview_session.clone();
+            let mut preview_song_key = preview_song_key.clone();
+            let saved_queue = queue();
+            let saved_queue_index = queue_index();
+            let saved_now_playing = now_playing();
+            let saved_is_playing = is_playing();
+            let saved_playback_position = playback_position();
+            let saved_seek_request = seek_request();
+            let saved_seek = saved_seek_request.or_else(|| {
+                saved_now_playing
+                    .as_ref()
+                    .map(|current| (current.id.clone(), saved_playback_position.max(0.0)))
+            });
+
+            preview_session.with_mut(|session| *session = session.saturating_add(1));
+            let session = preview_session();
+            preview_song_key.set(Some(song_key(&song)));
+            preview_playback.set(true);
+
+            queue.set(vec![song.clone()]);
+            queue_index.set(0);
+            playback_position.set(0.0);
+            seek_request.set(Some((song.id.clone(), 0.0)));
+            now_playing.set(Some(song));
+            is_playing.set(true);
+
+            let mut queue = queue.clone();
+            let mut queue_index = queue_index.clone();
+            let mut now_playing = now_playing.clone();
+            let mut is_playing = is_playing.clone();
+            let mut playback_position = playback_position.clone();
+            let mut seek_request = seek_request.clone();
+            let preview_session = preview_session.clone();
+            let mut preview_song_key = preview_song_key.clone();
+            spawn(async move {
+                quick_preview_delay_ms(QUICK_PREVIEW_DURATION_MS).await;
+                if preview_session() != session {
+                    return;
+                }
+                queue.set(saved_queue);
+                queue_index.set(saved_queue_index);
+                now_playing.set(saved_now_playing);
+                is_playing.set(saved_is_playing);
+                playback_position.set(saved_playback_position.max(0.0));
+                seek_request.set(saved_seek);
+                preview_song_key.set(None);
+                preview_playback.set(false);
+            });
+        }
+    });
 
     let navigation = use_context::<Navigation>();
     let on_cover_click = {
@@ -1188,14 +1288,8 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                             } else {
                                 div { class: "max-h-64 overflow-y-auto space-y-2 pr-1",
                                     for song in suggestion_candidates() {
-                                        button {
-                                            class: "w-full p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-emerald-500/50 text-left transition-colors",
-                                            onclick: {
-                                                let song = song.clone();
-                                                let mut on_quick_add_suggestion =
-                                                    on_quick_add_suggestion.clone();
-                                                move |_| on_quick_add_suggestion(song.clone())
-                                            },
+                                        div {
+                                            class: "w-full p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-emerald-500/50 transition-colors",
                                             div { class: "flex items-center justify-between gap-3",
                                                 div { class: "min-w-0",
                                                     p { class: "text-sm text-white truncate", "{song.title}" }
@@ -1203,8 +1297,47 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                                                         "{song.artist.clone().unwrap_or_else(|| \"Unknown Artist\".to_string())}"
                                                     }
                                                 }
-                                                span { class: "px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs",
-                                                    "Quick add"
+                                                div { class: "flex items-center gap-2",
+                                                    button {
+                                                        class: if preview_song_key()
+                                                            == Some(song_key(&song))
+                                                        {
+                                                            "px-2 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                        } else {
+                                                            "px-2 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs"
+                                                        },
+                                                        title: "Play a short preview, then return to your current song",
+                                                        disabled: preview_song_key()
+                                                            == Some(song_key(&song)),
+                                                        onclick: {
+                                                            let song = song.clone();
+                                                            let on_preview_song = on_preview_song.clone();
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                on_preview_song(song.clone());
+                                                            }
+                                                        },
+                                                        if preview_song_key()
+                                                            == Some(song_key(&song))
+                                                        {
+                                                            "Previewing..."
+                                                        } else {
+                                                            "Preview"
+                                                        }
+                                                    }
+                                                    button {
+                                                        class: "px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs hover:text-white hover:bg-emerald-500/30 transition-colors",
+                                                        onclick: {
+                                                            let song = song.clone();
+                                                            let mut on_quick_add_suggestion =
+                                                                on_quick_add_suggestion.clone();
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                on_quick_add_suggestion(song.clone())
+                                                            }
+                                                        },
+                                                        "Quick add"
+                                                    }
                                                 }
                                             }
                                         }

@@ -7,7 +7,7 @@ serve *args:
 
 # Default bundle target: Windows installers into dist/windows.
 bundle *args:
-    dx bundle --windows --release --package-types nsis --out-dir dist/windows {{args}}
+    dx bundle {{args}}
 
 # Build Windows NSIS installer (.exe).
 bundle-windows *args:

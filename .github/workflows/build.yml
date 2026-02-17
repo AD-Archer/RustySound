@@ -260,7 +260,6 @@ jobs:
         draft: false
         prerelease: false
         files: |
-          artifacts/**/*-macos.zip
           artifacts/**/*.dmg
           artifacts/**/*.ipa
           artifacts/**/*.exe

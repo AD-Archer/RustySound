@@ -56,13 +56,9 @@ pub fn RandomView() -> Element {
     };
 
     let on_shuffle = {
-        let mut shuffled_songs = shuffled_songs.clone();
+        let mut refresh_counter = refresh_counter.clone();
         move |_: MouseEvent| {
-            let mut current_songs = shuffled_songs();
-            if !current_songs.is_empty() {
-                shuffle_songs(&mut current_songs);
-                shuffled_songs.set(current_songs);
-            }
+            refresh_counter += 1;
         }
     };
 

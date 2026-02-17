@@ -12,9 +12,15 @@ use crate::api::*;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::api::*;
 #[cfg(target_arch = "wasm32")]
-use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal};
+use crate::components::{
+    PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal, VolumeSignal,
+};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal};
+use crate::offline_audio::{cached_audio_url, prefetch_song_audio};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::components::{
+    PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal, VolumeSignal,
+};
 #[cfg(target_arch = "wasm32")]
 use crate::db::{AppSettings, RepeatMode};
 #[cfg(not(target_arch = "wasm32"))]
@@ -2022,6 +2028,7 @@ pub fn AudioController() -> Element {
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let seek_request = use_context::<SeekRequestSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
+    let preview_playback = use_context::<PreviewPlaybackSignal>().0;
 
     let last_song_id = use_signal(|| None::<String>);
     let last_src = use_signal(|| None::<String>);
@@ -2045,6 +2052,7 @@ pub fn AudioController() -> Element {
         let mut last_bookmark = last_bookmark.clone();
         let mut last_ended_song = last_ended_song.clone();
         let mut repeat_one_replayed_song = repeat_one_replayed_song.clone();
+        let preview_playback = preview_playback.clone();
 
         use_effect(move || {
             ensure_native_audio_bridge();
@@ -2073,7 +2081,10 @@ pub fn AudioController() -> Element {
                     playback_position.set(current_time);
                     audio_state.write().current_time.set(current_time);
 
-                    if !snapshot.paused && app_settings.peek().bookmark_auto_save {
+                    if !snapshot.paused
+                        && app_settings.peek().bookmark_auto_save
+                        && !*preview_playback.peek()
+                    {
                         if let Some(song) = now_playing.peek().clone() {
                             if can_save_server_bookmark(&song) {
                                 let position_ms = (current_time * 1000.0).round().max(0.0) as u64;
@@ -2307,6 +2318,9 @@ pub fn AudioController() -> Element {
                         }
 
                         if let Some(song) = current_song.clone() {
+                            if *preview_playback.peek() {
+                                continue;
+                            }
                             scrobble_song(&servers_snapshot, &song, true);
                         }
 
@@ -2417,6 +2431,7 @@ pub fn AudioController() -> Element {
         let mut last_src = last_src.clone();
         let mut last_bookmark = last_bookmark.clone();
         let mut last_song_for_bookmark = last_song_for_bookmark.clone();
+        let preview_playback = preview_playback.clone();
 
         use_effect(move || {
             let song = now_playing();
@@ -2427,7 +2442,7 @@ pub fn AudioController() -> Element {
                 if Some(prev.id.clone()) != song_id {
                     let position_ms = (playback_position.peek().max(0.0) * 1000.0).round() as u64;
                     if position_ms > 1500 && can_save_server_bookmark(&prev) {
-                        if app_settings.peek().bookmark_auto_save {
+                        if app_settings.peek().bookmark_auto_save && !*preview_playback.peek() {
                             let servers_snapshot = servers.peek().clone();
                             let bookmark_limit =
                                 app_settings.peek().bookmark_limit.clamp(1, 5000) as usize;
@@ -2531,7 +2546,9 @@ pub fn AudioController() -> Element {
                     seek_request.set(None);
                 }
 
-                scrobble_song(&servers_snapshot, &song, false);
+                if !*preview_playback.peek() {
+                    scrobble_song(&servers_snapshot, &song, false);
+                }
             } else {
                 native_audio_command(serde_json::json!({ "type": "clear" }));
                 last_src.set(None);
@@ -2543,6 +2560,54 @@ pub fn AudioController() -> Element {
                 };
                 audio_state.write().playback_error.set(Some(message));
             }
+        });
+    }
+
+    // Prefetch current + next two songs to local audio cache for brief offline continuity.
+    {
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let preview_playback = preview_playback.clone();
+        use_effect(move || {
+            if *preview_playback.peek() {
+                return;
+            }
+            if !app_settings.peek().cache_enabled {
+                return;
+            }
+
+            let queue_snapshot = queue();
+            let current_index = queue_index();
+            let mut seeds = Vec::<Song>::new();
+
+            if let Some(current) = now_playing() {
+                seeds.push(current);
+            }
+
+            for candidate in queue_snapshot.into_iter().skip(current_index).take(3) {
+                if seeds
+                    .iter()
+                    .any(|existing| existing.id == candidate.id && existing.server_id == candidate.server_id)
+                {
+                    continue;
+                }
+                seeds.push(candidate);
+            }
+
+            if seeds.is_empty() {
+                return;
+            }
+
+            let servers_snapshot = servers();
+            let settings_snapshot = app_settings();
+            spawn(async move {
+                for song in seeds {
+                    let _ = prefetch_song_audio(&song, &servers_snapshot, &settings_snapshot).await;
+                }
+            });
         });
     }
 
@@ -2590,8 +2655,12 @@ pub fn AudioController() -> Element {
         let now_playing = now_playing.clone();
         let is_playing = is_playing.clone();
         let playback_position = playback_position.clone();
+        let preview_playback = preview_playback.clone();
         use_effect(move || {
             if is_playing() {
+                return;
+            }
+            if *preview_playback.peek() {
                 return;
             }
 
@@ -2787,6 +2856,10 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
+    if let Some(cached_url) = cached_audio_url(song) {
+        return Some(cached_url);
+    }
+
     if song.server_name == "Radio" {
         return song
             .stream_url
@@ -2851,6 +2924,7 @@ pub fn AudioController() -> Element {
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let mut seek_request = use_context::<SeekRequestSignal>().0;
     let mut audio_state = use_context::<Signal<AudioState>>();
+    let preview_playback = use_context::<PreviewPlaybackSignal>().0;
 
     let mut last_song_id = use_signal(|| None::<String>);
     let mut last_src = use_signal(|| None::<String>);
@@ -2875,6 +2949,7 @@ pub fn AudioController() -> Element {
         let playback_position = playback_position.clone();
         let mut last_bookmark = last_bookmark.clone();
         let mut audio_state = audio_state.clone();
+        let preview_playback = preview_playback.clone();
 
         use_effect(move || {
             let Some(_audio) = get_or_create_audio_element() else {
@@ -2957,7 +3032,10 @@ pub fn AudioController() -> Element {
                     }
                     let paused = audio.paused();
 
-                    if !paused && app_settings.peek().bookmark_auto_save {
+                    if !paused
+                        && app_settings.peek().bookmark_auto_save
+                        && !*preview_playback.peek()
+                    {
                         if let Some(song) = now_playing.peek().clone() {
                             if can_save_server_bookmark(&song) {
                                 let position_ms = (time * 1000.0).round().max(0.0) as u64;
@@ -3058,6 +3136,9 @@ pub fn AudioController() -> Element {
                         }
 
                         if let Some(song) = current_song.clone() {
+                            if *preview_playback.peek() {
+                                continue;
+                            }
                             scrobble_song(&servers_snapshot, &song, true);
                         }
 
@@ -3161,6 +3242,7 @@ pub fn AudioController() -> Element {
         let mut last_src = last_src.clone();
         let mut last_bookmark = last_bookmark.clone();
         let mut last_song_for_bookmark = last_song_for_bookmark.clone();
+        let preview_playback = preview_playback.clone();
         use_effect(move || {
             let song = now_playing();
             let song_id = song.as_ref().map(|s| s.id.clone());
@@ -3175,7 +3257,7 @@ pub fn AudioController() -> Element {
                         .round()
                         .max(0.0) as u64;
                     if position_ms > 1500 && can_save_server_bookmark(&prev) {
-                        if app_settings.peek().bookmark_auto_save {
+                        if app_settings.peek().bookmark_auto_save && !*preview_playback.peek() {
                             let servers_snapshot = servers.peek().clone();
                             let bookmark_limit =
                                 app_settings.peek().bookmark_limit.clamp(1, 5000) as usize;
@@ -3253,7 +3335,9 @@ pub fn AudioController() -> Element {
                     }
                 }
 
-                scrobble_song(&servers_snapshot, &song, false);
+                if !*preview_playback.peek() {
+                    scrobble_song(&servers_snapshot, &song, false);
+                }
             } else if let Some(audio) = get_or_create_audio_element() {
                 audio.set_src("");
                 last_src.set(None);
@@ -3325,9 +3409,13 @@ pub fn AudioController() -> Element {
         let mut last_bookmark = last_bookmark.clone();
         let now_playing = now_playing.clone();
         let is_playing = is_playing.clone();
+        let preview_playback = preview_playback.clone();
         use_effect(move || {
             let playing = is_playing();
             if playing {
+                return;
+            }
+            if *preview_playback.peek() {
                 return;
             }
 

@@ -117,6 +117,36 @@ impl SimpleCache {
         self.max_size_bytes
     }
 
+    pub fn resize_max_size_mb(&mut self, max_size_mb: u32) {
+        self.max_size_bytes = (max_size_mb as usize) * 1024 * 1024;
+        while self.current_size_bytes > self.max_size_bytes && !self.entries.is_empty() {
+            if let Some((key_to_remove, entry_to_remove)) = self.entries.iter().next() {
+                let key_to_remove = key_to_remove.clone();
+                let size_to_remove = entry_to_remove.size_bytes();
+                self.entries.remove(&key_to_remove);
+                self.current_size_bytes = self.current_size_bytes.saturating_sub(size_to_remove);
+            } else {
+                break;
+            }
+        }
+    }
+
+    pub fn remove_prefix(&mut self, prefix: &str) -> usize {
+        let keys: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|key| key.starts_with(prefix))
+            .cloned()
+            .collect();
+        let mut removed = 0usize;
+        for key in keys {
+            if self.remove(&key) {
+                removed += 1;
+            }
+        }
+        removed
+    }
+
     pub fn stats(&self) -> CacheStats {
         CacheStats {
             entry_count: self.entries.len(),
@@ -200,7 +230,6 @@ pub mod keys {
 #[cfg(target_arch = "wasm32")]
 mod wasm_impl {
     use super::*;
-    use wasm_bindgen::JsValue;
     use web_sys::{window, Storage};
 
     impl SimpleCache {

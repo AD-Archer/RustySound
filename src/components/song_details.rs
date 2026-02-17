@@ -91,8 +91,6 @@ const MOBILE_TABS: [SongDetailsTab; 4] = [
     SongDetailsTab::Related,
     SongDetailsTab::Lyrics,
 ];
-const TOUCH_REORDER_SWIPE_THRESHOLD_PX: f64 = 16.0;
-
 fn is_live_song(song: &Song) -> bool {
     song.server_name == "Radio"
         || song
@@ -1327,8 +1325,6 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let is_playing = use_context::<Signal<bool>>();
     let controller = use_context::<SongDetailsController>();
-    let drag_source_index = use_signal(|| None::<usize>);
-    let touch_reorder_start = use_signal(|| None::<(usize, f64)>);
 
     let on_create_queue = {
         let seed_song = props.seed_song.clone();
@@ -1400,53 +1396,7 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
             for (index, entry) in props.up_next.iter() {
                 div {
                     key: "{entry.server_id}:{entry.id}:{index}",
-                    draggable: true,
-                    class: if drag_source_index() == Some(*index)
-                        || touch_reorder_start()
-                            .map(|(drag_idx, _)| drag_idx == *index)
-                            .unwrap_or(false)
-                    {
-                        "w-full rounded-xl border border-emerald-500/50 bg-emerald-500/12 opacity-85 scale-[1.01] shadow-lg shadow-emerald-500/10 transition-all select-none ios-drag-lock"
-                    } else {
-                        "w-full rounded-xl border border-zinc-800/80 transition-all select-none ios-drag-lock"
-                    },
-                    ondragstart: {
-                        let mut drag_source_index = drag_source_index.clone();
-                        let source_index = *index;
-                        move |_| {
-                            drag_source_index.set(Some(source_index));
-                        }
-                    },
-                    ondragend: {
-                        let mut drag_source_index = drag_source_index.clone();
-                        move |_| {
-                            drag_source_index.set(None);
-                        }
-                    },
-                    ondragover: move |evt| {
-                        evt.prevent_default();
-                    },
-                    ondrop: {
-                        let mut drag_source_index = drag_source_index.clone();
-                        let queue = queue.clone();
-                        let queue_index = queue_index.clone();
-                        let now_playing = now_playing.clone();
-                        let target_index = *index;
-                        move |evt| {
-                            evt.prevent_default();
-                            let Some(source_index) = drag_source_index() else {
-                                return;
-                            };
-                            drag_source_index.set(None);
-                            reorder_queue_entry(
-                                queue.clone(),
-                                queue_index.clone(),
-                                now_playing.clone(),
-                                source_index,
-                                target_index,
-                            );
-                        }
-                    },
+                    class: "w-full rounded-xl border border-zinc-800/80 transition-all",
                     div { class: "flex items-center gap-2 p-3",
                         button {
                             class: "flex-1 text-left flex items-center gap-3 hover:bg-emerald-500/5 rounded-lg px-1 py-1 transition-colors min-w-0",
@@ -1577,83 +1527,6 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
                                 }
                             },
                             Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
-                        }
-                        button {
-                            r#type: "button",
-                            class: if touch_reorder_start()
-                                .map(|(drag_idx, _)| drag_idx == *index)
-                                .unwrap_or(false)
-                            {
-                                "px-1 text-emerald-300 cursor-grabbing scale-110 select-none ios-drag-lock transition-all"
-                            } else {
-                                "px-1 text-zinc-600 cursor-grab active:cursor-grabbing select-none ios-drag-lock transition-all"
-                            },
-                            title: "Drag or swipe up/down to reorder",
-                            style: "touch-action: none;",
-                            onclick: move |evt: MouseEvent| evt.stop_propagation(),
-                            onpointerdown: {
-                                let mut touch_reorder_start = touch_reorder_start.clone();
-                                let source_index = *index;
-                                move |evt: PointerEvent| {
-                                    if evt.pointer_type() != "touch" {
-                                        return;
-                                    }
-                                    evt.prevent_default();
-                                    evt.stop_propagation();
-                                    touch_reorder_start
-                                        .set(Some((source_index, evt.client_coordinates().y)));
-                                }
-                            },
-                            onpointerup: {
-                                let mut touch_reorder_start = touch_reorder_start.clone();
-                                move |evt: PointerEvent| {
-                                    if evt.pointer_type() != "touch" {
-                                        return;
-                                    }
-                                    evt.prevent_default();
-                                    evt.stop_propagation();
-                                    touch_reorder_start.set(None);
-                                }
-                            },
-                            onpointermove: {
-                                let mut touch_reorder_start = touch_reorder_start.clone();
-                                let queue = queue.clone();
-                                let queue_index = queue_index.clone();
-                                let now_playing = now_playing.clone();
-                                move |evt: PointerEvent| {
-                                    if evt.pointer_type() != "touch" {
-                                        return;
-                                    }
-                                    evt.prevent_default();
-                                    evt.stop_propagation();
-                                    let Some((source_index, start_y)) = touch_reorder_start() else {
-                                        return;
-                                    };
-                                    let list_len = queue().len();
-                                    let Some(target_index) = touch_swipe_target_index(
-                                        source_index,
-                                        start_y,
-                                        evt.client_coordinates().y,
-                                        list_len,
-                                    ) else {
-                                        return;
-                                    };
-                                    reorder_queue_entry(
-                                        queue.clone(),
-                                        queue_index.clone(),
-                                        now_playing.clone(),
-                                        source_index,
-                                        target_index,
-                                    );
-                                    touch_reorder_start
-                                        .set(Some((target_index, evt.client_coordinates().y)));
-                                }
-                            },
-                            onpointerleave: {
-                                let mut touch_reorder_start = touch_reorder_start.clone();
-                                move |_| touch_reorder_start.set(None)
-                            },
-                            Icon { name: "bars".to_string(), class: "w-4 h-4".to_string() }
                         }
                     }
                 }
@@ -2484,34 +2357,6 @@ fn adjusted_queue_index_after_reorder(
         current_index.saturating_add(1)
     } else {
         current_index
-    }
-}
-
-fn touch_swipe_target_index(
-    source_index: usize,
-    start_y: f64,
-    end_y: f64,
-    list_len: usize,
-) -> Option<usize> {
-    if list_len < 2 || source_index >= list_len {
-        return None;
-    }
-
-    let delta = end_y - start_y;
-    if delta.abs() < TOUCH_REORDER_SWIPE_THRESHOLD_PX {
-        return None;
-    }
-
-    if delta < 0.0 {
-        if source_index == 0 {
-            None
-        } else {
-            Some(source_index - 1)
-        }
-    } else if source_index + 1 < list_len {
-        Some(source_index + 1)
-    } else {
-        None
     }
 }
 
