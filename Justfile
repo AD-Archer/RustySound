@@ -5,6 +5,13 @@ default:
 serve *args:
     dx serve {{args}}
 
+# Default bundle target: Windows installers into dist/windows.
+bundle *args:
+    dx bundle --windows --release --package-types nsis --out-dir dist/windows {{args}}
+
+# Build Windows NSIS installer (.exe).
+bundle-windows *args:
+    dx bundle --windows --release --package-types nsis --out-dir dist/windows {{args}}
 # iOS simulator development server with sanitized linker environment.
 serve-ios *args:
     ./scripts/serve-ios.sh {{args}}

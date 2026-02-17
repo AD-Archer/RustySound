@@ -26,3 +26,6 @@ node_modules/
 # Temporary files
 *.tmp
 *.swp
+
+dist/
+target/

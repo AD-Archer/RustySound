@@ -381,7 +381,7 @@ fn dirs_next() -> Option<std::path::PathBuf> {
             let data_dir = std::path::PathBuf::from(home)
                 .join("Library")
                 .join("Application Support")
-                .join("com.adarcher.rustysound");
+                .join("app.adarcher.rustysound");
             std::fs::create_dir_all(&data_dir).ok()?;
             Some(data_dir)
         } else {

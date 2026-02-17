@@ -29,7 +29,7 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 ### Desktop 
 
 - **macOS**: DMG installer 
-- **Windows**: MSI installer and portable EXE (currently disabled)
+- **Windows**: MSI installer and portable EXE (not actively mantained.)
 - **Linux**: AppImage bundle (currently disabled)
 
 ### Mobile
@@ -61,6 +61,13 @@ xattr -dr com.apple.quarantine /Applications/RustySound.app
 open /Applications/RustySound.app
 ```
 
+#### Windows
+
+1. Download the latest `.exe` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
+2. Open the exe and install RustySound
+
+Note: Antivirus may flag this installer since this exe is not verified by windows.
+
 Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization secrets are not configured in CI. For public distribution without warnings, a paid Apple Developer signing + notarization flow is required.
 
 ### Web
@@ -72,7 +79,7 @@ Visit [rustysound](https://rustysound-demo.adarcher.app) to use the web version.
 You can also run RustySound as a Docker container:
 
 1. Ensure you have Docker and Docker Compose installed
-2. Clone this repository or download `docker-compose.yml`
+2. Clone this repository or copy [`docker-compose.yml`](https://raw.githubusercontent.com/AD-Archer/RustySound/refs/heads/main/docker-compose.yml)
 3. Run the application:
 
 ```bash

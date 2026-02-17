@@ -7,7 +7,7 @@
 name = "RustySound"
 
 # The icon to use for the app (PNG, ICNS, or ICO)
-icon = "assets/favicon.icns"
+icon = "assets/web-app-manifest-512x512.png"
 
 # Mobile app configuration  
 [application.mobile]
@@ -44,7 +44,7 @@ script = []
 [bundle]
 
 # Bundle identifier for the app
-identifier = "com.adarcher.rustysound"
+identifier = "app.adarcher.rustysound"
 
 # Bundle publisher
 publisher = "AD-Archer"
@@ -71,6 +71,7 @@ copyright = "Copyright © 2026 AD-Archer"
 icon = [
     "assets/web-app-manifest-512x512.png",
     "assets/web-app-manifest-192x192.png",
+    "assets/favicon.ico",
     "assets/favicon.icns",
 ]
 

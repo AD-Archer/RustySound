@@ -36,16 +36,42 @@ use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use std::cell::Cell;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use std::cell::RefCell;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::collections::VecDeque;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
 use std::collections::VecDeque;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 use std::ptr;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 use std::sync::{Mutex, Once};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
 use web_sys::{window, HtmlAudioElement, HtmlElement, KeyboardEvent};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::core::{IInspectable, HSTRING};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::Foundation::{TimeSpan, TypedEventHandler, Uri};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::Media::Core::MediaSource;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::Media::MediaPlaybackType;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::Media::Playback::{MediaPlaybackState, MediaPlayer};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::Media::{
+    MediaPlaybackStatus, SystemMediaTransportControls, SystemMediaTransportControlsButton,
+    SystemMediaTransportControlsButtonPressedEventArgs,
+};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+use windows::Storage::Streams::RandomAccessStreamReference;
 
 /// Global audio state that persists across renders.
 #[derive(Clone)]
@@ -329,7 +355,11 @@ fn ensure_web_media_session_shortcuts() {
 }
 
 /// Audio controller hook - manages playback imperatively.
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "windows")
+))]
 const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
 (() => {
   if (window.__rustysoundAudioBridge) {
@@ -679,6 +709,336 @@ struct NativeTrackMetadata {
     artwork: Option<String>,
     duration: f64,
     is_live: bool,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn seconds_to_timespan(seconds: f64) -> TimeSpan {
+    let clamped = if seconds.is_finite() {
+        seconds.max(0.0)
+    } else {
+        0.0
+    };
+    TimeSpan {
+        Duration: (clamped * 10_000_000.0).round() as i64,
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn timespan_to_seconds(span: TimeSpan) -> f64 {
+    (span.Duration as f64 / 10_000_000.0).max(0.0)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn push_windows_remote_action(actions: &Arc<Mutex<VecDeque<String>>>, action: &str) {
+    if let Ok(mut queue) = actions.lock() {
+        queue.push_back(action.to_string());
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+struct WindowsAudioPlayer {
+    player: MediaPlayer,
+    remote_actions: Arc<Mutex<VecDeque<String>>>,
+    ended_flag: Arc<AtomicBool>,
+    has_source: bool,
+    current_song_id: Option<String>,
+    metadata: Option<NativeTrackMetadata>,
+    _button_pressed_handler: Option<
+        TypedEventHandler<
+            SystemMediaTransportControls,
+            SystemMediaTransportControlsButtonPressedEventArgs,
+        >,
+    >,
+    _media_ended_handler: Option<TypedEventHandler<MediaPlayer, IInspectable>>,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+impl WindowsAudioPlayer {
+    fn new() -> Option<Self> {
+        let player = MediaPlayer::new().ok()?;
+        let remote_actions = Arc::new(Mutex::new(VecDeque::new()));
+        let ended_flag = Arc::new(AtomicBool::new(false));
+        let mut button_pressed_handler: Option<
+            TypedEventHandler<
+                SystemMediaTransportControls,
+                SystemMediaTransportControlsButtonPressedEventArgs,
+            >,
+        > = None;
+
+        if let Ok(command_manager) = player.CommandManager() {
+            let _ = command_manager.SetIsEnabled(false);
+        }
+
+        if let Ok(smtc) = player.SystemMediaTransportControls() {
+            let _ = smtc.SetIsEnabled(true);
+            let _ = smtc.SetIsPlayEnabled(true);
+            let _ = smtc.SetIsPauseEnabled(true);
+            let _ = smtc.SetIsNextEnabled(true);
+            let _ = smtc.SetIsPreviousEnabled(true);
+            let _ = smtc.SetPlaybackStatus(MediaPlaybackStatus::Closed);
+
+            let actions = remote_actions.clone();
+            let handler: TypedEventHandler<
+                SystemMediaTransportControls,
+                SystemMediaTransportControlsButtonPressedEventArgs,
+            > = TypedEventHandler::new(
+                move |_sender,
+                      args: windows::core::Ref<
+                    '_,
+                    SystemMediaTransportControlsButtonPressedEventArgs,
+                >| {
+                    match args.ok()?.Button()? {
+                        SystemMediaTransportControlsButton::Play => {
+                            push_windows_remote_action(&actions, "play")
+                        }
+                        SystemMediaTransportControlsButton::Pause => {
+                            push_windows_remote_action(&actions, "pause")
+                        }
+                        SystemMediaTransportControlsButton::Next => {
+                            push_windows_remote_action(&actions, "next")
+                        }
+                        SystemMediaTransportControlsButton::Previous => {
+                            push_windows_remote_action(&actions, "previous")
+                        }
+                        _ => {}
+                    }
+                    Ok(())
+                },
+            );
+            let _ = smtc.ButtonPressed(&handler);
+            button_pressed_handler = Some(handler);
+        }
+
+        let media_ended_handler: TypedEventHandler<MediaPlayer, IInspectable> =
+            TypedEventHandler::new({
+                let actions = remote_actions.clone();
+                let ended = ended_flag.clone();
+                move |_, _| {
+                    ended.store(true, Ordering::SeqCst);
+                    push_windows_remote_action(&actions, "ended");
+                    Ok(())
+                }
+            });
+        {
+            let _ = player.MediaEnded(&media_ended_handler);
+        }
+
+        Some(Self {
+            player,
+            remote_actions,
+            ended_flag,
+            has_source: false,
+            current_song_id: None,
+            metadata: None,
+            _button_pressed_handler: button_pressed_handler,
+            _media_ended_handler: Some(media_ended_handler),
+        })
+    }
+
+    fn set_playback_status(&self, status: MediaPlaybackStatus) {
+        if let Ok(smtc) = self.player.SystemMediaTransportControls() {
+            let _ = smtc.SetPlaybackStatus(status);
+        }
+    }
+
+    fn apply_metadata(&mut self, meta: Option<NativeTrackMetadata>) {
+        self.metadata = meta.clone();
+        let Some(meta) = meta else {
+            return;
+        };
+
+        let Ok(smtc) = self.player.SystemMediaTransportControls() else {
+            return;
+        };
+        let Ok(updater) = smtc.DisplayUpdater() else {
+            return;
+        };
+
+        let _ = updater.ClearAll();
+        let _ = updater.SetType(MediaPlaybackType::Music);
+        let _ = updater.SetAppMediaId(&HSTRING::from("RustySound"));
+        if let Ok(music) = updater.MusicProperties() {
+            let _ = music.SetTitle(&HSTRING::from(meta.title));
+            let _ = music.SetArtist(&HSTRING::from(meta.artist));
+            let _ = music.SetAlbumTitle(&HSTRING::from(meta.album));
+        }
+        if let Some(artwork_url) = meta.artwork.as_ref() {
+            if let Ok(uri) = Uri::CreateUri(&HSTRING::from(artwork_url)) {
+                if let Ok(thumbnail) = RandomAccessStreamReference::CreateFromUri(&uri) {
+                    let _ = updater.SetThumbnail(&thumbnail);
+                }
+            }
+        }
+        let _ = updater.Update();
+    }
+
+    fn apply(&mut self, cmd: serde_json::Value) {
+        let Some(cmd_type) = cmd.get("type").and_then(|v| v.as_str()) else {
+            return;
+        };
+
+        match cmd_type {
+            "load" => {
+                let src = cmd.get("src").and_then(|v| v.as_str()).unwrap_or_default();
+                if src.is_empty() {
+                    return;
+                }
+                let volume = cmd.get("volume").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                let should_play = cmd.get("play").and_then(|v| v.as_bool()).unwrap_or(false);
+                let position = cmd
+                    .get("position")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                let song_id = cmd
+                    .get("song_id")
+                    .and_then(|v| v.as_str())
+                    .map(|v| v.to_string());
+                let metadata = cmd
+                    .get("meta")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<NativeTrackMetadata>(value).ok());
+
+                if let Ok(uri) = Uri::CreateUri(&HSTRING::from(src)) {
+                    if let Ok(source) = MediaSource::CreateFromUri(&uri) {
+                        let _ = self.player.SetSource(&source);
+                        self.has_source = true;
+                    } else {
+                        self.has_source = false;
+                    }
+                } else {
+                    self.has_source = false;
+                }
+
+                self.current_song_id = song_id;
+                self.ended_flag.store(false, Ordering::SeqCst);
+                self.apply_metadata(metadata);
+                let _ = self.player.SetVolume(volume.clamp(0.0, 1.0));
+
+                if let Ok(session) = self.player.PlaybackSession() {
+                    let _ = session.SetPosition(seconds_to_timespan(position));
+                }
+                if should_play {
+                    let _ = self.player.Play();
+                    self.set_playback_status(MediaPlaybackStatus::Playing);
+                } else {
+                    let _ = self.player.Pause();
+                    self.set_playback_status(MediaPlaybackStatus::Paused);
+                }
+            }
+            "play" => {
+                let _ = self.player.Play();
+                self.ended_flag.store(false, Ordering::SeqCst);
+                self.set_playback_status(MediaPlaybackStatus::Playing);
+            }
+            "pause" => {
+                let _ = self.player.Pause();
+                self.set_playback_status(MediaPlaybackStatus::Paused);
+            }
+            "seek" => {
+                let position = cmd
+                    .get("position")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                if let Ok(session) = self.player.PlaybackSession() {
+                    let _ = session.SetPosition(seconds_to_timespan(position));
+                }
+                self.ended_flag.store(false, Ordering::SeqCst);
+            }
+            "volume" => {
+                let volume = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                let _ = self.player.SetVolume(volume.clamp(0.0, 1.0));
+            }
+            "loop" => {
+                let enabled = cmd
+                    .get("enabled")
+                    .and_then(|v| v.as_bool())
+                    .unwrap_or(false);
+                let _ = self.player.SetIsLoopingEnabled(enabled);
+            }
+            "metadata" => {
+                let metadata = cmd
+                    .get("meta")
+                    .cloned()
+                    .and_then(|value| serde_json::from_value::<NativeTrackMetadata>(value).ok());
+                self.apply_metadata(metadata);
+            }
+            "clear" => {
+                let _ = self.player.Pause();
+                self.has_source = false;
+                self.current_song_id = None;
+                self.metadata = None;
+                self.ended_flag.store(false, Ordering::SeqCst);
+                if let Ok(mut actions) = self.remote_actions.lock() {
+                    actions.clear();
+                }
+                self.set_playback_status(MediaPlaybackStatus::Closed);
+            }
+            _ => {}
+        }
+    }
+
+    fn snapshot(&self) -> NativeAudioSnapshot {
+        let action = self
+            .remote_actions
+            .lock()
+            .ok()
+            .and_then(|mut actions| actions.pop_front());
+
+        if !self.has_source {
+            return NativeAudioSnapshot {
+                current_time: 0.0,
+                duration: 0.0,
+                paused: true,
+                ended: self.ended_flag.swap(false, Ordering::SeqCst),
+                action,
+            };
+        }
+
+        let mut current_time = 0.0;
+        let mut duration = 0.0;
+        let mut paused = true;
+
+        if let Ok(session) = self.player.PlaybackSession() {
+            if let Ok(position) = session.Position() {
+                current_time = timespan_to_seconds(position);
+            }
+            if let Ok(natural_duration) = session.NaturalDuration() {
+                duration = timespan_to_seconds(natural_duration);
+            } else if let Some(meta) = &self.metadata {
+                duration = meta.duration.max(0.0);
+            }
+            paused = session
+                .PlaybackState()
+                .map(|state| state != MediaPlaybackState::Playing)
+                .unwrap_or(true);
+        }
+
+        NativeAudioSnapshot {
+            current_time,
+            duration,
+            paused,
+            ended: self.ended_flag.swap(false, Ordering::SeqCst),
+            action,
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+thread_local! {
+    static WINDOWS_AUDIO_PLAYER: RefCell<Option<WindowsAudioPlayer>> = RefCell::new(None);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn with_windows_player<R>(f: impl FnOnce(&mut WindowsAudioPlayer) -> R) -> Option<R> {
+    WINDOWS_AUDIO_PLAYER.with(|slot| {
+        let mut guard = slot.borrow_mut();
+        if guard.is_none() {
+            *guard = WindowsAudioPlayer::new();
+        }
+        guard.as_mut().map(f)
+    })
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -1478,9 +1838,18 @@ fn clear_ios_now_playing_info() {
     }
 }
 
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "windows")
+))]
 fn ensure_native_audio_bridge() {
     let _ = document::eval(NATIVE_AUDIO_BOOTSTRAP_JS);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn ensure_native_audio_bridge() {
+    let _ = with_windows_player(|_| ());
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -1488,7 +1857,11 @@ fn ensure_native_audio_bridge() {
     let _ = with_ios_player(|_| ());
 }
 
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "windows")
+))]
 fn native_audio_command(value: serde_json::Value) {
     ensure_native_audio_bridge();
     let payload = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
@@ -1503,12 +1876,21 @@ fn native_audio_command(value: serde_json::Value) {
     let _ = document::eval(&script);
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+fn native_audio_command(value: serde_json::Value) {
+    let _ = with_windows_player(|player| player.apply(value));
+}
+
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn native_audio_command(value: serde_json::Value) {
     let _ = with_ios_player(|player| player.apply(value));
 }
 
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "windows")
+))]
 async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     ensure_native_audio_bridge();
     let eval = document::eval(
@@ -1534,12 +1916,21 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     eval.join::<NativeAudioSnapshot>().await.ok()
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+    with_windows_player(|player| player.snapshot())
+}
+
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_ios_player(|player| player.snapshot())
 }
 
-#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(target_os = "ios"),
+    not(target_os = "windows")
+))]
 async fn native_delay_ms(ms: u64) {
     let script = format!(
         r#"return (async function () {{
@@ -1548,6 +1939,11 @@ async fn native_delay_ms(ms: u64) {
         }})();"#
     );
     let _ = document::eval(&script).await;
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
+async fn native_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -1720,6 +2116,7 @@ pub fn AudioController() -> Element {
                     }
 
                     let has_selected_song = now_playing.peek().is_some();
+                    let desired_playing_before_sync = *is_playing.peek();
                     if has_selected_song {
                         if snapshot.paused {
                             paused_streak = paused_streak.saturating_add(1);
@@ -1732,7 +2129,12 @@ pub fn AudioController() -> Element {
                         // Debounced sync from native player to UI state:
                         // avoid immediate false flips while a track is starting.
                         if *is_playing.peek() && paused_streak >= 3 && !snapshot.ended {
-                            is_playing.set(false);
+                            // Source switches can briefly report paused at t=0.
+                            // Keep the requested play state during startup to avoid
+                            // requiring extra user clicks after skip/end/select.
+                            if current_time > 0.35 {
+                                is_playing.set(false);
+                            }
                         } else if !*is_playing.peek() && playing_streak >= 2 {
                             is_playing.set(true);
                         }
@@ -1762,7 +2164,7 @@ pub fn AudioController() -> Element {
                         let repeat = *repeat_mode.peek();
                         let shuffle = *shuffle_enabled.peek();
                         let servers_snapshot = servers.peek().clone();
-                        let resume_after_skip = currently_playing;
+                        let resume_after_skip = desired_playing_before_sync;
 
                         if let Some(raw_seek) = action.strip_prefix("seek:") {
                             if let Ok(target) = raw_seek.parse::<f64>() {
