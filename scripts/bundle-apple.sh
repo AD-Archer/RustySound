@@ -9,6 +9,31 @@ IOS_TARGET="${IOS_TARGET:-aarch64-apple-ios}"
 APP_NAME="${APP_NAME:-RustySound}"
 IOS_ICON_SOURCE="${IOS_ICON_SOURCE:-${ROOT_DIR}/assets/web-app-manifest-512x512.png}"
 DMG_INSTALL_FILE_NAME="${DMG_INSTALL_FILE_NAME:-INSTALL.txt}"
+CREATE_MACOS_DMG="${CREATE_MACOS_DMG:-1}"
+
+create_dmg_with_retry() {
+    local app_name="$1"
+    shift
+    local max_attempts=3
+    local attempt=1
+
+    while (( attempt <= max_attempts )); do
+        # Clean up stale mounts from previous attempts/runs.
+        hdiutil detach "/Volumes/${app_name}" -force >/dev/null 2>&1 || true
+        if hdiutil create "$@"; then
+            return 0
+        fi
+
+        if (( attempt < max_attempts )); then
+            echo "hdiutil create failed (attempt ${attempt}/${max_attempts}); retrying..." >&2
+            sleep $((attempt * 2))
+        fi
+        attempt=$((attempt + 1))
+    done
+
+    echo "hdiutil create failed after ${max_attempts} attempts." >&2
+    return 1
+}
 
 create_macos_dmg_with_instructions() {
     local app_path="$1"
@@ -36,7 +61,7 @@ open /Applications/${app_name}.app
 EOF
 
     rm -f "${dmg_path}"
-    hdiutil create -volname "${app_name}" -srcfolder "${dmg_stage_dir}" -ov -format UDZO "${dmg_path}"
+    create_dmg_with_retry "${app_name}" -volname "${app_name}" -srcfolder "${dmg_stage_dir}" -ov -format UDZO "${dmg_path}"
     rm -rf "${dmg_stage_dir}"
 }
 
@@ -174,11 +199,17 @@ fi
 
 MACOS_APP_NAME="$(basename "${MACOS_APP_PATH}" .app)"
 MACOS_DMG_PATH="${MACOS_OUT_DIR}/${MACOS_APP_NAME}.dmg"
-echo "Creating macOS installer (.dmg) with install instructions..."
-create_macos_dmg_with_instructions "${MACOS_APP_PATH}" "${MACOS_DMG_PATH}" "${MACOS_APP_NAME}"
+if [[ "${CREATE_MACOS_DMG}" == "1" ]]; then
+    echo "Creating macOS installer (.dmg) with install instructions..."
+    create_macos_dmg_with_instructions "${MACOS_APP_PATH}" "${MACOS_DMG_PATH}" "${MACOS_APP_NAME}"
+else
+    echo "Skipping macOS .dmg creation (CREATE_MACOS_DMG=${CREATE_MACOS_DMG})."
+fi
 
 echo "macOS bundle output: ${MACOS_OUT_DIR}"
 echo "macOS app: ${MACOS_APP_PATH}"
-echo "macOS dmg: ${MACOS_DMG_PATH}"
+if [[ "${CREATE_MACOS_DMG}" == "1" ]]; then
+    echo "macOS dmg: ${MACOS_DMG_PATH}"
+fi
 echo "iOS bundle output: ${IOS_OUT_DIR}"
 echo "Unsigned IPA: ${IPA_PATH}"

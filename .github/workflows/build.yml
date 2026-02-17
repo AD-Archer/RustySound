@@ -97,6 +97,8 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - run: cargo install dioxus-cli --version 0.7.3
     - name: Build macOS + iOS bundles
+      env:
+        CREATE_MACOS_DMG: "0"
       run: ./scripts/bundle-apple.sh
     - name: Sign macOS app (ad-hoc or notarized)
       env:
@@ -165,7 +167,18 @@ jobs:
         EOF
 
         rm -f dist/apple/macos/*.dmg
-        hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_STAGE_DIR" -ov -format UDZO "$DMG_PATH"
+        for attempt in 1 2 3; do
+          hdiutil detach "/Volumes/$APP_NAME" -force >/dev/null 2>&1 || true
+          if hdiutil create -volname "$APP_NAME" -srcfolder "$DMG_STAGE_DIR" -ov -format UDZO "$DMG_PATH"; then
+            break
+          fi
+          if [[ "$attempt" -eq 3 ]]; then
+            echo "hdiutil create failed after 3 attempts."
+            exit 1
+          fi
+          echo "hdiutil create failed (attempt $attempt/3); retrying..."
+          sleep $((attempt * 2))
+        done
         rm -rf "$DMG_STAGE_DIR"
 
         if [[ "$DO_NOTARIZE" -eq 1 ]]; then
