@@ -1,7 +1,64 @@
 use crate::api::*;
 use crate::components::Icon;
-use crate::components::{AddIntent, AddMenuController, AppView, Navigation, SongDetailsController};
+use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
+use chrono::{DateTime, NaiveDateTime};
 use dioxus::prelude::*;
+use futures_util::future::join_all;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
+
+async fn fetch_songs_from_album_order(
+    active_servers: &[ServerConfig],
+    album_type: &str,
+    desired_song_count: u32,
+) -> Vec<Song> {
+    if active_servers.is_empty() {
+        return Vec::new();
+    }
+
+    let per_server_song_target =
+        ((desired_song_count as usize).max(30) / active_servers.len()).max(20);
+    let per_server_album_count = ((per_server_song_target / 8).clamp(4, 12)) as u32;
+
+    let tasks = active_servers.iter().cloned().map(|server| {
+        let album_type = album_type.to_string();
+        async move {
+            let client = NavidromeClient::new(server.clone());
+            let albums = client
+                .get_albums(&album_type, per_server_album_count, 0)
+                .await
+                .unwrap_or_default();
+            let album_ids: Vec<String> = albums
+                .into_iter()
+                .take(per_server_album_count as usize)
+                .map(|album| album.id)
+                .collect();
+
+            let album_tasks = album_ids.into_iter().map({
+                let server = server.clone();
+                move |album_id| {
+                    let server = server.clone();
+                    async move {
+                        let client = NavidromeClient::new(server);
+                        match client.get_album(&album_id).await {
+                            Ok((_album, songs)) => songs,
+                            Err(_) => Vec::new(),
+                        }
+                    }
+                }
+            });
+
+            let mut songs: Vec<Song> = join_all(album_tasks).await.into_iter().flatten().collect();
+            songs.truncate(per_server_song_target);
+            songs
+        }
+    });
+
+    let mut songs: Vec<Song> = join_all(tasks).await.into_iter().flatten().collect();
+    let mut seen = HashSet::new();
+    songs.retain(|song| seen.insert(song.id.clone()));
+    songs
+}
 
 #[component]
 pub fn SongsView() -> Element {
@@ -13,25 +70,72 @@ pub fn SongsView() -> Element {
 
     let mut search_query = use_signal(String::new);
     let mut sort_by = use_signal(|| "last_played".to_string());
+    let mut sort_order = use_signal(|| "desc".to_string());
     let mut filter_min_rating = use_signal(|| 0i32);
+    let rating_overrides = use_signal(HashMap::<String, u32>::new);
     let limit = use_signal(|| 30u32);
 
     let songs = use_resource(move || {
         let servers = servers();
         let limit = limit();
+        let sort_option_snapshot = sort_by();
         let query_snapshot = search_query();
         async move {
             let mut songs = Vec::new();
             let active_servers: Vec<ServerConfig> =
                 servers.into_iter().filter(|s| s.active).collect();
+            let candidate_limit = limit.saturating_mul(3).clamp(45, 240);
+
             if query_snapshot.trim().is_empty() {
-                // Lazy load a small batch by default
-                let per_server =
-                    ((limit as usize).max(10) / active_servers.len().max(1)).max(10) as u32;
-                for server in active_servers {
-                    let client = NavidromeClient::new(server);
-                    if let Ok(server_songs) = client.get_random_songs(per_server).await {
-                        songs.extend(server_songs);
+                match sort_option_snapshot.as_str() {
+                    // Pull from server-side "recent" ordering first so last played is meaningful.
+                    "last_played" => {
+                        songs = fetch_songs_from_album_order(
+                            &active_servers,
+                            "recent",
+                            candidate_limit,
+                        )
+                        .await;
+                    }
+                    // Pull from server-side "frequent" ordering first for most played mode.
+                    "most_played" => {
+                        songs = fetch_songs_from_album_order(
+                            &active_servers,
+                            "frequent",
+                            candidate_limit,
+                        )
+                        .await;
+                    }
+                    // Use backend "highest" ordering as the best available source for ratings.
+                    "rating" => {
+                        songs = fetch_songs_from_album_order(
+                            &active_servers,
+                            "highest",
+                            candidate_limit,
+                        )
+                        .await;
+                    }
+                    // Use backend alphabetical albums as a deterministic source for A-Z mode.
+                    "alphabetical" => {
+                        songs = fetch_songs_from_album_order(
+                            &active_servers,
+                            "alphabeticalByName",
+                            candidate_limit,
+                        )
+                        .await;
+                    }
+                    _ => {}
+                }
+
+                if songs.is_empty() {
+                    // Fallback: random pool when backend source is empty/unsupported.
+                    let per_server =
+                        ((candidate_limit as usize) / active_servers.len().max(1)).max(20) as u32;
+                    for server in active_servers {
+                        let client = NavidromeClient::new(server);
+                        if let Ok(server_songs) = client.get_random_songs(per_server).await {
+                            songs.extend(server_songs);
+                        }
                     }
                 }
             } else {
@@ -39,7 +143,7 @@ pub fn SongsView() -> Element {
                 for server in active_servers {
                     let client = NavidromeClient::new(server);
                     if let Ok(results) = client
-                        .search(&query_snapshot, 0, 0, limit as u32 + 20)
+                        .search(&query_snapshot, 0, 0, candidate_limit + 20)
                         .await
                     {
                         songs.extend(results.songs);
@@ -47,9 +151,8 @@ pub fn SongsView() -> Element {
                 }
             }
             // Remove duplicates based on id
-            let mut seen = std::collections::HashSet::new();
+            let mut seen = HashSet::new();
             songs.retain(|song| seen.insert(song.id.clone()));
-            songs.truncate(limit as usize);
             songs
         }
     });
@@ -90,55 +193,63 @@ pub fn SongsView() -> Element {
                                 value: sort_by,
                                 oninput: move |e| sort_by.set(e.value()),
                                 option { value: "last_played", "Last Played" }
-                                option { value: "alphabetical", "A-Z" }
+                                option { value: "most_played", "Most Played" }
+                                option { value: "alphabetical", "Alphabetical" }
                                 option { value: "rating", "Rating" }
                                 option { value: "duration", "Duration" }
                             }
                         }
 
-                        // Min rating filter
+                        // Sort order
                         div { class: "flex items-center gap-1",
-                            span { class: "text-xs text-zinc-400 whitespace-nowrap",
-                                "Min:"
-                            }
+                            span { class: "text-xs text-zinc-400 whitespace-nowrap", "Order:" }
                             select {
                                 class: "px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded text-xs text-white focus:outline-none focus:border-emerald-500/50 min-w-0",
-                                value: "{filter_min_rating}",
-                                oninput: move |e| {
-                                    if let Ok(rating) = e.value().parse::<i32>() {
-                                        filter_min_rating.set(rating);
-                                    }
-                                },
-                                option { value: "0", "Any" }
-                                option { value: "1", "1+" }
-                                option { value: "2", "2+" }
-                                option { value: "3", "3+" }
-                                option { value: "4", "4+" }
-                                option { value: "5", "5" }
+                                value: sort_order,
+                                oninput: move |e| sort_order.set(e.value()),
+                                option { value: "desc", "Descending" }
+                                option { value: "asc", "Ascending" }
+                            }
+                        }
+
+                        if sort_by() == "rating" {
+                            // Min rating filter
+                            div { class: "flex items-center gap-1",
+                                span { class: "text-xs text-zinc-400 whitespace-nowrap",
+                                    "Min:"
+                                }
+                                select {
+                                    class: "px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded text-xs text-white focus:outline-none focus:border-emerald-500/50 min-w-0",
+                                    value: "{filter_min_rating}",
+                                    oninput: move |e| {
+                                        if let Ok(rating) = e.value().parse::<i32>() {
+                                            filter_min_rating.set(rating);
+                                        }
+                                    },
+                                    option { value: "0", "Any" }
+                                    option { value: "1", "1+" }
+                                    option { value: "2", "2+" }
+                                    option { value: "3", "3+" }
+                                    option { value: "4", "4+" }
+                                    option { value: "5", "5" }
+                                }
                             }
                         }
                     }
                 }
             }
-
             {
-
-                // First filter by search query
-
-                // Filter by genre
-
-                // Filter by minimum rating
-
-                // Sort the results
-                // For now, sort by title since we don't have date info
-                // Alphabetical
-
                 match songs() {
                     Some(songs) => {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
                         let sort_option = sort_by();
+                        let sort_ascending = sort_order() == "asc";
+                        let rating_filter_active = sort_option == "rating";
+                        let rating_snapshot = rating_overrides();
                         let min_rating = filter_min_rating();
+                        let display_limit = limit() as usize;
+                        let source_song_count = songs.len();
                         let mut filtered: Vec<Song> = if query.is_empty() {
                             songs.clone()
                         } else {
@@ -162,31 +273,83 @@ pub fn SongsView() -> Element {
                                 .cloned()
                                 .collect()
                         };
-                        if min_rating > 0 {
+                        if rating_filter_active && min_rating > 0 {
                             filtered
                                 .retain(|song| {
-                                    song.user_rating.unwrap_or(0) >= min_rating as u32
+                                    effective_song_rating(song, &rating_snapshot) >= min_rating as u32
                                 });
                         }
                         match sort_option.as_str() {
-                            // Keep server order as-is to approximate last played/random order
-                            "last_played" => {}
+                            "last_played" => {
+                                filtered.sort_by(|a, b| {
+                                    compare_song_last_played(a, b, sort_ascending)
+                                });
+                            }
+                            "most_played" => {
+                                filtered.sort_by(|a, b| {
+                                    compare_song_most_played(a, b, sort_ascending)
+                                });
+                            }
                             "rating" => {
                                 filtered
                                     .sort_by(|a, b| {
-                                        let a_rating = a.user_rating.unwrap_or(0);
-                                        let b_rating = b.user_rating.unwrap_or(0);
-                                        b_rating.cmp(&a_rating).then(a.title.cmp(&b.title))
+                                        let a_rating = effective_song_rating(a, &rating_snapshot);
+                                        let b_rating = effective_song_rating(b, &rating_snapshot);
+                                        if sort_ascending {
+                                            a_rating.cmp(&b_rating)
+                                        } else {
+                                            b_rating.cmp(&a_rating)
+                                        }
+                                        .then_with(|| {
+                                            compare_song_title(a, b, sort_ascending)
+                                        })
                                     });
                             }
                             "duration" => {
-                                filtered.sort_by(|a, b| b.duration.cmp(&a.duration));
+                                filtered.sort_by(|a, b| {
+                                    if sort_ascending {
+                                        a.duration.cmp(&b.duration)
+                                    } else {
+                                        b.duration.cmp(&a.duration)
+                                    }
+                                    .then_with(|| {
+                                        compare_song_title(a, b, sort_ascending)
+                                    })
+                                });
                             }
                             _ => {
-                                filtered.sort_by(|a, b| a.title.cmp(&b.title));
+                                filtered
+                                    .sort_by(|a, b| compare_song_title(a, b, sort_ascending));
                             }
                         }
-                        let has_query = !query.is_empty() || min_rating > 0;
+                        let has_query = !query.is_empty() || (rating_filter_active && min_rating > 0);
+                        let has_more = filtered.len() > display_limit || source_song_count >= display_limit;
+                        filtered.truncate(display_limit);
+                        let on_rating_changed = {
+                            let mut rating_overrides = rating_overrides.clone();
+                            let mut queue = queue.clone();
+                            move |(song_id, new_rating): (String, u32)| {
+                                let normalized = new_rating.min(5);
+                                rating_overrides.with_mut(|overrides| {
+                                    if normalized == 0 {
+                                        overrides.remove(&song_id);
+                                    } else {
+                                        overrides.insert(song_id.clone(), normalized);
+                                    }
+                                });
+                                queue.with_mut(|items| {
+                                    for song in items.iter_mut() {
+                                        if song.id == song_id {
+                                            song.user_rating = if normalized == 0 {
+                                                None
+                                            } else {
+                                                Some(normalized)
+                                            };
+                                        }
+                                    }
+                                });
+                            }
+                        };
                         rsx! {
                             if filtered.is_empty() {
                                 div { class: "flex flex-col items-center justify-center py-20",
@@ -195,7 +358,11 @@ pub fn SongsView() -> Element {
                                         class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
                                     }
                                     if has_query {
-                                        p { class: "text-zinc-300", "No songs match \"{raw_query}\"" }
+                                        if raw_query.is_empty() {
+                                            p { class: "text-zinc-300", "No songs match the selected filters" }
+                                        } else {
+                                            p { class: "text-zinc-300", "No songs match \"{raw_query}\"" }
+                                        }
                                     } else {
                                         p { class: "text-zinc-400", "No songs found" }
                                     }
@@ -206,6 +373,8 @@ pub fn SongsView() -> Element {
                                         SongRowWithRating {
                                             song: song.clone(),
                                             index: index + 1,
+                                            effective_rating: effective_song_rating(song, &rating_snapshot),
+                                            on_rating_changed: on_rating_changed.clone(),
                                             onclick: {
                                                 let songs = filtered.clone();
                                                 let mut now_playing = now_playing.clone();
@@ -223,13 +392,15 @@ pub fn SongsView() -> Element {
                                         }
                                     }
                                 }
-                                button {
-                                    class: "w-full mt-4 py-3 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
-                                    onclick: {
-                                        let mut limit = limit.clone();
-                                        move |_| limit.set(limit() + 30)
-                                    },
-                                    "View more"
+                                if has_more {
+                                    button {
+                                        class: "w-full mt-4 py-3 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                                        onclick: {
+                                            let mut limit = limit.clone();
+                                            move |_| limit.set(limit() + 30)
+                                        },
+                                        "View more"
+                                    }
                                 }
                             }
                         }
@@ -248,14 +419,103 @@ pub fn SongsView() -> Element {
     }
 }
 
+fn parse_played_timestamp(value: &str) -> Option<i64> {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+        return Some(parsed.timestamp());
+    }
+
+    for format in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(parsed) = NaiveDateTime::parse_from_str(value, format) {
+            return Some(parsed.and_utc().timestamp());
+        }
+    }
+
+    None
+}
+
+fn effective_song_rating(song: &Song, overrides: &HashMap<String, u32>) -> u32 {
+    overrides
+        .get(&song.id)
+        .copied()
+        .unwrap_or(song.user_rating.unwrap_or(0))
+        .min(5)
+}
+
+fn compare_song_title(left: &Song, right: &Song, ascending: bool) -> Ordering {
+    let left_title = left.title.to_lowercase();
+    let right_title = right.title.to_lowercase();
+    if ascending {
+        left_title.cmp(&right_title)
+    } else {
+        right_title.cmp(&left_title)
+    }
+}
+
+fn compare_optional_i64(left: Option<i64>, right: Option<i64>, ascending: bool) -> Ordering {
+    match (left, right) {
+        (Some(l), Some(r)) => {
+            if ascending {
+                l.cmp(&r)
+            } else {
+                r.cmp(&l)
+            }
+        }
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn compare_optional_u32(left: Option<u32>, right: Option<u32>, ascending: bool) -> Ordering {
+    match (left, right) {
+        (Some(l), Some(r)) => {
+            if ascending {
+                l.cmp(&r)
+            } else {
+                r.cmp(&l)
+            }
+        }
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    }
+}
+
+fn compare_song_last_played(left: &Song, right: &Song, ascending: bool) -> Ordering {
+    let left_played = left.played.as_deref().and_then(parse_played_timestamp);
+    let right_played = right.played.as_deref().and_then(parse_played_timestamp);
+
+    compare_optional_i64(left_played, right_played, ascending)
+        .then_with(|| compare_optional_u32(left.play_count, right.play_count, ascending))
+        .then_with(|| compare_song_title(left, right, ascending))
+}
+
+fn compare_song_most_played(left: &Song, right: &Song, ascending: bool) -> Ordering {
+    let left_played = left.played.as_deref().and_then(parse_played_timestamp);
+    let right_played = right.played.as_deref().and_then(parse_played_timestamp);
+
+    compare_optional_u32(left.play_count, right.play_count, ascending)
+        .then_with(|| compare_optional_i64(left_played, right_played, ascending))
+        .then_with(|| compare_song_title(left, right, ascending))
+}
+
 #[component]
-fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
+fn SongRowWithRating(
+    song: Song,
+    index: usize,
+    effective_rating: u32,
+    onclick: EventHandler<MouseEvent>,
+    on_rating_changed: EventHandler<(String, u32)>,
+) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
-    let song_details = use_context::<SongDetailsController>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
-    let rating = song.user_rating.unwrap_or(0).min(5);
 
     let cover_url = servers()
         .iter()
@@ -273,11 +533,17 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
     let is_favorited = use_signal(|| song.starred.is_some());
 
     let on_album_click_cover = {
-        let song = song.clone();
-        let mut song_details = song_details.clone();
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let navigation = navigation.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            song_details.open(song.clone());
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
         }
     };
 
@@ -309,14 +575,17 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
         let servers = servers.clone();
         let song_id = song.id.clone();
         let server_id = song.server_id.clone();
-        move |new_rating: i32| {
+        let on_rating_changed = on_rating_changed.clone();
+        move |new_rating: u32| {
+            let normalized = new_rating.min(5);
+            on_rating_changed.call((song_id.clone(), normalized));
             let servers = servers.clone();
             let song_id = song_id.clone();
             let server_id = server_id.clone();
             spawn(async move {
                 if let Some(server) = servers().iter().find(|s| s.id == server_id) {
                     let client = NavidromeClient::new(server.clone());
-                    let _ = client.set_rating(&song_id, new_rating as u32).await;
+                    let _ = client.set_rating(&song_id, normalized).await;
                 }
             });
         }
@@ -375,7 +644,7 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
             if album_id.is_some() {
                 button {
                     class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
-                    aria_label: "Open song menu",
+                    aria_label: "Open album",
                     onclick: on_album_click_cover,
                     {
                         match cover_url {
@@ -453,14 +722,18 @@ fn SongRowWithRating(song: Song, index: usize, onclick: EventHandler<MouseEvent>
                             class: "w-4 h-4",
                             onclick: {
                                 let on_set_rating = on_set_rating.clone();
-                                let rating_value = i as i32;
+                                let rating_value = i as u32;
                                 move |evt: MouseEvent| {
                                     evt.stop_propagation();
                                     on_set_rating(rating_value);
                                 }
                             },
                             Icon {
-                                name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
+                                name: if i <= effective_rating {
+                                    "star-filled".to_string()
+                                } else {
+                                    "star".to_string()
+                                },
                                 class: "w-4 h-4 text-amber-400 hover:text-amber-300 transition-colors".to_string(),
                             }
                         }

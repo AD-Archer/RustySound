@@ -1,10 +1,15 @@
 use crate::api::*;
-use crate::components::{
-    AddIntent, AddMenuController, AppView, Icon, Navigation, SongDetailsController,
-};
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::rc::Rc;
+
+const TOUCH_REORDER_SWIPE_THRESHOLD_PX: f64 = 16.0;
+const AUTO_RECOMMENDATION_LIMIT: usize = 25;
+const AUTO_RECOMMENDATION_FIRST_SEED_COUNT: usize = 4;
+const AUTO_RECOMMENDATION_LAST_SEED_COUNT: usize = 4;
+const AUTO_RECOMMENDATION_RECENT_SEED_COUNT: usize = 17;
 
 #[component]
 fn PlaylistSongRow(
@@ -18,7 +23,7 @@ fn PlaylistSongRow(
     servers: Signal<Vec<ServerConfig>>,
     add_menu: AddMenuController,
 ) -> Element {
-    let song_details = use_context::<SongDetailsController>();
+    let navigation = use_context::<Navigation>();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
     let is_current = now_playing()
@@ -87,6 +92,21 @@ fn PlaylistSongRow(
         }
     };
 
+    let on_album_cover = {
+        let navigation = navigation.clone();
+        let album_id = song.album_id.clone();
+        let server_id = song.server_id.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
+        }
+    };
+
     rsx! {
         div {
             class: if is_current {
@@ -107,15 +127,8 @@ fn PlaylistSongRow(
             }
             button {
                 class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
-                aria_label: "Open song menu",
-                onclick: {
-                    let song = song.clone();
-                    let mut song_details = song_details.clone();
-                    move |evt: MouseEvent| {
-                        evt.stop_propagation();
-                        song_details.open(song.clone());
-                    }
-                },
+                aria_label: "Open album",
+                onclick: on_album_cover,
                 match cover_url {
                     Some(url) => rsx! {
                         img { class: "w-full h-full object-cover", src: "{url}" }
@@ -182,6 +195,10 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut song_list = use_signal(|| Vec::<Song>::new());
     let mut show_delete_confirm = use_signal(|| false);
     let drag_source_index = use_signal(|| None::<usize>);
+    let touch_reorder_start = use_signal(|| None::<(usize, f64)>);
+    let recently_added_seed = use_signal(|| None::<Song>);
+    let dismissed_recommendations = use_signal(HashSet::<String>::new);
+    let recommendation_refresh_nonce = use_signal(|| 0u64);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
     let server_for_playlist = server.clone();
@@ -216,6 +233,35 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     }
                 }
                 Vec::new()
+            }
+        })
+    };
+
+    let auto_recommendations = {
+        let server = server.clone();
+        let edit_mode = edit_mode.clone();
+        let song_list = song_list.clone();
+        let recently_added_seed = recently_added_seed.clone();
+        let dismissed_recommendations = dismissed_recommendations.clone();
+        let recommendation_refresh_nonce = recommendation_refresh_nonce.clone();
+        use_resource(move || {
+            let server = server.clone();
+            let editing = edit_mode();
+            let playlist_songs = song_list();
+            let recent_seed = recently_added_seed();
+            let dismissed_keys = dismissed_recommendations();
+            let _refresh = recommendation_refresh_nonce();
+            async move {
+                if !editing {
+                    return Vec::new();
+                }
+                build_playlist_add_recommendations(
+                    server,
+                    playlist_songs,
+                    recent_seed,
+                    dismissed_keys,
+                )
+                .await
             }
         })
     };
@@ -329,7 +375,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         let playlist_data_ref = playlist_data.clone();
         let servers = servers.clone();
         let mut reload = reload.clone();
-        move |song_id: String| {
+        let mut recently_added_seed = recently_added_seed.clone();
+        move |song: Song| {
             if let Some(Some((playlist, _))) = playlist_data_ref() {
                 if let Some(server) = servers()
                     .iter()
@@ -337,10 +384,18 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     .cloned()
                 {
                     let playlist_id = playlist.id.clone();
+                    let song_id = song.id.clone();
+                    let song_for_seed = song.clone();
                     spawn(async move {
                         let client = NavidromeClient::new(server);
-                        let _ = client.add_songs_to_playlist(&playlist_id, &[song_id]).await;
-                        reload.set(reload() + 1);
+                        if client
+                            .add_songs_to_playlist(&playlist_id, &[song_id])
+                            .await
+                            .is_ok()
+                        {
+                            recently_added_seed.set(Some(song_for_seed));
+                            reload.set(reload() + 1);
+                        }
                     });
                 }
             }
@@ -353,72 +408,84 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         let mut song_list = song_list.clone();
         let mut reorder_error = reorder_error.clone();
         let reload = reload.clone();
-        Rc::new(RefCell::new(move |source_index: usize, target_index: usize| {
-            let mut ordered_song_ids = Vec::<String>::new();
-            let mut reordered = false;
-            song_list.with_mut(|list| {
-                if list.len() < 2
-                    || source_index >= list.len()
-                    || target_index >= list.len()
-                    || source_index == target_index
-                {
+        Rc::new(RefCell::new(
+            move |source_index: usize, target_index: usize| {
+                let mut ordered_song_ids = Vec::<String>::new();
+                let mut reordered = false;
+                song_list.with_mut(|list| {
+                    if list.len() < 2
+                        || source_index >= list.len()
+                        || target_index >= list.len()
+                        || source_index == target_index
+                    {
+                        return;
+                    }
+
+                    let moved_song = list.remove(source_index);
+                    let insert_index = target_index;
+                    list.insert(insert_index, moved_song);
+                    ordered_song_ids = list.iter().map(|song| song.id.clone()).collect();
+                    reordered = true;
+                });
+
+                if !reordered {
                     return;
                 }
 
-                let moved_song = list.remove(source_index);
-                let insert_index = if source_index < target_index {
-                    target_index.saturating_sub(1)
-                } else {
-                    target_index
-                };
-                list.insert(insert_index, moved_song);
-                ordered_song_ids = list.iter().map(|song| song.id.clone()).collect();
-                reordered = true;
-            });
+                reorder_error.set(None);
 
-            if !reordered {
-                return;
-            }
-
-            reorder_error.set(None);
-
-            if let Some(Some((playlist, _))) = playlist_data_ref() {
-                if let Some(server) = servers()
-                    .iter()
-                    .find(|s| s.id == playlist.server_id)
-                    .cloned()
-                {
-                    let playlist_id = playlist.id.clone();
-                    let total_songs = ordered_song_ids.len();
-                    let mut reorder_error = reorder_error.clone();
-                    let mut reload = reload.clone();
-                    spawn(async move {
-                        let client = NavidromeClient::new(server);
-                        if let Err(err) = client
-                            .reorder_playlist(&playlist_id, &ordered_song_ids, total_songs)
-                            .await
-                        {
-                            reorder_error
-                                .set(Some(format!("Failed to save playlist order: {err}")));
-                            reload.set(reload().saturating_add(1));
-                        }
-                    });
+                if let Some(Some((playlist, _))) = playlist_data_ref() {
+                    if let Some(server) = servers()
+                        .iter()
+                        .find(|s| s.id == playlist.server_id)
+                        .cloned()
+                    {
+                        let playlist_id = playlist.id.clone();
+                        let total_songs = ordered_song_ids.len();
+                        let mut reorder_error = reorder_error.clone();
+                        let mut reload = reload.clone();
+                        spawn(async move {
+                            let client = NavidromeClient::new(server);
+                            if let Err(err) = client
+                                .reorder_playlist(&playlist_id, &ordered_song_ids, total_songs)
+                                .await
+                            {
+                                reorder_error
+                                    .set(Some(format!("Failed to save playlist order: {err}")));
+                                reload.set(reload().saturating_add(1));
+                            }
+                        });
+                    }
                 }
-            }
-        }))
+            },
+        ))
     };
 
     let on_toggle_edit_mode = {
         let mut edit_mode = edit_mode.clone();
         let mut song_search = song_search.clone();
         let mut drag_source_index = drag_source_index.clone();
+        let mut touch_reorder_start = touch_reorder_start.clone();
         let mut reorder_error = reorder_error.clone();
+        let mut dismissed_recommendations = dismissed_recommendations.clone();
+        let mut recommendation_refresh_nonce = recommendation_refresh_nonce.clone();
         move |_| {
             let next_edit_state = !edit_mode();
             edit_mode.set(next_edit_state);
             song_search.set(String::new());
             drag_source_index.set(None);
+            touch_reorder_start.set(None);
             reorder_error.set(None);
+            dismissed_recommendations.set(HashSet::new());
+            recommendation_refresh_nonce.set(0);
+        }
+    };
+
+    let on_refresh_recommendations = {
+        let mut recommendation_refresh_nonce = recommendation_refresh_nonce.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            recommendation_refresh_nonce.set(recommendation_refresh_nonce().saturating_add(1));
         }
     };
 
@@ -643,15 +710,28 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                 let client = NavidromeClient::new(server.clone());
                                                 song.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
                                             });
+                                        let is_touch_dragging = touch_reorder_start()
+                                            .map(|(drag_idx, _)| drag_idx == index)
+                                            .unwrap_or(false);
+                                        let row_class = if drag_source_index() == Some(index)
+                                            || is_touch_dragging
+                                        {
+                                            "flex items-center gap-3 p-3 rounded-lg bg-emerald-500/12 border border-emerald-500/45 opacity-85 scale-[1.01] shadow-lg shadow-emerald-500/10 transition-all select-none ios-drag-lock"
+                                        } else {
+                                            "flex items-center gap-3 p-3 rounded-lg bg-zinc-900/60 border border-zinc-800 transition-all select-none ios-drag-lock"
+                                        };
+                                        let reorder_handle_class = if is_touch_dragging {
+                                            "text-emerald-300 cursor-grabbing scale-110 transition-all select-none ios-drag-lock"
+                                        } else {
+                                            "text-zinc-600 cursor-grab active:cursor-grabbing transition-all select-none ios-drag-lock"
+                                        };
+                                        let can_move_up = index > 0;
+                                        let can_move_down = index + 1 < song_list().len();
                                         rsx! {
                                             div {
                                                 key: "{song.server_id}:{song.id}:{index}",
                                                 draggable: editing_allowed,
-                                                class: if drag_source_index() == Some(index) {
-                                                    "flex items-center gap-3 p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/40 opacity-75"
-                                                } else {
-                                                    "flex items-center gap-3 p-3 rounded-lg bg-zinc-900/60 border border-zinc-800"
-                                                },
+                                                class: "{row_class}",
                                                 ondragstart: {
                                                     let mut drag_source_index = drag_source_index.clone();
                                                     let source_index = index;
@@ -688,10 +768,127 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                         on_reorder_song.borrow_mut()(source_index, target_index);
                                                     }
                                                 },
-                                                div {
-                                                    class: "text-zinc-600 cursor-grab active:cursor-grabbing",
-                                                    title: "Drag to reorder",
+                                                button {
+                                                    r#type: "button",
+                                                    class: "{reorder_handle_class}",
+                                                    title: "Drag or swipe up/down to reorder",
+                                                    style: "touch-action: none;",
+                                                    onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                                                    onpointerdown: {
+                                                        let mut touch_reorder_start = touch_reorder_start.clone();
+                                                        let source_index = index;
+                                                        move |evt: PointerEvent| {
+                                                            if evt.pointer_type() != "touch" || !editing_allowed {
+                                                                return;
+                                                            }
+                                                            evt.prevent_default();
+                                                            evt.stop_propagation();
+                                                            touch_reorder_start.set(Some((
+                                                                source_index,
+                                                                evt.client_coordinates().y,
+                                                            )));
+                                                        }
+                                                    },
+                                                    onpointerup: {
+                                                        let mut touch_reorder_start = touch_reorder_start.clone();
+                                                        move |evt: PointerEvent| {
+                                                            if evt.pointer_type() != "touch" || !editing_allowed {
+                                                                return;
+                                                            }
+                                                            evt.prevent_default();
+                                                            evt.stop_propagation();
+                                                            touch_reorder_start.set(None);
+                                                        }
+                                                    },
+                                                    onpointermove: {
+                                                        let mut touch_reorder_start = touch_reorder_start.clone();
+                                                        let on_reorder_song = on_reorder_song.clone();
+                                                        let song_list = song_list.clone();
+                                                        move |evt: PointerEvent| {
+                                                            if evt.pointer_type() != "touch" || !editing_allowed {
+                                                                return;
+                                                            }
+                                                            evt.prevent_default();
+                                                            evt.stop_propagation();
+                                                            let Some((source_index, start_y)) =
+                                                                touch_reorder_start()
+                                                            else {
+                                                                return;
+                                                            };
+                                                            let list_len = song_list().len();
+                                                            let Some(target_index) = touch_swipe_target_index(
+                                                                source_index,
+                                                                start_y,
+                                                                evt.client_coordinates().y,
+                                                                list_len,
+                                                            ) else {
+                                                                return;
+                                                            };
+                                                            on_reorder_song
+                                                                .borrow_mut()(source_index, target_index);
+                                                            touch_reorder_start.set(Some((
+                                                                target_index,
+                                                                evt.client_coordinates().y,
+                                                            )));
+                                                        }
+                                                    },
+                                                    onpointerleave: {
+                                                        let mut touch_reorder_start = touch_reorder_start.clone();
+                                                        move |_| touch_reorder_start.set(None)
+                                                    },
                                                     Icon { name: "bars".to_string(), class: "w-4 h-4".to_string() }
+                                                }
+                                                div { class: "flex flex-col gap-1",
+                                                    button {
+                                                        r#type: "button",
+                                                        class: if can_move_up {
+                                                            "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                                        } else {
+                                                            "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center"
+                                                        },
+                                                        title: "Move up",
+                                                        disabled: !can_move_up,
+                                                        onclick: {
+                                                            let on_reorder_song = on_reorder_song.clone();
+                                                            let source_index = index;
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                if !editing_allowed || !can_move_up {
+                                                                    return;
+                                                                }
+                                                                on_reorder_song.borrow_mut()(
+                                                                    source_index,
+                                                                    source_index.saturating_sub(1),
+                                                                );
+                                                            }
+                                                        },
+                                                        Icon { name: "chevron-up".to_string(), class: "w-3.5 h-3.5".to_string() }
+                                                    }
+                                                    button {
+                                                        r#type: "button",
+                                                        class: if can_move_down {
+                                                            "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                                        } else {
+                                                            "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center"
+                                                        },
+                                                        title: "Move down",
+                                                        disabled: !can_move_down,
+                                                        onclick: {
+                                                            let on_reorder_song = on_reorder_song.clone();
+                                                            let source_index = index;
+                                                            move |evt: MouseEvent| {
+                                                                evt.stop_propagation();
+                                                                if !editing_allowed || !can_move_down {
+                                                                    return;
+                                                                }
+                                                                on_reorder_song.borrow_mut()(
+                                                                    source_index,
+                                                                    source_index.saturating_add(1),
+                                                                );
+                                                            }
+                                                        },
+                                                        Icon { name: "chevron-down".to_string(), class: "w-3.5 h-3.5".to_string() }
+                                                    }
                                                 }
                                                 div { class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
                                                     match cover_url {
@@ -753,13 +950,135 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     value: song_search,
                                     oninput: move |e| song_search.set(e.value()),
                                 }
-                                if let Some(results) = search_results() {
-                                    if results.is_empty() && song_search().trim().len() >= 2 {
+                                div { class: "rounded-xl border border-zinc-800/70 bg-zinc-950/30 p-3 space-y-2",
+                                    div { class: "flex items-center justify-between",
+                                        p { class: "text-xs uppercase tracking-wide text-zinc-500", "Recommended" }
+                                        p { class: "text-xs text-zinc-600", "first + last + recent (up to 25)" }
+                                    }
+                                    match auto_recommendations() {
+                                        None => rsx! {
+                                            div { class: "py-2 flex items-center gap-2 text-zinc-500 text-sm",
+                                                Icon {
+                                                    name: "loader".to_string(),
+                                                    class: "w-4 h-4 animate-spin".to_string(),
+                                                }
+                                                "Finding recommendations..."
+                                            }
+                                        },
+                                        Some(recommendations) => {
+                                            if recommendations.is_empty() {
+                                                rsx! {
+                                                    p { class: "text-sm text-zinc-500", "No recommendations yet. Add a song to shape suggestions." }
+                                                }
+                                            } else {
+                                                rsx! {
+                                                    div { class: "space-y-2 max-h-64 overflow-y-auto pr-1",
+                                                        for res in recommendations {
+                                                            div {
+                                                                key: "{res.server_id}:{res.id}:recommended",
+                                                                class: "flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-zinc-800/50 transition-colors",
+                                                                {
+                                                                    let cover_url = servers()
+                                                                        .iter()
+                                                                        .find(|s| s.id == res.server_id)
+                                                                        .and_then(|server| {
+                                                                            let client = NavidromeClient::new(server.clone());
+                                                                            res.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
+                                                                        });
+                                                                    rsx! {
+                                                                        if let Some(url) = cover_url {
+                                                                            img {
+                                                                                class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                src: "{url}",
+                                                                            }
+                                                                        } else {
+                                                                            div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
+                                                                                Icon {
+                                                                                    name: "music".to_string(),
+                                                                                    class: "w-4 h-4 text-zinc-500".to_string(),
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                div { class: "min-w-0 flex-1",
+                                                                    p { class: "text-sm text-white truncate", "{res.title}" }
+                                                                    p { class: "text-xs text-zinc-500 truncate",
+                                                                        "{res.artist.clone().unwrap_or_default()} • {res.album.clone().unwrap_or_default()}"
+                                                                    }
+                                                                }
+                                                                div { class: "flex items-center gap-2",
+                                                                    {
+                                                                        let already_in_playlist = song_list()
+                                                                            .iter()
+                                                                            .any(|existing| same_song_identity(existing, &res));
+                                                                        rsx! {
+                                                                            button {
+                                                                                class: if already_in_playlist {
+                                                                                    "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                                                } else {
+                                                                                    "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
+                                                                                },
+                                                                                disabled: already_in_playlist,
+                                                                                onclick: {
+                                                                                    let song = res.clone();
+                                                                                    move |evt: MouseEvent| {
+                                                                                        evt.stop_propagation();
+                                                                                        on_add_song(song.clone());
+                                                                                    }
+                                                                                },
+                                                                                if already_in_playlist {
+                                                                                    "In Playlist"
+                                                                                } else {
+                                                                                    "Add"
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                    button {
+                                                                        class: "w-7 h-7 rounded-full border border-zinc-700 text-zinc-500 hover:text-zinc-200 hover:border-zinc-500 transition-colors flex items-center justify-center",
+                                                                        title: "Dismiss recommendation",
+                                                                        onclick: {
+                                                                            let mut dismissed_recommendations =
+                                                                                dismissed_recommendations.clone();
+                                                                            let recommendation_key = song_identity_key(&res);
+                                                                            move |evt: MouseEvent| {
+                                                                                evt.stop_propagation();
+                                                                                dismissed_recommendations.with_mut(|dismissed| {
+                                                                                    dismissed.insert(recommendation_key.clone());
+                                                                                });
+                                                                            }
+                                                                        },
+                                                                        Icon { name: "x".to_string(), class: "w-3 h-3".to_string() }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    div { class: "pt-1 flex justify-end",
+                                        button {
+                                            class: "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                                            onclick: on_refresh_recommendations,
+                                            "Refresh recommendations"
+                                        }
+                                    }
+                                }
+                                if song_search().trim().len() < 2 {
+                                    p { class: "text-sm text-zinc-500", "Type at least 2 characters to search for additional songs." }
+                                } else if let Some(results) = search_results() {
+                                    if results.is_empty() {
                                         p { class: "text-sm text-zinc-500", "No songs found." }
-                                    } else if !results.is_empty() {
+                                    } else {
+                                        p { class: "text-xs uppercase tracking-wide text-zinc-500", "Search Results" }
                                         div { class: "space-y-2 max-h-64 overflow-y-auto pr-1",
                                             for res in results {
-                                                div { class: "flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-zinc-800/50 transition-colors",
+                                                div {
+                                                    key: "{res.server_id}:{res.id}:search",
+                                                    class: "flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-zinc-800/50 transition-colors",
                                                     {
                                                         let cover_url = servers()
                                                             .iter()
@@ -790,16 +1109,32 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                             "{res.artist.clone().unwrap_or_default()} • {res.album.clone().unwrap_or_default()}"
                                                         }
                                                     }
-                                                    button {
-                                                        class: "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs",
-                                                        onclick: {
-                                                            let song_id = res.id.clone();
-                                                            move |evt: MouseEvent| {
-                                                                evt.stop_propagation();
-                                                                on_add_song(song_id.clone());
+                                                    {
+                                                        let already_in_playlist = song_list()
+                                                            .iter()
+                                                            .any(|existing| same_song_identity(existing, &res));
+                                                        rsx! {
+                                                            button {
+                                                                class: if already_in_playlist {
+                                                                    "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
+                                                                } else {
+                                                                    "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
+                                                                },
+                                                                disabled: already_in_playlist,
+                                                                onclick: {
+                                                                    let song = res.clone();
+                                                                    move |evt: MouseEvent| {
+                                                                        evt.stop_propagation();
+                                                                        on_add_song(song.clone());
+                                                                    }
+                                                                },
+                                                                if already_in_playlist {
+                                                                    "In Playlist"
+                                                                } else {
+                                                                    "Add"
+                                                                }
                                                             }
-                                                        },
-                                                        "Add"
+                                                        }
                                                     }
                                                 }
                                             }
@@ -852,4 +1187,154 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
         }
     }
+}
+
+fn touch_swipe_target_index(
+    source_index: usize,
+    start_y: f64,
+    end_y: f64,
+    list_len: usize,
+) -> Option<usize> {
+    if list_len < 2 || source_index >= list_len {
+        return None;
+    }
+
+    let delta = end_y - start_y;
+    if delta.abs() < TOUCH_REORDER_SWIPE_THRESHOLD_PX {
+        return None;
+    }
+
+    if delta < 0.0 {
+        if source_index == 0 {
+            None
+        } else {
+            Some(source_index - 1)
+        }
+    } else if source_index + 1 < list_len {
+        Some(source_index + 1)
+    } else {
+        None
+    }
+}
+
+fn same_song_identity(left: &Song, right: &Song) -> bool {
+    left.id == right.id && left.server_id == right.server_id
+}
+
+fn song_identity_key(song: &Song) -> String {
+    format!("{}::{}", song.server_id, song.id)
+}
+
+async fn fetch_similar_playlist_candidates(
+    server: &ServerConfig,
+    seed: &Song,
+    count: usize,
+) -> Vec<Song> {
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let client = NavidromeClient::new(server.clone());
+    let lookup_count = (count as u32).saturating_mul(4).max(count as u32);
+    let mut similar = client
+        .get_similar_songs(&seed.id, lookup_count)
+        .await
+        .unwrap_or_default();
+
+    if similar.is_empty() {
+        similar = client
+            .get_similar_songs2(&seed.id, lookup_count)
+            .await
+            .unwrap_or_default();
+    }
+
+    if similar.is_empty() {
+        similar = client
+            .get_random_songs((count as u32).saturating_mul(6).max(24))
+            .await
+            .unwrap_or_default();
+    }
+
+    let seed_key = song_identity_key(seed);
+    let mut dedup = HashSet::<String>::new();
+    let mut output = Vec::<Song>::new();
+    for song in similar {
+        let key = song_identity_key(&song);
+        if key == seed_key || !dedup.insert(key) {
+            continue;
+        }
+        output.push(song);
+        if output.len() >= count {
+            break;
+        }
+    }
+    output
+}
+
+async fn build_playlist_add_recommendations(
+    server: Option<ServerConfig>,
+    playlist_songs: Vec<Song>,
+    recent_seed: Option<Song>,
+    dismissed_keys: HashSet<String>,
+) -> Vec<Song> {
+    let Some(server) = server else {
+        return Vec::new();
+    };
+
+    let first_seed = playlist_songs.first().cloned();
+    let last_seed = playlist_songs.last().cloned();
+    let mut seed_specs = Vec::<(Song, usize)>::new();
+    if let Some(seed) = first_seed {
+        seed_specs.push((seed, AUTO_RECOMMENDATION_FIRST_SEED_COUNT));
+    }
+    if let Some(seed) = last_seed {
+        seed_specs.push((seed, AUTO_RECOMMENDATION_LAST_SEED_COUNT));
+    }
+    if let Some(seed) = recent_seed {
+        seed_specs.push((seed, AUTO_RECOMMENDATION_RECENT_SEED_COUNT));
+    }
+
+    let mut excluded = HashSet::<String>::new();
+    for song in &playlist_songs {
+        excluded.insert(song_identity_key(song));
+    }
+    for key in dismissed_keys {
+        excluded.insert(key);
+    }
+
+    let mut used_seed_keys = HashSet::<String>::new();
+    let mut suggestions = Vec::<Song>::new();
+    for (seed, count) in seed_specs {
+        let seed_key = song_identity_key(&seed);
+        if !used_seed_keys.insert(seed_key) {
+            continue;
+        }
+        for candidate in fetch_similar_playlist_candidates(&server, &seed, count).await {
+            let key = song_identity_key(&candidate);
+            if excluded.insert(key) {
+                suggestions.push(candidate);
+                if suggestions.len() >= AUTO_RECOMMENDATION_LIMIT {
+                    return suggestions;
+                }
+            }
+        }
+    }
+
+    if suggestions.len() >= AUTO_RECOMMENDATION_LIMIT {
+        return suggestions;
+    }
+
+    let client = NavidromeClient::new(server);
+    let random = client.get_random_songs(40).await.unwrap_or_default();
+    for candidate in random {
+        let key = song_identity_key(&candidate);
+        if excluded.insert(key) {
+            suggestions.push(candidate);
+            if suggestions.len() >= AUTO_RECOMMENDATION_LIMIT {
+                break;
+            }
+        }
+    }
+
+    suggestions
 }

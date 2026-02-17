@@ -21,11 +21,11 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
     };
     let sidebar_class = if overlay_mode {
         format!(
-            "fixed inset-y-0 left-0 z-[120] w-72 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out shadow-2xl shadow-black/30 {slide_class}"
+            "fixed inset-y-0 left-0 z-[120] w-72 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col min-h-0 overflow-hidden backdrop-blur-xl transform transition-transform duration-300 ease-out shadow-2xl shadow-black/30 {slide_class}"
         )
     } else {
         format!(
-            "fixed inset-y-0 left-0 z-40 w-72 2xl:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col h-full backdrop-blur-xl transform transition-transform duration-300 ease-out 2xl:translate-x-0 2xl:static 2xl:z-auto shadow-2xl shadow-black/30 2xl:shadow-none {slide_class}"
+            "fixed inset-y-0 left-0 z-40 w-72 2xl:w-64 bg-zinc-950/70 border-r border-zinc-800/60 flex flex-col min-h-0 overflow-hidden backdrop-blur-xl transform transition-transform duration-300 ease-out 2xl:translate-x-0 2xl:static 2xl:z-auto shadow-2xl shadow-black/30 2xl:shadow-none {slide_class}"
         )
     };
     let nav_to = |target: AppView| {
@@ -40,7 +40,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
     };
 
     rsx! {
-        aside { class: "{sidebar_class}",
+        aside { class: "sidebar-shell {sidebar_class}",
             // Logo
             div { class: "p-5 2xl:p-6 border-b border-zinc-800/60 flex items-center justify-between",
                 div { class: "flex items-center gap-3",
@@ -68,7 +68,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
             }
 
             // Navigation
-            nav { class: "flex-1 overflow-y-auto p-4 space-y-1 pb-40",
+            nav { class: "flex-1 min-h-0 overflow-y-auto p-4 space-y-1 sidebar-scrollable",
                 // Main section
                 div { class: "mb-6",
                     p { class: "text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3 px-3",
@@ -156,15 +156,14 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
                     }
                 }
 
-                // Settings section (moved inside scrollable area)
-                div { class: "border-t border-zinc-800/50 pt-4",
-                    NavItem {
-                        icon: "settings",
-                        label: "Settings",
-                        active: matches!(view, AppView::SettingsView {}),
-                        onclick: nav_to(AppView::SettingsView {}),
-                    }
+            }
 
+            div { class: "p-4 pt-3 border-t border-zinc-800/50 bg-zinc-950/60",
+                NavItem {
+                    icon: "settings",
+                    label: "Settings",
+                    active: matches!(view, AppView::SettingsView {}),
+                    onclick: nav_to(AppView::SettingsView {}),
                 }
             }
         }

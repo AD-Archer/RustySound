@@ -74,10 +74,24 @@ pub struct AppSettings {
     pub lyrics_offset_ms: i32,
     #[serde(default)]
     pub lyrics_unsynced_mode: bool,
+    #[serde(default = "default_bookmark_limit")]
+    pub bookmark_limit: u32,
+    #[serde(default = "default_bookmark_auto_save")]
+    pub bookmark_auto_save: bool,
+    #[serde(default)]
+    pub bookmark_autoplay_on_launch: bool,
 }
 
 fn default_lyrics_request_timeout_secs() -> u32 {
     4
+}
+
+fn default_bookmark_limit() -> u32 {
+    10
+}
+
+fn default_bookmark_auto_save() -> bool {
+    true
 }
 
 fn migrate_lyrics_provider_order(mut settings: AppSettings) -> AppSettings {
@@ -92,9 +106,15 @@ fn migrate_lyrics_provider_order(mut settings: AppSettings) -> AppSettings {
         "netease".to_string(),
         "genius".to_string(),
     ];
+    let legacy_default_v3 = vec![
+        "genius".to_string(),
+        "lrclib".to_string(),
+        "netease".to_string(),
+    ];
 
     settings.lyrics_provider_order = if normalized == legacy_default_v1
         || normalized == legacy_default_v2
+        || normalized == legacy_default_v3
     {
         default_lyrics_provider_order()
     } else {
@@ -122,6 +142,9 @@ impl Default for AppSettings {
             lyrics_request_timeout_secs: default_lyrics_request_timeout_secs(),
             lyrics_offset_ms: 0,
             lyrics_unsynced_mode: false,
+            bookmark_limit: default_bookmark_limit(),
+            bookmark_auto_save: default_bookmark_auto_save(),
+            bookmark_autoplay_on_launch: false,
         }
     }
 }

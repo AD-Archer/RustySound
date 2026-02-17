@@ -1,5 +1,5 @@
 use crate::api::models::*;
-use chrono::Utc;
+use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use dioxus::document;
 use once_cell::sync::Lazy;
@@ -359,6 +359,34 @@ impl NavidromeClient {
         Ok((album, songs))
     }
 
+    pub async fn get_song(&self, song_id: &str) -> Result<Song, String> {
+        let song_id = song_id.trim();
+        if song_id.is_empty() {
+            return Err("Song not found".to_string());
+        }
+
+        let url = self.build_url("getSong", &[("id", song_id)]);
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        let mut song = json.subsonic_response.song.ok_or("Song not found")?;
+        song.server_id = self.server.id.clone();
+        song.server_name = self.server.name.clone();
+        Ok(song)
+    }
+
     pub async fn get_artist(&self, artist_id: &str) -> Result<(Artist, Vec<Album>), String> {
         let url = self.build_url("getArtist", &[("id", artist_id)]);
         let response = HTTP_CLIENT
@@ -637,11 +665,23 @@ impl NavidromeClient {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn create_bookmark(
         &self,
         song_id: &str,
         position_ms: u64,
         comment: Option<&str>,
+    ) -> Result<(), String> {
+        self.create_bookmark_with_limit(song_id, position_ms, comment, None)
+            .await
+    }
+
+    pub async fn create_bookmark_with_limit(
+        &self,
+        song_id: &str,
+        position_ms: u64,
+        comment: Option<&str>,
+        max_bookmarks: Option<usize>,
     ) -> Result<(), String> {
         let position_string = position_ms.to_string();
         let mut params: Vec<(&str, &str)> =
@@ -668,7 +708,32 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
+        if let Some(limit) = max_bookmarks.filter(|value| *value > 0) {
+            self.prune_oldest_bookmarks(limit).await;
+        }
+
         Ok(())
+    }
+
+    async fn prune_oldest_bookmarks(&self, max_bookmarks: usize) {
+        let Ok(mut bookmarks) = self.get_bookmarks().await else {
+            return;
+        };
+
+        if bookmarks.len() <= max_bookmarks {
+            return;
+        }
+
+        bookmarks.sort_by(|left, right| {
+            bookmark_sort_timestamp(left)
+                .cmp(&bookmark_sort_timestamp(right))
+                .then_with(|| left.id.cmp(&right.id))
+        });
+
+        let overflow = bookmarks.len().saturating_sub(max_bookmarks);
+        for bookmark in bookmarks.into_iter().take(overflow) {
+            let _ = self.delete_bookmark(&bookmark.entry.id).await;
+        }
     }
 
     pub async fn delete_bookmark(&self, song_id: &str) -> Result<(), String> {
@@ -869,6 +934,7 @@ impl NavidromeClient {
         Ok(())
     }
 
+    #[allow(dead_code)]
     pub async fn add_album_to_playlist(
         &self,
         playlist_id: &str,
@@ -879,6 +945,7 @@ impl NavidromeClient {
         self.add_songs_to_playlist(playlist_id, &song_ids).await
     }
 
+    #[allow(dead_code)]
     pub async fn add_playlist_to_playlist(
         &self,
         source_playlist_id: &str,
@@ -1234,6 +1301,39 @@ fn icy_metadata_candidate_urls(stream_url: &str) -> Vec<String> {
     urls
 }
 
+fn parse_bookmark_timestamp(value: &str) -> Option<i64> {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+        return Some(parsed.timestamp());
+    }
+
+    for format in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(parsed) = NaiveDateTime::parse_from_str(value, format) {
+            return Some(parsed.and_utc().timestamp());
+        }
+    }
+
+    None
+}
+
+fn bookmark_sort_timestamp(bookmark: &Bookmark) -> i64 {
+    bookmark
+        .changed
+        .as_deref()
+        .and_then(parse_bookmark_timestamp)
+        .or_else(|| {
+            bookmark
+                .created
+                .as_deref()
+                .and_then(parse_bookmark_timestamp)
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 async fn read_icy_now_playing_from_url(stream_url: &str) -> Result<Option<IcyNowPlaying>, String> {
     let mut response = HTTP_CLIENT
@@ -1400,6 +1500,7 @@ pub struct SubsonicResponseInner {
     #[serde(alias = "albumList2")]
     pub album_list2: Option<AlbumList2>,
     pub album: Option<AlbumWithSongs>,
+    pub song: Option<Song>,
     #[serde(alias = "artist")]
     pub artist_detail: Option<ArtistWithAlbums>,
     #[serde(alias = "randomSongs")]

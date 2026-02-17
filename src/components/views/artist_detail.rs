@@ -3,9 +3,11 @@ use crate::components::views::home::SongRow;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
+const ARTIST_ALBUM_BATCH_SIZE: usize = 24;
+
 fn render_album_item(
     album: Album,
-    servers: Signal<Vec<ServerConfig>>,
+    artist_server: Option<ServerConfig>,
     navigation: Navigation,
     add_menu: AddMenuController,
 ) -> Element {
@@ -14,16 +16,13 @@ fn render_album_item(
     let album_id_for_nav = album_id.clone();
     let album_server_id_for_nav = album_server_id.clone();
     let album_clone_for_add = album.clone();
-    let album_cover = servers()
-        .iter()
-        .find(|s| s.id == album.server_id)
-        .and_then(|server| {
-            let client = NavidromeClient::new(server.clone());
-            album
-                .cover_art
-                .as_ref()
-                .map(|ca| client.get_cover_art_url(ca, 300))
-        });
+    let album_cover = artist_server.as_ref().and_then(|server| {
+        let client = NavidromeClient::new(server.clone());
+        album
+            .cover_art
+            .as_ref()
+            .map(|ca| client.get_cover_art_url(ca, 300))
+    });
 
     let album_cover_element = match &album_cover {
         Some(url) => rsx! {
@@ -100,6 +99,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let add_menu = use_context::<AddMenuController>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
+    let visible_album_count = use_signal(|| ARTIST_ALBUM_BATCH_SIZE);
 
     let artist_server = servers().into_iter().find(|s| s.id == server_id);
     let artist_server_for_artist = artist_server.clone();
@@ -212,19 +212,19 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             match artist_data() {
                 Some(Some((artist, albums))) => {
                     let top_songs = top_songs_data().flatten().unwrap_or_default();
-                    let cover_url = servers()
-                        .iter()
-                        .find(|s| s.id == artist.server_id)
-                        .and_then(|server| {
-                            let client = NavidromeClient::new(server.clone());
-                            artist
-                                .cover_art
-                                .as_ref()
-                                .map(|ca| client.get_cover_art_url(ca, 500))
-                        });
+                    let artist_server = servers().iter().find(|s| s.id == artist.server_id).cloned();
+                    let cover_url = artist_server.as_ref().and_then(|server| {
+                        let client = NavidromeClient::new(server.clone());
+                        artist
+                            .cover_art
+                            .as_ref()
+                            .map(|ca| client.get_cover_art_url(ca, 500))
+                    });
 
                     let total_albums = albums.len();
                     let total_songs: u32 = albums.iter().map(|a| a.song_count).sum();
+                    let current_album_limit = visible_album_count().min(total_albums);
+                    let remaining_albums = total_albums.saturating_sub(current_album_limit);
                     let cover_element = match cover_url {
                         Some(url) => rsx! {
                             img {
@@ -283,14 +283,32 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                 {
                                     albums
                                         .iter()
+                                        .take(current_album_limit)
                                         .map(|album| {
                                             render_album_item(
                                                 album.clone(),
-                                                servers.clone(),
+                                                artist_server.clone(),
                                                 navigation.clone(),
                                                 add_menu.clone(),
                                             )
                                         })
+                                }
+                            }
+                            if remaining_albums > 0 {
+                                div { class: "flex justify-center pt-2",
+                                    button {
+                                        class: "px-4 py-2 rounded-xl border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 hover:bg-zinc-800/40 transition-colors text-sm",
+                                        onclick: {
+                                            let mut visible_album_count = visible_album_count.clone();
+                                            move |_| {
+                                                let next = visible_album_count()
+                                                    .saturating_add(ARTIST_ALBUM_BATCH_SIZE)
+                                                    .min(total_albums);
+                                                visible_album_count.set(next);
+                                            }
+                                        },
+                                        "Show {remaining_albums} More Albums"
+                                    }
                                 }
                             }
                         }

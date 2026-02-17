@@ -1,9 +1,6 @@
 use crate::api::models::format_duration;
 use crate::api::*;
-use crate::components::{
-    seek_to, AppView, Icon, Navigation, PlaybackPositionSignal, SeekRequestSignal,
-    SongDetailsController,
-};
+use crate::components::{AppView, Icon, Navigation, PlaybackPositionSignal, SeekRequestSignal};
 use dioxus::prelude::*;
 
 #[component]
@@ -157,7 +154,6 @@ pub fn BookmarksView() -> Element {
 #[component]
 fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
     let navigation = use_context::<Navigation>();
-    let song_details = use_context::<SongDetailsController>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
@@ -194,8 +190,7 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
             queue_index.set(0);
             now_playing.set(Some(song.clone()));
             playback_position.set(start_at);
-            seek_to(start_at);
-            is_playing.set(true);
+            is_playing.set(false);
         }
     };
 
@@ -219,10 +214,16 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
     };
 
     let on_album_cover = {
-        let song = song.clone();
-        let mut song_details = song_details.clone();
+        let navigation = navigation.clone();
+        let album_id = song.album_id.clone();
+        let server_id = song.server_id.clone();
         move |_| {
-            song_details.open(song.clone());
+            if let Some(album) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album,
+                    server_id: server_id.clone(),
+                });
+            }
         }
     };
 
@@ -260,6 +261,7 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                 if song.album_id.is_some() {
                     button {
                         class: "w-20 h-20 rounded-xl bg-zinc-800 overflow-hidden flex-shrink-0",
+                        aria_label: "Open album",
                         onclick: on_album_cover,
                         {
                             match cover_url {
@@ -292,7 +294,7 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                 }
                 div { class: "flex-1 min-w-0 space-y-2",
                     div { class: "flex items-start justify-between gap-3",
-                        div { class: "min-w-0",
+                        div { class: "min-w-0 space-y-1",
                             p { class: "font-semibold text-white truncate", "{song.title}" }
                             if song.artist_id.is_some() {
                                 button {
@@ -307,12 +309,12 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                             }
                             if song.album_id.is_some() {
                                 button {
-                                    class: "text-xs text-zinc-500 hover:text-emerald-400 transition-colors truncate",
+                                    class: "text-xs text-zinc-500 hover:text-emerald-400 transition-colors truncate mt-0.5",
                                     onclick: on_album_text,
                                     "{song.album.clone().unwrap_or_default()}"
                                 }
                             } else {
-                                p { class: "text-xs text-zinc-500 truncate",
+                                p { class: "text-xs text-zinc-500 truncate mt-0.5",
                                     "{song.album.clone().unwrap_or_default()}"
                                 }
                             }

@@ -1,6 +1,7 @@
 use crate::api::*;
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
+use std::collections::HashSet;
 
 #[derive(Clone)]
 #[allow(dead_code)]
@@ -87,6 +88,142 @@ impl AddMenuController {
     }
 }
 
+#[derive(Clone, PartialEq)]
+enum SuggestionDestination {
+    Queue,
+    Playlist {
+        playlist_id: String,
+        server_id: String,
+    },
+}
+
+fn song_key(song: &Song) -> String {
+    format!("{}::{}", song.server_id, song.id)
+}
+
+async fn resolve_target_songs(
+    servers: &[ServerConfig],
+    target: &AddTarget,
+) -> Result<Vec<Song>, String> {
+    match target {
+        AddTarget::Song(song) => Ok(vec![song.clone()]),
+        AddTarget::Songs(songs) => Ok(songs.clone()),
+        AddTarget::Album {
+            album_id,
+            server_id,
+            ..
+        } => {
+            let Some(server) = servers.iter().find(|s| s.id == *server_id).cloned() else {
+                return Err("Server is not available for this album.".to_string());
+            };
+            let client = NavidromeClient::new(server);
+            client
+                .get_album(album_id)
+                .await
+                .map(|(_, songs)| songs)
+                .map_err(|err| format!("Failed to load album: {err}"))
+        }
+        AddTarget::Playlist {
+            playlist_id,
+            server_id,
+            ..
+        } => {
+            let Some(server) = servers.iter().find(|s| s.id == *server_id).cloned() else {
+                return Err("Server is not available for this playlist.".to_string());
+            };
+            let client = NavidromeClient::new(server);
+            client
+                .get_playlist(playlist_id)
+                .await
+                .map(|(_, songs)| songs)
+                .map_err(|err| format!("Failed to load playlist: {err}"))
+        }
+    }
+}
+
+async fn fetch_similar_songs_for_seed(
+    servers: &[ServerConfig],
+    seed: &Song,
+    count: usize,
+) -> Vec<Song> {
+    if count == 0 {
+        return Vec::new();
+    }
+
+    let Some(server) = servers.iter().find(|s| s.id == seed.server_id).cloned() else {
+        return Vec::new();
+    };
+
+    let client = NavidromeClient::new(server);
+    let lookup_count = (count as u32).saturating_mul(4).max(count as u32);
+    let mut similar = client
+        .get_similar_songs(&seed.id, lookup_count)
+        .await
+        .unwrap_or_default();
+
+    if similar.is_empty() {
+        similar = client
+            .get_similar_songs2(&seed.id, lookup_count)
+            .await
+            .unwrap_or_default();
+    }
+
+    if similar.is_empty() {
+        similar = client
+            .get_random_songs((count as u32).saturating_mul(6).max(20))
+            .await
+            .unwrap_or_default();
+    }
+
+    let seed_key = song_key(seed);
+    let mut seen = HashSet::<String>::new();
+    let mut output = Vec::<Song>::new();
+    for song in similar {
+        let key = song_key(&song);
+        if key == seed_key {
+            continue;
+        }
+        if seen.insert(key) {
+            output.push(song);
+        }
+        if output.len() >= count {
+            break;
+        }
+    }
+
+    output
+}
+
+async fn build_dual_seed_suggestions(
+    servers: &[ServerConfig],
+    first_seed: Option<Song>,
+    recent_seed: Option<Song>,
+) -> Vec<Song> {
+    let mut suggestions = Vec::<Song>::new();
+    let mut seen = HashSet::<String>::new();
+
+    if let Some(seed) = first_seed {
+        for song in fetch_similar_songs_for_seed(servers, &seed, 4).await {
+            let key = song_key(&song);
+            if seen.insert(key) {
+                suggestions.push(song);
+            }
+        }
+    }
+
+    if let Some(seed) = recent_seed {
+        for song in fetch_similar_songs_for_seed(servers, &seed, 4).await {
+            let key = song_key(&song);
+            if seen.insert(key) {
+                suggestions.push(song);
+            }
+        }
+    }
+
+    suggestions.truncate(8);
+    suggestions
+}
+
 #[component]
 pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -101,6 +238,9 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let is_processing = use_signal(|| false);
     let processing_label = use_signal(|| None::<String>);
     let message = use_signal(|| None::<(bool, String)>);
+    let suggestion_destination = use_signal(|| None::<SuggestionDestination>);
+    let suggestion_candidates = use_signal(Vec::<Song>::new);
+    let suggestions_loading = use_signal(|| false);
 
     let playlists = {
         let controller = controller.clone();
@@ -151,6 +291,9 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let mut message = message.clone();
         let mut is_processing = is_processing.clone();
         let mut processing_label = processing_label.clone();
+        let mut suggestion_destination = suggestion_destination.clone();
+        let mut suggestion_candidates = suggestion_candidates.clone();
+        let mut suggestions_loading = suggestions_loading.clone();
         let controller = controller.clone();
         use_effect(move || {
             if controller.current().is_some() {
@@ -159,6 +302,9 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                 message.set(None);
                 is_processing.set(false);
                 processing_label.set(None);
+                suggestion_destination.set(None);
+                suggestion_candidates.set(Vec::new());
+                suggestions_loading.set(false);
             }
         });
     }
@@ -312,115 +458,79 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         }
     };
 
-    let enqueue_items = |mut queue: Signal<Vec<Song>>,
-                         queue_index: Signal<usize>,
-                         items: Vec<Song>,
-                         mode: &str| {
-        queue.with_mut(|q| match mode {
-            "next" => {
-                let insert_at = queue_index().saturating_add(1).min(q.len());
-                for (idx, song) in items.into_iter().enumerate() {
-                    q.insert(insert_at + idx, song);
+    let enqueue_items =
+        |mut queue: Signal<Vec<Song>>, queue_index: Signal<usize>, items: Vec<Song>, mode: &str| {
+            queue.with_mut(|q| match mode {
+                "next" => {
+                    let insert_at = queue_index().saturating_add(1).min(q.len());
+                    for (idx, song) in items.into_iter().enumerate() {
+                        q.insert(insert_at + idx, song);
+                    }
                 }
-            }
-            _ => q.extend(items),
-        });
-    };
+                _ => q.extend(items),
+            });
+        };
 
     let make_add_to_queue = |mode: &'static str| {
-        let mut controller = controller.clone();
         let servers = servers.clone();
         let queue = queue.clone();
         let queue_index = queue_index.clone();
         let mut is_processing = is_processing.clone();
+        let mut processing_label = processing_label.clone();
         let mut message = message.clone();
+        let mut suggestion_destination = suggestion_destination.clone();
+        let mut suggestion_candidates = suggestion_candidates.clone();
+        let mut suggestions_loading = suggestions_loading.clone();
         let intent = intent_for_queue.clone();
 
         move |_| {
             if is_processing() {
                 return;
             }
+            is_processing.set(true);
+            processing_label.set(Some("Adding to queue...".to_string()));
+            let servers_snapshot = servers();
+            let target = intent.target.clone();
+            let queue = queue.clone();
+            let queue_index = queue_index.clone();
+            spawn(async move {
+                let songs_to_add = match resolve_target_songs(&servers_snapshot, &target).await {
+                    Ok(songs) => songs,
+                    Err(err) => {
+                        message.set(Some((false, err)));
+                        processing_label.set(None);
+                        is_processing.set(false);
+                        return;
+                    }
+                };
 
-            match intent.target.clone() {
-                AddTarget::Song(song) => {
-                    enqueue_items(queue.clone(), queue_index, vec![song], mode);
-                    controller.close();
+                if songs_to_add.is_empty() {
+                    message.set(Some((false, "No songs available to add.".to_string())));
+                    processing_label.set(None);
+                    is_processing.set(false);
+                    return;
                 }
-                AddTarget::Songs(songs) => {
-                    enqueue_items(queue.clone(), queue_index, songs, mode);
-                    controller.close();
-                }
-                AddTarget::Album {
-                    album_id,
-                    server_id,
-                    ..
-                } => {
-                    let server = servers().into_iter().find(|s| s.id == server_id);
-                    if let Some(server) = server {
-                        let album_id = album_id.clone();
-                        is_processing.set(true);
-                        let queue = queue.clone();
-                        let queue_index = queue_index.clone();
-                        let mut controller = controller.clone();
-                        let mut message = message.clone();
-                        spawn(async move {
-                            let client = NavidromeClient::new(server);
-                            match client.get_album(&album_id).await {
-                                Ok((_, songs)) => {
-                                    enqueue_items(queue.clone(), queue_index, songs, mode);
-                                    controller.close();
-                                }
-                                Err(err) => {
-                                    message
-                                        .set(Some((false, format!("Failed to load album: {err}"))));
-                                }
-                            }
-                            is_processing.set(false);
-                        });
-                    } else {
-                        message.set(Some((
-                            false,
-                            "Server is not available for this album.".to_string(),
-                        )));
-                    }
-                }
-                AddTarget::Playlist {
-                    playlist_id,
-                    server_id,
-                    ..
-                } => {
-                    let server = servers().into_iter().find(|s| s.id == server_id);
-                    if let Some(server) = server {
-                        let playlist_id = playlist_id.clone();
-                        is_processing.set(true);
-                        let queue = queue.clone();
-                        let queue_index = queue_index.clone();
-                        let mut controller = controller.clone();
-                        let mut message = message.clone();
-                        spawn(async move {
-                            let client = NavidromeClient::new(server);
-                            match client.get_playlist(&playlist_id).await {
-                                Ok((_, songs)) => {
-                                    enqueue_items(queue.clone(), queue_index, songs, mode);
-                                    controller.close();
-                                }
-                                Err(err) => {
-                                    message.set(Some((
-                                        false,
-                                        format!("Failed to load playlist: {err}"),
-                                    )));
-                                }
-                            }
-                            is_processing.set(false);
-                        });
-                    } else {
-                        message.set(Some((
-                            false,
-                            "Server is not available for this playlist.".to_string(),
-                        )));
-                    }
-                }
-            }
+
+                let first_seed = songs_to_add.first().cloned();
+                let recent_seed = songs_to_add.last().cloned();
+                enqueue_items(queue.clone(), queue_index, songs_to_add.clone(), mode);
+
+                suggestion_destination.set(Some(SuggestionDestination::Queue));
+                suggestions_loading.set(true);
+                suggestion_candidates.set(Vec::new());
+                message.set(Some((
+                    true,
+                    format!("Added {} song(s) to queue.", songs_to_add.len()),
+                )));
+
+                let suggestions =
+                    build_dual_seed_suggestions(&servers_snapshot, first_seed, recent_seed).await;
+                suggestion_candidates.set(suggestions);
+                suggestions_loading.set(false);
+
+                processing_label.set(None);
+                is_processing.set(false);
+            });
         }
     };
 
@@ -432,6 +542,10 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let intent = intent_for_playlist.clone();
         let active_server = active_server_for_playlist.clone();
         let controller = controller.clone();
+        let suggestion_destination = suggestion_destination.clone();
+        let suggestion_candidates = suggestion_candidates.clone();
+        let suggestions_loading = suggestions_loading.clone();
+        let processing_label = processing_label.clone();
 
         move |playlist_id: String| {
             let servers = servers.clone();
@@ -440,7 +554,11 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             let mut show_playlist_picker = show_playlist_picker.clone();
             let intent = intent.clone();
             let active_server = active_server.clone();
-            let controller = controller.clone();
+            let mut suggestion_destination = suggestion_destination.clone();
+            let mut suggestion_candidates = suggestion_candidates.clone();
+            let mut suggestions_loading = suggestions_loading.clone();
+            let mut processing_label = processing_label.clone();
+            let _controller = controller.clone();
 
             move |_| {
                 if is_processing() {
@@ -459,45 +577,77 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
 
                 let target = intent.target.clone();
                 let playlist_id_for_fetch = playlist_id.clone();
+                let servers_snapshot = servers();
                 is_processing.set(true);
-                let mut controller = controller.clone();
+                processing_label.set(Some("Adding to playlist...".to_string()));
                 spawn(async move {
-                    let client = NavidromeClient::new(active);
-                    let result = match target {
-                        AddTarget::Song(song) => {
-                            client
-                                .add_songs_to_playlist(&playlist_id_for_fetch, &[song.id])
-                                .await
-                        }
-                        AddTarget::Songs(songs) => {
-                            let ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-                            client
-                                .add_songs_to_playlist(&playlist_id_for_fetch, &ids)
-                                .await
-                        }
-                        AddTarget::Album { album_id, .. } => {
-                            client
-                                .add_album_to_playlist(&playlist_id_for_fetch, &album_id)
-                                .await
-                        }
-                        AddTarget::Playlist {
-                            playlist_id: from, ..
-                        } => {
-                            client
-                                .add_playlist_to_playlist(&from, &playlist_id_for_fetch)
-                                .await
+                    let songs_to_add = match resolve_target_songs(&servers_snapshot, &target).await
+                    {
+                        Ok(songs) => songs,
+                        Err(err) => {
+                            message.set(Some((false, err)));
+                            show_playlist_picker.set(true);
+                            processing_label.set(None);
+                            is_processing.set(false);
+                            return;
                         }
                     };
 
+                    if songs_to_add.is_empty() {
+                        message.set(Some((false, "No songs available to add.".to_string())));
+                        show_playlist_picker.set(true);
+                        processing_label.set(None);
+                        is_processing.set(false);
+                        return;
+                    }
+
+                    let first_seed = songs_to_add.first().cloned();
+                    let client = NavidromeClient::new(active.clone());
+                    let ids: Vec<String> =
+                        songs_to_add.iter().map(|song| song.id.clone()).collect();
+                    let result = client
+                        .add_songs_to_playlist(&playlist_id_for_fetch, &ids)
+                        .await;
+
                     match result {
                         Ok(_) => {
-                            controller.close();
+                            show_playlist_picker.set(false);
+                            message.set(Some((
+                                true,
+                                format!("Added {} song(s) to playlist.", ids.len()),
+                            )));
+                            suggestion_destination.set(Some(SuggestionDestination::Playlist {
+                                playlist_id: playlist_id_for_fetch.clone(),
+                                server_id: active.id.clone(),
+                            }));
+                            suggestions_loading.set(true);
+                            suggestion_candidates.set(Vec::new());
+
+                            let recent_seed = client
+                                .get_playlist(&playlist_id_for_fetch)
+                                .await
+                                .ok()
+                                .and_then(|(_, songs)| songs.last().cloned())
+                                .or_else(|| songs_to_add.last().cloned());
+
+                            let mut suggestions = build_dual_seed_suggestions(
+                                &servers_snapshot,
+                                first_seed,
+                                recent_seed,
+                            )
+                            .await;
+                            suggestions.retain(|song| song.server_id == active.id);
+                            suggestions.truncate(8);
+                            suggestion_candidates.set(suggestions);
+                            suggestions_loading.set(false);
                         }
                         Err(err) => {
                             message.set(Some((false, format!("Unable to add: {err}"))));
                             show_playlist_picker.set(true);
+                            suggestions_loading.set(false);
                         }
                     }
+                    processing_label.set(None);
                     is_processing.set(false);
                 });
             }
@@ -637,7 +787,10 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             processing_label.set(Some("Building similar mix...".to_string()));
             spawn(async move {
                 let client = NavidromeClient::new(server);
-                let mut similar = client.get_similar_songs(&seed_id, 50).await.unwrap_or_default();
+                let mut similar = client
+                    .get_similar_songs(&seed_id, 50)
+                    .await
+                    .unwrap_or_default();
 
                 // Fallbacks for servers without Last.fm similar-song support.
                 if similar.is_empty() {
@@ -664,7 +817,8 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                     if let Some(artist_id) = seed_artist_id.as_deref() {
                         if let Ok((_, albums)) = client.get_artist(artist_id).await {
                             for album in albums.into_iter().take(6) {
-                                if let Ok((_, mut album_songs)) = client.get_album(&album.id).await {
+                                if let Ok((_, mut album_songs)) = client.get_album(&album.id).await
+                                {
                                     similar.append(&mut album_songs);
                                 }
                                 if similar.len() >= 50 {
@@ -709,6 +863,72 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                     now_playing.set(Some(mix[0].clone()));
                     is_playing.set(true);
                     controller.close();
+                }
+                processing_label.set(None);
+                is_processing.set(false);
+            });
+        }
+    };
+
+    let on_quick_add_suggestion = {
+        let servers = servers.clone();
+        let mut queue = queue.clone();
+        let mut is_processing = is_processing.clone();
+        let mut processing_label = processing_label.clone();
+        let mut message = message.clone();
+        let suggestion_destination = suggestion_destination.clone();
+        let mut suggestion_candidates = suggestion_candidates.clone();
+        let mut suggestions_loading = suggestions_loading.clone();
+        move |song: Song| {
+            if is_processing() || suggestions_loading() {
+                return;
+            }
+            let Some(destination) = suggestion_destination() else {
+                return;
+            };
+
+            is_processing.set(true);
+            processing_label.set(Some("Quick adding suggestion...".to_string()));
+            let servers_snapshot = servers();
+            let song_to_add = song.clone();
+            spawn(async move {
+                let quick_add_result: Result<(), String> = match destination.clone() {
+                    SuggestionDestination::Queue => {
+                        queue.with_mut(|items| items.push(song_to_add.clone()));
+                        Ok(())
+                    }
+                    SuggestionDestination::Playlist {
+                        playlist_id,
+                        server_id,
+                    } => match servers_snapshot.iter().find(|s| s.id == server_id).cloned() {
+                        Some(server) => {
+                            let client = NavidromeClient::new(server);
+                            client
+                                .add_songs_to_playlist(&playlist_id, &[song_to_add.id.clone()])
+                                .await
+                        }
+                        None => Err("Playlist server is not available.".to_string()),
+                    },
+                };
+
+                match quick_add_result {
+                    Ok(_) => {
+                        message.set(Some((
+                            true,
+                            format!("Quick added \"{}\".", song_to_add.title),
+                        )));
+                        suggestions_loading.set(true);
+                        let mut follow_up =
+                            fetch_similar_songs_for_seed(&servers_snapshot, &song_to_add, 2).await;
+                        if let SuggestionDestination::Playlist { server_id, .. } = destination {
+                            follow_up.retain(|candidate| candidate.server_id == server_id);
+                        }
+                        suggestion_candidates.set(follow_up);
+                        suggestions_loading.set(false);
+                    }
+                    Err(err) => {
+                        message.set(Some((false, format!("Quick add failed: {err}"))));
+                    }
                 }
                 processing_label.set(None);
                 is_processing.set(false);
@@ -944,6 +1164,53 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                     if let Some(reason) = playlist_guard {
                         div { class: "p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm",
                             "{reason}"
+                        }
+                    }
+                    if suggestion_destination().is_some() {
+                        div { class: "pt-3 border-t border-zinc-800 space-y-3",
+                            div { class: "flex items-center justify-between",
+                                h3 { class: "text-sm font-semibold text-zinc-200", "Suggested additions" }
+                                span { class: "text-xs text-zinc-500", "4 + 4 seed suggestions" }
+                            }
+                            p { class: "text-xs text-zinc-500",
+                                "Quick Add will add this song and then show 2 more similar songs."
+                            }
+                            if suggestions_loading() {
+                                div { class: "flex items-center gap-2 text-xs text-zinc-400",
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-4 h-4 animate-spin".to_string(),
+                                    }
+                                    "Loading suggestions..."
+                                }
+                            } else if suggestion_candidates().is_empty() {
+                                p { class: "text-xs text-zinc-500", "No similar songs found yet." }
+                            } else {
+                                div { class: "max-h-64 overflow-y-auto space-y-2 pr-1",
+                                    for song in suggestion_candidates() {
+                                        button {
+                                            class: "w-full p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-emerald-500/50 text-left transition-colors",
+                                            onclick: {
+                                                let song = song.clone();
+                                                let mut on_quick_add_suggestion =
+                                                    on_quick_add_suggestion.clone();
+                                                move |_| on_quick_add_suggestion(song.clone())
+                                            },
+                                            div { class: "flex items-center justify-between gap-3",
+                                                div { class: "min-w-0",
+                                                    p { class: "text-sm text-white truncate", "{song.title}" }
+                                                    p { class: "text-xs text-zinc-500 truncate",
+                                                        "{song.artist.clone().unwrap_or_else(|| \"Unknown Artist\".to_string())}"
+                                                    }
+                                                }
+                                                span { class: "px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs",
+                                                    "Quick add"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
                 }

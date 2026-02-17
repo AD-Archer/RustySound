@@ -16,9 +16,9 @@ use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal}
 #[cfg(not(target_arch = "wasm32"))]
 use crate::components::{PlaybackPositionSignal, SeekRequestSignal, VolumeSignal};
 #[cfg(target_arch = "wasm32")]
-use crate::db::RepeatMode;
+use crate::db::{AppSettings, RepeatMode};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::db::RepeatMode;
+use crate::db::{AppSettings, RepeatMode};
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
@@ -120,9 +120,7 @@ fn web_playback_error_message(audio: &HtmlAudioElement, song: Option<&Song>) -> 
         3 => "Audio playback failed due to a decode error.".to_string(),
         4 => {
             if is_radio {
-                format!(
-                    "No station found: \"{station_name}\" has no supported stream source."
-                )
+                format!("No station found: \"{station_name}\" has no supported stream source.")
             } else {
                 "Failed to load audio because no supported source was found.".to_string()
             }
@@ -1033,7 +1031,10 @@ impl IosAudioPlayer {
         };
 
         let mut duration = self.last_known_duration;
-        if !(duration.is_finite() && duration > 0.0) && meta.duration.is_finite() && meta.duration > 0.0 {
+        if !(duration.is_finite() && duration > 0.0)
+            && meta.duration.is_finite()
+            && meta.duration > 0.0
+        {
             duration = meta.duration;
         }
 
@@ -1614,6 +1615,7 @@ fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
 #[component]
 pub fn AudioController() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let is_playing = use_context::<Signal<bool>>();
     let volume = use_context::<VolumeSignal>().0;
@@ -1639,10 +1641,12 @@ pub fn AudioController() -> Element {
         let mut queue_index = queue_index.clone();
         let repeat_mode = repeat_mode.clone();
         let shuffle_enabled = shuffle_enabled.clone();
+        let app_settings = app_settings.clone();
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
         let mut playback_position = playback_position.clone();
         let mut audio_state = audio_state.clone();
+        let mut last_bookmark = last_bookmark.clone();
         let mut last_ended_song = last_ended_song.clone();
         let mut repeat_one_replayed_song = repeat_one_replayed_song.clone();
 
@@ -1673,20 +1677,71 @@ pub fn AudioController() -> Element {
                     playback_position.set(current_time);
                     audio_state.write().current_time.set(current_time);
 
-                    if snapshot.paused {
-                        paused_streak = paused_streak.saturating_add(1);
-                        playing_streak = 0;
-                    } else {
-                        playing_streak = playing_streak.saturating_add(1);
-                        paused_streak = 0;
+                    if !snapshot.paused && app_settings.peek().bookmark_auto_save {
+                        if let Some(song) = now_playing.peek().clone() {
+                            if can_save_server_bookmark(&song) {
+                                let position_ms = (current_time * 1000.0).round().max(0.0) as u64;
+                                if position_ms > 1500 {
+                                    let should_save = match last_bookmark.peek().clone() {
+                                        Some((id, pos)) => {
+                                            id != song.id || position_ms.abs_diff(pos) >= 15_000
+                                        }
+                                        None => true,
+                                    };
+                                    if should_save {
+                                        last_bookmark.set(Some((song.id.clone(), position_ms)));
+                                        let servers_snapshot = servers.peek().clone();
+                                        let bookmark_limit =
+                                            app_settings.peek().bookmark_limit.clamp(1, 5000)
+                                                as usize;
+                                        let song_id = song.id.clone();
+                                        let server_id = song.server_id.clone();
+                                        spawn(async move {
+                                            if let Some(server) = servers_snapshot
+                                                .iter()
+                                                .find(|s| s.id == server_id)
+                                                .cloned()
+                                            {
+                                                let client = NavidromeClient::new(server);
+                                                let _ = client
+                                                    .create_bookmark_with_limit(
+                                                        &song_id,
+                                                        position_ms,
+                                                        None,
+                                                        Some(bookmark_limit),
+                                                    )
+                                                    .await;
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
 
-                    // Debounced sync from native player to UI state:
-                    // avoid immediate false flips while a track is starting.
-                    if *is_playing.peek() && paused_streak >= 3 && !snapshot.ended {
-                        is_playing.set(false);
-                    } else if !*is_playing.peek() && playing_streak >= 2 {
-                        is_playing.set(true);
+                    let has_selected_song = now_playing.peek().is_some();
+                    if has_selected_song {
+                        if snapshot.paused {
+                            paused_streak = paused_streak.saturating_add(1);
+                            playing_streak = 0;
+                        } else {
+                            playing_streak = playing_streak.saturating_add(1);
+                            paused_streak = 0;
+                        }
+
+                        // Debounced sync from native player to UI state:
+                        // avoid immediate false flips while a track is starting.
+                        if *is_playing.peek() && paused_streak >= 3 && !snapshot.ended {
+                            is_playing.set(false);
+                        } else if !*is_playing.peek() && playing_streak >= 2 {
+                            is_playing.set(true);
+                        }
+                    } else {
+                        paused_streak = 0;
+                        playing_streak = 0;
+                        if *is_playing.peek() {
+                            is_playing.set(false);
+                        }
                     }
 
                     let currently_playing = *is_playing.peek();
@@ -1694,6 +1749,9 @@ pub fn AudioController() -> Element {
                     let ended_action = matches!(snapshot.action.as_deref(), Some("ended"));
 
                     if let Some(action) = snapshot.action.as_deref() {
+                        if now_playing.peek().is_none() {
+                            continue;
+                        }
                         let current_is_radio = now_playing
                             .peek()
                             .as_ref()
@@ -1946,6 +2004,7 @@ pub fn AudioController() -> Element {
     // Update source + metadata and persist bookmark when songs change.
     {
         let servers = servers.clone();
+        let app_settings = app_settings.clone();
         let volume = volume.clone();
         let now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
@@ -1965,19 +2024,30 @@ pub fn AudioController() -> Element {
             if let Some(prev) = previous_song {
                 if Some(prev.id.clone()) != song_id {
                     let position_ms = (playback_position.peek().max(0.0) * 1000.0).round() as u64;
-                    if position_ms > 1500 {
-                        let servers_snapshot = servers.peek().clone();
-                        let song_id = prev.id.clone();
-                        let server_id = prev.server_id.clone();
-                        spawn(async move {
-                            last_bookmark.set(Some((song_id.clone(), position_ms)));
-                            if let Some(server) =
-                                servers_snapshot.iter().find(|s| s.id == server_id).cloned()
-                            {
-                                let client = NavidromeClient::new(server);
-                                let _ = client.create_bookmark(&song_id, position_ms, None).await;
-                            }
-                        });
+                    if position_ms > 1500 && can_save_server_bookmark(&prev) {
+                        if app_settings.peek().bookmark_auto_save {
+                            let servers_snapshot = servers.peek().clone();
+                            let bookmark_limit =
+                                app_settings.peek().bookmark_limit.clamp(1, 5000) as usize;
+                            let song_id = prev.id.clone();
+                            let server_id = prev.server_id.clone();
+                            spawn(async move {
+                                last_bookmark.set(Some((song_id.clone(), position_ms)));
+                                if let Some(server) =
+                                    servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                                {
+                                    let client = NavidromeClient::new(server);
+                                    let _ = client
+                                        .create_bookmark_with_limit(
+                                            &song_id,
+                                            position_ms,
+                                            None,
+                                            Some(bookmark_limit),
+                                        )
+                                        .await;
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -2113,6 +2183,7 @@ pub fn AudioController() -> Element {
     // Persist a bookmark when playback pauses.
     {
         let servers = servers.clone();
+        let app_settings = app_settings.clone();
         let mut last_bookmark = last_bookmark.clone();
         let now_playing = now_playing.clone();
         let is_playing = is_playing.clone();
@@ -2125,9 +2196,15 @@ pub fn AudioController() -> Element {
             let Some(song) = now_playing() else {
                 return;
             };
+            if !can_save_server_bookmark(&song) {
+                return;
+            }
 
             let position_ms = (playback_position.peek().max(0.0) * 1000.0).round() as u64;
             if position_ms <= 1500 {
+                return;
+            }
+            if !app_settings.peek().bookmark_auto_save {
                 return;
             }
 
@@ -2138,6 +2215,7 @@ pub fn AudioController() -> Element {
 
             if should_save {
                 let servers_snapshot = servers.peek().clone();
+                let bookmark_limit = app_settings.peek().bookmark_limit.clamp(1, 5000) as usize;
                 let song_id = song.id.clone();
                 let server_id = song.server_id.clone();
                 spawn(async move {
@@ -2146,7 +2224,14 @@ pub fn AudioController() -> Element {
                         servers_snapshot.iter().find(|s| s.id == server_id).cloned()
                     {
                         let client = NavidromeClient::new(server);
-                        let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                        let _ = client
+                            .create_bookmark_with_limit(
+                                &song_id,
+                                position_ms,
+                                None,
+                                Some(bookmark_limit),
+                            )
+                            .await;
                     }
                 });
             }
@@ -2277,12 +2362,16 @@ pub(crate) fn spawn_shuffle_queue(
 
 #[cfg(target_arch = "wasm32")]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
-    if let Some(url) = song
-        .stream_url
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-    {
-        return Some(url);
+    if song.server_name == "Radio" {
+        return song
+            .stream_url
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+    }
+
+    let song_id = song.id.trim();
+    if song_id.is_empty() {
+        return None;
     }
 
     servers
@@ -2290,18 +2379,22 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
         .find(|s| s.id == song.server_id)
         .map(|server| {
             let client = NavidromeClient::new(server.clone());
-            client.get_stream_url(&song.id)
+            client.get_stream_url(song_id)
         })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
-    if let Some(url) = song
-        .stream_url
-        .clone()
-        .filter(|value| !value.trim().is_empty())
-    {
-        return Some(url);
+    if song.server_name == "Radio" {
+        return song
+            .stream_url
+            .clone()
+            .filter(|value| !value.trim().is_empty());
+    }
+
+    let song_id = song.id.trim();
+    if song_id.is_empty() {
+        return None;
     }
 
     servers
@@ -2309,8 +2402,12 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
         .find(|s| s.id == song.server_id)
         .map(|server| {
             let client = NavidromeClient::new(server.clone());
-            client.get_stream_url(&song.id)
+            client.get_stream_url(song_id)
         })
+}
+
+fn can_save_server_bookmark(song: &Song) -> bool {
+    song.server_name != "Radio" && !song.id.trim().is_empty() && !song.server_id.trim().is_empty()
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2341,6 +2438,7 @@ fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
 #[component]
 pub fn AudioController() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
     let volume = use_context::<VolumeSignal>().0;
@@ -2371,7 +2469,9 @@ pub fn AudioController() -> Element {
         let queue_index = queue_index.clone();
         let repeat_mode = repeat_mode.clone();
         let shuffle_enabled = shuffle_enabled.clone();
+        let app_settings = app_settings.clone();
         let playback_position = playback_position.clone();
+        let mut last_bookmark = last_bookmark.clone();
         let mut audio_state = audio_state.clone();
 
         use_effect(move || {
@@ -2381,9 +2481,9 @@ pub fn AudioController() -> Element {
             ensure_web_media_session_shortcuts();
 
             if let Some(doc) = window().and_then(|w| w.document()) {
-                let click_cb =
-                    Closure::wrap(Box::new(move || USER_INTERACTED.with(|c| c.set(true)))
-                        as Box<dyn FnMut()>);
+                let click_cb = Closure::wrap(
+                    Box::new(move || USER_INTERACTED.with(|c| c.set(true))) as Box<dyn FnMut()>,
+                );
                 let key_cb = Closure::wrap(Box::new(move |event: KeyboardEvent| {
                     USER_INTERACTED.with(|c| c.set(true));
                     if let Some(action) = shortcut_action_from_key(&event) {
@@ -2396,9 +2496,9 @@ pub fn AudioController() -> Element {
                         }
                     }
                 }) as Box<dyn FnMut(KeyboardEvent)>);
-                let touch_cb =
-                    Closure::wrap(Box::new(move || USER_INTERACTED.with(|c| c.set(true)))
-                        as Box<dyn FnMut()>);
+                let touch_cb = Closure::wrap(
+                    Box::new(move || USER_INTERACTED.with(|c| c.set(true))) as Box<dyn FnMut()>,
+                );
                 let _ = doc
                     .add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
                 let _ = doc
@@ -2455,30 +2555,85 @@ pub fn AudioController() -> Element {
                     }
                     let paused = audio.paused();
 
-                    // Keep UI play/pause signals synced when playback is controlled
-                    // outside app buttons (browser media controls, hardware keys, etc.).
-                    if paused {
-                        paused_streak = paused_streak.saturating_add(1);
-                        playing_streak = 0;
-                    } else {
-                        playing_streak = playing_streak.saturating_add(1);
-                        paused_streak = 0;
-                    }
-
-                    if *is_playing.peek() && paused_streak >= 2 && !audio.ended() {
-                        is_playing.set(false);
-                    } else if !*is_playing.peek() && playing_streak >= 2 {
-                        is_playing.set(true);
+                    if !paused && app_settings.peek().bookmark_auto_save {
+                        if let Some(song) = now_playing.peek().clone() {
+                            if can_save_server_bookmark(&song) {
+                                let position_ms = (time * 1000.0).round().max(0.0) as u64;
+                                if position_ms > 1500 {
+                                    let should_save = match last_bookmark.peek().clone() {
+                                        Some((id, pos)) => {
+                                            id != song.id || position_ms.abs_diff(pos) >= 15_000
+                                        }
+                                        None => true,
+                                    };
+                                    if should_save {
+                                        last_bookmark.set(Some((song.id.clone(), position_ms)));
+                                        let servers_snapshot = servers.peek().clone();
+                                        let bookmark_limit =
+                                            app_settings.peek().bookmark_limit.clamp(1, 5000)
+                                                as usize;
+                                        let song_id = song.id.clone();
+                                        let server_id = song.server_id.clone();
+                                        spawn(async move {
+                                            if let Some(server) = servers_snapshot
+                                                .iter()
+                                                .find(|s| s.id == server_id)
+                                                .cloned()
+                                            {
+                                                let client = NavidromeClient::new(server);
+                                                let _ = client
+                                                    .create_bookmark_with_limit(
+                                                        &song_id,
+                                                        position_ms,
+                                                        None,
+                                                        Some(bookmark_limit),
+                                                    )
+                                                    .await;
+                                            }
+                                        });
+                                    }
+                                }
+                            }
+                        }
                     }
 
                     let current_song = { now_playing.read().clone() };
-                    if let Some(message) = web_playback_error_message(&audio, current_song.as_ref()) {
-                        if playback_error_signal.peek().as_ref() != Some(&message) {
-                            playback_error_signal.set(Some(message));
+                    if current_song.is_some() {
+                        // Keep UI play/pause signals synced when playback is controlled
+                        // outside app buttons (browser media controls, hardware keys, etc.).
+                        if paused {
+                            paused_streak = paused_streak.saturating_add(1);
+                            playing_streak = 0;
+                        } else {
+                            playing_streak = playing_streak.saturating_add(1);
+                            paused_streak = 0;
                         }
-                    } else if playback_error_signal.peek().is_some() {
-                        let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !paused;
-                        if has_started {
+
+                        if *is_playing.peek() && paused_streak >= 2 && !audio.ended() {
+                            is_playing.set(false);
+                        } else if !*is_playing.peek() && playing_streak >= 2 {
+                            is_playing.set(true);
+                        }
+
+                        if let Some(message) =
+                            web_playback_error_message(&audio, current_song.as_ref())
+                        {
+                            if playback_error_signal.peek().as_ref() != Some(&message) {
+                                playback_error_signal.set(Some(message));
+                            }
+                        } else if playback_error_signal.peek().is_some() {
+                            let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !paused;
+                            if has_started {
+                                playback_error_signal.set(None);
+                            }
+                        }
+                    } else {
+                        paused_streak = 0;
+                        playing_streak = 0;
+                        if *is_playing.peek() {
+                            is_playing.set(false);
+                        }
+                        if playback_error_signal.peek().is_some() {
                             playback_error_signal.set(None);
                         }
                     }
@@ -2593,6 +2748,7 @@ pub fn AudioController() -> Element {
     // Update audio source and track changes for bookmarks/scrobbles.
     {
         let servers = servers.clone();
+        let app_settings = app_settings.clone();
         let volume = volume.clone();
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
@@ -2616,19 +2772,30 @@ pub fn AudioController() -> Element {
                         .mul_add(1000.0, 0.0)
                         .round()
                         .max(0.0) as u64;
-                    if position_ms > 1500 {
-                        let servers_snapshot = servers.peek().clone();
-                        let song_id = prev.id.clone();
-                        let server_id = prev.server_id.clone();
-                        spawn(async move {
-                            last_bookmark.set(Some((song_id.clone(), position_ms)));
-                            if let Some(server) =
-                                servers_snapshot.iter().find(|s| s.id == server_id).cloned()
-                            {
-                                let client = NavidromeClient::new(server);
-                                let _ = client.create_bookmark(&song_id, position_ms, None).await;
-                            }
-                        });
+                    if position_ms > 1500 && can_save_server_bookmark(&prev) {
+                        if app_settings.peek().bookmark_auto_save {
+                            let servers_snapshot = servers.peek().clone();
+                            let bookmark_limit =
+                                app_settings.peek().bookmark_limit.clamp(1, 5000) as usize;
+                            let song_id = prev.id.clone();
+                            let server_id = prev.server_id.clone();
+                            spawn(async move {
+                                last_bookmark.set(Some((song_id.clone(), position_ms)));
+                                if let Some(server) =
+                                    servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                                {
+                                    let client = NavidromeClient::new(server);
+                                    let _ = client
+                                        .create_bookmark_with_limit(
+                                            &song_id,
+                                            position_ms,
+                                            None,
+                                            Some(bookmark_limit),
+                                        )
+                                        .await;
+                                }
+                            });
+                        }
                     }
                 }
             }
@@ -2641,7 +2808,10 @@ pub fn AudioController() -> Element {
 
             let Some(song) = song else {
                 if let Some(audio) = get_or_create_audio_element() {
+                    let _ = audio.pause();
                     audio.set_src("");
+                    let _ = audio.remove_attribute("src");
+                    audio.load();
                 }
                 last_src.set(None);
                 is_playing.set(false);
@@ -2749,6 +2919,7 @@ pub fn AudioController() -> Element {
     // Persist a server bookmark when playback stops/pauses.
     {
         let servers = servers.clone();
+        let app_settings = app_settings.clone();
         let mut last_bookmark = last_bookmark.clone();
         let now_playing = now_playing.clone();
         let is_playing = is_playing.clone();
@@ -2761,6 +2932,9 @@ pub fn AudioController() -> Element {
             let Some(song) = now_playing() else {
                 return;
             };
+            if !can_save_server_bookmark(&song) {
+                return;
+            }
 
             let position_ms = get_or_create_audio_element()
                 .map(|a| a.current_time())
@@ -2772,6 +2946,9 @@ pub fn AudioController() -> Element {
             if position_ms <= 1500 {
                 return;
             }
+            if !app_settings.peek().bookmark_auto_save {
+                return;
+            }
 
             let should_save = match last_bookmark.peek().clone() {
                 Some((id, pos)) => id != song.id || position_ms.abs_diff(pos) >= 2000,
@@ -2780,6 +2957,7 @@ pub fn AudioController() -> Element {
 
             if should_save {
                 let servers_snapshot = servers.peek().clone();
+                let bookmark_limit = app_settings.peek().bookmark_limit.clamp(1, 5000) as usize;
                 let song_id = song.id.clone();
                 let server_id = song.server_id.clone();
                 spawn(async move {
@@ -2788,7 +2966,14 @@ pub fn AudioController() -> Element {
                         servers_snapshot.iter().find(|s| s.id == server_id).cloned()
                     {
                         let client = NavidromeClient::new(server);
-                        let _ = client.create_bookmark(&song_id, position_ms, None).await;
+                        let _ = client
+                            .create_bookmark_with_limit(
+                                &song_id,
+                                position_ms,
+                                None,
+                                Some(bookmark_limit),
+                            )
+                            .await;
                     }
                 });
             }

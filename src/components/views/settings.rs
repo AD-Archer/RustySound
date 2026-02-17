@@ -229,6 +229,38 @@ pub fn SettingsView() -> Element {
         }
     };
 
+    let on_bookmark_limit_change = move |e: Event<FormData>| {
+        if let Ok(limit) = e.value().parse::<u32>() {
+            let mut settings = app_settings();
+            settings.bookmark_limit = limit.clamp(1, 5000);
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            spawn(async move {
+                let _ = save_settings(settings_clone).await;
+            });
+        }
+    };
+
+    let on_bookmark_auto_save_toggle = move |_| {
+        let mut settings = app_settings();
+        settings.bookmark_auto_save = !settings.bookmark_auto_save;
+        let settings_clone = settings.clone();
+        app_settings.set(settings);
+        spawn(async move {
+            let _ = save_settings(settings_clone).await;
+        });
+    };
+
+    let on_bookmark_autoplay_toggle = move |_| {
+        let mut settings = app_settings();
+        settings.bookmark_autoplay_on_launch = !settings.bookmark_autoplay_on_launch;
+        let settings_clone = settings.clone();
+        app_settings.set(settings);
+        spawn(async move {
+            let _ = save_settings(settings_clone).await;
+        });
+    };
+
     let on_lyrics_sync_toggle = {
         let mut app_settings = app_settings.clone();
         move |_| {
@@ -432,6 +464,57 @@ pub fn SettingsView() -> Element {
                             class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
                             onclick: on_replay_gain_toggle,
                             div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+                }
+            }
+
+            // Bookmark settings
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                h2 { class: "text-lg font-semibold text-white mb-3", "Bookmark Settings" }
+                p { class: "text-sm text-zinc-400 mb-5",
+                    "Bookmarks remember your listening position so you can quickly continue where you left off."
+                }
+
+                div { class: "space-y-5",
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Auto-save bookmarks" }
+                            p { class: "text-sm text-zinc-400", "Automatically save playback position while listening and when switching songs." }
+                        }
+                        button {
+                            class: if settings.bookmark_auto_save { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_bookmark_auto_save_toggle,
+                            div { class: if settings.bookmark_auto_save { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Resume bookmark on launch" }
+                            p { class: "text-sm text-zinc-400", "Automatically queue and play your latest bookmark when the app starts." }
+                        }
+                        button {
+                            class: if settings.bookmark_autoplay_on_launch { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_bookmark_autoplay_toggle,
+                            div { class: if settings.bookmark_autoplay_on_launch { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+
+                    div {
+                        label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                            "Bookmark Limit"
+                        }
+                        p { class: "text-xs text-zinc-500 mb-3",
+                            "Keep only the newest bookmarks per server user. Oldest bookmarks are deleted when this limit is exceeded."
+                        }
+                        input {
+                            r#type: "number",
+                            min: "1",
+                            max: "5000",
+                            value: settings.bookmark_limit,
+                            class: "w-full max-w-xs px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                            oninput: on_bookmark_limit_change,
                         }
                     }
                 }

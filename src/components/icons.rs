@@ -484,6 +484,26 @@ pub fn Icon(name: String, class: String) -> Element {
                 line { x1: "9", y1: "12", x2: "21", y2: "12" }
             }
         },
+        "chevron-up" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                polyline { points: "18 15 12 9 6 15" }
+            }
+        },
+        "chevron-down" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                polyline { points: "6 9 12 15 18 9" }
+            }
+        },
         _ => rsx! {
             svg {
                 class: "{class}",

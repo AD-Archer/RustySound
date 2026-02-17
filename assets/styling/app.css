@@ -60,13 +60,71 @@ body {
 /* Drawer sidebar should clear the player on phones/tablets */
 @media (max-width: 1535px) {
   aside {
-    bottom: var(--player-height);
+    bottom: calc(var(--player-height) + env(safe-area-inset-bottom));
     padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  .app-container.sidebar-open-mobile aside {
+    bottom: 0;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-container.sidebar-open-mobile .player-shell {
+    display: none;
+  }
+}
+
+/* Keep desktop sidebar footer (Settings) above the fixed player bar. */
+@media (min-width: 1536px) {
+  .sidebar-shell {
+    padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom));
   }
 }
 
 .mobile-safe-top {
   padding-top: env(safe-area-inset-top);
+}
+
+.song-details-shell {
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+.song-details-mobile-content {
+  padding-bottom: calc(env(safe-area-inset-bottom) + 1.25rem);
+}
+
+.sidebar-scrollable {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
+.ios-drag-lock,
+.ios-drag-lock * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+}
+
+.swipe-hint {
+  position: fixed;
+  top: 50%;
+  z-index: 140;
+  pointer-events: none;
+  transform: translateY(-50%);
+  transition: opacity 120ms linear, transform 120ms linear;
+}
+
+.swipe-hint--back {
+  left: calc(env(safe-area-inset-left) + 0.6rem);
+}
+
+.swipe-hint--forward {
+  right: calc(env(safe-area-inset-right) + 0.6rem);
 }
 
 .page-shell {

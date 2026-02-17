@@ -15,7 +15,7 @@ static LYRICS_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::ne
 static LYRICS_SUCCESS_CACHE: Lazy<Mutex<HashMap<String, LyricsResult>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub const DEFAULT_LYRICS_PROVIDER_KEYS: [&str; 3] = ["genius", "lrclib", "netease"];
+pub const DEFAULT_LYRICS_PROVIDER_KEYS: [&str; 3] = ["lrclib", "genius", "netease"];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LyricsProvider {
@@ -58,7 +58,7 @@ pub fn default_lyrics_provider_order() -> Vec<String> {
         .collect()
 }
 
-pub fn normalize_lyrics_provider_order(order: &[String]) -> Vec<String> {
+fn normalize_provider_keys(order: &[String], append_defaults: bool) -> Vec<String> {
     let mut normalized = Vec::new();
 
     for key in order {
@@ -71,13 +71,28 @@ pub fn normalize_lyrics_provider_order(order: &[String]) -> Vec<String> {
         }
     }
 
-    for provider in DEFAULT_LYRICS_PROVIDER_KEYS {
-        if !normalized.iter().any(|existing| existing == provider) {
-            normalized.push(provider.to_string());
+    if append_defaults {
+        for provider in DEFAULT_LYRICS_PROVIDER_KEYS {
+            if !normalized.iter().any(|existing| existing == provider) {
+                normalized.push(provider.to_string());
+            }
         }
     }
 
     normalized
+}
+
+pub fn normalize_lyrics_provider_order(order: &[String]) -> Vec<String> {
+    normalize_provider_keys(order, true)
+}
+
+fn normalize_lyrics_provider_selection(order: &[String]) -> Vec<String> {
+    let normalized = normalize_provider_keys(order, false);
+    if normalized.is_empty() {
+        default_lyrics_provider_order()
+    } else {
+        normalized
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,7 +147,7 @@ pub async fn fetch_lyrics_with_fallback(
     }
 
     let timeout_seconds = timeout_seconds.clamp(1, 20);
-    let normalized_provider_order = normalize_lyrics_provider_order(provider_order);
+    let normalized_provider_order = normalize_lyrics_provider_selection(provider_order);
     let cache_key = lyrics_cache_key(query, &normalized_provider_order, timeout_seconds);
 
     if let Ok(cache) = LYRICS_SUCCESS_CACHE.lock() {
@@ -178,7 +193,7 @@ pub async fn search_lyrics_candidates(
     }
 
     let timeout_seconds = timeout_seconds.clamp(1, 20);
-    let normalized_provider_order = normalize_lyrics_provider_order(provider_order);
+    let normalized_provider_order = normalize_lyrics_provider_selection(provider_order);
     let providers = normalized_provider_order
         .iter()
         .filter_map(|key| LyricsProvider::from_key(key))
@@ -228,11 +243,13 @@ pub async fn search_lyrics_candidates(
     }
 
     let mut flattened = deduped.into_values().collect::<Vec<_>>();
-    flattened.sort_by(|(_, left_score, left_order), (_, right_score, right_order)| {
-        right_score
-            .cmp(left_score)
-            .then_with(|| left_order.cmp(right_order))
-    });
+    flattened.sort_by(
+        |(_, left_score, left_order), (_, right_score, right_order)| {
+            right_score
+                .cmp(left_score)
+                .then_with(|| left_order.cmp(right_order))
+        },
+    );
 
     let candidates = flattened
         .into_iter()
@@ -327,11 +344,8 @@ async fn search_netease_candidates(
     let mut candidates = songs
         .iter()
         .filter_map(|song| {
-            let title = compact_whitespace(
-                song.get("name")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default(),
-            );
+            let title =
+                compact_whitespace(song.get("name").and_then(Value::as_str).unwrap_or_default());
             if title.is_empty() {
                 return None;
             }
@@ -579,7 +593,9 @@ async fn search_lrclib_candidates(
             }
             let artist = compact_whitespace(&entry.artist_name);
             let album = compact_whitespace(&entry.album_name);
-            let duration_seconds = entry.duration.map(|seconds| seconds.round().max(0.0) as u32);
+            let duration_seconds = entry
+                .duration
+                .map(|seconds| seconds.round().max(0.0) as u32);
             let candidate_query = LyricsQuery {
                 title: title.clone(),
                 artist: artist.clone(),
@@ -941,7 +957,11 @@ fn optional_browser_headers() -> HeaderMap {
     headers
 }
 
-fn lyrics_cache_key(query: &LyricsQuery, provider_order: &[String], timeout_seconds: u32) -> String {
+fn lyrics_cache_key(
+    query: &LyricsQuery,
+    provider_order: &[String],
+    timeout_seconds: u32,
+) -> String {
     let title = normalize_for_match(&query.title);
     let artist = normalize_for_match(&query.artist);
     let album = normalize_for_match(&query.album);

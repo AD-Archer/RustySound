@@ -90,7 +90,8 @@ pub fn RadioView() -> Element {
                         continue;
                     }
 
-                    if let Ok(Some(meta)) = NavidromeClient::read_icy_now_playing(&stream_url).await {
+                    if let Ok(Some(meta)) = NavidromeClient::read_icy_now_playing(&stream_url).await
+                    {
                         if metadata_poll_generation() != generation {
                             break;
                         }
@@ -489,6 +490,8 @@ pub fn RadioView() -> Element {
                                                 bitrate: None,
                                                 starred: None,
                                                 user_rating: None,
+                                                play_count: None,
+                                                played: None,
                                                 year: None,
                                                 genre: None,
                                                 server_id: station.server_id.clone(),

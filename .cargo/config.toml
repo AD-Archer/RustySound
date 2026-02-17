@@ -1,5 +1,5 @@
 [target.aarch64-apple-ios]
-linker = "/usr/bin/clang"
+linker = "scripts/ios-clang.sh"
 
 [target.aarch64-apple-ios-sim]
-linker = "/usr/bin/clang"
+linker = "scripts/ios-clang.sh"

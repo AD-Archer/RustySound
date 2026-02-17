@@ -1,7 +1,5 @@
 use crate::api::*;
-use crate::components::{
-    AddIntent, AddMenuController, AppView, Icon, Navigation, SongDetailsController,
-};
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 use futures_util::future::join_all;
 
@@ -895,7 +893,6 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
-    let song_details = use_context::<SongDetailsController>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
     let rating = song.user_rating.unwrap_or(0).min(5);
@@ -916,11 +913,17 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
     let server_id = song.server_id.clone();
 
     let on_album_click_cover = {
-        let song = song.clone();
-        let mut song_details = song_details.clone();
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let navigation = navigation.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            song_details.open(song.clone());
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
         }
     };
 
@@ -1001,7 +1004,7 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             if album_id.is_some() {
                 button {
                     class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
-                    aria_label: "Open song menu",
+                    aria_label: "Open album",
                     onclick: on_album_click_cover,
                     {
                         match cover_url {

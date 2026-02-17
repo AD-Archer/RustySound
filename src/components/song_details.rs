@@ -9,7 +9,6 @@ use crate::components::{
 };
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
-use futures_util::stream::{FuturesUnordered, StreamExt};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum SongDetailsTab {
@@ -88,10 +87,20 @@ const DESKTOP_TABS: [SongDetailsTab; 3] = [
 ];
 const MOBILE_TABS: [SongDetailsTab; 4] = [
     SongDetailsTab::Details,
-    SongDetailsTab::Lyrics,
     SongDetailsTab::Queue,
     SongDetailsTab::Related,
+    SongDetailsTab::Lyrics,
 ];
+const TOUCH_REORDER_SWIPE_THRESHOLD_PX: f64 = 16.0;
+
+fn is_live_song(song: &Song) -> bool {
+    song.server_name == "Radio"
+        || song
+            .stream_url
+            .as_ref()
+            .map(|url| !url.trim().is_empty())
+            .unwrap_or(false)
+}
 
 #[component]
 pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
@@ -109,6 +118,8 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
     let lyrics_candidate_refresh_nonce = use_signal(|| 0u64);
     let lyrics_refresh_nonce = use_signal(|| 0u64);
     let lyrics_auto_retry_for_song = use_signal(|| None::<String>);
+    let lrclib_upgrade_auto_retry_for_song = use_signal(|| None::<String>);
+    let last_synced_lyrics_for_song = use_signal(|| None::<(String, LyricsResult)>);
     let last_song_key = use_signal(|| None::<String>);
 
     let state = controller.current();
@@ -143,12 +154,16 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
         let mut lyrics_query_override = lyrics_query_override.clone();
         let mut lyrics_candidate_search_term = lyrics_candidate_search_term.clone();
         let mut lyrics_auto_retry_for_song = lyrics_auto_retry_for_song.clone();
+        let mut lrclib_upgrade_auto_retry_for_song = lrclib_upgrade_auto_retry_for_song.clone();
+        let mut last_synced_lyrics_for_song = last_synced_lyrics_for_song.clone();
         let selected_song_key = selected_song_key.clone();
         let mut last_song_key = last_song_key.clone();
         use_effect(move || {
             if last_song_key() != selected_song_key {
                 last_song_key.set(selected_song_key.clone());
                 lyrics_auto_retry_for_song.set(None);
+                lrclib_upgrade_auto_retry_for_song.set(None);
+                last_synced_lyrics_for_song.set(None);
                 lyrics_search_title.set(None);
                 lyrics_query_override.set(None);
                 lyrics_candidate_search_term.set(None);
@@ -278,6 +293,58 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
             }
         })
     };
+    {
+        let selected_song_key = selected_song_key.clone();
+        let mut last_synced_lyrics_for_song = last_synced_lyrics_for_song.clone();
+        let lrclib_upgrade_resource = lrclib_upgrade_resource.clone();
+        use_effect(move || {
+            let Some(song_key) = selected_song_key.clone() else {
+                return;
+            };
+            let Some(Ok(Some(upgrade))) = lrclib_upgrade_resource() else {
+                return;
+            };
+            if upgrade.synced_lines.is_empty() {
+                return;
+            }
+            let should_update = last_synced_lyrics_for_song()
+                .as_ref()
+                .map(|(cached_key, cached)| cached_key != &song_key || cached != &upgrade)
+                .unwrap_or(true);
+            if should_update {
+                last_synced_lyrics_for_song.set(Some((song_key, upgrade)));
+            }
+        });
+    }
+    {
+        let selected_song_key = selected_song_key.clone();
+        let app_settings = app_settings.clone();
+        let mut lrclib_upgrade_resource = lrclib_upgrade_resource.clone();
+        let mut lrclib_upgrade_auto_retry_for_song = lrclib_upgrade_auto_retry_for_song.clone();
+        let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
+        use_effect(move || {
+            if app_settings().lyrics_unsynced_mode {
+                return;
+            }
+
+            let latest_upgrade_result = lrclib_upgrade_resource();
+            let Some(song_key) = selected_song_key.clone() else {
+                return;
+            };
+
+            let Some(Err(_)) = latest_upgrade_result else {
+                return;
+            };
+
+            if lrclib_upgrade_auto_retry_for_song() == Some(song_key.clone()) {
+                return;
+            }
+
+            lrclib_upgrade_auto_retry_for_song.set(Some(song_key));
+            lyrics_refresh_nonce.set(lyrics_refresh_nonce().saturating_add(1));
+            lrclib_upgrade_resource.restart();
+        });
+    }
 
     if !state.is_open {
         return rsx! {};
@@ -286,13 +353,22 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
     let Some(song) = selected_song else {
         return rsx! {};
     };
+    let is_live_stream = is_live_song(&song);
 
     let settings = app_settings();
     let sync_lyrics = !settings.lyrics_unsynced_mode;
+    let cached_synced_lyrics = last_synced_lyrics_for_song().and_then(|(song_key, lyrics)| {
+        if selected_song_key.as_ref() == Some(&song_key) {
+            Some(lyrics)
+        } else {
+            None
+        }
+    });
     let selected_lyrics = pick_display_lyrics(
         sync_lyrics,
         lyrics_resource(),
         lrclib_upgrade_resource(),
+        cached_synced_lyrics,
     );
 
     let desktop_tab = match state.active_tab {
@@ -313,6 +389,12 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
 
     let current_time = (audio_state().current_time)();
     let offset_seconds = settings.lyrics_offset_ms as f64 / 1000.0;
+    let mini_lyrics_preview = build_mini_lyrics_preview(
+        selected_lyrics.clone(),
+        sync_lyrics,
+        current_time,
+        offset_seconds,
+    );
 
     let song_title = if song.title.trim().is_empty() {
         "Unknown Song".to_string()
@@ -320,11 +402,23 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
         song.title.clone()
     };
 
+    {
+        let mut controller = controller.clone();
+        use_effect(move || {
+            if !is_live_stream {
+                return;
+            }
+            if controller.current().active_tab == SongDetailsTab::Queue {
+                controller.set_tab(SongDetailsTab::Lyrics);
+            }
+        });
+    }
+
     rsx! {
         div {
             class: "fixed inset-0 z-[80] bg-zinc-950",
             div {
-                class: "w-full h-full border border-zinc-800/80 bg-zinc-950 overflow-hidden flex flex-col",
+                class: "w-full h-full border border-zinc-800/80 bg-zinc-950 overflow-hidden flex flex-col song-details-shell",
                 div { class: "flex items-center justify-between px-4 md:px-6 py-4 border-b border-zinc-800/80",
                     div { class: "flex items-center gap-3 min-w-0",
                         button {
@@ -365,17 +459,31 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                     div { class: "col-span-8 flex flex-col min-h-0",
                         div { class: "flex items-center gap-2 px-4 py-3 border-b border-zinc-800/70",
                             for tab in DESKTOP_TABS {
-                                button {
-                                    class: if tab == desktop_tab {
-                                        "px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-sm"
-                                    } else {
-                                        "px-3 py-1.5 rounded-lg border border-zinc-700/60 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors text-sm"
-                                    },
-                                    onclick: {
-                                        let mut controller = controller.clone();
-                                        move |_| controller.set_tab(tab)
-                                    },
-                                    "{tab.label()}"
+                                {
+                                    let queue_tab_disabled =
+                                        is_live_stream && tab == SongDetailsTab::Queue;
+                                    rsx! {
+                                        button {
+                                            class: if queue_tab_disabled {
+                                                "px-3 py-1.5 rounded-lg border border-zinc-800 text-zinc-600 cursor-not-allowed text-sm"
+                                            } else if tab == desktop_tab {
+                                                "px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-sm"
+                                            } else {
+                                                "px-3 py-1.5 rounded-lg border border-zinc-700/60 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors text-sm"
+                                            },
+                                            disabled: queue_tab_disabled,
+                                            onclick: {
+                                                let mut controller = controller.clone();
+                                                move |_| {
+                                                    if queue_tab_disabled {
+                                                        return;
+                                                    }
+                                                    controller.set_tab(tab);
+                                                }
+                                            },
+                                            "{tab.label()}"
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -386,6 +494,7 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                                     up_next: up_next.clone(),
                                     seed_song: song.clone(),
                                     create_queue_busy,
+                                    disabled_for_live: is_live_stream,
                                 }
                             }
                             if desktop_tab == SongDetailsTab::Related {
@@ -404,6 +513,7 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                                     current_time,
                                     offset_seconds,
                                     sync_lyrics,
+                                    is_live_stream,
                                     on_refresh: {
                                         let mut lyrics_resource = lyrics_resource.clone();
                                         let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
@@ -473,118 +583,142 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                     }
                 }
 
-                div { class: "md:hidden flex-1 overflow-y-auto",
+                div { class: "md:hidden flex-1 min-h-0 flex flex-col",
                     div { class: "px-3 py-3 border-b border-zinc-800/80 overflow-x-auto",
                         div { class: "flex items-center gap-2 min-w-max",
                             for tab in MOBILE_TABS {
-                                button {
-                                    class: if tab == state.active_tab {
-                                        "px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-sm"
-                                    } else {
-                                        "px-3 py-1.5 rounded-lg border border-zinc-700/60 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors text-sm"
-                                    },
-                                    onclick: {
-                                        let mut controller = controller.clone();
-                                        move |_| controller.set_tab(tab)
-                                    },
-                                    "{tab.label()}"
+                                {
+                                    let queue_tab_disabled =
+                                        is_live_stream && tab == SongDetailsTab::Queue;
+                                    rsx! {
+                                        button {
+                                            class: if queue_tab_disabled {
+                                                "px-3 py-1.5 rounded-lg border border-zinc-800 text-zinc-600 cursor-not-allowed text-sm"
+                                            } else if tab == state.active_tab {
+                                                "px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-sm"
+                                            } else {
+                                                "px-3 py-1.5 rounded-lg border border-zinc-700/60 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors text-sm"
+                                            },
+                                            disabled: queue_tab_disabled,
+                                            onclick: {
+                                                let mut controller = controller.clone();
+                                                move |_| {
+                                                    if queue_tab_disabled {
+                                                        return;
+                                                    }
+                                                    controller.set_tab(tab);
+                                                }
+                                            },
+                                            "{tab.label()}"
+                                        }
+                                    }
                                 }
                             }
                         }
                     }
-
-                    div { class: "p-3 pb-5 h-full min-h-0",
-                        if state.active_tab == SongDetailsTab::Details {
-                            DetailsPanel {
-                                song: song.clone(),
-                                cover_url: cover_url.clone(),
+                    if state.active_tab == SongDetailsTab::Details {
+                        div { class: "p-3 song-details-mobile-content min-h-0 flex-1 flex flex-col gap-3 overflow-hidden",
+                            div { class: "flex-1 min-h-0 overflow-y-auto pr-1",
+                                DetailsPanel {
+                                    song: song.clone(),
+                                    cover_url: cover_url.clone(),
+                                }
+                            }
+                            MiniLyricsStrip {
+                                preview: mini_lyrics_preview,
+                                is_live_stream,
                             }
                         }
-                        if state.active_tab == SongDetailsTab::Queue {
-                            QueuePanel {
-                                up_next: up_next.clone(),
-                                seed_song: song.clone(),
-                                create_queue_busy,
+                    } else {
+                        div { class: "p-3 song-details-mobile-content min-h-0 flex-1 overflow-y-auto",
+                            if state.active_tab == SongDetailsTab::Queue {
+                                QueuePanel {
+                                    up_next: up_next.clone(),
+                                    seed_song: song.clone(),
+                                    create_queue_busy,
+                                    disabled_for_live: is_live_stream,
+                                }
                             }
-                        }
-                        if state.active_tab == SongDetailsTab::Related {
-                            RelatedPanel {
-                                related: related_resource(),
+                            if state.active_tab == SongDetailsTab::Related {
+                                RelatedPanel {
+                                    related: related_resource(),
+                                }
                             }
-                        }
-                        if state.active_tab == SongDetailsTab::Lyrics {
-                            LyricsPanel {
-                                key: "{song.server_id}:{song.id}:mobile",
-                                panel_dom_key: format!("{}:{}:mobile", song.server_id, song.id),
-                                lyrics: selected_lyrics,
-                                lyrics_candidates: lyrics_candidates_resource(),
-                                lyrics_candidates_search_term: lyrics_candidate_search_term(),
-                                selected_query_override: lyrics_query_override(),
-                                current_time,
-                                offset_seconds,
-                                sync_lyrics,
-                                on_refresh: {
-                                    let mut lyrics_resource = lyrics_resource.clone();
-                                    let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
-                                    move |_| {
-                                        lyrics_refresh_nonce.set(lyrics_refresh_nonce().saturating_add(1));
-                                        lyrics_resource.restart();
-                                    }
-                                },
-                                default_search_title: song.title.clone(),
-                                manual_search_title: lyrics_search_title(),
-                                on_manual_search: {
-                                    let mut lyrics_search_title = lyrics_search_title.clone();
-                                    let mut lyrics_query_override = lyrics_query_override.clone();
-                                    let mut lyrics_candidate_search_term =
-                                        lyrics_candidate_search_term.clone();
-                                    let mut lyrics_candidate_refresh_nonce =
-                                        lyrics_candidate_refresh_nonce.clone();
-                                    move |title: String| {
-                                        let normalized = title.trim().to_string();
-                                        if normalized.is_empty() {
+                            if state.active_tab == SongDetailsTab::Lyrics {
+                                LyricsPanel {
+                                    key: "{song.server_id}:{song.id}:mobile",
+                                    panel_dom_key: format!("{}:{}:mobile", song.server_id, song.id),
+                                    lyrics: selected_lyrics,
+                                    lyrics_candidates: lyrics_candidates_resource(),
+                                    lyrics_candidates_search_term: lyrics_candidate_search_term(),
+                                    selected_query_override: lyrics_query_override(),
+                                    current_time,
+                                    offset_seconds,
+                                    sync_lyrics,
+                                    is_live_stream,
+                                    on_refresh: {
+                                        let mut lyrics_resource = lyrics_resource.clone();
+                                        let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
+                                        move |_| {
+                                            lyrics_refresh_nonce.set(lyrics_refresh_nonce().saturating_add(1));
+                                            lyrics_resource.restart();
+                                        }
+                                    },
+                                    default_search_title: song.title.clone(),
+                                    manual_search_title: lyrics_search_title(),
+                                    on_manual_search: {
+                                        let mut lyrics_search_title = lyrics_search_title.clone();
+                                        let mut lyrics_query_override = lyrics_query_override.clone();
+                                        let mut lyrics_candidate_search_term =
+                                            lyrics_candidate_search_term.clone();
+                                        let mut lyrics_candidate_refresh_nonce =
+                                            lyrics_candidate_refresh_nonce.clone();
+                                        move |title: String| {
+                                            let normalized = title.trim().to_string();
+                                            if normalized.is_empty() {
+                                                lyrics_search_title.set(None);
+                                                lyrics_query_override.set(None);
+                                                lyrics_candidate_search_term.set(None);
+                                            } else {
+                                                lyrics_search_title.set(Some(normalized.clone()));
+                                                lyrics_query_override.set(None);
+                                                lyrics_candidate_search_term.set(Some(normalized));
+                                                lyrics_candidate_refresh_nonce.set(
+                                                    lyrics_candidate_refresh_nonce().saturating_add(1),
+                                                );
+                                            }
+                                        }
+                                    },
+                                    on_select_lyrics_candidate: {
+                                        let mut lyrics_query_override = lyrics_query_override.clone();
+                                        let mut lyrics_search_title = lyrics_search_title.clone();
+                                        let mut lyrics_resource = lyrics_resource.clone();
+                                        let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
+                                        move |query: LyricsQuery| {
+                                            lyrics_search_title.set(Some(query.title.clone()));
+                                            lyrics_query_override.set(Some(query));
+                                            lyrics_refresh_nonce
+                                                .set(lyrics_refresh_nonce().saturating_add(1));
+                                            lyrics_resource.restart();
+                                        }
+                                    },
+                                    on_clear_manual_search: {
+                                        let mut lyrics_search_title = lyrics_search_title.clone();
+                                        let mut lyrics_query_override = lyrics_query_override.clone();
+                                        let mut lyrics_candidate_search_term =
+                                            lyrics_candidate_search_term.clone();
+                                        let mut lyrics_candidate_refresh_nonce =
+                                            lyrics_candidate_refresh_nonce.clone();
+                                        move |_| {
                                             lyrics_search_title.set(None);
                                             lyrics_query_override.set(None);
                                             lyrics_candidate_search_term.set(None);
-                                        } else {
-                                            lyrics_search_title.set(Some(normalized.clone()));
-                                            lyrics_query_override.set(None);
-                                            lyrics_candidate_search_term.set(Some(normalized));
                                             lyrics_candidate_refresh_nonce.set(
                                                 lyrics_candidate_refresh_nonce().saturating_add(1),
                                             );
                                         }
-                                    }
-                                },
-                                on_select_lyrics_candidate: {
-                                    let mut lyrics_query_override = lyrics_query_override.clone();
-                                    let mut lyrics_search_title = lyrics_search_title.clone();
-                                    let mut lyrics_resource = lyrics_resource.clone();
-                                    let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
-                                    move |query: LyricsQuery| {
-                                        lyrics_search_title.set(Some(query.title.clone()));
-                                        lyrics_query_override.set(Some(query));
-                                        lyrics_refresh_nonce
-                                            .set(lyrics_refresh_nonce().saturating_add(1));
-                                        lyrics_resource.restart();
-                                    }
-                                },
-                                on_clear_manual_search: {
-                                    let mut lyrics_search_title = lyrics_search_title.clone();
-                                    let mut lyrics_query_override = lyrics_query_override.clone();
-                                    let mut lyrics_candidate_search_term =
-                                        lyrics_candidate_search_term.clone();
-                                    let mut lyrics_candidate_refresh_nonce =
-                                        lyrics_candidate_refresh_nonce.clone();
-                                    move |_| {
-                                        lyrics_search_title.set(None);
-                                        lyrics_query_override.set(None);
-                                        lyrics_candidate_search_term.set(None);
-                                        lyrics_candidate_refresh_nonce.set(
-                                            lyrics_candidate_refresh_nonce().saturating_add(1),
-                                        );
-                                    }
-                                },
+                                    },
+                                }
                             }
                         }
                     }
@@ -633,14 +767,16 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                 .map(|song| song.starred.is_some())
         })
         .unwrap_or(props.song.starred.is_some());
+    let is_live_stream = is_live_song(&props.song);
     let currently_playing = is_playing();
     let current_repeat_mode = repeat_mode();
     let queue_len = queue_snapshot.len();
-    let can_prev = queue_index() > 0;
-    let can_next = queue_index().saturating_add(1) < queue_len
-        || (current_repeat_mode == RepeatMode::All && queue_len > 0)
-        || current_repeat_mode == RepeatMode::Off
-        || (current_repeat_mode == RepeatMode::One && now_playing_song.is_some());
+    let can_prev = !is_live_stream && queue_index() > 0;
+    let can_next = !is_live_stream
+        && (queue_index().saturating_add(1) < queue_len
+            || (current_repeat_mode == RepeatMode::All && queue_len > 0)
+            || current_repeat_mode == RepeatMode::Off
+            || (current_repeat_mode == RepeatMode::One && now_playing_song.is_some()));
     let now_playing_rating = now_playing_song
         .as_ref()
         .and_then(|song| song.user_rating)
@@ -761,7 +897,11 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         let queue = queue.clone();
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
+        let is_live_stream = is_live_stream;
         move |_| {
+            if is_live_stream {
+                return;
+            }
             let idx = queue_index();
             if idx == 0 {
                 return;
@@ -783,7 +923,11 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         let mut is_playing = is_playing.clone();
         let repeat_mode = repeat_mode.clone();
         let seed_song = props.song.clone();
+        let is_live_stream = is_live_stream;
         move |_| {
+            if is_live_stream {
+                return;
+            }
             let was_playing = is_playing();
             let repeat = repeat_mode();
             if repeat == RepeatMode::One {
@@ -892,12 +1036,7 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         let queue = queue.clone();
         let mut rating_open = rating_open.clone();
         move |rating: u32| {
-            set_now_playing_rating(
-                servers.clone(),
-                now_playing.clone(),
-                queue.clone(),
-                rating,
-            );
+            set_now_playing_rating(servers.clone(), now_playing.clone(), queue.clone(), rating);
             rating_open.set(false);
         }
     };
@@ -1177,6 +1316,7 @@ struct QueuePanelProps {
     up_next: Vec<(usize, Song)>,
     seed_song: Song,
     create_queue_busy: Signal<bool>,
+    disabled_for_live: bool,
 }
 
 #[component]
@@ -1188,6 +1328,7 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
     let is_playing = use_context::<Signal<bool>>();
     let controller = use_context::<SongDetailsController>();
     let drag_source_index = use_signal(|| None::<usize>);
+    let touch_reorder_start = use_signal(|| None::<(usize, f64)>);
 
     let on_create_queue = {
         let seed_song = props.seed_song.clone();
@@ -1222,6 +1363,15 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
     };
     let servers_snapshot = servers();
 
+    if props.disabled_for_live {
+        return rsx! {
+            div { class: "h-full flex flex-col items-center justify-center text-center px-4 gap-3",
+                p { class: "text-zinc-400 text-sm", "Up Next is unavailable during live radio playback." }
+                p { class: "text-zinc-500 text-xs", "Queue editing and queue generation are disabled until you play a regular track." }
+            }
+        };
+    }
+
     if props.up_next.is_empty() {
         return rsx! {
             div { class: "h-full flex flex-col items-center justify-center text-center px-4 gap-3",
@@ -1246,15 +1396,19 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
     }
 
     rsx! {
-        div { class: "h-full overflow-y-auto pr-1 space-y-2",
+        div { class: "h-full overflow-y-visible md:overflow-y-auto pr-1 space-y-2",
             for (index, entry) in props.up_next.iter() {
                 div {
                     key: "{entry.server_id}:{entry.id}:{index}",
                     draggable: true,
-                    class: if drag_source_index() == Some(*index) {
-                        "w-full rounded-xl border border-emerald-500/50 bg-emerald-500/10 opacity-70"
+                    class: if drag_source_index() == Some(*index)
+                        || touch_reorder_start()
+                            .map(|(drag_idx, _)| drag_idx == *index)
+                            .unwrap_or(false)
+                    {
+                        "w-full rounded-xl border border-emerald-500/50 bg-emerald-500/12 opacity-85 scale-[1.01] shadow-lg shadow-emerald-500/10 transition-all select-none ios-drag-lock"
                     } else {
-                        "w-full rounded-xl border border-zinc-800/80"
+                        "w-full rounded-xl border border-zinc-800/80 transition-all select-none ios-drag-lock"
                     },
                     ondragstart: {
                         let mut drag_source_index = drag_source_index.clone();
@@ -1340,6 +1494,68 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
                                 "{format_duration(entry.duration)}"
                             }
                         }
+                        div { class: "flex flex-col gap-1",
+                            button {
+                                r#type: "button",
+                                class: if *index > queue_index().saturating_add(1) {
+                                    "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                } else {
+                                    "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center"
+                                },
+                                title: "Move up",
+                                disabled: *index <= queue_index().saturating_add(1),
+                                onclick: {
+                                    let queue = queue.clone();
+                                    let queue_index_signal = queue_index.clone();
+                                    let now_playing = now_playing.clone();
+                                    let source_index = *index;
+                                    move |evt: MouseEvent| {
+                                        evt.stop_propagation();
+                                        if source_index <= queue_index_signal().saturating_add(1) {
+                                            return;
+                                        }
+                                        reorder_queue_entry(
+                                            queue.clone(),
+                                            queue_index_signal.clone(),
+                                            now_playing.clone(),
+                                            source_index,
+                                            source_index.saturating_sub(1),
+                                        );
+                                    }
+                                },
+                                Icon { name: "chevron-up".to_string(), class: "w-3.5 h-3.5".to_string() }
+                            }
+                            button {
+                                r#type: "button",
+                                class: if *index + 1 < queue().len() {
+                                    "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                } else {
+                                    "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center"
+                                },
+                                title: "Move down",
+                                disabled: *index + 1 >= queue().len(),
+                                onclick: {
+                                    let queue = queue.clone();
+                                    let queue_index_signal = queue_index.clone();
+                                    let now_playing = now_playing.clone();
+                                    let source_index = *index;
+                                    move |evt: MouseEvent| {
+                                        evt.stop_propagation();
+                                        if source_index + 1 >= queue().len() {
+                                            return;
+                                        }
+                                        reorder_queue_entry(
+                                            queue.clone(),
+                                            queue_index_signal.clone(),
+                                            now_playing.clone(),
+                                            source_index,
+                                            source_index.saturating_add(1),
+                                        );
+                                    }
+                                },
+                                Icon { name: "chevron-down".to_string(), class: "w-3.5 h-3.5".to_string() }
+                            }
+                        }
                         button {
                             class: "p-2 rounded-lg border border-zinc-800/80 text-zinc-500 hover:text-red-400 hover:border-red-500/40 transition-colors",
                             title: "Remove from queue",
@@ -1362,9 +1578,81 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
                             },
                             Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
                         }
-                        div {
-                            class: "px-1 text-zinc-600 cursor-grab active:cursor-grabbing select-none",
-                            title: "Drag to reorder",
+                        button {
+                            r#type: "button",
+                            class: if touch_reorder_start()
+                                .map(|(drag_idx, _)| drag_idx == *index)
+                                .unwrap_or(false)
+                            {
+                                "px-1 text-emerald-300 cursor-grabbing scale-110 select-none ios-drag-lock transition-all"
+                            } else {
+                                "px-1 text-zinc-600 cursor-grab active:cursor-grabbing select-none ios-drag-lock transition-all"
+                            },
+                            title: "Drag or swipe up/down to reorder",
+                            style: "touch-action: none;",
+                            onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                            onpointerdown: {
+                                let mut touch_reorder_start = touch_reorder_start.clone();
+                                let source_index = *index;
+                                move |evt: PointerEvent| {
+                                    if evt.pointer_type() != "touch" {
+                                        return;
+                                    }
+                                    evt.prevent_default();
+                                    evt.stop_propagation();
+                                    touch_reorder_start
+                                        .set(Some((source_index, evt.client_coordinates().y)));
+                                }
+                            },
+                            onpointerup: {
+                                let mut touch_reorder_start = touch_reorder_start.clone();
+                                move |evt: PointerEvent| {
+                                    if evt.pointer_type() != "touch" {
+                                        return;
+                                    }
+                                    evt.prevent_default();
+                                    evt.stop_propagation();
+                                    touch_reorder_start.set(None);
+                                }
+                            },
+                            onpointermove: {
+                                let mut touch_reorder_start = touch_reorder_start.clone();
+                                let queue = queue.clone();
+                                let queue_index = queue_index.clone();
+                                let now_playing = now_playing.clone();
+                                move |evt: PointerEvent| {
+                                    if evt.pointer_type() != "touch" {
+                                        return;
+                                    }
+                                    evt.prevent_default();
+                                    evt.stop_propagation();
+                                    let Some((source_index, start_y)) = touch_reorder_start() else {
+                                        return;
+                                    };
+                                    let list_len = queue().len();
+                                    let Some(target_index) = touch_swipe_target_index(
+                                        source_index,
+                                        start_y,
+                                        evt.client_coordinates().y,
+                                        list_len,
+                                    ) else {
+                                        return;
+                                    };
+                                    reorder_queue_entry(
+                                        queue.clone(),
+                                        queue_index.clone(),
+                                        now_playing.clone(),
+                                        source_index,
+                                        target_index,
+                                    );
+                                    touch_reorder_start
+                                        .set(Some((target_index, evt.client_coordinates().y)));
+                                }
+                            },
+                            onpointerleave: {
+                                let mut touch_reorder_start = touch_reorder_start.clone();
+                                move |_| touch_reorder_start.set(None)
+                            },
                             Icon { name: "bars".to_string(), class: "w-4 h-4".to_string() }
                         }
                     }
@@ -1407,7 +1695,7 @@ fn RelatedPanel(props: RelatedPanelProps) -> Element {
     let servers_snapshot = servers();
 
     rsx! {
-        div { class: "h-full overflow-y-auto pr-1 space-y-2",
+        div { class: "h-full overflow-y-visible md:overflow-y-auto pr-1 space-y-2",
             for related_song in related {
                 button {
                     class: "w-full text-left flex items-center gap-3 p-3 rounded-xl border border-zinc-800/80 hover:border-emerald-500/40 hover:bg-emerald-500/5 transition-colors",
@@ -1470,6 +1758,72 @@ fn RelatedPanel(props: RelatedPanelProps) -> Element {
     }
 }
 
+#[derive(Clone, PartialEq)]
+struct MiniLyricsPreviewData {
+    previous: Option<String>,
+    current: String,
+    next: Option<String>,
+}
+
+#[derive(Props, Clone, PartialEq)]
+struct MiniLyricsStripProps {
+    preview: Option<MiniLyricsPreviewData>,
+    is_live_stream: bool,
+}
+
+#[component]
+fn MiniLyricsStrip(props: MiniLyricsStripProps) -> Element {
+    let controller = use_context::<SongDetailsController>();
+    let on_open_lyrics = {
+        let mut controller = controller.clone();
+        move |_| controller.set_tab(SongDetailsTab::Lyrics)
+    };
+
+    let (previous, current, next) = if props.is_live_stream {
+        (
+            Some("Live stream".to_string()),
+            "Synced lyric preview is disabled".to_string(),
+            Some("Tap to open full lyrics tools".to_string()),
+        )
+    } else if let Some(preview) = props.preview {
+        let previous = preview
+            .previous
+            .filter(|line| !line.trim().is_empty())
+            .unwrap_or_else(|| " ".to_string());
+        let current = if preview.current.trim().is_empty() {
+            "Lyrics unavailable".to_string()
+        } else {
+            preview.current
+        };
+        let next = preview
+            .next
+            .filter(|line| !line.trim().is_empty())
+            .unwrap_or_else(|| " ".to_string());
+        (Some(previous), current, Some(next))
+    } else {
+        (
+            Some("No lyrics loaded".to_string()),
+            "Tap to open lyrics".to_string(),
+            Some("Search and pick a better match".to_string()),
+        )
+    };
+
+    rsx! {
+        button {
+            class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/95 text-left px-3 py-2 space-y-1 overflow-hidden",
+            onclick: on_open_lyrics,
+            p { class: "text-[11px] uppercase tracking-[0.18em] text-zinc-500", "Quick Lyrics" }
+            if let Some(previous) = previous {
+                p { class: "text-xs text-zinc-500 truncate leading-snug", "{previous}" }
+            }
+            p { class: "text-sm text-emerald-300 font-medium truncate leading-snug", "{current}" }
+            if let Some(next) = next {
+                p { class: "text-xs text-zinc-400 truncate leading-snug", "{next}" }
+            }
+        }
+    }
+}
+
 #[derive(Props, Clone, PartialEq)]
 struct LyricsPanelProps {
     panel_dom_key: String,
@@ -1480,6 +1834,7 @@ struct LyricsPanelProps {
     current_time: f64,
     offset_seconds: f64,
     sync_lyrics: bool,
+    is_live_stream: bool,
     on_refresh: EventHandler<MouseEvent>,
     default_search_title: String,
     manual_search_title: Option<String>,
@@ -1571,8 +1926,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         let mut audio_state = audio_state.clone();
         let offset_seconds = props.offset_seconds;
         let sync_lyrics = props.sync_lyrics;
+        let is_live_stream = props.is_live_stream;
         move |line: LyricLine| {
-            if !sync_lyrics {
+            if !sync_lyrics || is_live_stream {
                 return;
             }
             let target = (line.timestamp_seconds - offset_seconds).max(0.0);
@@ -1609,7 +1965,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     } else {
         playback_seconds_signal
     };
-    let active_synced_index = if !props.sync_lyrics {
+    let active_synced_index = if !props.sync_lyrics || props.is_live_stream {
         None
     } else {
         display_lyrics.as_ref().and_then(|lyrics| {
@@ -1620,10 +1976,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         })
     };
 
-    let scroll_container_id = format!(
-        "lyrics-scroll-{}",
-        sanitize_dom_id(&props.panel_dom_key)
-    );
+    let scroll_container_id = format!("lyrics-scroll-{}", sanitize_dom_id(&props.panel_dom_key));
 
     let on_lyrics_scrolled = {
         let programmatic_scroll_until_ms = programmatic_scroll_until_ms.clone();
@@ -1643,6 +1996,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         let active_synced_index = active_synced_index;
         let scroll_container_id = scroll_container_id.clone();
         let sync_lyrics = props.sync_lyrics;
+        let is_live_stream = props.is_live_stream;
         let audio_state = audio_state.clone();
         let mut programmatic_scroll_until_ms = programmatic_scroll_until_ms.clone();
         let manual_scroll_hold_until_ms = manual_scroll_hold_until_ms.clone();
@@ -1652,7 +2006,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             let Some(index) = active_synced_index else {
                 return;
             };
-            if !sync_lyrics {
+            if !sync_lyrics || is_live_stream {
                 return;
             }
             if now_millis() < manual_scroll_hold_until_ms() {
@@ -1814,7 +2168,12 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             div {
                 id: "{scroll_container_id}",
                 onscroll: on_lyrics_scrolled,
-                class: "rounded-xl border border-zinc-800/80 bg-zinc-900/40 min-h-[52vh] md:min-h-[64vh] max-h-[76vh] overflow-y-auto",
+                class: "rounded-xl border border-zinc-800/80 bg-zinc-900/40 min-h-[52vh] md:min-h-[64vh] max-h-[76vh] overflow-y-auto overflow-x-hidden",
+                if props.is_live_stream {
+                    p { class: "px-5 pt-4 text-xs text-zinc-500",
+                        "Live stream detected: synced lyric scrolling and seek controls are disabled."
+                    }
+                }
                 match display_lyrics {
                     None => {
                         if let Some(error) = fetch_error {
@@ -1864,7 +2223,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                         p { class: "text-base text-zinc-500", "Lyrics unavailable." }
                                     } else {
                                         for line in lines {
-                                            p { class: "text-base text-zinc-300 leading-relaxed", "{line}" }
+                                            p { class: "text-base text-zinc-300 leading-relaxed whitespace-pre-wrap break-words", "{line}" }
                                         }
                                     }
                                 }
@@ -1884,9 +2243,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                         button {
                                             id: format!("{scroll_container_id}-line-{index}"),
                                             class: if Some(index) == active_synced_index {
-                                                "w-full text-left px-3 py-2.5 rounded-lg bg-emerald-500/15 text-emerald-300"
+                                                "w-full text-left px-3 py-2.5 rounded-lg bg-emerald-500/15 text-emerald-300 overflow-hidden"
                                             } else {
-                                                "w-full text-left px-3 py-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors"
+                                                "w-full text-left px-3 py-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors overflow-hidden"
                                             },
                                             onclick: {
                                                 let line = line.clone();
@@ -1897,9 +2256,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                             }
                                             span {
                                                 class: if Some(index) == active_synced_index {
-                                                    "text-lg md:text-xl font-semibold leading-relaxed"
+                                                    "text-lg md:text-xl font-semibold leading-relaxed whitespace-pre-wrap break-words align-top"
                                                 } else {
-                                                    "text-base leading-relaxed"
+                                                    "text-base leading-relaxed whitespace-pre-wrap break-words align-top"
                                                 },
                                                 "{line.text}"
                                             }
@@ -1932,18 +2291,9 @@ async fn fetch_first_available_lyrics(
         return Err("No lyrics providers configured.".to_string());
     }
 
-    let mut pending = FuturesUnordered::new();
-    for provider in providers {
-        let query = query.clone();
-        pending.push(async move {
-            let result =
-                fetch_lyrics_with_fallback(&query, &[provider.clone()], timeout_seconds).await;
-            (provider, result)
-        });
-    }
-
     let mut errors = Vec::<String>::new();
-    while let Some((provider, result)) = pending.next().await {
+    for provider in providers {
+        let result = fetch_lyrics_with_fallback(&query, &[provider.clone()], timeout_seconds).await;
         match result {
             Ok(lyrics) => return Ok(lyrics),
             Err(error) => errors.push(format!("{provider} failed: {error}")),
@@ -1957,15 +2307,71 @@ async fn fetch_first_available_lyrics(
     }
 }
 
+fn build_mini_lyrics_preview(
+    lyrics: Option<Result<LyricsResult, String>>,
+    sync_lyrics: bool,
+    current_time: f64,
+    offset_seconds: f64,
+) -> Option<MiniLyricsPreviewData> {
+    let lyrics = lyrics?.ok()?;
+
+    if sync_lyrics && !lyrics.synced_lines.is_empty() {
+        let active_index = active_lyric_index(&lyrics.synced_lines, current_time + offset_seconds)
+            .unwrap_or(0)
+            .min(lyrics.synced_lines.len().saturating_sub(1));
+        let previous = active_index
+            .checked_sub(1)
+            .and_then(|index| lyrics.synced_lines.get(index))
+            .map(|line| line.text.trim().to_string());
+        let current = lyrics
+            .synced_lines
+            .get(active_index)
+            .map(|line| line.text.trim().to_string())
+            .unwrap_or_default();
+        let next = lyrics
+            .synced_lines
+            .get(active_index.saturating_add(1))
+            .map(|line| line.text.trim().to_string());
+        return Some(MiniLyricsPreviewData {
+            previous,
+            current,
+            next,
+        });
+    }
+
+    let lines = lyrics
+        .plain_lyrics
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect::<Vec<_>>();
+    if lines.is_empty() {
+        return None;
+    }
+
+    Some(MiniLyricsPreviewData {
+        previous: None,
+        current: lines.first().cloned().unwrap_or_default(),
+        next: lines.get(1).cloned(),
+    })
+}
+
 fn pick_display_lyrics(
     sync_lyrics: bool,
     primary: Option<Result<LyricsResult, String>>,
     lrclib_upgrade: Option<Result<Option<LyricsResult>, String>>,
+    cached_synced: Option<LyricsResult>,
 ) -> Option<Result<LyricsResult, String>> {
     if sync_lyrics {
         if let Some(Ok(Some(upgrade))) = lrclib_upgrade.as_ref() {
             if !upgrade.synced_lines.is_empty() {
                 return Some(Ok(upgrade.clone()));
+            }
+        }
+        if let Some(cached_synced) = cached_synced {
+            if !cached_synced.synced_lines.is_empty() {
+                return Some(Ok(cached_synced));
             }
         }
     }
@@ -2062,6 +2468,34 @@ fn adjusted_queue_index_after_reorder(
     }
 }
 
+fn touch_swipe_target_index(
+    source_index: usize,
+    start_y: f64,
+    end_y: f64,
+    list_len: usize,
+) -> Option<usize> {
+    if list_len < 2 || source_index >= list_len {
+        return None;
+    }
+
+    let delta = end_y - start_y;
+    if delta.abs() < TOUCH_REORDER_SWIPE_THRESHOLD_PX {
+        return None;
+    }
+
+    if delta < 0.0 {
+        if source_index == 0 {
+            None
+        } else {
+            Some(source_index - 1)
+        }
+    } else if source_index + 1 < list_len {
+        Some(source_index + 1)
+    } else {
+        None
+    }
+}
+
 fn reorder_queue_entry(
     mut queue: Signal<Vec<Song>>,
     mut queue_index: Signal<usize>,
@@ -2083,11 +2517,7 @@ fn reorder_queue_entry(
         }
 
         let moved_song = items.remove(source_index);
-        let insert_index = if source_index < target_index {
-            target_index.saturating_sub(1)
-        } else {
-            target_index
-        };
+        let insert_index = target_index;
         items.insert(insert_index, moved_song);
         next_index = adjusted_queue_index_after_reorder(current_index, source_index, insert_index);
         reordered = true;

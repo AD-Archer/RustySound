@@ -5,7 +5,7 @@ use crate::components::{
     seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, SongDetailsController,
     VolumeSignal,
 };
-use crate::db::RepeatMode;
+use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
 
 #[component]
@@ -170,10 +170,10 @@ pub fn Player() -> Element {
                         match &current_song {
                             Some(song) => rsx! {
                                 div { class: "relative flex-shrink-0",
-                                    div { class: "pointer-events-none absolute -top-2 -right-2 z-10 w-6 h-6 rounded-full bg-emerald-400 text-black shadow flex items-center justify-center border border-zinc-900",
+                                    div { class: "pointer-events-none absolute -top-4 -right-1 z-10 text-zinc-200 drop-shadow-md",
                                         Icon {
                                             name: "arrow-left".to_string(),
-                                            class: "w-3.5 h-3.5 rotate-90".to_string(),
+                                            class: "w-6 h-6 rotate-90".to_string(),
                                         }
                                     }
                                     // Clickable album art
@@ -216,10 +216,11 @@ pub fn Player() -> Element {
                                             move |_| {
                                                 if let Some(ref s) = song {
                                                     if let Some(album_id) = &s.album_id {
-                                                        navigation.navigate_to(AppView::AlbumDetailView {
-                                                            album_id: album_id.clone(),
-                                                            server_id: s.server_id.clone(),
-                                                        });
+                                                        navigation
+                                                            .navigate_to(AppView::AlbumDetailView {
+                                                                album_id: album_id.clone(),
+                                                                server_id: s.server_id.clone(),
+                                                            });
                                                     }
                                                 }
                                             }
@@ -325,13 +326,7 @@ pub fn Player() -> Element {
                     // Progress bar
                     div { class: "flex items-center gap-2 md:gap-3 w-full",
                         span { class: "text-xs text-zinc-500 w-10 text-right",
-                            {
-                                if is_radio {
-                                    "LIVE".to_string()
-                                } else {
-                                    format_duration(current_time as u32)
-                                }
-                            }
+                            {if is_radio { "LIVE".to_string() } else { format_duration(current_time as u32) }}
                         }
                         input {
                             r#type: "range",
@@ -389,6 +384,7 @@ pub fn Player() -> Element {
 #[component]
 fn BookmarkButton() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let saving = use_signal(|| false);
@@ -404,7 +400,12 @@ fn BookmarkButton() -> Element {
         });
     }
 
-    let has_song = now_playing().is_some();
+    let current_song = now_playing();
+    let has_song = current_song.is_some();
+    let is_live_radio = current_song
+        .as_ref()
+        .map(|song| song.server_name == "Radio")
+        .unwrap_or(false);
 
     let on_save = move |_| {
         if saving() {
@@ -414,12 +415,20 @@ fn BookmarkButton() -> Element {
             if let Some(server) = servers().iter().find(|s| s.id == song.server_id).cloned() {
                 let song_id = song.id.clone();
                 let position_ms = (playback_position() * 1000.0).round().max(0.0) as u64;
+                let bookmark_limit = app_settings().bookmark_limit.clamp(1, 5000) as usize;
                 let mut saving = saving.clone();
                 let mut saved = saved.clone();
                 spawn(async move {
                     saving.set(true);
                     let client = NavidromeClient::new(server);
-                    let res = client.create_bookmark(&song_id, position_ms, None).await;
+                    let res = client
+                        .create_bookmark_with_limit(
+                            &song_id,
+                            position_ms,
+                            None,
+                            Some(bookmark_limit),
+                        )
+                        .await;
                     saving.set(false);
                     saved.set(res.is_ok());
                 });
@@ -431,7 +440,7 @@ fn BookmarkButton() -> Element {
         button {
             id: "bookmark-btn",
             r#type: "button",
-            disabled: !has_song || saving(),
+            disabled: !has_song || saving() || is_live_radio,
             class: if saved() { format!(
                 "{base_class} p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors",
             ) } else { format!("{base_class} p-3 md:p-2 text-zinc-400 hover:text-white transition-colors") },

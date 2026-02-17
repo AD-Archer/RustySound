@@ -1,12 +1,12 @@
 use crate::api::*;
-use crate::components::{AddIntent, AddMenuController, Icon, SongDetailsController};
+use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 /// Song row tailored for album detail pages: adds per-song favorite toggle.
 #[component]
 pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let song_details = use_context::<SongDetailsController>();
+    let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
@@ -29,12 +29,19 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
 
     let album_id = song.album_id.clone();
     let artist_id = song.artist_id.clone();
-    let on_song_details_cover = {
-        let song = song.clone();
-        let mut song_details = song_details.clone();
+    let server_id = song.server_id.clone();
+    let on_album_cover = {
+        let navigation = navigation.clone();
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            song_details.open(song.clone());
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
         }
     };
 
@@ -110,8 +117,8 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
             if album_id.is_some() {
                 button {
                     class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
-                    aria_label: "Open song menu",
-                    onclick: on_song_details_cover,
+                    aria_label: "Open album",
+                    onclick: on_album_cover,
                     {
                         match cover_url {
                             Some(url) => rsx! {

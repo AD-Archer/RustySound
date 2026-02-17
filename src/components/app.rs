@@ -21,7 +21,12 @@ use web_sys::window;
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
 
-const BACK_SWIPE_THRESHOLD: f64 = 100.0;
+#[cfg(target_arch = "wasm32")]
+const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
+#[cfg(target_arch = "wasm32")]
+const HISTORY_SWIPE_VERTICAL_SLOP: f64 = 72.0;
+#[cfg(target_arch = "wasm32")]
+const HISTORY_SWIPE_EDGE_ZONE: f64 = 28.0;
 
 fn normalize_volume(mut value: f64) -> f64 {
     if !value.is_finite() {
@@ -47,15 +52,17 @@ pub fn AppShell() -> Element {
     let mut app_settings = use_signal(AppSettings::default);
     let mut playback_position = use_signal(|| 0.0f64);
     let mut db_initialized = use_signal(|| false);
+    let mut settings_loaded = use_signal(|| false);
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let audio_state = use_signal(AudioState::default);
     let sidebar_open = use_signal(|| false);
-    let navigation_stack = use_signal(Vec::<AppView>::new);
-    let navigation = Navigation::new(navigation_stack.clone());
+    let navigation = Navigation::new();
     let seek_request = use_signal(|| None::<(String, f64)>);
     let mut resume_bookmark_loaded = use_signal(|| false);
-    let swipe_start = use_signal(|| None::<f64>);
+    #[cfg(target_arch = "wasm32")]
+    let swipe_start = use_signal(|| None::<(f64, f64, i8)>);
+    let swipe_hint = use_signal(|| None::<(i8, f64)>);
     let add_menu_intent = use_signal(|| None::<AddIntent>);
     let add_menu = AddMenuController::new(add_menu_intent.clone());
     let song_details_state = use_signal(SongDetailsState::default);
@@ -68,42 +75,10 @@ pub fn AppShell() -> Element {
     use_context_provider(|| add_menu.clone());
     use_context_provider(|| song_details.clone());
 
-    let on_pointer_down = {
-        let mut swipe_start = swipe_start.clone();
-        move |evt: PointerEvent| {
-            swipe_start.set(Some(evt.client_coordinates().x));
-        }
-    };
-
-    let on_pointer_move = {
-        let mut swipe_start = swipe_start.clone();
-        let navigation = navigation.clone();
-        move |evt: PointerEvent| {
-            if let Some(start) = swipe_start() {
-                let delta = evt.client_coordinates().x - start;
-                if delta > BACK_SWIPE_THRESHOLD && navigation.can_go_back() {
-                    navigation.go_back();
-                    swipe_start.set(None);
-                }
-            }
-        }
-    };
-
-    let on_pointer_up = {
-        let mut swipe_start = swipe_start.clone();
-        move |_| {
-            swipe_start.set(None);
-        }
-    };
-
-    let on_pointer_leave = {
-        let mut swipe_start = swipe_start.clone();
-        move |_| {
-            swipe_start.set(None);
-        }
-    };
-
-    let _nav_for_swipe = navigation.clone();
+    #[cfg(target_arch = "wasm32")]
+    let nav_for_swipe = navigation.clone();
+    #[cfg(target_arch = "wasm32")]
+    let sidebar_open_for_swipe = sidebar_open.clone();
     // Global pointer listeners so back swipe works anywhere on the screen (PWA-like)
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
@@ -113,42 +88,102 @@ pub fn AppShell() -> Element {
 
         let runtime = Runtime::current();
         let mut swipe_start = swipe_start.clone();
-        let nav = _nav_for_swipe.clone();
+        let mut swipe_hint = swipe_hint.clone();
+        let nav = nav_for_swipe.clone();
+        let sidebar_open_for_swipe = sidebar_open_for_swipe.clone();
 
         let runtime_down = runtime.clone();
         let down_cb = Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
             let _guard = RuntimeGuard::new(runtime_down.clone());
-            swipe_start.set(Some(e.client_x() as f64));
+            if e.pointer_type() != "touch" || sidebar_open_for_swipe() {
+                swipe_start.set(None);
+                swipe_hint.set(None);
+                return;
+            }
+
+            let viewport_width = window()
+                .and_then(|w| w.inner_width().ok())
+                .and_then(|value| value.as_f64())
+                .unwrap_or(0.0);
+            if viewport_width <= 0.0 {
+                swipe_start.set(None);
+                swipe_hint.set(None);
+                return;
+            }
+
+            let x = e.client_x() as f64;
+            let y = e.client_y() as f64;
+            let direction = if x <= HISTORY_SWIPE_EDGE_ZONE {
+                1
+            } else if x >= viewport_width - HISTORY_SWIPE_EDGE_ZONE {
+                -1
+            } else {
+                0
+            };
+
+            if direction == 0 {
+                swipe_start.set(None);
+                swipe_hint.set(None);
+                return;
+            }
+
+            swipe_start.set(Some((x, y, direction)));
+            swipe_hint.set(Some((direction, 0.0)));
         }) as Box<dyn FnMut(_)>);
         let move_cb = {
             let mut swipe_start = swipe_start.clone();
             let nav = nav.clone();
+            let mut swipe_hint = swipe_hint.clone();
             let runtime_move = runtime.clone();
             Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
                 let _guard = RuntimeGuard::new(runtime_move.clone());
-                if let Some(start) = swipe_start() {
-                    let delta = e.client_x() as f64 - start;
-                    if delta > BACK_SWIPE_THRESHOLD && nav.can_go_back() {
-                        nav.go_back();
+                if let Some((start_x, start_y, direction)) = swipe_start() {
+                    let delta_x = e.client_x() as f64 - start_x;
+                    let delta_y = e.client_y() as f64 - start_y;
+                    if delta_y.abs() > HISTORY_SWIPE_VERTICAL_SLOP {
                         swipe_start.set(None);
+                        swipe_hint.set(None);
+                        return;
+                    }
+
+                    let travel = if direction > 0 {
+                        delta_x.max(0.0)
+                    } else {
+                        (-delta_x).max(0.0)
+                    };
+                    let progress = (travel / HISTORY_SWIPE_THRESHOLD).clamp(0.0, 1.2);
+                    swipe_hint.set(Some((direction, progress)));
+
+                    if progress >= 1.0 {
+                        if direction > 0 && nav.can_go_back() {
+                            nav.go_back();
+                        } else if direction < 0 && nav.can_go_forward() {
+                            nav.go_forward();
+                        }
+                        swipe_start.set(None);
+                        swipe_hint.set(None);
                     }
                 }
             }) as Box<dyn FnMut(_)>)
         };
         let up_cb = {
             let mut swipe_start = swipe_start.clone();
+            let mut swipe_hint = swipe_hint.clone();
             let runtime_up = runtime.clone();
             Closure::wrap(Box::new(move |_e: web_sys::PointerEvent| {
                 let _guard = RuntimeGuard::new(runtime_up.clone());
                 swipe_start.set(None);
+                swipe_hint.set(None);
             }) as Box<dyn FnMut(_)>)
         };
         let cancel_cb = {
             let mut swipe_start = swipe_start.clone();
+            let mut swipe_hint = swipe_hint.clone();
             let runtime_cancel = runtime.clone();
             Closure::wrap(Box::new(move |_e: web_sys::PointerEvent| {
                 let _guard = RuntimeGuard::new(runtime_cancel.clone());
                 swipe_start.set(None);
+                swipe_hint.set(None);
             }) as Box<dyn FnMut(_)>)
         };
 
@@ -207,6 +242,7 @@ pub fn AppShell() -> Element {
                     let _ = save_settings(normalized_settings.clone()).await;
                 }
             }
+            settings_loaded.set(true);
 
             // Load playback state (but don't auto-play)
             if let Ok(state) = load_playback_state().await {
@@ -218,9 +254,12 @@ pub fn AppShell() -> Element {
         });
     });
 
-    // Resume from the most recent bookmark on startup (paused)
+    // Resume from the most recent bookmark on startup.
     use_effect(move || {
         if resume_bookmark_loaded() {
+            return;
+        }
+        if !settings_loaded() {
             return;
         }
         if now_playing().is_some() {
@@ -228,6 +267,11 @@ pub fn AppShell() -> Element {
             return;
         }
 
+        let bookmark_autoplay_on_launch = app_settings().bookmark_autoplay_on_launch;
+        if !bookmark_autoplay_on_launch {
+            resume_bookmark_loaded.set(true);
+            return;
+        }
         let servers_snapshot = servers();
         if servers_snapshot.is_empty() {
             return;
@@ -241,9 +285,9 @@ pub fn AppShell() -> Element {
         let mut seek_request = seek_request.clone();
         let mut resume_bookmark_loaded = resume_bookmark_loaded.clone();
         spawn(async move {
-            let mut latest: Option<Bookmark> = None;
+            let mut candidates: Vec<Bookmark> = Vec::new();
 
-            for server in servers_snapshot.into_iter().filter(|s| s.active) {
+            for server in servers_snapshot.iter().filter(|s| s.active).cloned() {
                 let client = NavidromeClient::new(server.clone());
                 if let Ok(mut bookmarks) = client.get_bookmarks().await {
                     for bm in bookmarks.iter_mut() {
@@ -254,33 +298,45 @@ pub fn AppShell() -> Element {
                             bm.entry.server_name = server.name.clone();
                         }
                     }
-
-                    if let Some(best) = bookmarks
-                        .into_iter()
-                        .max_by(|a, b| a.changed.cmp(&b.changed))
-                    {
-                        latest = Some(match latest {
-                            Some(current) => {
-                                if best.changed > current.changed {
-                                    best
-                                } else {
-                                    current
-                                }
-                            }
-                            None => best,
-                        });
-                    }
+                    candidates.extend(
+                        bookmarks
+                            .into_iter()
+                            .filter(|bookmark| !bookmark.entry.id.trim().is_empty()),
+                    );
                 }
             }
 
-            if let Some(bookmark) = latest {
-                let position = bookmark.position as f64 / 1000.0;
-                queue.set(vec![bookmark.entry.clone()]);
+            candidates.sort_by(|a, b| {
+                b.changed
+                    .cmp(&a.changed)
+                    .then_with(|| b.created.cmp(&a.created))
+            });
+
+            let mut resumed_song: Option<(Song, f64)> = None;
+            for bookmark in candidates.into_iter() {
+                let Some(server) = servers_snapshot
+                    .iter()
+                    .find(|server| server.id == bookmark.server_id)
+                    .cloned()
+                else {
+                    continue;
+                };
+
+                let client = NavidromeClient::new(server);
+                if let Ok(song) = client.get_song(&bookmark.entry.id).await {
+                    let position = bookmark.position as f64 / 1000.0;
+                    resumed_song = Some((song, position));
+                    break;
+                }
+            }
+
+            if let Some((song, position)) = resumed_song {
+                queue.set(vec![song.clone()]);
                 queue_index.set(0);
-                now_playing.set(Some(bookmark.entry.clone()));
+                now_playing.set(Some(song.clone()));
                 playback_position.set(position);
-                seek_request.set(Some((bookmark.entry.id.clone(), position)));
-                is_playing.set(false);
+                seek_request.set(Some((song.id.clone(), position)));
+                is_playing.set(true);
             }
 
             resume_bookmark_loaded.set(true);
@@ -362,9 +418,15 @@ pub fn AppShell() -> Element {
     let sidebar_signal = sidebar_open.clone();
     let can_go_back = navigation.can_go_back();
     let song_details_open = song_details_state().is_open;
+    let app_container_class = if sidebar_open() {
+        "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
+    } else {
+        "app-container flex min-h-screen text-white overflow-hidden"
+    };
+    let swipe_hint_state = swipe_hint();
 
     rsx! {
-        div { class: "app-container flex min-h-screen text-white overflow-hidden",
+        div { class: "{app_container_class}",
             if sidebar_open() && !song_details_open {
                 div {
                     class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
@@ -382,22 +444,7 @@ pub fn AppShell() -> Element {
             div { class: "flex-1 flex flex-col overflow-hidden",
                 header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
                     div { class: "flex items-center justify-between px-4 py-3",
-                        if can_go_back {
-                            button {
-                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                aria_label: "Go back",
-                                onclick: {
-                                    let navigation = navigation.clone();
-                                    move |_| {
-                                        let _ = navigation.go_back();
-                                    }
-                                },
-                                Icon {
-                                    name: "arrow-left".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
-                            }
-                        } else {
+                        div { class: "flex items-center gap-1",
                             button {
                                 class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
                                 aria_label: "Open menu",
@@ -408,6 +455,22 @@ pub fn AppShell() -> Element {
                                 Icon {
                                     name: "menu".to_string(),
                                     class: "w-5 h-5".to_string(),
+                                }
+                            }
+                            if can_go_back {
+                                button {
+                                    class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                                    aria_label: "Go back",
+                                    onclick: {
+                                        let navigation = navigation.clone();
+                                        move |_| {
+                                            let _ = navigation.go_back();
+                                        }
+                                    },
+                                    Icon {
+                                        name: "arrow-left".to_string(),
+                                        class: "w-5 h-5".to_string(),
+                                    }
                                 }
                             }
                         }
@@ -435,10 +498,6 @@ pub fn AppShell() -> Element {
                 // Main scrollable content
                 main {
                     class: "flex-1 overflow-y-auto main-scroll",
-                    onpointerdown: on_pointer_down,
-                    onpointermove: on_pointer_move,
-                    onpointerup: on_pointer_up,
-                    onpointerleave: on_pointer_leave,
                     div {
                         class: "page-shell",
                         Outlet::<AppView> {}
@@ -448,6 +507,40 @@ pub fn AppShell() -> Element {
 
             // Fixed bottom player
             Player {}
+        }
+
+        if let Some((direction, progress)) = swipe_hint_state {
+            if progress > 0.0 {
+                div {
+                    class: if direction > 0 {
+                        "swipe-hint swipe-hint--back 2xl:hidden"
+                    } else {
+                        "swipe-hint swipe-hint--forward 2xl:hidden"
+                    },
+                    style: if direction > 0 {
+                        format!(
+                            "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
+                            0.2 + progress.min(1.0) * 0.8,
+                            -12.0 + progress.min(1.0) * 12.0,
+                            0.86 + progress.min(1.0) * 0.18
+                        )
+                    } else {
+                        format!(
+                            "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
+                            0.2 + progress.min(1.0) * 0.8,
+                            12.0 - progress.min(1.0) * 12.0,
+                            0.86 + progress.min(1.0) * 0.18
+                        )
+                    },
+                    div {
+                        class: "w-10 h-10 rounded-full border border-emerald-400/50 bg-zinc-950/80 text-emerald-300 shadow-lg backdrop-blur flex items-center justify-center",
+                        Icon {
+                            name: "arrow-left".to_string(),
+                            class: if direction > 0 { "w-5 h-5".to_string() } else { "w-5 h-5 rotate-180".to_string() },
+                        }
+                    }
+                }
+            }
         }
 
         AddToMenuOverlay { controller: add_menu.clone() }
