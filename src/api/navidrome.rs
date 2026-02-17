@@ -3,7 +3,7 @@ use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use dioxus::document;
 use once_cell::sync::Lazy;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
 #[cfg(not(target_arch = "wasm32"))]
@@ -11,12 +11,133 @@ use std::time::Duration;
 
 static HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 static AUTH_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::new(HashMap::new()));
+static NATIVE_AUTH_CACHE: Lazy<Mutex<HashMap<String, NativeAuthSession>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
 
 const CLIENT_NAME: &str = "RustySound";
 const API_VERSION: &str = "1.16.1";
 
 pub struct NavidromeClient {
     pub server: ServerConfig,
+}
+
+#[derive(Clone)]
+struct NativeAuthSession {
+    token: String,
+    client_unique_id: String,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum NativeSongSortField {
+    PlayDate,
+    PlayCount,
+}
+
+impl NativeSongSortField {
+    fn as_query_value(self) -> &'static str {
+        match self {
+            Self::PlayDate => "play_date",
+            Self::PlayCount => "play_count",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub enum NativeSortOrder {
+    Desc,
+}
+
+impl NativeSortOrder {
+    fn as_query_value(self) -> &'static str {
+        match self {
+            Self::Desc => "DESC",
+        }
+    }
+}
+
+#[derive(Debug, Serialize)]
+struct NativeLoginRequest {
+    username: String,
+    password: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct NativeLoginResponse {
+    #[serde(default)]
+    token: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+}
+
+fn json_pick_value<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a serde_json::Value> {
+    let object = value.as_object()?;
+    for key in keys {
+        if let Some(found) = object.get(*key) {
+            return Some(found);
+        }
+    }
+    None
+}
+
+fn json_pick_string(value: &serde_json::Value, keys: &[&str]) -> Option<String> {
+    let picked = json_pick_value(value, keys)?;
+    match picked {
+        serde_json::Value::String(text) => {
+            let trimmed = text.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        }
+        serde_json::Value::Number(number) => Some(number.to_string()),
+        serde_json::Value::Bool(boolean) => Some(boolean.to_string()),
+        _ => None,
+    }
+}
+
+fn json_pick_u32(value: &serde_json::Value, keys: &[&str]) -> Option<u32> {
+    let picked = json_pick_value(value, keys)?;
+    match picked {
+        serde_json::Value::Number(number) => {
+            if let Some(unsigned) = number.as_u64() {
+                return u32::try_from(unsigned).ok();
+            }
+            if let Some(signed) = number.as_i64() {
+                return u32::try_from(signed.max(0) as u64).ok();
+            }
+            if let Some(float) = number.as_f64() {
+                if float.is_finite() && float >= 0.0 {
+                    return u32::try_from(float.round() as u64).ok();
+                }
+            }
+            None
+        }
+        serde_json::Value::String(text) => text.trim().parse::<u32>().ok(),
+        _ => None,
+    }
+}
+
+fn json_pick_bool(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
+    let picked = json_pick_value(value, keys)?;
+    match picked {
+        serde_json::Value::Bool(boolean) => Some(*boolean),
+        serde_json::Value::String(text) => match text.trim().to_ascii_lowercase().as_str() {
+            "1" | "true" | "yes" => Some(true),
+            "0" | "false" | "no" => Some(false),
+            _ => None,
+        },
+        serde_json::Value::Number(number) => {
+            if let Some(unsigned) = number.as_u64() {
+                Some(unsigned > 0)
+            } else if let Some(signed) = number.as_i64() {
+                Some(signed > 0)
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -93,6 +214,214 @@ impl NavidromeClient {
         }
 
         url
+    }
+
+    fn native_cache_key(&self) -> String {
+        format!(
+            "{}:{}:{}:{}",
+            self.server.id, self.server.username, self.server.url, self.server.password
+        )
+    }
+
+    fn native_base_url(&self, path: &str) -> String {
+        format!(
+            "{}/{}",
+            self.server.url.trim_end_matches('/'),
+            path.trim_start_matches('/')
+        )
+    }
+
+    fn clear_native_auth_session(&self) {
+        let key = self.native_cache_key();
+        let mut cache = NATIVE_AUTH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        cache.remove(&key);
+    }
+
+    async fn ensure_native_auth_session(&self) -> Result<NativeAuthSession, String> {
+        let key = self.native_cache_key();
+        {
+            let cache = NATIVE_AUTH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(session) = cache.get(&key).cloned() {
+                return Ok(session);
+            }
+        }
+
+        let login_url = self.native_base_url("auth/login");
+        let payload = NativeLoginRequest {
+            username: self.server.username.clone(),
+            password: self.server.password.clone(),
+        };
+
+        let response = HTTP_CLIENT
+            .post(login_url)
+            .json(&payload)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+
+        if !response.status().is_success() {
+            return Err(format!(
+                "Native API login failed with status {}",
+                response.status()
+            ));
+        }
+
+        let login: NativeLoginResponse = response.json().await.map_err(|e| e.to_string())?;
+        let token = login
+            .token
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| "Native API login did not return a token.".to_string())?;
+        let client_unique_id = login
+            .id
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty())
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
+        let session = NativeAuthSession {
+            token,
+            client_unique_id,
+        };
+        let mut cache = NATIVE_AUTH_CACHE.lock().unwrap_or_else(|e| e.into_inner());
+        cache.insert(key, session.clone());
+        Ok(session)
+    }
+
+    fn normalize_native_song_list(&self, payload: serde_json::Value) -> Vec<Song> {
+        let entries = payload
+            .as_array()
+            .cloned()
+            .or_else(|| payload.get("data").and_then(|value| value.as_array()).cloned())
+            .or_else(|| payload.get("items").and_then(|value| value.as_array()).cloned())
+            .unwrap_or_default();
+
+        let mut songs = Vec::new();
+        for value in entries {
+            let id = json_pick_string(&value, &["id", "mediaFileId"]);
+            let Some(id) = id.filter(|value| !value.trim().is_empty()) else {
+                continue;
+            };
+
+            let title = json_pick_string(&value, &["title", "name"])
+                .filter(|title| !title.trim().is_empty())
+                .unwrap_or_else(|| "Unknown Song".to_string());
+            let album = json_pick_string(&value, &["album", "album_name", "albumName"]);
+            let album_id = json_pick_string(&value, &["albumId", "album_id", "album_id_fk"]);
+            let artist = json_pick_string(&value, &["artist", "artist_name", "artistName"]);
+            let artist_id = json_pick_string(&value, &["artistId", "artist_id", "artist_id_fk"]);
+            let duration = json_pick_u32(&value, &["duration", "duration_seconds"]).unwrap_or(0);
+            let track = json_pick_u32(&value, &["track", "trackNumber", "track_number"]);
+            let cover_art = json_pick_string(
+                &value,
+                &["coverArt", "coverArtId", "cover_art", "cover_art_id"],
+            )
+            .or_else(|| {
+                if json_pick_bool(&value, &["hasCoverArt", "has_cover_art"]) == Some(true) {
+                    Some(id.clone())
+                } else {
+                    None
+                }
+            });
+            let content_type = json_pick_string(&value, &["contentType", "content_type"]);
+            let suffix = json_pick_string(&value, &["suffix"]);
+            let bitrate = json_pick_u32(&value, &["bitrate"]);
+            let starred = match json_pick_bool(&value, &["starred", "isStarred"]) {
+                Some(true) => Some("native".to_string()),
+                _ => json_pick_string(&value, &["starredAt", "starred"]),
+            };
+            let user_rating =
+                json_pick_u32(&value, &["userRating", "user_rating", "rating"]).map(|value| {
+                    if value > 5 {
+                        value.min(10).div_ceil(2)
+                    } else {
+                        value
+                    }
+                });
+            let play_count = json_pick_u32(&value, &["playCount", "play_count"]);
+            let played = json_pick_string(
+                &value,
+                &["lastPlayed", "played", "playDate", "play_date"],
+            );
+            let year = json_pick_u32(&value, &["year"]);
+            let genre = json_pick_string(&value, &["genre"]);
+
+            songs.push(Song {
+                id,
+                title,
+                album,
+                album_id,
+                artist,
+                artist_id,
+                duration,
+                track,
+                cover_art,
+                content_type,
+                stream_url: None,
+                suffix,
+                bitrate,
+                starred,
+                user_rating,
+                play_count,
+                played,
+                year,
+                genre,
+                server_id: self.server.id.clone(),
+                server_name: self.server.name.clone(),
+            });
+        }
+
+        songs
+    }
+
+    pub async fn get_native_songs(
+        &self,
+        sort: NativeSongSortField,
+        order: NativeSortOrder,
+        start: usize,
+        end: usize,
+    ) -> Result<Vec<Song>, String> {
+        if end < start {
+            return Ok(Vec::new());
+        }
+
+        let url = self.native_base_url(&format!(
+            "api/song?_start={}&_end={}&_sort={}&_order={}",
+            start,
+            end,
+            sort.as_query_value(),
+            order.as_query_value()
+        ));
+
+        for attempt in 0..2 {
+            let session = self.ensure_native_auth_session().await?;
+            let response = HTTP_CLIENT
+                .get(&url)
+                .header(
+                    "x-nd-authorization",
+                    format!("Bearer {}", session.token),
+                )
+                .header("x-nd-client-unique-id", session.client_unique_id)
+                .send()
+                .await
+                .map_err(|e| e.to_string())?;
+
+            if response.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
+                self.clear_native_auth_session();
+                continue;
+            }
+
+            if !response.status().is_success() {
+                return Err(format!(
+                    "Native songs request failed with status {}",
+                    response.status()
+                ));
+            }
+
+            let payload: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
+            return Ok(self.normalize_native_song_list(payload));
+        }
+
+        Err("Native songs request could not be authorized.".to_string())
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {

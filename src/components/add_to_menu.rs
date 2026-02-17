@@ -919,7 +919,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                         )));
                         suggestions_loading.set(true);
                         let mut follow_up =
-                            fetch_similar_songs_for_seed(&servers_snapshot, &song_to_add, 2).await;
+                            fetch_similar_songs_for_seed(&servers_snapshot, &song_to_add, 8).await;
                         if let SuggestionDestination::Playlist { server_id, .. } = destination {
                             follow_up.retain(|candidate| candidate.server_id == server_id);
                         }
@@ -1054,8 +1054,8 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     };
 
     rsx! {
-        div { class: "fixed inset-0 z-[95] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3",
-            div { class: "w-full md:max-w-lg bg-zinc-900/95 border border-zinc-800 rounded-t-2xl md:rounded-2xl shadow-2xl p-5 space-y-5",
+        div { class: "fixed inset-0 z-[95] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3 pb-20 md:pb-0 pt-3 md:pt-0",
+            div { class: "w-full md:max-w-xl max-h-[82vh] overflow-y-auto bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-5 space-y-5",
                 div { class: "flex items-center justify-between gap-3",
                     div { class: "flex items-center gap-3 min-w-0",
                         if let Some(Some(cover)) = preview_cover() {
@@ -1173,7 +1173,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                                 span { class: "text-xs text-zinc-500", "4 + 4 seed suggestions" }
                             }
                             p { class: "text-xs text-zinc-500",
-                                "Quick Add will add this song and then show 2 more similar songs."
+                                "Quick Add adds the song and refreshes this list with more similar picks."
                             }
                             if suggestions_loading() {
                                 div { class: "flex items-center gap-2 text-xs text-zinc-400",

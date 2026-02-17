@@ -1206,12 +1206,6 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                                     }
                                 }
                                 button {
-                                    class: "p-2 rounded-full border border-zinc-700 text-zinc-400 hover:text-white transition-colors",
-                                    onclick: on_add_to_playlist,
-                                    title: "Add to playlist",
-                                    Icon { name: "playlist".to_string(), class: "w-4 h-4".to_string() }
-                                }
-                                button {
                                     class: if current_repeat_mode == RepeatMode::One {
                                         "p-2 rounded-full border border-emerald-500/50 text-emerald-300 hover:text-emerald-200 transition-colors"
                                     } else {
@@ -1223,6 +1217,12 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                                         name: if current_repeat_mode == RepeatMode::One { "repeat-1".to_string() } else { "repeat".to_string() },
                                         class: "w-4 h-4".to_string(),
                                     }
+                                }
+                                button {
+                                    class: "p-2 rounded-full border border-zinc-700 text-zinc-400 hover:text-white transition-colors",
+                                    onclick: on_add_to_playlist,
+                                    title: "Add to queue or playlist",
+                                    Icon { name: "playlist".to_string(), class: "w-4 h-4".to_string() }
                                 }
                             }
 
@@ -1675,6 +1675,7 @@ fn RelatedPanel(props: RelatedPanelProps) -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let is_playing = use_context::<Signal<bool>>();
     let controller = use_context::<SongDetailsController>();
+    let add_menu = use_context::<AddMenuController>();
 
     let Some(related) = props.related.clone() else {
         return rsx! {
@@ -1751,7 +1752,25 @@ fn RelatedPanel(props: RelatedPanelProps) -> Element {
                             "{related_song.artist.clone().unwrap_or_default()}"
                         }
                     }
-                    span { class: "text-xs text-zinc-500 font-mono", "{format_duration(related_song.duration)}" }
+                    div { class: "flex items-center gap-2 flex-shrink-0",
+                        span { class: "text-xs text-zinc-500 font-mono", "{format_duration(related_song.duration)}" }
+                        button {
+                            class: "p-1.5 rounded-md border border-zinc-700 text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors",
+                            title: "Add to queue or playlist",
+                            onclick: {
+                                let mut add_menu = add_menu.clone();
+                                let related_song = related_song.clone();
+                                move |evt: MouseEvent| {
+                                    evt.stop_propagation();
+                                    add_menu.open(AddIntent::from_song(related_song.clone()));
+                                }
+                            },
+                            Icon {
+                                name: "playlist".to_string(),
+                                class: "w-3.5 h-3.5".to_string(),
+                            }
+                        }
+                    }
                 }
             }
         }

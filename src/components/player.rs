@@ -2,8 +2,8 @@ use crate::api::models::format_duration;
 use crate::api::*;
 use crate::components::audio_manager::spawn_shuffle_queue;
 use crate::components::{
-    seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, SongDetailsController,
-    VolumeSignal,
+    seek_to, AddIntent, AddMenuController, AppView, AudioState, Icon, Navigation,
+    PlaybackPositionSignal, SongDetailsController, VolumeSignal,
 };
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
@@ -309,7 +309,7 @@ pub fn Player() -> Element {
                 // Player controls
                 div { class: "flex flex-col items-center gap-3 w-full md:flex-1 md:max-w-2xl",
                     // Control buttons
-                    div { class: "flex flex-wrap items-center gap-6 md:gap-4 justify-center",
+                    div { class: "flex items-center gap-1.5 sm:gap-2 md:gap-4 justify-center w-full",
                         // Bookmark button
                         BookmarkButton {}
                         // Rating button
@@ -322,6 +322,8 @@ pub fn Player() -> Element {
                         NextButton {}
                         // Repeat button
                         RepeatButton {}
+                        // Add menu button
+                        AddToMenuButton {}
                     }
                     // Progress bar
                     div { class: "flex items-center gap-2 md:gap-3 w-full",
@@ -389,7 +391,7 @@ fn BookmarkButton() -> Element {
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let saving = use_signal(|| false);
     let saved = use_signal(|| false);
-    let base_class = "hidden sm:flex items-center justify-center";
+    let base_class = "flex items-center justify-center";
 
     {
         let now_playing = now_playing.clone();
@@ -442,15 +444,15 @@ fn BookmarkButton() -> Element {
             r#type: "button",
             disabled: !has_song || saving() || is_live_radio,
             class: if saved() { format!(
-                "{base_class} p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors",
-            ) } else { format!("{base_class} p-3 md:p-2 text-zinc-400 hover:text-white transition-colors") },
+                "{base_class} p-1.5 sm:p-2 text-emerald-400 hover:text-emerald-300 transition-colors",
+            ) } else { format!("{base_class} p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors") },
             onclick: on_save,
             if saving() {
                 Icon { name: "loader".to_string(), class: "w-5 h-5".to_string() }
             } else {
                 Icon {
                     name: "bookmark".to_string(),
-                    class: "w-5 h-5".to_string(),
+                    class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
                 }
             }
         }
@@ -520,11 +522,11 @@ fn RatingButton() -> Element {
                 id: "rating-btn",
                 r#type: "button",
                 disabled: !has_song,
-                class: if current_rating > 0 { "p-3 md:p-2 text-amber-400 hover:text-amber-300 transition-colors" } else { "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors" },
+                class: if current_rating > 0 { "p-1.5 sm:p-2 text-amber-400 hover:text-amber-300 transition-colors" } else { "p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors" },
                 onclick: move |_| rating_open.set(!rating_open()),
                 Icon {
                     name: if current_rating > 0 { "star-filled".to_string() } else { "star".to_string() },
-                    class: "w-5 h-5".to_string(),
+                    class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
                 }
             }
             if rating_open() && has_song {
@@ -607,7 +609,7 @@ fn PrevButton() -> Element {
             id: "prev-btn",
             r#type: "button",
             disabled: is_radio,
-            class: if is_radio { "p-3 md:p-2 text-zinc-600 cursor-not-allowed" } else { "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors" },
+            class: if is_radio { "p-1.5 sm:p-2 text-zinc-600 cursor-not-allowed" } else { "p-1.5 sm:p-2 text-zinc-300 hover:text-white transition-colors" },
             onclick: move |_| {
                 if is_radio {
                     return;
@@ -625,7 +627,7 @@ fn PrevButton() -> Element {
                     }
                 }
             },
-            Icon { name: "prev".to_string(), class: "w-5 h-5".to_string() }
+            Icon { name: "prev".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
         }
     }
 }
@@ -651,7 +653,7 @@ fn NextButton() -> Element {
             id: "next-btn",
             r#type: "button",
             disabled: is_radio,
-            class: if is_radio { "p-3 md:p-2 text-zinc-600 cursor-not-allowed" } else { "p-3 md:p-2 text-zinc-300 hover:text-white transition-colors" },
+            class: if is_radio { "p-1.5 sm:p-2 text-zinc-600 cursor-not-allowed" } else { "p-1.5 sm:p-2 text-zinc-300 hover:text-white transition-colors" },
             onclick: move |_| {
                 if is_radio {
                     return;
@@ -716,7 +718,7 @@ fn NextButton() -> Element {
                     }
                 }
             },
-            Icon { name: "next".to_string(), class: "w-5 h-5".to_string() }
+            Icon { name: "next".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
         }
     }
 }
@@ -732,9 +734,9 @@ fn RepeatButton() -> Element {
             id: "repeat-btn",
             r#type: "button",
             class: match mode {
-                RepeatMode::Off => "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors",
+                RepeatMode::Off => "p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors",
                 RepeatMode::All | RepeatMode::One => {
-                    "p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
+                    "p-1.5 sm:p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
                 }
             },
             onclick: move |_| {
@@ -750,7 +752,51 @@ fn RepeatButton() -> Element {
                     RepeatMode::One => "repeat-1".to_string(),
                     _ => "repeat".to_string(),
                 },
-                class: "w-5 h-5".to_string(),
+                class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
+            }
+        }
+    }
+}
+
+/// Add current song to queue/playlist menu
+#[component]
+fn AddToMenuButton() -> Element {
+    let now_playing = use_context::<Signal<Option<Song>>>();
+    let add_menu = use_context::<AddMenuController>();
+
+    let current_song = now_playing();
+    let is_live_radio = current_song
+        .as_ref()
+        .map(|song| song.server_name == "Radio")
+        .unwrap_or(false);
+    let has_song = current_song.is_some() && !is_live_radio;
+
+    let on_open_add_menu = {
+        let mut add_menu = add_menu.clone();
+        move |_| {
+            if let Some(song) = now_playing() {
+                if song.server_name == "Radio" {
+                    return;
+                }
+                add_menu.open(AddIntent::from_song(song));
+            }
+        }
+    };
+
+    rsx! {
+        button {
+            id: "add-menu-btn",
+            r#type: "button",
+            disabled: !has_song,
+            class: if has_song {
+                "p-1.5 sm:p-2 text-zinc-300 hover:text-white transition-colors"
+            } else {
+                "p-1.5 sm:p-2 text-zinc-600 cursor-not-allowed"
+            },
+            onclick: on_open_add_menu,
+            Icon {
+                name: "playlist".to_string(),
+                class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
             }
         }
     }
