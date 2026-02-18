@@ -1,9 +1,10 @@
 use crate::api::models::*;
 use crate::cache_service::{
-    get_json as cache_get_json, put_json as cache_put_json, remove_by_prefix as cache_remove_prefix,
+    get_json as cache_get_json, is_offline_mode, put_json as cache_put_json,
+    remove_by_prefix as cache_remove_prefix,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use crate::offline_art::{cached_cover_art_url, maybe_prefetch_cover_art};
+use crate::offline_art::{cached_cover_art_data_url, maybe_prefetch_cover_art};
 use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use dioxus::document;
@@ -74,7 +75,10 @@ struct NativeLoginResponse {
     id: Option<String>,
 }
 
-fn json_pick_value<'a>(value: &'a serde_json::Value, keys: &[&str]) -> Option<&'a serde_json::Value> {
+fn json_pick_value<'a>(
+    value: &'a serde_json::Value,
+    keys: &[&str],
+) -> Option<&'a serde_json::Value> {
     let object = value.as_object()?;
     for key in keys {
         if let Some(found) = object.get(*key) {
@@ -204,6 +208,9 @@ impl NavidromeClient {
     }
 
     fn build_url(&self, endpoint: &str, extra_params: &[(&str, &str)]) -> String {
+        if is_offline_mode() {
+            return "offline://network-blocked".to_string();
+        }
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
 
@@ -215,6 +222,9 @@ impl NavidromeClient {
     }
 
     fn build_url_owned(&self, endpoint: &str, extra_params: Vec<(String, String)>) -> String {
+        if is_offline_mode() {
+            return "offline://network-blocked".to_string();
+        }
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
 
@@ -310,8 +320,18 @@ impl NavidromeClient {
         let entries = payload
             .as_array()
             .cloned()
-            .or_else(|| payload.get("data").and_then(|value| value.as_array()).cloned())
-            .or_else(|| payload.get("items").and_then(|value| value.as_array()).cloned())
+            .or_else(|| {
+                payload
+                    .get("data")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
+            .or_else(|| {
+                payload
+                    .get("items")
+                    .and_then(|value| value.as_array())
+                    .cloned()
+            })
             .unwrap_or_default();
 
         let mut songs = Vec::new();
@@ -357,10 +377,8 @@ impl NavidromeClient {
                     }
                 });
             let play_count = json_pick_u32(&value, &["playCount", "play_count"]);
-            let played = json_pick_string(
-                &value,
-                &["lastPlayed", "played", "playDate", "play_date"],
-            );
+            let played =
+                json_pick_string(&value, &["lastPlayed", "played", "playDate", "play_date"]);
             let year = json_pick_u32(&value, &["year"]);
             let genre = json_pick_string(&value, &["genre"]);
 
@@ -415,10 +433,7 @@ impl NavidromeClient {
             let session = self.ensure_native_auth_session().await?;
             let response = HTTP_CLIENT
                 .get(&url)
-                .header(
-                    "x-nd-authorization",
-                    format!("Bearer {}", session.token),
-                )
+                .header("x-nd-authorization", format!("Bearer {}", session.token))
                 .header("x-nd-client-unique-id", session.client_unique_id)
                 .send()
                 .await
@@ -449,23 +464,29 @@ impl NavidromeClient {
         #[cfg(not(target_arch = "wasm32"))]
         let requested_size = size;
 
-        let remote_url = self.build_cover_art_network_url(cover_art_id, requested_size);
+        let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
 
         #[cfg(not(target_arch = "wasm32"))]
+        if let Some(data_url) =
+            cached_cover_art_data_url(&self.server.id, &normalized_cover_art_id, requested_size)
         {
-            if let Some(local_url) =
-                cached_cover_art_url(&self.server.id, cover_art_id, requested_size)
-            {
-                return local_url;
-            }
-
-            maybe_prefetch_cover_art(
-                self.server.id.clone(),
-                cover_art_id.to_string(),
-                requested_size,
-                remote_url.clone(),
-            );
+            return data_url;
         }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if is_offline_mode() {
+            return String::new();
+        }
+
+        let remote_url = self.build_cover_art_network_url(&normalized_cover_art_id, requested_size);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        maybe_prefetch_cover_art(
+            self.server.id.clone(),
+            normalized_cover_art_id.clone(),
+            requested_size,
+            remote_url.clone(),
+        );
 
         remote_url
     }
@@ -1382,8 +1403,10 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
-        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
-            self.server.id, playlist_id));
+        let _ = cache_remove_prefix(&format!(
+            "api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id
+        ));
         self.invalidate_playlist_cache();
         Ok(())
     }
@@ -1428,8 +1451,10 @@ impl NavidromeClient {
                 .unwrap_or_else(|| "Unknown error".to_string()));
         }
 
-        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
-            self.server.id, playlist_id));
+        let _ = cache_remove_prefix(&format!(
+            "api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id
+        ));
         self.invalidate_playlist_cache();
         Ok(())
     }
@@ -1469,8 +1494,10 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
-        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
-            self.server.id, playlist_id));
+        let _ = cache_remove_prefix(&format!(
+            "api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id
+        ));
         self.invalidate_playlist_cache();
         Ok(())
     }
@@ -1511,8 +1538,10 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
-        let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:{}",
-            self.server.id, playlist_id));
+        let _ = cache_remove_prefix(&format!(
+            "api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id
+        ));
         self.invalidate_playlist_cache();
         Ok(())
     }
@@ -1753,6 +1782,30 @@ impl NavidromeClient {
 
         Ok(())
     }
+}
+
+fn normalize_cover_art_id(cover_art_id: &str) -> String {
+    let trimmed = cover_art_id.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    // Navidrome can expose cache-busted ids like `mf-abc123_69733a55` in some payloads.
+    // Subsonic `getCoverArt` expects the stable id portion (`mf-abc123`).
+    if let Some((base, suffix)) = trimmed.rsplit_once('_') {
+        if !base.is_empty()
+            && suffix.len() == 8
+            && suffix.chars().all(|ch| ch.is_ascii_hexdigit())
+            && (base.starts_with("mf-")
+                || base.starts_with("ar-")
+                || base.starts_with("al-")
+                || base.starts_with("pl-"))
+        {
+            return base.to_string();
+        }
+    }
+
+    trimmed.to_string()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

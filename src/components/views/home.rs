@@ -1,9 +1,20 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
-use crate::diagnostics::log_perf;
+use crate::db::AppSettings;
+use crate::diagnostics::{log_perf, PerfTimer};
+use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
 use dioxus::prelude::*;
-use std::time::Instant;
+
+const HOME_ALBUM_PREVIEW_LIMIT: u32 = 8;
+const HOME_RANDOM_PREVIEW_LIMIT: usize = 10;
+const HOME_QUICK_PICK_LIMIT: usize = 8;
+const HOME_SECTION_BASE_COUNT: usize = 9;
+const HOME_SECTION_LOAD_STEP: usize = 6;
+const HOME_SECTION_CACHE_COUNT: usize = HOME_SECTION_BASE_COUNT + HOME_SECTION_LOAD_STEP;
+const HOME_SECTION_FETCH_LIMIT: usize = 30;
+#[cfg(not(target_arch = "wasm32"))]
+const HOME_LYRICS_PREFETCH_LIMIT: usize = 4;
 
 async fn fetch_albums_for_servers(
     active_servers: &[ServerConfig],
@@ -56,6 +67,33 @@ fn dedupe_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
     output
 }
 
+#[cfg(target_arch = "wasm32")]
+fn derive_web_song_sections(
+    mut pool: Vec<Song>,
+    section_limit: usize,
+) -> (Vec<Song>, Vec<Song>, Vec<Song>) {
+    if pool.is_empty() || section_limit == 0 {
+        return (Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let recent = dedupe_songs(pool.clone(), section_limit);
+
+    if pool.len() > 1 {
+        let step = (section_limit / 2).max(1).min(pool.len().saturating_sub(1));
+        pool.rotate_left(step);
+    }
+    let most_played = dedupe_songs(pool.clone(), section_limit);
+
+    if pool.len() > 1 {
+        let step = (section_limit / 3).max(1).min(pool.len().saturating_sub(1));
+        pool.rotate_left(step);
+    }
+    let random = dedupe_songs(pool, HOME_RANDOM_PREVIEW_LIMIT);
+
+    (recent, most_played, random)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 async fn prefetch_lrclib_lyrics_for_songs(songs: Vec<Song>, limit: usize) {
     if limit == 0 || songs.is_empty() {
         return;
@@ -64,7 +102,7 @@ async fn prefetch_lrclib_lyrics_for_songs(songs: Vec<Song>, limit: usize) {
     let providers = vec!["lrclib".to_string()];
     let mut seen = std::collections::HashSet::<String>::new();
     let mut prefetched = 0usize;
-    let start = Instant::now();
+    let start = PerfTimer::now();
 
     for song in songs {
         let key = song_key(&song);
@@ -145,6 +183,7 @@ async fn fetch_native_activity_songs_for_servers(
 }
 
 #[cfg(target_arch = "wasm32")]
+#[allow(dead_code)]
 async fn fetch_native_activity_songs_for_servers(
     active_servers: &[ServerConfig],
     _sort: NativeSongSortField,
@@ -165,11 +204,18 @@ async fn fetch_similar_songs_for_seeds(
         return Vec::new();
     }
 
-    let seed_keys = seeds.iter().map(song_key).collect::<std::collections::HashSet<_>>();
+    let seed_keys = seeds
+        .iter()
+        .map(song_key)
+        .collect::<std::collections::HashSet<_>>();
     let mut similar = Vec::<Song>::new();
 
     for seed in seeds.iter().take(8).cloned() {
-        let Some(server) = active_servers.iter().find(|s| s.id == seed.server_id).cloned() else {
+        let Some(server) = active_servers
+            .iter()
+            .find(|s| s.id == seed.server_id)
+            .cloned()
+        else {
             continue;
         };
 
@@ -296,6 +342,9 @@ pub fn HomeView() -> Element {
     let random_songs = use_signal(|| None::<Vec<Song>>);
     let quick_picks = use_signal(|| None::<Vec<Song>>);
     let load_generation = use_signal(|| 0u64);
+    let mut most_played_album_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
+    let mut most_played_song_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
+    let mut last_played_song_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
 
     {
         let servers = servers.clone();
@@ -315,7 +364,7 @@ pub fn HomeView() -> Element {
                 .map(|server| server.id.clone())
                 .collect();
             cache_server_ids.sort();
-            let cache_prefix = format!("view:home:v1:{}", cache_server_ids.join("|"));
+            let cache_prefix = format!("view:home:v2:{}", cache_server_ids.join("|"));
             let recent_cache_key = format!("{cache_prefix}:recent_albums");
             let most_played_album_cache_key = format!("{cache_prefix}:most_played_albums");
             let recent_song_cache_key = format!("{cache_prefix}:recent_songs");
@@ -344,10 +393,167 @@ pub fn HomeView() -> Element {
             }
 
             spawn(async move {
-                let total_start = Instant::now();
+                let total_start = PerfTimer::now();
 
-                let recent_start = Instant::now();
-                let recent = fetch_albums_for_servers(&active_servers, "newest", 12).await;
+                #[cfg(not(target_arch = "wasm32"))]
+                let (recent_played, most_played_song_items, random_song_items) = {
+                    let recent_played_start = PerfTimer::now();
+                    let recent_played = fetch_native_activity_songs_for_servers(
+                        &active_servers,
+                        NativeSongSortField::PlayDate,
+                        HOME_SECTION_FETCH_LIMIT as u32,
+                    )
+                    .await;
+                    let recent_cached: Vec<Song> = recent_played
+                        .iter()
+                        .take(HOME_SECTION_CACHE_COUNT)
+                        .cloned()
+                        .collect();
+                    let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
+                    log_perf(
+                        "home.recently_played_songs",
+                        recent_played_start,
+                        &format!("count={}", recent_played.len()),
+                    );
+                    if *load_generation.peek() != generation {
+                        return;
+                    }
+                    recently_played_songs.set(Some(recent_played.clone()));
+                    home_fetch_yield().await;
+
+                    let most_played_song_start = PerfTimer::now();
+                    let most_played_song_items = fetch_native_activity_songs_for_servers(
+                        &active_servers,
+                        NativeSongSortField::PlayCount,
+                        HOME_SECTION_FETCH_LIMIT as u32,
+                    )
+                    .await;
+                    let most_played_cached: Vec<Song> = most_played_song_items
+                        .iter()
+                        .take(HOME_SECTION_CACHE_COUNT)
+                        .cloned()
+                        .collect();
+                    let _ = cache_put_json(
+                        most_played_song_cache_key.clone(),
+                        &most_played_cached,
+                        Some(6),
+                    );
+                    log_perf(
+                        "home.most_played_songs",
+                        most_played_song_start,
+                        &format!("count={}", most_played_song_items.len()),
+                    );
+                    if *load_generation.peek() != generation {
+                        return;
+                    }
+                    most_played_songs.set(Some(most_played_song_items.clone()));
+                    home_fetch_yield().await;
+
+                    let random_start = PerfTimer::now();
+                    let random_song_items = fetch_random_songs_for_servers(
+                        &active_servers,
+                        HOME_RANDOM_PREVIEW_LIMIT as u32,
+                    )
+                    .await;
+                    let _ =
+                        cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
+                    log_perf(
+                        "home.random_songs",
+                        random_start,
+                        &format!("count={}", random_song_items.len()),
+                    );
+                    if *load_generation.peek() != generation {
+                        return;
+                    }
+                    random_songs.set(Some(random_song_items.clone()));
+                    home_fetch_yield().await;
+
+                    (recent_played, most_played_song_items, random_song_items)
+                };
+
+                #[cfg(target_arch = "wasm32")]
+                let (_recent_played, most_played_song_items, random_song_items) = {
+                    let web_song_start = PerfTimer::now();
+                    let pool_size =
+                        (HOME_SECTION_FETCH_LIMIT * 3).max(HOME_RANDOM_PREVIEW_LIMIT * 2);
+                    let song_pool =
+                        fetch_random_songs_for_servers(&active_servers, pool_size as u32).await;
+                    let (recent_played, most_played_song_items, random_song_items) =
+                        derive_web_song_sections(song_pool, HOME_SECTION_FETCH_LIMIT);
+
+                    let recent_cached: Vec<Song> = recent_played
+                        .iter()
+                        .take(HOME_SECTION_CACHE_COUNT)
+                        .cloned()
+                        .collect();
+                    let most_played_cached: Vec<Song> = most_played_song_items
+                        .iter()
+                        .take(HOME_SECTION_CACHE_COUNT)
+                        .cloned()
+                        .collect();
+                    let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
+                    let _ = cache_put_json(
+                        most_played_song_cache_key.clone(),
+                        &most_played_cached,
+                        Some(6),
+                    );
+                    let _ =
+                        cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
+
+                    log_perf(
+                        "home.web_song_sections",
+                        web_song_start,
+                        &format!(
+                            "recent={} most_played={} random={}",
+                            recent_played.len(),
+                            most_played_song_items.len(),
+                            random_song_items.len()
+                        ),
+                    );
+                    if *load_generation.peek() != generation {
+                        return;
+                    }
+                    recently_played_songs.set(Some(recent_played.clone()));
+                    most_played_songs.set(Some(most_played_song_items.clone()));
+                    random_songs.set(Some(random_song_items.clone()));
+                    home_fetch_yield().await;
+
+                    (recent_played, most_played_song_items, random_song_items)
+                };
+
+                let quick_pick_start = PerfTimer::now();
+                let mut quick = build_quick_picks_mix(
+                    &active_servers,
+                    &most_played_song_items,
+                    HOME_QUICK_PICK_LIMIT,
+                )
+                .await;
+                if quick.is_empty() {
+                    quick = dedupe_songs(random_song_items.clone(), HOME_QUICK_PICK_LIMIT);
+                }
+                if quick.is_empty() {
+                    quick = fetch_random_songs_for_servers(
+                        &active_servers,
+                        HOME_QUICK_PICK_LIMIT as u32,
+                    )
+                    .await;
+                }
+                let _ = cache_put_json(quick_pick_cache_key.clone(), &quick, Some(3));
+                log_perf(
+                    "home.quick_picks",
+                    quick_pick_start,
+                    &format!("count={}", quick.len()),
+                );
+                if *load_generation.peek() != generation {
+                    return;
+                }
+                quick_picks.set(Some(quick));
+                home_fetch_yield().await;
+
+                let recent_start = PerfTimer::now();
+                let recent =
+                    fetch_albums_for_servers(&active_servers, "newest", HOME_ALBUM_PREVIEW_LIMIT)
+                        .await;
                 let _ = cache_put_json(recent_cache_key.clone(), &recent, Some(6));
                 log_perf(
                     "home.recent_albums",
@@ -360,9 +566,23 @@ pub fn HomeView() -> Element {
                 recent_albums.set(Some(recent));
                 home_fetch_yield().await;
 
-                let most_played_start = Instant::now();
-                let most_played = fetch_albums_for_servers(&active_servers, "frequent", 12).await;
-                let _ = cache_put_json(most_played_album_cache_key.clone(), &most_played, Some(6));
+                let most_played_start = PerfTimer::now();
+                let most_played = fetch_albums_for_servers(
+                    &active_servers,
+                    "frequent",
+                    HOME_SECTION_FETCH_LIMIT as u32,
+                )
+                .await;
+                let most_played_cached: Vec<Album> = most_played
+                    .iter()
+                    .take(HOME_SECTION_CACHE_COUNT)
+                    .cloned()
+                    .collect();
+                let _ = cache_put_json(
+                    most_played_album_cache_key.clone(),
+                    &most_played_cached,
+                    Some(6),
+                );
                 log_perf(
                     "home.most_played_albums",
                     most_played_start,
@@ -372,80 +592,6 @@ pub fn HomeView() -> Element {
                     return;
                 }
                 most_played_albums.set(Some(most_played));
-                home_fetch_yield().await;
-
-                let recent_played_start = Instant::now();
-                let recent_played = fetch_native_activity_songs_for_servers(
-                    &active_servers,
-                    NativeSongSortField::PlayDate,
-                    12,
-                )
-                .await;
-                let _ = cache_put_json(recent_song_cache_key.clone(), &recent_played, Some(3));
-                log_perf(
-                    "home.recently_played_songs",
-                    recent_played_start,
-                    &format!("count={}", recent_played.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                recently_played_songs.set(Some(recent_played.clone()));
-                home_fetch_yield().await;
-
-                let most_played_song_start = Instant::now();
-                let most_played_song_items = fetch_native_activity_songs_for_servers(
-                    &active_servers,
-                    NativeSongSortField::PlayCount,
-                    12,
-                )
-                .await;
-                let _ = cache_put_json(
-                    most_played_song_cache_key.clone(),
-                    &most_played_song_items,
-                    Some(6),
-                );
-                log_perf(
-                    "home.most_played_songs",
-                    most_played_song_start,
-                    &format!("count={}", most_played_song_items.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                most_played_songs.set(Some(most_played_song_items.clone()));
-                home_fetch_yield().await;
-
-                let random_start = Instant::now();
-                let random_song_items = fetch_random_songs_for_servers(&active_servers, 16).await;
-                let _ = cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
-                log_perf(
-                    "home.random_songs",
-                    random_start,
-                    &format!("count={}", random_song_items.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                random_songs.set(Some(random_song_items));
-                home_fetch_yield().await;
-
-                let quick_pick_start = Instant::now();
-                let mut quick =
-                    build_quick_picks_mix(&active_servers, &most_played_song_items, 12).await;
-                if quick.is_empty() {
-                    quick = fetch_random_songs_for_servers(&active_servers, 12).await;
-                }
-                let _ = cache_put_json(quick_pick_cache_key.clone(), &quick, Some(3));
-                log_perf(
-                    "home.quick_picks",
-                    quick_pick_start,
-                    &format!("count={}", quick.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                quick_picks.set(Some(quick));
 
                 log_perf(
                     "home.total",
@@ -453,11 +599,15 @@ pub fn HomeView() -> Element {
                     &format!("servers={}", active_servers.len()),
                 );
 
-                let mut lyrics_seeds = most_played_song_items.clone();
-                lyrics_seeds.extend(recent_played.into_iter());
-                spawn(async move {
-                    prefetch_lrclib_lyrics_for_songs(lyrics_seeds, 8).await;
-                });
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let mut lyrics_seeds = most_played_song_items.clone();
+                    lyrics_seeds.extend(recent_played.into_iter());
+                    spawn(async move {
+                        prefetch_lrclib_lyrics_for_songs(lyrics_seeds, HOME_LYRICS_PREFETCH_LIMIT)
+                            .await;
+                    });
+                }
             });
         });
     }
@@ -638,31 +788,50 @@ pub fn HomeView() -> Element {
 
                     {
                         match most_played_albums() {
-                            Some(albums) => rsx! {
-                                div { class: "overflow-x-auto",
-                                    div { class: "flex gap-4 pb-2 min-w-min",
-                                        for album in albums {
-                                            div { class: "w-32 flex-shrink-0",
-                                                AlbumCard {
-                                                    album: album.clone(),
-                                                    onclick: {
-                                                        let navigation = navigation.clone();
-                                                        let album_id = album.id.clone();
-                                                        let album_server_id = album.server_id.clone();
-                                                        move |_| {
-                                                            navigation
-                                                                .navigate_to(AppView::AlbumDetailView {
-                                                                    album_id: album_id.clone(),
-                                                                    server_id: album_server_id.clone(),
-                                                                })
-                                                        }
-                                                    },
+                            Some(albums) => {
+                                let visible = most_played_album_visible().min(albums.len());
+                                let display: Vec<Album> =
+                                    albums.iter().take(visible).cloned().collect();
+                                rsx! {
+                                    div { class: "overflow-x-auto",
+                                        div { class: "flex gap-4 pb-2 min-w-min",
+                                            for album in display {
+                                                div { class: "w-32 flex-shrink-0",
+                                                    AlbumCard {
+                                                        album: album.clone(),
+                                                        onclick: {
+                                                            let navigation = navigation.clone();
+                                                            let album_id = album.id.clone();
+                                                            let album_server_id = album.server_id.clone();
+                                                            move |_| {
+                                                                navigation
+                                                                    .navigate_to(AppView::AlbumDetailView {
+                                                                        album_id: album_id.clone(),
+                                                                        server_id: album_server_id.clone(),
+                                                                    })
+                                                            }
+                                                        },
+                                                    }
                                                 }
                                             }
                                         }
                                     }
+                                    if albums.len() > visible {
+                                        div { class: "flex justify-end mt-2",
+                                            button {
+                                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-sm flex items-center gap-2",
+                                                onclick: move |_| {
+                                                    most_played_album_visible.with_mut(|count| {
+                                                        *count = count.saturating_add(HOME_SECTION_LOAD_STEP);
+                                                    });
+                                                },
+                                                "Load 6 more"
+                                                Icon { name: "next".to_string(), class: "w-4 h-4".to_string() }
+                                            }
+                                        }
+                                    }
                                 }
-                            },
+                            }
                             None => rsx! {
                                 div { class: "flex items-center justify-center py-12",
                                     Icon {
@@ -691,27 +860,46 @@ pub fn HomeView() -> Element {
 
                     {
                         match most_played_songs() {
-                            Some(songs) => rsx! {
-                                div { class: "overflow-x-auto",
-                                    div { class: "flex gap-4 pb-2 min-w-min",
-                                        for (index , song) in songs.iter().enumerate() {
-                                            SongCard {
-                                                song: song.clone(),
-                                                onclick: {
-                                                    let song = song.clone();
-                                                    let songs_for_queue = songs.clone();
-                                                    move |_| {
-                                                        queue.set(songs_for_queue.clone());
-                                                        queue_index.set(index);
-                                                        now_playing.set(Some(song.clone()));
-                                                        is_playing.set(true);
-                                                    }
+                            Some(songs) => {
+                                let visible = most_played_song_visible().min(songs.len());
+                                let display: Vec<Song> =
+                                    songs.iter().take(visible).cloned().collect();
+                                rsx! {
+                                    div { class: "overflow-x-auto",
+                                        div { class: "flex gap-4 pb-2 min-w-min",
+                                            for (index , song) in display.iter().enumerate() {
+                                                SongCard {
+                                                    song: song.clone(),
+                                                    onclick: {
+                                                        let song = song.clone();
+                                                        let songs_for_queue = songs.clone();
+                                                        move |_| {
+                                                            queue.set(songs_for_queue.clone());
+                                                            queue_index.set(index);
+                                                            now_playing.set(Some(song.clone()));
+                                                            is_playing.set(true);
+                                                        }
+                                                    },
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if songs.len() > visible {
+                                        div { class: "flex justify-end mt-2",
+                                            button {
+                                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-sm flex items-center gap-2",
+                                                onclick: move |_| {
+                                                    most_played_song_visible.with_mut(|count| {
+                                                        *count = count.saturating_add(HOME_SECTION_LOAD_STEP);
+                                                    });
                                                 },
+                                                "Load 6 more"
+                                                Icon { name: "next".to_string(), class: "w-4 h-4".to_string() }
                                             }
                                         }
                                     }
                                 }
-                            },
+                            }
                             None => rsx! {
                                 div { class: "flex items-center justify-center py-12",
                                     Icon {
@@ -740,27 +928,46 @@ pub fn HomeView() -> Element {
 
                     {
                         match recently_played_songs() {
-                            Some(songs) => rsx! {
-                                div { class: "overflow-x-auto",
-                                    div { class: "flex gap-4 pb-2 min-w-min",
-                                        for (index , song) in songs.iter().enumerate() {
-                                            SongCard {
-                                                song: song.clone(),
-                                                onclick: {
-                                                    let song = song.clone();
-                                                    let songs_for_queue = songs.clone();
-                                                    move |_| {
-                                                        queue.set(songs_for_queue.clone());
-                                                        queue_index.set(index);
-                                                        now_playing.set(Some(song.clone()));
-                                                        is_playing.set(true);
-                                                    }
+                            Some(songs) => {
+                                let visible = last_played_song_visible().min(songs.len());
+                                let display: Vec<Song> =
+                                    songs.iter().take(visible).cloned().collect();
+                                rsx! {
+                                    div { class: "overflow-x-auto",
+                                        div { class: "flex gap-4 pb-2 min-w-min",
+                                            for (index , song) in display.iter().enumerate() {
+                                                SongCard {
+                                                    song: song.clone(),
+                                                    onclick: {
+                                                        let song = song.clone();
+                                                        let songs_for_queue = songs.clone();
+                                                        move |_| {
+                                                            queue.set(songs_for_queue.clone());
+                                                            queue_index.set(index);
+                                                            now_playing.set(Some(song.clone()));
+                                                            is_playing.set(true);
+                                                        }
+                                                    },
+                                                }
+                                            }
+                                        }
+                                    }
+                                    if songs.len() > visible {
+                                        div { class: "flex justify-end mt-2",
+                                            button {
+                                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-sm flex items-center gap-2",
+                                                onclick: move |_| {
+                                                    last_played_song_visible.with_mut(|count| {
+                                                        *count = count.saturating_add(HOME_SECTION_LOAD_STEP);
+                                                    });
                                                 },
+                                                "Load 6 more"
+                                                Icon { name: "next".to_string(), class: "w-4 h-4".to_string() }
                                             }
                                         }
                                     }
                                 }
-                            },
+                            }
                             None => rsx! {
                                 div { class: "flex items-center justify-center py-12",
                                     Icon {
@@ -896,6 +1103,7 @@ fn QuickPlayCard(title: String, gradient: String, onclick: EventHandler<MouseEve
 #[component]
 fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let navigation = use_context::<Navigation>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
@@ -912,7 +1120,23 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 .map(|ca| client.get_cover_art_url(ca, 120))
         });
 
-    let artist_id = song.artist_id.clone();
+    let album_id = song.album_id.clone();
+    let server_id = song.server_id.clone();
+
+    let on_album_click_artist = {
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let navigation = navigation.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
+        }
+    };
 
     let make_on_open_menu = {
         let add_menu = add_menu.clone();
@@ -1020,8 +1244,10 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
             p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors max-w-full",
                 "{song.title}"
             }
-            if artist_id.is_some() {
-                p { class: "text-xs text-zinc-400 truncate max-w-full",
+            if album_id.is_some() {
+                button {
+                    class: "text-xs text-zinc-400 truncate max-w-full text-left hover:text-emerald-400 transition-colors",
+                    onclick: on_album_click_artist,
                     "{song.artist.clone().unwrap_or_default()}"
                 }
             } else {
@@ -1169,13 +1395,22 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 }
 
 #[component]
-pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
+pub fn SongRow(
+    song: Song,
+    index: usize,
+    onclick: EventHandler<MouseEvent>,
+    #[props(default)] show_download: bool,
+) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
+    let download_busy = use_signal(|| false);
+    let initially_downloaded = is_song_downloaded(&song);
+    let downloaded = use_signal(move || initially_downloaded);
 
     let cover_url = servers()
         .iter()
@@ -1188,7 +1423,6 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
         });
 
     let album_id = song.album_id.clone();
-    let artist_id = song.artist_id.clone();
     let server_id = song.server_id.clone();
 
     let on_album_click_cover = {
@@ -1207,6 +1441,21 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
     };
 
     let on_album_click_text = {
+        let album_id = album_id.clone();
+        let server_id = server_id.clone();
+        let navigation = navigation.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(album_id_val) = album_id.clone() {
+                navigation.navigate_to(AppView::AlbumDetailView {
+                    album_id: album_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
+        }
+    };
+
+    let on_album_click_artist = {
         let album_id = album_id.clone();
         let server_id = server_id.clone();
         let navigation = navigation.clone();
@@ -1270,6 +1519,37 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
         }
     };
 
+    let on_download_song = {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let song = song.clone();
+        let mut download_busy = download_busy.clone();
+        let mut downloaded = downloaded.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if download_busy() || downloaded() {
+                return;
+            }
+            let servers_snapshot = servers();
+            if servers_snapshot.is_empty() {
+                return;
+            }
+            let mut settings_snapshot = app_settings();
+            settings_snapshot.downloads_enabled = true;
+            download_busy.set(true);
+            let song = song.clone();
+            spawn(async move {
+                if prefetch_song_audio(&song, &servers_snapshot, &settings_snapshot)
+                    .await
+                    .is_ok()
+                {
+                    downloaded.set(true);
+                }
+                download_busy.set(false);
+            });
+        }
+    };
+
     rsx! {
         div {
             class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
@@ -1319,8 +1599,10 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
                 p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
                     "{song.title}"
                 }
-                if artist_id.is_some() {
-                    p { class: "text-xs text-zinc-400 truncate",
+                if album_id.is_some() {
+                    button {
+                        class: "text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors text-left",
+                        onclick: on_album_click_artist,
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 } else {
@@ -1345,6 +1627,30 @@ pub fn SongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> E
             }
             // Duration and actions
             div { class: "flex items-center gap-3",
+                if show_download {
+                    if downloaded() {
+                        span {
+                            class: "text-emerald-400",
+                            title: "Downloaded",
+                            Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                        }
+                    } else {
+                        button {
+                            class: if download_busy() {
+                                "p-2 rounded-lg text-zinc-500 cursor-not-allowed"
+                            } else {
+                                "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                            },
+                            aria_label: "Download song",
+                            disabled: download_busy(),
+                            onclick: on_download_song,
+                            Icon {
+                                name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                class: "w-4 h-4".to_string(),
+                            }
+                        }
+                    }
+                }
                 if rating > 0 {
                     div { class: "hidden sm:flex items-center gap-1 text-amber-400",
                         for i in 1..=5 {

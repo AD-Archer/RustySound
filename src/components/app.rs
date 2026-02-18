@@ -2,14 +2,15 @@ use crate::api::*;
 use crate::cache_service::apply_settings as apply_cache_settings;
 use crate::components::{
     view_label, AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController,
-    AudioState, Icon, Navigation, PlaybackPositionSignal, Player, SeekRequestSignal, Sidebar,
-    SidebarOpenSignal, SongDetailsController, SongDetailsOverlay, SongDetailsState,
-    PreviewPlaybackSignal, VolumeSignal,
+    AudioState, Icon, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
+    SeekRequestSignal, Sidebar, SidebarOpenSignal, SongDetailsController, SongDetailsOverlay,
+    SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
     save_servers, save_settings, AppSettings, PlaybackState, QueueItem,
 };
+use crate::offline_audio::run_auto_download_pass;
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
 use dioxus_router::components::Outlet;
@@ -58,6 +59,7 @@ pub fn AppShell() -> Element {
     let mut settings_loaded = use_signal(|| false);
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
+    let mut auto_download_bootstrap_done = use_signal(|| false);
     let audio_state = use_signal(AudioState::default);
     let preview_playback = use_signal(|| false);
     let sidebar_open = use_signal(|| false);
@@ -83,6 +85,135 @@ pub fn AppShell() -> Element {
     let nav_for_swipe = navigation.clone();
     #[cfg(target_arch = "wasm32")]
     let sidebar_open_for_swipe = sidebar_open.clone();
+
+    // Browser-only: queue cover-art image requests to avoid provider/CDN rate-limit bursts.
+    #[cfg(target_arch = "wasm32")]
+    use_effect(move || {
+        let _ = js_sys::eval(
+            r#"
+(() => {
+  if (typeof window === 'undefined') return;
+  if (window.__rustyCoverArtThrottleInstalled) return;
+  window.__rustyCoverArtThrottleInstalled = true;
+
+  const originalSetAttribute = Element.prototype.setAttribute;
+  const queue = [];
+  const state = new WeakMap();
+  let active = 0;
+  const isMobile = /Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '');
+  const MAX_CONCURRENT = isMobile ? 2 : 4;
+  const RETRY_DELAYS_MS = [1200, 2600];
+
+  function isCoverArtUrl(value) {
+    return typeof value === 'string' && value.includes('/rest/getCoverArt?');
+  }
+
+  function getState(img) {
+    let current = state.get(img);
+    if (!current) {
+      current = { queued: false, loading: false, targetUrl: '', retries: 0, prefetch: false };
+      state.set(img, current);
+    }
+    return current;
+  }
+
+  function enqueue(img, url, resetRetries, prefetch) {
+    const current = getState(img);
+    current.targetUrl = url;
+    current.prefetch = !!prefetch;
+    if (resetRetries) current.retries = 0;
+    if (current.queued || current.loading) return;
+    current.queued = true;
+    queue.push(img);
+    pump();
+  }
+
+  function finish(img) {
+    const current = getState(img);
+    current.loading = false;
+    active = Math.max(0, active - 1);
+    if (current.targetUrl && img.getAttribute('src') !== current.targetUrl) {
+      enqueue(img, current.targetUrl, false, current.prefetch);
+    }
+    pump();
+  }
+
+  function pump() {
+    while (active < MAX_CONCURRENT && queue.length > 0) {
+      const img = queue.shift();
+      if (!(img instanceof HTMLImageElement)) continue;
+
+      const current = getState(img);
+      if (!img.isConnected && !current.prefetch) continue;
+      current.queued = false;
+      const url = current.targetUrl;
+      if (!url) continue;
+
+      active += 1;
+      current.loading = true;
+
+      if (!img.getAttribute('loading')) originalSetAttribute.call(img, 'loading', 'lazy');
+      if (!img.getAttribute('decoding')) originalSetAttribute.call(img, 'decoding', 'async');
+      if (!img.getAttribute('fetchpriority')) originalSetAttribute.call(img, 'fetchpriority', 'low');
+
+      let settled = false;
+      let timeout = null;
+
+      const cleanup = () => {
+        if (settled) return false;
+        settled = true;
+        img.removeEventListener('load', onLoad);
+        img.removeEventListener('error', onError);
+        if (timeout) clearTimeout(timeout);
+        timeout = null;
+        return true;
+      };
+
+      const onLoad = () => {
+        if (!cleanup()) return;
+        current.retries = 0;
+        finish(img);
+      };
+
+      const onError = () => {
+        if (!cleanup()) return;
+        if (current.retries < RETRY_DELAYS_MS.length) {
+          const delay = RETRY_DELAYS_MS[current.retries++];
+          current.loading = false;
+          active = Math.max(0, active - 1);
+          setTimeout(() => enqueue(img, current.targetUrl, false, current.prefetch), delay);
+          return;
+        }
+        finish(img);
+      };
+
+      img.addEventListener('load', onLoad, { once: true });
+      img.addEventListener('error', onError, { once: true });
+      timeout = setTimeout(onError, 15000);
+
+      originalSetAttribute.call(img, 'src', url);
+    }
+  }
+
+  window.__rustyCoverArtEnqueue = (url) => {
+    if (!isCoverArtUrl(url)) return false;
+    const img = new Image();
+    enqueue(img, url, true, true);
+    return true;
+  };
+
+  Element.prototype.setAttribute = function(name, value) {
+    if (this instanceof HTMLImageElement && name === 'src' && isCoverArtUrl(value)) {
+      enqueue(this, value, true, false);
+      return;
+    }
+    return originalSetAttribute.call(this, name, value);
+  };
+})();
+            "#,
+        );
+    });
+
     // Global pointer listeners so back swipe works anywhere on the screen (PWA-like)
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
@@ -265,6 +396,35 @@ pub fn AppShell() -> Element {
         });
     });
 
+    // Run one startup auto-download pass when enabled.
+    use_effect(move || {
+        if auto_download_bootstrap_done() {
+            return;
+        }
+        if !db_initialized() || !settings_loaded() {
+            return;
+        }
+
+        let settings_snapshot = app_settings();
+        if !settings_snapshot.downloads_enabled || !settings_snapshot.auto_downloads_enabled {
+            auto_download_bootstrap_done.set(true);
+            return;
+        }
+
+        let active_servers: Vec<ServerConfig> = servers()
+            .into_iter()
+            .filter(|server| server.active)
+            .collect();
+        if active_servers.is_empty() {
+            return;
+        }
+
+        auto_download_bootstrap_done.set(true);
+        spawn(async move {
+            let _ = run_auto_download_pass(&active_servers, &settings_snapshot).await;
+        });
+    });
+
     // Resume from the most recent bookmark on startup.
     use_effect(move || {
         if resume_bookmark_loaded() {
@@ -428,13 +588,7 @@ pub fn AppShell() -> Element {
                 return;
             }
 
-            last_playback_save.set(Some((
-                song_id,
-                server_id,
-                position_ms,
-                idx,
-                queue_len,
-            )));
+            last_playback_save.set(Some((song_id, server_id, position_ms, idx, queue_len)));
 
             let state = PlaybackState {
                 song_id: song.as_ref().map(|s| s.id.clone()),
@@ -460,6 +614,7 @@ pub fn AppShell() -> Element {
     let can_go_back = navigation.can_go_back();
     let song_details_open = song_details_state().is_open;
     let is_bootstrapping = !db_initialized() || !settings_loaded();
+    let offline_mode_enabled = app_settings().offline_mode;
     let app_container_class = if sidebar_open() {
         "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
     } else {
@@ -542,6 +697,34 @@ pub fn AppShell() -> Element {
                     class: "flex-1 overflow-y-auto main-scroll",
                     div {
                         class: "page-shell",
+                        if offline_mode_enabled {
+                            div { class: "mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3",
+                                div {
+                                    p { class: "text-sm font-medium text-amber-200", "Offline mode is currently enabled." }
+                                    p { class: "text-xs text-amber-100/80", "Only downloaded and cached content is available." }
+                                }
+                                button {
+                                    class: "px-3 py-2 rounded-lg border border-amber-400/60 text-amber-100 hover:text-white hover:border-amber-300 transition-colors text-sm",
+                                    onclick: {
+                                        let mut app_settings = app_settings.clone();
+                                        move |_| {
+                                            let mut settings = app_settings();
+                                            if !settings.offline_mode {
+                                                return;
+                                            }
+                                            settings.offline_mode = false;
+                                            apply_cache_settings(&settings);
+                                            let settings_clone = settings.clone();
+                                            app_settings.set(settings);
+                                            spawn(async move {
+                                                let _ = save_settings(settings_clone).await;
+                                            });
+                                        }
+                                    },
+                                    "Disable Offline Mode"
+                                }
+                            }
+                        }
                         Outlet::<AppView> {}
                     }
                 }

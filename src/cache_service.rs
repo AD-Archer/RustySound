@@ -10,8 +10,9 @@ use std::time::Duration;
 struct RuntimeCacheConfig {
     enabled: bool,
     cache_images_enabled: bool,
-    cache_expiry_hours: u32,
+    cache_expiry_days: i32,
     cache_size_mb: u32,
+    offline_mode: bool,
 }
 
 impl Default for RuntimeCacheConfig {
@@ -19,8 +20,9 @@ impl Default for RuntimeCacheConfig {
         Self {
             enabled: true,
             cache_images_enabled: true,
-            cache_expiry_hours: 24,
+            cache_expiry_days: 3,
             cache_size_mb: 100,
+            offline_mode: false,
         }
     }
 }
@@ -32,11 +34,20 @@ static CACHE: Lazy<Mutex<SimpleCache>> = Lazy::new(|| {
 static CACHE_CONFIG: Lazy<Mutex<RuntimeCacheConfig>> =
     Lazy::new(|| Mutex::new(RuntimeCacheConfig::default()));
 
-fn effective_expiry_hours(override_hours: Option<u32>) -> u32 {
+fn effective_expiry_duration(override_hours: Option<u32>) -> Duration {
     let config = CACHE_CONFIG.lock().unwrap_or_else(|e| e.into_inner());
-    override_hours
-        .unwrap_or(config.cache_expiry_hours)
-        .clamp(1, 24 * 30)
+
+    if config.cache_expiry_days < 0 {
+        return Duration::from_secs(u64::MAX);
+    }
+
+    if let Some(hours) = override_hours {
+        let clamped = hours.clamp(1, 24 * 3650);
+        return Duration::from_secs(clamped as u64 * 3600);
+    }
+
+    let days = config.cache_expiry_days.clamp(1, 3650) as u64;
+    Duration::from_secs(days * 24 * 3600)
 }
 
 fn can_cache(include_images: bool) -> bool {
@@ -48,6 +59,13 @@ pub fn is_enabled(include_images: bool) -> bool {
     can_cache(include_images)
 }
 
+pub fn is_offline_mode() -> bool {
+    CACHE_CONFIG
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .offline_mode
+}
+
 fn save_cache(cache: &SimpleCache) {
     cache.save_to_storage();
 }
@@ -57,8 +75,9 @@ pub fn apply_settings(settings: &AppSettings) {
         let mut config = CACHE_CONFIG.lock().unwrap_or_else(|e| e.into_inner());
         config.enabled = settings.cache_enabled;
         config.cache_images_enabled = settings.cache_images_enabled;
-        config.cache_expiry_hours = settings.cache_expiry_hours.clamp(1, 24 * 30);
+        config.cache_expiry_days = settings.cache_expiry_days.clamp(-1, 3650);
         config.cache_size_mb = settings.cache_size_mb.clamp(25, 2048);
+        config.offline_mode = settings.offline_mode;
     }
 
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -91,7 +110,7 @@ where
     let Ok(bytes) = serde_json::to_vec(value) else {
         return false;
     };
-    let expiry = Duration::from_secs(effective_expiry_hours(expiry_hours) as u64 * 3600);
+    let expiry = effective_expiry_duration(expiry_hours);
     let entry = CacheEntry::new(bytes, "application/json".to_string(), expiry);
 
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
@@ -120,7 +139,7 @@ pub fn put_bytes(
         return false;
     }
 
-    let expiry = Duration::from_secs(effective_expiry_hours(expiry_hours) as u64 * 3600);
+    let expiry = effective_expiry_duration(expiry_hours);
     let entry = CacheEntry::new(bytes, content_type.into(), expiry);
 
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());

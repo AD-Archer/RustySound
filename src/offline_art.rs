@@ -1,6 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::cache_service::is_enabled as cache_enabled;
 #[cfg(not(target_arch = "wasm32"))]
+use base64::{engine::general_purpose, Engine as _};
+#[cfg(not(target_arch = "wasm32"))]
 use once_cell::sync::Lazy;
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::HashSet;
@@ -40,7 +42,9 @@ fn sanitize_file_component(raw: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn cover_art_cache_dir() -> Option<PathBuf> {
-    let base = dirs::cache_dir()?.join("rustysound").join(COVER_ART_CACHE_SUBDIR);
+    let base = dirs::cache_dir()?
+        .join("rustysound")
+        .join(COVER_ART_CACHE_SUBDIR);
     let _ = fs::create_dir_all(&base);
     Some(base)
 }
@@ -61,6 +65,26 @@ fn path_to_file_url(path: &Path) -> String {
     } else {
         format!("file:///{normalized}")
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn cached_cover_art_data_url(server_id: &str, cover_art_id: &str, size: u32) -> Option<String> {
+    let path = cover_art_file_path(server_id, cover_art_id, size)?;
+    let bytes = fs::read(path).ok()?;
+    if bytes.is_empty() {
+        return None;
+    }
+    let encoded = general_purpose::STANDARD.encode(bytes);
+    Some(format!("data:image/jpeg;base64,{encoded}"))
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn cached_cover_art_data_url(
+    _server_id: &str,
+    _cover_art_id: &str,
+    _size: u32,
+) -> Option<String> {
+    None
 }
 
 #[cfg(not(target_arch = "wasm32"))]

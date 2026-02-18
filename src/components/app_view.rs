@@ -28,6 +28,8 @@ pub enum AppView {
     BookmarksView {},
     #[route("/favorites")]
     FavoritesView {},
+    #[route("/downloads")]
+    DownloadsView {},
     #[route("/random")]
     RandomView {},
     #[route("/settings")]
@@ -62,6 +64,7 @@ pub fn view_label(view: &AppView) -> &'static str {
         AppView::RadioView {} => "Radio",
         AppView::BookmarksView {} => "Bookmarks",
         AppView::FavoritesView {} => "Favorites",
+        AppView::DownloadsView {} => "Downloads",
         AppView::RandomView {} => "Random",
         AppView::SettingsView {} => "Settings",
         AppView::StatsView {} => "Stats",

@@ -1,6 +1,8 @@
 use crate::api::*;
 use crate::components::Icon;
 use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
+use crate::db::AppSettings;
+use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
 use chrono::{DateTime, NaiveDateTime};
 use dioxus::prelude::*;
 use futures_util::future::join_all;
@@ -516,6 +518,7 @@ fn SongRowWithRating(
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
+    let app_settings = use_context::<Signal<AppSettings>>();
 
     let cover_url = servers()
         .iter()
@@ -531,6 +534,9 @@ fn SongRowWithRating(
     let artist_id = song.artist_id.clone();
     let server_id = song.server_id.clone();
     let is_favorited = use_signal(|| song.starred.is_some());
+    let download_busy = use_signal(|| false);
+    let initially_downloaded = is_song_downloaded(&song);
+    let downloaded = use_signal(move || initially_downloaded);
 
     let on_album_click_cover = {
         let album_id = album_id.clone();
@@ -627,6 +633,37 @@ fn SongRowWithRating(
                         });
                     }
                 }
+            });
+        }
+    };
+
+    let on_download_song = {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let song = song.clone();
+        let mut download_busy = download_busy.clone();
+        let mut downloaded = downloaded.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if download_busy() || downloaded() {
+                return;
+            }
+            let servers_snapshot = servers();
+            if servers_snapshot.is_empty() {
+                return;
+            }
+            let mut settings_snapshot = app_settings();
+            settings_snapshot.downloads_enabled = true;
+            download_busy.set(true);
+            let song = song.clone();
+            spawn(async move {
+                if prefetch_song_audio(&song, &servers_snapshot, &settings_snapshot)
+                    .await
+                    .is_ok()
+                {
+                    downloaded.set(true);
+                }
+                download_busy.set(false);
             });
         }
     };
@@ -742,6 +779,28 @@ fn SongRowWithRating(
             }
             // Duration and actions
             div { class: "flex items-center gap-3",
+                if downloaded() {
+                    span {
+                        class: "text-emerald-400",
+                        title: "Downloaded",
+                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                    }
+                } else {
+                    button {
+                        class: if download_busy() {
+                            "p-2 rounded-lg text-zinc-500 cursor-not-allowed"
+                        } else {
+                            "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                        },
+                        aria_label: "Download song",
+                        disabled: download_busy(),
+                        onclick: on_download_song,
+                        Icon {
+                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
+                    }
+                }
                 button {
                     class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",

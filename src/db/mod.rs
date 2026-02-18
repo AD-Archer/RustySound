@@ -45,6 +45,16 @@ pub enum RepeatMode {
     One,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ArtworkDownloadPreference {
+    ServerOnly,
+    Id3Only,
+    #[default]
+    PreferServer,
+    PreferId3,
+}
+
 /// App settings stored in the database
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -62,10 +72,14 @@ pub struct AppSettings {
     pub cache_enabled: bool,
     #[serde(default)]
     pub cache_size_mb: u32,
+    #[serde(default = "default_cache_expiry_days", alias = "cache_expiry_hours")]
+    pub cache_expiry_days: i32,
     #[serde(default)]
-    pub cache_expiry_hours: u32,
+    pub cache_expiry_in_days: bool,
     #[serde(default)]
     pub cache_images_enabled: bool,
+    #[serde(default)]
+    pub offline_mode: bool,
     #[serde(default = "default_lyrics_provider_order")]
     pub lyrics_provider_order: Vec<String>,
     #[serde(default = "default_lyrics_request_timeout_secs")]
@@ -80,10 +94,30 @@ pub struct AppSettings {
     pub bookmark_auto_save: bool,
     #[serde(default)]
     pub bookmark_autoplay_on_launch: bool,
+    #[serde(default = "default_downloads_enabled")]
+    pub downloads_enabled: bool,
+    #[serde(default)]
+    pub auto_downloads_enabled: bool,
+    #[serde(default = "default_auto_download_tier")]
+    pub auto_download_tier: u8,
+    #[serde(default = "default_auto_download_album_count")]
+    pub auto_download_album_count: u32,
+    #[serde(default = "default_auto_download_playlist_count")]
+    pub auto_download_playlist_count: u32,
+    #[serde(default = "default_download_limit_count")]
+    pub download_limit_count: u32,
+    #[serde(default = "default_download_limit_mb")]
+    pub download_limit_mb: u32,
+    #[serde(default = "default_artwork_download_preference")]
+    pub artwork_download_preference: ArtworkDownloadPreference,
 }
 
 fn default_lyrics_request_timeout_secs() -> u32 {
     4
+}
+
+fn default_cache_expiry_days() -> i32 {
+    30
 }
 
 fn default_bookmark_limit() -> u32 {
@@ -94,7 +128,35 @@ fn default_bookmark_auto_save() -> bool {
     true
 }
 
-fn migrate_lyrics_provider_order(mut settings: AppSettings) -> AppSettings {
+fn default_downloads_enabled() -> bool {
+    true
+}
+
+fn default_auto_download_tier() -> u8 {
+    1
+}
+
+fn default_auto_download_album_count() -> u32 {
+    2
+}
+
+fn default_auto_download_playlist_count() -> u32 {
+    2
+}
+
+fn default_download_limit_count() -> u32 {
+    500
+}
+
+fn default_download_limit_mb() -> u32 {
+    4096
+}
+
+fn default_artwork_download_preference() -> ArtworkDownloadPreference {
+    ArtworkDownloadPreference::PreferServer
+}
+
+fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     let normalized = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
     let legacy_default_v1 = vec![
         "netease".to_string(),
@@ -120,6 +182,26 @@ fn migrate_lyrics_provider_order(mut settings: AppSettings) -> AppSettings {
     } else {
         normalized
     };
+
+    // Legacy settings stored this field in hours; migrate once to day-based semantics.
+    if !settings.cache_expiry_in_days {
+        if settings.cache_expiry_days < 0 {
+            settings.cache_expiry_days = -1;
+        } else {
+            let hours = settings.cache_expiry_days.max(1);
+            settings.cache_expiry_days = ((hours + 23) / 24).clamp(1, 3650);
+        }
+        settings.cache_expiry_in_days = true;
+    } else {
+        settings.cache_expiry_days = settings.cache_expiry_days.clamp(-1, 3650);
+    }
+
+    settings.auto_download_tier = settings.auto_download_tier.clamp(1, 3);
+    settings.auto_download_album_count = settings.auto_download_album_count.clamp(0, 25);
+    settings.auto_download_playlist_count = settings.auto_download_playlist_count.clamp(0, 25);
+    settings.download_limit_count = settings.download_limit_count.clamp(25, 20000);
+    settings.download_limit_mb = settings.download_limit_mb.clamp(256, 131072);
+
     settings
 }
 
@@ -136,8 +218,10 @@ impl Default for AppSettings {
             repeat_mode: RepeatMode::Off,
             cache_enabled: true,
             cache_size_mb: 100,
-            cache_expiry_hours: 24,
+            cache_expiry_days: default_cache_expiry_days(),
+            cache_expiry_in_days: true,
             cache_images_enabled: true,
+            offline_mode: false,
             lyrics_provider_order: default_lyrics_provider_order(),
             lyrics_request_timeout_secs: default_lyrics_request_timeout_secs(),
             lyrics_offset_ms: 0,
@@ -145,6 +229,14 @@ impl Default for AppSettings {
             bookmark_limit: default_bookmark_limit(),
             bookmark_auto_save: default_bookmark_auto_save(),
             bookmark_autoplay_on_launch: false,
+            downloads_enabled: default_downloads_enabled(),
+            auto_downloads_enabled: false,
+            auto_download_tier: default_auto_download_tier(),
+            auto_download_album_count: default_auto_download_album_count(),
+            auto_download_playlist_count: default_auto_download_playlist_count(),
+            download_limit_count: default_download_limit_count(),
+            download_limit_mb: default_download_limit_mb(),
+            artwork_download_preference: default_artwork_download_preference(),
         }
     }
 }
@@ -265,7 +357,7 @@ pub async fn load_settings() -> Result<AppSettings, DbError> {
 
     match result {
         Ok(json) => serde_json::from_str(&json)
-            .map(migrate_lyrics_provider_order)
+            .map(migrate_settings)
             .map_err(|e| DbError::new(e.to_string())),
         Err(_) => Ok(AppSettings::default()),
     }
@@ -274,7 +366,7 @@ pub async fn load_settings() -> Result<AppSettings, DbError> {
 #[cfg(target_arch = "wasm32")]
 pub async fn load_settings() -> Result<AppSettings, StorageError> {
     match LocalStorage::get(SETTINGS_KEY) {
-        Ok(settings) => Ok(migrate_lyrics_provider_order(settings)),
+        Ok(settings) => Ok(migrate_settings(settings)),
         Err(_) => Ok(AppSettings::default()),
     }
 }

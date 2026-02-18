@@ -1,5 +1,7 @@
 use crate::api::Song;
-use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
+use crate::cache_service::{
+    get_json as cache_get_json, is_offline_mode, put_json as cache_put_json,
+};
 use once_cell::sync::Lazy;
 use reqwest::header::HeaderMap;
 #[cfg(not(target_arch = "wasm32"))]
@@ -198,22 +200,49 @@ pub async fn fetch_lyrics_with_fallback(
 
     let timeout_seconds = timeout_seconds.clamp(1, 20);
     let normalized_provider_order = normalize_lyrics_provider_selection(provider_order);
-    let cache_key = lyrics_cache_key(query, &normalized_provider_order, timeout_seconds);
-    let persistent_cache_key = format!("lyrics:result:{cache_key}");
+    let scoped_cache_key = lyrics_cache_key(query, &normalized_provider_order, timeout_seconds);
+    let query_cache_key = lyrics_query_cache_key(query);
+    let scoped_persistent_cache_key = format!("lyrics:result:{scoped_cache_key}");
+    let query_persistent_cache_key = format!("lyrics:result:{query_cache_key}");
+    let miss_cache_key = format!("lyrics:miss:{scoped_cache_key}");
 
     if let Ok(cache) = LYRICS_SUCCESS_CACHE.lock() {
-        if let Some(cached) = cache.get(&cache_key).cloned() {
+        if let Some(cached) = cache.get(&scoped_cache_key).cloned() {
+            return Ok(cached);
+        }
+        if let Some(cached) = cache.get(&query_cache_key).cloned() {
             return Ok(cached);
         }
     }
 
-    if let Some(cached) = cache_get_json::<PersistentLyricsResult>(&persistent_cache_key) {
+    if let Some(cached) = cache_get_json::<PersistentLyricsResult>(&scoped_persistent_cache_key) {
         if let Some(runtime) = cached.to_runtime() {
             if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
-                cache.insert(cache_key.clone(), runtime.clone());
+                cache.insert(scoped_cache_key.clone(), runtime.clone());
+                cache.insert(query_cache_key.clone(), runtime.clone());
             }
             return Ok(runtime);
         }
+    }
+
+    if let Some(cached) = cache_get_json::<PersistentLyricsResult>(&query_persistent_cache_key) {
+        if let Some(runtime) = cached.to_runtime() {
+            if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
+                cache.insert(scoped_cache_key.clone(), runtime.clone());
+                cache.insert(query_cache_key.clone(), runtime.clone());
+            }
+            return Ok(runtime);
+        }
+    }
+
+    if cache_get_json::<bool>(&miss_cache_key).unwrap_or(false) {
+        return Err("No lyrics found for this song.".to_string());
+    }
+
+    if is_offline_mode() {
+        return Err(
+            "Offline mode is enabled. Disable offline mode to fetch new lyrics.".to_string(),
+        );
     }
 
     let providers = normalized_provider_order
@@ -222,20 +251,38 @@ pub async fn fetch_lyrics_with_fallback(
         .collect::<Vec<_>>();
 
     let mut errors = Vec::new();
+    let mut saw_hard_error = false;
 
     for provider in providers {
         match fetch_from_provider(provider, query, timeout_seconds).await {
             Ok(Some(result)) => {
                 if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
-                    cache.insert(cache_key.clone(), result.clone());
+                    cache.insert(scoped_cache_key.clone(), result.clone());
+                    cache.insert(query_cache_key.clone(), result.clone());
                 }
                 let persistent = PersistentLyricsResult::from(&result);
-                let _ = cache_put_json(persistent_cache_key.clone(), &persistent, Some(24 * 14));
+                let _ = cache_put_json(
+                    scoped_persistent_cache_key.clone(),
+                    &persistent,
+                    Some(24 * 14),
+                );
+                let _ = cache_put_json(
+                    query_persistent_cache_key.clone(),
+                    &persistent,
+                    Some(24 * 14),
+                );
                 return Ok(result);
             }
             Ok(None) => errors.push(format!("{} returned no lyrics", provider.label())),
-            Err(error) => errors.push(format!("{} failed: {}", provider.label(), error)),
+            Err(error) => {
+                saw_hard_error = true;
+                errors.push(format!("{} failed: {}", provider.label(), error));
+            }
         }
+    }
+
+    if !saw_hard_error {
+        let _ = cache_put_json(miss_cache_key, &true, Some(24));
     }
 
     if errors.is_empty() {
@@ -263,6 +310,12 @@ pub async fn search_lyrics_candidates(
 
     if providers.is_empty() {
         return Err("No lyrics providers configured.".to_string());
+    }
+
+    if is_offline_mode() {
+        return Err(
+            "Offline mode is enabled. Disable offline mode to search new lyrics.".to_string(),
+        );
     }
 
     let mut ranked = Vec::<(LyricsSearchCandidate, i32, usize)>::new();
@@ -355,7 +408,7 @@ async fn search_netease_candidates(
     _query: &LyricsQuery,
     _timeout_seconds: u32,
 ) -> Result<Vec<(LyricsSearchCandidate, i32)>, String> {
-    Err("provider unavailable in browser due CORS policy".to_string())
+    Ok(Vec::new())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -461,7 +514,7 @@ async fn fetch_from_netease(
     _query: &LyricsQuery,
     _timeout_seconds: u32,
 ) -> Result<Option<LyricsResult>, String> {
-    Err("provider unavailable in browser due CORS policy".to_string())
+    Ok(None)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -684,26 +737,74 @@ async fn search_lrclib_candidates(
     Ok(candidates)
 }
 
+#[cfg(target_arch = "wasm32")]
+async fn fetch_from_lrclib(
+    query: &LyricsQuery,
+    timeout_seconds: u32,
+) -> Result<Option<LyricsResult>, String> {
+    let request_timeout = Duration::from_secs(timeout_seconds as u64);
+    let mut search_params = vec![("track_name".to_string(), query.title.clone())];
+    if !query.artist.trim().is_empty() {
+        search_params.push(("artist_name".to_string(), query.artist.clone()));
+    }
+    if !query.album.trim().is_empty() {
+        search_params.push(("album_name".to_string(), query.album.clone()));
+    }
+
+    // Web: avoid `/api/get` which frequently returns 404 and spams console/network logs.
+    let search = LYRICS_HTTP_CLIENT
+        .get("https://lrclib.net/api/search")
+        .query(&search_params)
+        .timeout(request_timeout)
+        .send()
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if !search.status().is_success() {
+        return Err(format!("search status {}", search.status().as_u16()));
+    }
+
+    let candidates: Vec<LrclibResponse> = search.json().await.map_err(|error| error.to_string())?;
+    let best = candidates
+        .into_iter()
+        .map(|entry| {
+            let score = score_match(
+                &entry.track_name,
+                &entry.artist_name,
+                entry
+                    .duration
+                    .map(|seconds| seconds.round().max(0.0) as u32),
+                query,
+            );
+            (entry, score)
+        })
+        .max_by(|(_, left_score), (_, right_score)| left_score.cmp(right_score))
+        .map(|(entry, _)| entry);
+
+    Ok(best.and_then(build_lrclib_result))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 async fn fetch_from_lrclib(
     query: &LyricsQuery,
     timeout_seconds: u32,
 ) -> Result<Option<LyricsResult>, String> {
     let request_timeout = Duration::from_secs(timeout_seconds as u64);
 
-    let mut params = vec![("track_name".to_string(), query.title.clone())];
+    let mut direct_params = vec![("track_name".to_string(), query.title.clone())];
     if !query.artist.trim().is_empty() {
-        params.push(("artist_name".to_string(), query.artist.clone()));
+        direct_params.push(("artist_name".to_string(), query.artist.clone()));
     }
     if !query.album.trim().is_empty() {
-        params.push(("album_name".to_string(), query.album.clone()));
+        direct_params.push(("album_name".to_string(), query.album.clone()));
     }
     if let Some(duration) = query.duration_seconds {
-        params.push(("duration".to_string(), duration.to_string()));
+        direct_params.push(("duration".to_string(), duration.to_string()));
     }
 
     let direct = LYRICS_HTTP_CLIENT
         .get("https://lrclib.net/api/get")
-        .query(&params)
+        .query(&direct_params)
         .timeout(request_timeout)
         .send()
         .await
@@ -716,9 +817,17 @@ async fn fetch_from_lrclib(
         }
     }
 
+    let mut search_params = vec![("track_name".to_string(), query.title.clone())];
+    if !query.artist.trim().is_empty() {
+        search_params.push(("artist_name".to_string(), query.artist.clone()));
+    }
+    if !query.album.trim().is_empty() {
+        search_params.push(("album_name".to_string(), query.album.clone()));
+    }
+
     let search = LYRICS_HTTP_CLIENT
         .get("https://lrclib.net/api/search")
-        .query(&params)
+        .query(&search_params)
         .timeout(request_timeout)
         .send()
         .await
@@ -821,7 +930,7 @@ async fn search_genius_candidates(
     _query: &LyricsQuery,
     _timeout_seconds: u32,
 ) -> Result<Vec<(LyricsSearchCandidate, i32)>, String> {
-    Err("provider unavailable in browser due CORS policy".to_string())
+    Ok(Vec::new())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -904,7 +1013,7 @@ async fn fetch_from_genius(
     _query: &LyricsQuery,
     _timeout_seconds: u32,
 ) -> Result<Option<LyricsResult>, String> {
-    Err("provider unavailable in browser due CORS policy".to_string())
+    Ok(None)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1024,12 +1133,17 @@ fn lyrics_cache_key(
     provider_order: &[String],
     timeout_seconds: u32,
 ) -> String {
+    let base = lyrics_query_cache_key(query);
+    let providers = provider_order.join(",");
+    format!("{base}|{timeout_seconds}|{providers}")
+}
+
+fn lyrics_query_cache_key(query: &LyricsQuery) -> String {
     let title = normalize_for_match(&query.title);
     let artist = normalize_for_match(&query.artist);
     let album = normalize_for_match(&query.album);
     let duration = query.duration_seconds.unwrap_or(0);
-    let providers = provider_order.join(",");
-    format!("{title}|{artist}|{album}|{duration}|{timeout_seconds}|{providers}")
+    format!("{title}|{artist}|{album}|{duration}")
 }
 
 fn score_match(title: &str, artist: &str, duration: Option<u32>, query: &LyricsQuery) -> i32 {

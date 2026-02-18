@@ -16,8 +16,6 @@ use crate::components::{
     PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal, VolumeSignal,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use crate::offline_audio::{cached_audio_url, prefetch_song_audio};
-#[cfg(not(target_arch = "wasm32"))]
 use crate::components::{
     PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal, VolumeSignal,
 };
@@ -25,6 +23,8 @@ use crate::components::{
 use crate::db::{AppSettings, RepeatMode};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::db::{AppSettings, RepeatMode};
+#[cfg(not(target_arch = "wasm32"))]
+use crate::offline_audio::{cached_audio_url, prefetch_song_audio};
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
@@ -165,6 +165,15 @@ fn web_playback_error_message(audio: &HtmlAudioElement, song: Option<&Song>) -> 
             }
         }
     })
+}
+
+#[cfg(target_arch = "wasm32")]
+fn web_try_play(audio: &HtmlAudioElement) {
+    if let Ok(promise) = audio.play() {
+        spawn(async move {
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        });
+    }
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -2483,7 +2492,8 @@ pub fn AudioController() -> Element {
             };
 
             let servers_snapshot = servers.peek().clone();
-            if let Some(url) = resolve_stream_url(&song, &servers_snapshot) {
+            let offline_mode = app_settings.peek().offline_mode;
+            if let Some(url) = resolve_stream_url(&song, &servers_snapshot, offline_mode) {
                 let requested_seek = seek_request.peek().clone().and_then(|(song_id, position)| {
                     if song_id == song.id {
                         Some(position)
@@ -2588,10 +2598,9 @@ pub fn AudioController() -> Element {
             }
 
             for candidate in queue_snapshot.into_iter().skip(current_index).take(3) {
-                if seeds
-                    .iter()
-                    .any(|existing| existing.id == candidate.id && existing.server_id == candidate.server_id)
-                {
+                if seeds.iter().any(|existing| {
+                    existing.id == candidate.id && existing.server_id == candidate.server_id
+                }) {
                     continue;
                 }
                 seeds.push(candidate);
@@ -2855,9 +2864,13 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
+fn resolve_stream_url(song: &Song, servers: &[ServerConfig], offline_mode: bool) -> Option<String> {
     if let Some(cached_url) = cached_audio_url(song) {
         return Some(cached_url);
+    }
+
+    if offline_mode {
+        return None;
     }
 
     if song.server_name == "Radio" {
@@ -3148,7 +3161,7 @@ pub fn AudioController() -> Element {
                                     repeat_one_replayed_song = Some(song_id);
                                     audio.set_current_time(0.0);
                                     if *is_playing.read() {
-                                        let _ = audio.play();
+                                        web_try_play(&audio);
                                     }
                                 } else {
                                     repeat_one_replayed_song = None;
@@ -3327,7 +3340,7 @@ pub fn AudioController() -> Element {
 
                         let was_playing = *is_playing.peek();
                         if has_user_interacted() && was_playing {
-                            let _ = audio.play();
+                            web_try_play(&audio);
                         } else {
                             let _ = audio.pause();
                             is_playing.set(false);
@@ -3367,7 +3380,7 @@ pub fn AudioController() -> Element {
                 if playing {
                     if has_user_interacted() {
                         if audio.paused() {
-                            let _ = audio.play();
+                            web_try_play(&audio);
                         }
                     } else {
                         is_playing.set(false);

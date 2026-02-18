@@ -239,6 +239,7 @@ pub fn SearchView() -> Element {
                                             key: "{song.id}-{song.server_id}",
                                             song: song.clone(),
                                             index: index + 1,
+                                            show_download: true,
                                             onclick: {
                                                 let song = song.clone();
                                                 move |_| {

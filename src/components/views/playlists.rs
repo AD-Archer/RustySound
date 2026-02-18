@@ -2,12 +2,14 @@ use crate::api::*;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
+const PLAYLIST_INITIAL_LIMIT: usize = 20;
+
 #[component]
 pub fn PlaylistsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
-    let limit = use_signal(|| 30usize);
+    let limit = use_signal(|| PLAYLIST_INITIAL_LIMIT);
     let refresh = use_signal(|| 0usize);
     let single_active_server = servers().iter().filter(|s| s.active).count() == 1;
     let mut hide_auto_imported = use_signal(|| true);
@@ -201,7 +203,7 @@ pub fn PlaylistsView() -> Element {
                                             class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
                                             onclick: {
                                                 let mut limit = limit.clone();
-                                                move |_| limit.set(limit() + 30)
+                                                move |_| limit.set(limit().saturating_add(PLAYLIST_INITIAL_LIMIT))
                                             },
                                             "View more"
                                         }

@@ -149,6 +149,12 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
                         onclick: nav_to(AppView::BookmarksView {}),
                     }
                     NavItem {
+                        icon: "download",
+                        label: "Downloads",
+                        active: matches!(view, AppView::DownloadsView {}),
+                        onclick: nav_to(AppView::DownloadsView {}),
+                    }
+                    NavItem {
                         icon: "queue",
                         label: "Queue",
                         active: matches!(view, AppView::QueueView {}),

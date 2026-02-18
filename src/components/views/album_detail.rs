@@ -1,6 +1,8 @@
 use crate::api::*;
 use crate::components::views::album_song_row::AlbumSongRow;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::db::AppSettings;
+use crate::offline_audio::{download_songs_batch, is_song_downloaded, mark_collection_downloaded};
 use dioxus::prelude::*;
 
 #[component]
@@ -12,6 +14,9 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
     let add_menu = use_context::<AddMenuController>();
+    let app_settings = use_context::<Signal<AppSettings>>();
+    let download_busy = use_signal(|| false);
+    let download_status = use_signal(|| None::<String>);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
 
@@ -51,6 +56,57 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             if let Some(Some((album, _))) = album_data_ref() {
                 add_menu.open(AddIntent::from_album(&album));
             }
+        }
+    };
+
+    let on_download_album = {
+        let album_data_ref = album_data.clone();
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let mut download_busy = download_busy.clone();
+        let mut download_status = download_status.clone();
+        move |_| {
+            if download_busy() {
+                return;
+            }
+
+            let Some(Some((album, songs))) = album_data_ref() else {
+                download_status.set(Some("No songs available to download.".to_string()));
+                return;
+            };
+            if songs.is_empty() {
+                download_status.set(Some("No songs available to download.".to_string()));
+                return;
+            }
+
+            let servers_snapshot = servers();
+            if servers_snapshot.is_empty() {
+                download_status.set(Some("No servers configured.".to_string()));
+                return;
+            }
+
+            let settings_snapshot = app_settings();
+            let album_meta = album.clone();
+            download_busy.set(true);
+            download_status.set(Some("Downloading album songs...".to_string()));
+            spawn(async move {
+                let report =
+                    download_songs_batch(&songs, &servers_snapshot, &settings_snapshot).await;
+                if report.downloaded > 0 || report.skipped > 0 {
+                    mark_collection_downloaded(
+                        "album",
+                        &album_meta.server_id,
+                        &album_meta.id,
+                        &album_meta.name,
+                        songs.len(),
+                    );
+                }
+                download_status.set(Some(format!(
+                    "Album download complete: {} new, {} skipped, {} failed, {} purged.",
+                    report.downloaded, report.skipped, report.failed, report.purged
+                )));
+                download_busy.set(false);
+            });
         }
     };
 
@@ -110,16 +166,36 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                 // Song list
                 match album_data() {
                     Some(Some((album, songs))) => {
+                        let cover_art_id = album
+                            .cover_art
+                            .as_ref()
+                            .filter(|value| !value.trim().is_empty())
+                            .cloned()
+                            .or_else(|| {
+                                songs.iter().find_map(|song| {
+                                    song.cover_art
+                                        .as_ref()
+                                        .filter(|value| !value.trim().is_empty())
+                                        .cloned()
+                                })
+                            })
+                            .or_else(|| {
+                                if album.id.trim().is_empty() {
+                                    None
+                                } else {
+                                    Some(album.id.clone())
+                                }
+                            });
+
                         let cover_url = servers()
                             .iter()
                             .find(|s| s.id == album.server_id)
-                            .and_then(|server| {
+                            .and_then(|server| cover_art_id.as_ref().map(|cover_art_id| {
                                 let client = NavidromeClient::new(server.clone());
-                                album
-                                    .cover_art
-                                    .as_ref()
-                                    .map(|ca| client.get_cover_art_url(ca, 500))
-                            });
+                                client.get_cover_art_url(cover_art_id, 500)
+                            }));
+                        let downloaded_song_count =
+                            songs.iter().filter(|song| is_song_downloaded(song)).count();
                         rsx! {
                             div { class: "flex flex-col md:flex-row gap-8 mb-8 overflow-x-hidden",
                                 div { class: "w-64 h-64 rounded-2xl bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0",
@@ -184,6 +260,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                         }
                                         span { "{album.song_count} songs" }
                                         span { "{format_duration(album.duration / 1000)}" }
+                                        span { "{downloaded_song_count} downloaded" }
                                     }
                                     div { class: "flex gap-3 mt-6 flex-wrap",
                                         button {
@@ -191,6 +268,24 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             onclick: on_play_all,
                                             Icon { name: "play".to_string(), class: "w-5 h-5".to_string() }
                                             "Play"
+                                        }
+                                        button {
+                                            class: if download_busy() {
+                                                "px-4 py-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm"
+                                            } else {
+                                                "px-4 py-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-sm flex items-center gap-2"
+                                            },
+                                            disabled: download_busy(),
+                                            onclick: on_download_album,
+                                            Icon {
+                                                name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                                class: "w-4 h-4".to_string(),
+                                            }
+                                            if download_busy() {
+                                                "Downloading..."
+                                            } else {
+                                                "Download Album"
+                                            }
                                         }
                                         button {
                                             class: "p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors",
@@ -225,6 +320,9 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             onclick: on_open_album_menu,
                                             Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
                                         }
+                                    }
+                                    if let Some(status) = download_status() {
+                                        p { class: "text-xs text-zinc-500 mt-2", "{status}" }
                                     }
                                 }
                             }

@@ -5,11 +5,10 @@ use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
     PreviewPlaybackSignal, SeekRequestSignal, SongDetailsController,
 };
-use crate::diagnostics::log_perf;
+use crate::diagnostics::{log_perf, PerfTimer};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 use std::rc::Rc;
-use std::time::Instant;
 
 const QUICK_PREVIEW_DURATION_MS: u64 = 12000;
 const AUTO_RECOMMENDATION_LIMIT: usize = 25;
@@ -43,7 +42,7 @@ async fn prefetch_lrclib_lyrics_for_queue(songs: Vec<Song>, max_songs: usize) {
     }
 
     let providers = vec!["lrclib".to_string()];
-    let start = Instant::now();
+    let start = PerfTimer::now();
     let mut prefetched = 0usize;
 
     for song in songs.into_iter().take(max_songs) {
@@ -398,6 +397,9 @@ pub fn QueueView() -> Element {
                                                                 .as_ref()
                                                                 .map(|cover| client.get_cover_art_url(cover, 80))
                                                         });
+                                                    let cover_album_id = result.album_id.clone();
+                                                    let cover_server_id = result.server_id.clone();
+                                                    let navigation_for_cover = navigation.clone();
                                                     rsx! {
                                                         div {
                                                             key: "{result.server_id}:{result.id}:recommended",
@@ -405,9 +407,32 @@ pub fn QueueView() -> Element {
                                                             {
                                                                 if let Some(url) = cover_url {
                                                                     rsx! {
-                                                                        img {
-                                                                            class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
-                                                                            src: "{url}",
+                                                                        if let Some(album_id) = cover_album_id {
+                                                                            button {
+                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                                aria_label: "Open album",
+                                                                                onclick: {
+                                                                                    let album_id = album_id.clone();
+                                                                                    let server_id = cover_server_id.clone();
+                                                                                    let navigation = navigation_for_cover.clone();
+                                                                                    move |evt: MouseEvent| {
+                                                                                        evt.stop_propagation();
+                                                                                        navigation.navigate_to(AppView::AlbumDetailView {
+                                                                                            album_id: album_id.clone(),
+                                                                                            server_id: server_id.clone(),
+                                                                                        });
+                                                                                    }
+                                                                                },
+                                                                                img {
+                                                                                    class: "w-full h-full object-cover",
+                                                                                    src: "{url}",
+                                                                                }
+                                                                            }
+                                                                        } else {
+                                                                            img {
+                                                                                class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                src: "{url}",
+                                                                            }
                                                                         }
                                                                     }
                                                                 } else {
@@ -555,6 +580,9 @@ pub fn QueueView() -> Element {
                                                                 .as_ref()
                                                                 .map(|cover| client.get_cover_art_url(cover, 80))
                                                         });
+                                                    let cover_album_id = result.album_id.clone();
+                                                    let cover_server_id = result.server_id.clone();
+                                                    let navigation_for_cover = navigation.clone();
                                                     rsx! {
                                                         div {
                                                             key: "{result.server_id}:{result.id}:search",
@@ -562,9 +590,32 @@ pub fn QueueView() -> Element {
                                                             {
                                                                 if let Some(url) = cover_url {
                                                                     rsx! {
-                                                                        img {
-                                                                            class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
-                                                                            src: "{url}",
+                                                                        if let Some(album_id) = cover_album_id {
+                                                                            button {
+                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                                aria_label: "Open album",
+                                                                                onclick: {
+                                                                                    let album_id = album_id.clone();
+                                                                                    let server_id = cover_server_id.clone();
+                                                                                    let navigation = navigation_for_cover.clone();
+                                                                                    move |evt: MouseEvent| {
+                                                                                        evt.stop_propagation();
+                                                                                        navigation.navigate_to(AppView::AlbumDetailView {
+                                                                                            album_id: album_id.clone(),
+                                                                                            server_id: server_id.clone(),
+                                                                                        });
+                                                                                    }
+                                                                                },
+                                                                                img {
+                                                                                    class: "w-full h-full object-cover",
+                                                                                    src: "{url}",
+                                                                                }
+                                                                            }
+                                                                        } else {
+                                                                            img {
+                                                                                class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                src: "{url}",
+                                                                            }
                                                                         }
                                                                     }
                                                                 } else {
@@ -1180,7 +1231,7 @@ fn enqueue_song_to_queue(
 }
 
 async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) -> Vec<Song> {
-    let total_start = Instant::now();
+    let total_start = PerfTimer::now();
     let normalized_query = query.trim().to_string();
     if normalized_query.len() < 2 {
         return Vec::new();
@@ -1195,8 +1246,10 @@ async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) 
         servers_to_search = servers;
     }
 
-    let mut cache_server_ids: Vec<String> =
-        servers_to_search.iter().map(|server| server.id.clone()).collect();
+    let mut cache_server_ids: Vec<String> = servers_to_search
+        .iter()
+        .map(|server| server.id.clone())
+        .collect();
     cache_server_ids.sort();
     let cache_key = format!(
         "search:queue_add:v1:{}:{}",
@@ -1214,7 +1267,7 @@ async fn search_queue_add_candidates(servers: Vec<ServerConfig>, query: String) 
 
     let mut results = Vec::<Song>::new();
     for server in servers_to_search {
-        let server_start = Instant::now();
+        let server_start = PerfTimer::now();
         let server_name = server.name.clone();
         let client = NavidromeClient::new(server.clone());
         let Ok(search) = client.search(&normalized_query, 0, 0, 20).await else {

@@ -4,12 +4,15 @@ use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
     PreviewPlaybackSignal, SeekRequestSignal,
 };
-use crate::diagnostics::log_perf;
+use crate::db::AppSettings;
+use crate::diagnostics::{log_perf, PerfTimer};
+use crate::offline_audio::{
+    download_songs_batch, is_song_downloaded, mark_collection_downloaded, prefetch_song_audio,
+};
 use dioxus::prelude::*;
 use std::cell::RefCell;
 use std::collections::HashSet;
 use std::rc::Rc;
-use std::time::Instant;
 
 const QUICK_PREVIEW_DURATION_MS: u64 = 12000;
 const AUTO_RECOMMENDATION_LIMIT: usize = 25;
@@ -50,8 +53,12 @@ fn PlaylistSongRow(
     add_menu: AddMenuController,
 ) -> Element {
     let navigation = use_context::<Navigation>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let is_favorited = use_signal(|| song.starred.is_some());
+    let download_busy = use_signal(|| false);
+    let initially_downloaded = is_song_downloaded(&song);
+    let downloaded = use_signal(move || initially_downloaded);
     let is_current = now_playing()
         .as_ref()
         .map(|current| current.id == song.id)
@@ -99,6 +106,37 @@ fn PlaylistSongRow(
                         is_favorited.set(should_star);
                     }
                 }
+            });
+        }
+    };
+
+    let on_download_song = {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let song = song.clone();
+        let mut download_busy = download_busy.clone();
+        let mut downloaded = downloaded.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if download_busy() || downloaded() {
+                return;
+            }
+            let servers_snapshot = servers();
+            if servers_snapshot.is_empty() {
+                return;
+            }
+            let mut settings_snapshot = app_settings();
+            settings_snapshot.downloads_enabled = true;
+            download_busy.set(true);
+            let song = song.clone();
+            spawn(async move {
+                if prefetch_song_audio(&song, &servers_snapshot, &settings_snapshot)
+                    .await
+                    .is_ok()
+                {
+                    downloaded.set(true);
+                }
+                download_busy.set(false);
             });
         }
     };
@@ -191,6 +229,28 @@ fn PlaylistSongRow(
                     class: "w-4 h-4".to_string(),
                 }
             }
+            if downloaded() {
+                span {
+                    class: "p-2 text-emerald-400",
+                    title: "Downloaded",
+                    Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                }
+            } else {
+                button {
+                    class: if download_busy() {
+                        "p-2 text-zinc-500 cursor-not-allowed"
+                    } else {
+                        "p-2 text-zinc-500 hover:text-emerald-400 transition-colors"
+                    },
+                    aria_label: "Download song",
+                    disabled: download_busy(),
+                    onclick: on_download_song,
+                    Icon {
+                        name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
+            }
             button {
                 class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                 aria_label: "Add to queue",
@@ -214,6 +274,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let seek_request = use_context::<SeekRequestSignal>().0;
     let preview_playback = use_context::<PreviewPlaybackSignal>().0;
     let add_menu = use_context::<AddMenuController>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let mut is_favorited = use_signal(|| false);
     let reload = use_signal(|| 0usize);
     let mut song_search = use_signal(String::new);
@@ -230,6 +291,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let recommendation_refresh_nonce = use_signal(|| 0u64);
     let preview_session = use_signal(|| 0u64);
     let preview_song_key = use_signal(|| None::<String>);
+    let download_busy = use_signal(|| false);
+    let download_status = use_signal(|| None::<String>);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
     let server_for_playlist = server.clone();
@@ -278,9 +341,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         use_resource(move || {
             let server = server.clone();
             let query = song_search_debounced();
-            async move {
-                search_playlist_add_candidates(server, query).await
-            }
+            async move { search_playlist_add_candidates(server, query).await }
         })
     };
 
@@ -403,6 +464,57 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             if let Some(Some((playlist, _))) = playlist_data_ref() {
                 add_menu.open(AddIntent::from_playlist(&playlist));
             }
+        }
+    };
+
+    let on_download_playlist = {
+        let playlist_data_ref = playlist_data.clone();
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let mut download_busy = download_busy.clone();
+        let mut download_status = download_status.clone();
+        move |_| {
+            if download_busy() {
+                return;
+            }
+
+            let Some(Some((playlist, songs))) = playlist_data_ref() else {
+                download_status.set(Some("No songs available to download.".to_string()));
+                return;
+            };
+            if songs.is_empty() {
+                download_status.set(Some("No songs available to download.".to_string()));
+                return;
+            }
+
+            let servers_snapshot = servers();
+            if servers_snapshot.is_empty() {
+                download_status.set(Some("No servers configured.".to_string()));
+                return;
+            }
+
+            let settings_snapshot = app_settings();
+            let playlist_meta = playlist.clone();
+            download_busy.set(true);
+            download_status.set(Some("Downloading playlist songs...".to_string()));
+            spawn(async move {
+                let report =
+                    download_songs_batch(&songs, &servers_snapshot, &settings_snapshot).await;
+                if report.downloaded > 0 || report.skipped > 0 {
+                    mark_collection_downloaded(
+                        "playlist",
+                        &playlist_meta.server_id,
+                        &playlist_meta.id,
+                        &playlist_meta.name,
+                        songs.len(),
+                    );
+                }
+                download_status.set(Some(format!(
+                    "Playlist download complete: {} new, {} skipped, {} failed, {} purged.",
+                    report.downloaded, report.skipped, report.failed, report.purged
+                )));
+                download_busy.set(false);
+            });
         }
     };
 
@@ -689,6 +801,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         .map(|c| c.to_lowercase().contains("auto-imported"))
                         .unwrap_or(false);
                     let editing_allowed = !is_auto_imported;
+                    let downloaded_song_count =
+                        songs.iter().filter(|song| is_song_downloaded(song)).count();
 
                     rsx! {
                         div { class: "flex flex-col md:flex-row gap-8 mb-8 items-center md:items-end",
@@ -743,6 +857,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     }
                                     span { "{playlist.song_count} songs" }
                                     span { "{format_duration(playlist.duration / 1000)}" }
+                                    span { "{downloaded_song_count} downloaded" }
                                 }
                                 div { class: "flex gap-3 mt-6 flex-wrap justify-center md:justify-start",
                                     button {
@@ -750,6 +865,24 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         onclick: on_play_all,
                                         Icon { name: "play".to_string(), class: "w-5 h-5".to_string() }
                                         "Play"
+                                    }
+                                    button {
+                                        class: if download_busy() {
+                                            "px-4 py-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm"
+                                        } else {
+                                            "px-4 py-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-sm flex items-center gap-2"
+                                        },
+                                        disabled: download_busy(),
+                                        onclick: on_download_playlist,
+                                        Icon {
+                                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        if download_busy() {
+                                            "Downloading..."
+                                        } else {
+                                            "Download Playlist"
+                                        }
                                     }
                                     button {
                                         class: "p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors",
@@ -807,6 +940,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                             }
                                         }
                                     }
+                                }
+                                if let Some(status) = download_status() {
+                                    p { class: "text-xs text-zinc-500 mt-2", "{status}" }
                                 }
                             }
                         }
@@ -975,11 +1111,37 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                             let client = NavidromeClient::new(server.clone());
                                                                             res.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
                                                                         });
+                                                                    let cover_album_id = res.album_id.clone();
+                                                                    let cover_server_id = res.server_id.clone();
+                                                                    let navigation_for_cover = navigation.clone();
                                                                     rsx! {
                                                                         if let Some(url) = cover_url {
-                                                                            img {
-                                                                                class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
-                                                                                src: "{url}",
+                                                                            if let Some(album_id) = cover_album_id {
+                                                                                button {
+                                                                                    class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                                    aria_label: "Open album",
+                                                                                    onclick: {
+                                                                                        let album_id = album_id.clone();
+                                                                                        let server_id = cover_server_id.clone();
+                                                                                        let navigation = navigation_for_cover.clone();
+                                                                                        move |evt: MouseEvent| {
+                                                                                            evt.stop_propagation();
+                                                                                            navigation.navigate_to(AppView::AlbumDetailView {
+                                                                                                album_id: album_id.clone(),
+                                                                                                server_id: server_id.clone(),
+                                                                                            });
+                                                                                        }
+                                                                                    },
+                                                                                    img {
+                                                                                        class: "w-full h-full object-cover",
+                                                                                        src: "{url}",
+                                                                                    }
+                                                                                }
+                                                                            } else {
+                                                                                img {
+                                                                                    class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                    src: "{url}",
+                                                                                }
                                                                             }
                                                                         } else {
                                                                             div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
@@ -1104,11 +1266,37 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                 let client = NavidromeClient::new(server.clone());
                                                                 res.cover_art.as_ref().map(|ca| client.get_cover_art_url(ca, 80))
                                                             });
+                                                        let cover_album_id = res.album_id.clone();
+                                                        let cover_server_id = res.server_id.clone();
+                                                        let navigation_for_cover = navigation.clone();
                                                         rsx! {
                                                             if let Some(url) = cover_url {
-                                                                img {
-                                                                    class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
-                                                                    src: "{url}",
+                                                                if let Some(album_id) = cover_album_id {
+                                                                    button {
+                                                                        class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                        aria_label: "Open album",
+                                                                        onclick: {
+                                                                            let album_id = album_id.clone();
+                                                                            let server_id = cover_server_id.clone();
+                                                                            let navigation = navigation_for_cover.clone();
+                                                                            move |evt: MouseEvent| {
+                                                                                evt.stop_propagation();
+                                                                                navigation.navigate_to(AppView::AlbumDetailView {
+                                                                                    album_id: album_id.clone(),
+                                                                                    server_id: server_id.clone(),
+                                                                                });
+                                                                            }
+                                                                        },
+                                                                        img {
+                                                                            class: "w-full h-full object-cover",
+                                                                            src: "{url}",
+                                                                        }
+                                                                    }
+                                                                } else {
+                                                                    img {
+                                                                        class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                        src: "{url}",
+                                                                    }
                                                                 }
                                                             } else {
                                                                 div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
@@ -1240,7 +1428,7 @@ fn same_song_identity(left: &Song, right: &Song) -> bool {
 }
 
 async fn search_playlist_add_candidates(server: Option<ServerConfig>, query: String) -> Vec<Song> {
-    let total_start = Instant::now();
+    let total_start = PerfTimer::now();
     let normalized_query = query.trim().to_string();
     if normalized_query.len() < 2 {
         return Vec::new();

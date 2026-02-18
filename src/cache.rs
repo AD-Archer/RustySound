@@ -3,14 +3,61 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, SystemTime};
+use std::time::Duration;
+#[cfg(not(target_arch = "wasm32"))]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+fn now_timestamp_millis() -> u64 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        return js_sys::Date::now().max(0.0).round() as u64;
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|duration| duration.as_millis() as u64)
+            .unwrap_or(0)
+    }
+}
+
+fn deserialize_timestamp_millis<'de, D>(deserializer: D) -> Result<u64, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = serde_json::Value::deserialize(deserializer)?;
+    let timestamp_millis = match value {
+        serde_json::Value::Number(number) => number.as_u64().unwrap_or(0),
+        serde_json::Value::Object(map) => {
+            let seconds = map
+                .get("secs_since_epoch")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            let nanos = map
+                .get("nanos_since_epoch")
+                .and_then(serde_json::Value::as_u64)
+                .unwrap_or(0);
+            seconds
+                .saturating_mul(1000)
+                .saturating_add(nanos / 1_000_000)
+        }
+        _ => 0,
+    };
+    Ok(timestamp_millis)
+}
 
 /// Cache entry with expiration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheEntry {
     pub data: Vec<u8>,
     pub content_type: String,
-    pub timestamp: SystemTime,
+    #[serde(
+        default = "now_timestamp_millis",
+        alias = "timestamp",
+        deserialize_with = "deserialize_timestamp_millis"
+    )]
+    pub timestamp_millis: u64,
     pub expiry: Duration,
 }
 
@@ -19,17 +66,21 @@ impl CacheEntry {
         Self {
             data,
             content_type,
-            timestamp: SystemTime::now(),
+            timestamp_millis: now_timestamp_millis(),
             expiry,
         }
     }
 
     pub fn is_expired(&self) -> bool {
-        self.timestamp.elapsed().unwrap_or(Duration::MAX) > self.expiry
+        let expiry_millis = self.expiry.as_millis().min(u128::from(u64::MAX)) as u64;
+        now_timestamp_millis().saturating_sub(self.timestamp_millis) > expiry_millis
     }
 
     pub fn size_bytes(&self) -> usize {
-        self.data.len() + self.content_type.len() + std::mem::size_of::<SystemTime>() + std::mem::size_of::<Duration>()
+        self.data.len()
+            + self.content_type.len()
+            + std::mem::size_of::<u64>()
+            + std::mem::size_of::<Duration>()
     }
 }
 
@@ -61,7 +112,8 @@ impl SimpleCache {
         let entry_size = entry.size_bytes();
 
         // If adding this entry would exceed max size, remove oldest entries
-        while self.current_size_bytes + entry_size > self.max_size_bytes && !self.entries.is_empty() {
+        while self.current_size_bytes + entry_size > self.max_size_bytes && !self.entries.is_empty()
+        {
             // Remove the first entry (simple FIFO eviction)
             if let Some((key_to_remove, entry_to_remove)) = self.entries.iter().next() {
                 let key_to_remove = key_to_remove.clone();
@@ -73,7 +125,9 @@ impl SimpleCache {
 
         // Remove existing entry if it exists
         if let Some(old_entry) = self.entries.remove(&key) {
-            self.current_size_bytes = self.current_size_bytes.saturating_sub(old_entry.size_bytes());
+            self.current_size_bytes = self
+                .current_size_bytes
+                .saturating_sub(old_entry.size_bytes());
         }
 
         // Add new entry
@@ -96,7 +150,8 @@ impl SimpleCache {
     }
 
     pub fn clean_expired(&mut self) {
-        let expired_keys: Vec<String> = self.entries
+        let expired_keys: Vec<String> = self
+            .entries
             .iter()
             .filter(|(_, entry)| entry.is_expired())
             .map(|(key, _)| key.clone())
@@ -104,7 +159,8 @@ impl SimpleCache {
 
         for key in expired_keys {
             if let Some(entry) = self.entries.remove(&key) {
-                self.current_size_bytes = self.current_size_bytes.saturating_sub(entry.size_bytes());
+                self.current_size_bytes =
+                    self.current_size_bytes.saturating_sub(entry.size_bytes());
             }
         }
     }
@@ -168,7 +224,13 @@ pub mod utils {
 
     /// Cache an image with default expiry
     #[allow(dead_code)]
-    pub fn cache_image(cache: &mut SimpleCache, key: String, data: Vec<u8>, content_type: String, expiry_hours: u32) {
+    pub fn cache_image(
+        cache: &mut SimpleCache,
+        key: String,
+        data: Vec<u8>,
+        content_type: String,
+        expiry_hours: u32,
+    ) {
         let expiry = expiry_from_hours(expiry_hours);
         let entry = CacheEntry::new(data, content_type, expiry);
         cache.put(key, entry);
@@ -180,7 +242,12 @@ pub mod utils {
     }
 
     /// Cache API response
-    pub fn cache_api_response(cache: &mut SimpleCache, key: String, data: Vec<u8>, expiry_hours: u32) {
+    pub fn cache_api_response(
+        cache: &mut SimpleCache,
+        key: String,
+        data: Vec<u8>,
+        expiry_hours: u32,
+    ) {
         let expiry = expiry_from_hours(expiry_hours);
         let entry = CacheEntry::new(data, "application/json".to_string(), expiry);
         cache.put(key, entry);
@@ -207,7 +274,7 @@ impl Default for SimpleCache {
 
 /// Cache key generation utilities
 pub mod keys {
-    use base64::{Engine as _, engine::general_purpose};
+    use base64::{engine::general_purpose, Engine as _};
 
     pub fn album_cover(album_id: &str, server_id: &str, size: u32) -> String {
         format!("album_cover:{server_id}:{album_id}:{size}")
