@@ -1524,12 +1524,32 @@ fn ns_string(value: &str) -> Option<*mut Object> {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_file_path_from_url(src: &str) -> Option<String> {
+    let raw = src.strip_prefix("file://")?;
+    let normalized = if raw.starts_with('/') {
+        raw.to_string()
+    } else {
+        format!("/{raw}")
+    };
+    // `path_to_file_url` does not currently percent-encode. Normalize common encoded spaces anyway.
+    Some(normalized.replace("%20", " "))
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn make_player_item(src: &str) -> Option<*mut Object> {
     unsafe {
-        let src_str = ns_string(src)?;
         let url_cls = class!(NSURL);
-        let url: *mut Object = msg_send![url_cls, URLWithString: src_str];
-        let _: () = msg_send![src_str, release];
+        let url: *mut Object = if let Some(file_path) = ios_file_path_from_url(src) {
+            let path_str = ns_string(&file_path)?;
+            let url: *mut Object = msg_send![url_cls, fileURLWithPath: path_str];
+            let _: () = msg_send![path_str, release];
+            url
+        } else {
+            let src_str = ns_string(src)?;
+            let url: *mut Object = msg_send![url_cls, URLWithString: src_str];
+            let _: () = msg_send![src_str, release];
+            url
+        };
         if url.is_null() {
             return None;
         }

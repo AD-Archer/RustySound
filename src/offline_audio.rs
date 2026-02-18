@@ -33,6 +33,9 @@ const DOWNLOAD_INDEX_FILE: &str = "download_index.json";
 const COLLECTION_INDEX_FILE: &str = "download_collections.json";
 #[cfg(not(target_arch = "wasm32"))]
 const DOWNLOAD_ARTWORK_SIZES: [u32; 7] = [80, 100, 120, 160, 300, 500, 512];
+#[cfg(not(target_arch = "wasm32"))]
+const CACHE_AUDIO_EXTENSIONS: [&str; 8] =
+    ["audio", "mp3", "flac", "ogg", "m4a", "aac", "wav", "mp4"];
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DownloadStats {
@@ -96,6 +99,22 @@ pub struct DownloadCollectionEntry {
     pub updated_at_ms: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ActiveDownloadEntry {
+    pub server_id: String,
+    pub song_id: String,
+    pub title: String,
+    #[serde(default)]
+    pub artist: Option<String>,
+    #[serde(default)]
+    pub album: Option<String>,
+    pub started_at_ms: u64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+static ACTIVE_DOWNLOADS: Lazy<std::sync::Mutex<Vec<ActiveDownloadEntry>>> =
+    Lazy::new(|| std::sync::Mutex::new(Vec::new()));
+
 #[cfg(not(target_arch = "wasm32"))]
 fn now_timestamp_millis() -> u64 {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -139,12 +158,34 @@ fn audio_cache_file_path_by_ids(server_id: &str, song_id: &str) -> Option<PathBu
     let dir = audio_cache_dir()?;
     let sid = sanitize_file_component(server_id);
     let sanitized_song_id = sanitize_file_component(song_id);
-    Some(dir.join(format!("{sid}__{sanitized_song_id}.audio")))
+    let stem = format!("{sid}__{sanitized_song_id}");
+
+    for ext in CACHE_AUDIO_EXTENSIONS {
+        let candidate = dir.join(format!("{stem}.{ext}"));
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    Some(dir.join(format!("{stem}.audio")))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn audio_cache_file_path(song: &Song) -> Option<PathBuf> {
-    audio_cache_file_path_by_ids(&song.server_id, &song.id)
+    let dir = audio_cache_dir()?;
+    let sid = sanitize_file_component(&song.server_id);
+    let sanitized_song_id = sanitize_file_component(&song.id);
+    let stem = format!("{sid}__{sanitized_song_id}");
+
+    for ext in CACHE_AUDIO_EXTENSIONS {
+        let candidate = dir.join(format!("{stem}.{ext}"));
+        if candidate.exists() {
+            return Some(candidate);
+        }
+    }
+
+    let preferred_ext = preferred_audio_file_extension(song);
+    Some(dir.join(format!("{stem}.{preferred_ext}")))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -155,6 +196,72 @@ fn path_to_file_url(path: &Path) -> String {
     } else {
         format!("file:///{normalized}")
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn preferred_audio_file_extension(song: &Song) -> &'static str {
+    let suffix = song
+        .suffix
+        .as_deref()
+        .unwrap_or_default()
+        .trim()
+        .to_ascii_lowercase();
+    match suffix.as_str() {
+        "mp3" => "mp3",
+        "flac" => "flac",
+        "ogg" | "oga" => "ogg",
+        "m4a" | "mp4" => "m4a",
+        "aac" => "aac",
+        "wav" => "wav",
+        _ => {
+            let content_type = song
+                .content_type
+                .as_deref()
+                .unwrap_or_default()
+                .split(';')
+                .next()
+                .unwrap_or_default()
+                .trim()
+                .to_ascii_lowercase();
+            match content_type.as_str() {
+                "audio/flac" => "flac",
+                "audio/ogg" => "ogg",
+                "audio/mp4" => "m4a",
+                "audio/aac" => "aac",
+                "audio/wav" | "audio/x-wav" => "wav",
+                "audio/mpeg" => "mp3",
+                _ => "audio",
+            }
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_cached_audio_extension(ext: &str) -> bool {
+    CACHE_AUDIO_EXTENSIONS
+        .iter()
+        .any(|candidate| candidate.eq_ignore_ascii_case(ext))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn remove_audio_cache_files_by_ids(server_id: &str, song_id: &str) -> usize {
+    let Some(dir) = audio_cache_dir() else {
+        return 0;
+    };
+
+    let sid = sanitize_file_component(server_id);
+    let sanitized_song_id = sanitize_file_component(song_id);
+    let stem = format!("{sid}__{sanitized_song_id}");
+    let mut removed = 0usize;
+
+    for ext in CACHE_AUDIO_EXTENSIONS {
+        let candidate = dir.join(format!("{stem}.{ext}"));
+        if candidate.exists() && fs::remove_file(&candidate).is_ok() {
+            removed = removed.saturating_add(1);
+        }
+    }
+
+    removed
 }
 
 #[cfg(all(
@@ -331,7 +438,7 @@ fn prune_audio_cache(max_size_mb: u32) {
         if path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name == DOWNLOAD_INDEX_FILE)
+            .is_some_and(|name| name == DOWNLOAD_INDEX_FILE || name == COLLECTION_INDEX_FILE)
         {
             continue;
         }
@@ -485,6 +592,284 @@ pub fn list_downloaded_collections() -> Vec<DownloadCollectionEntry> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn push_active_download(song: &Song) {
+    let key_server_id = song.server_id.trim();
+    let key_song_id = song.id.trim();
+    if key_server_id.is_empty() || key_song_id.is_empty() {
+        return;
+    }
+
+    let mut downloads = ACTIVE_DOWNLOADS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    if downloads
+        .iter()
+        .any(|entry| entry.server_id == key_server_id && entry.song_id == key_song_id)
+    {
+        return;
+    }
+
+    downloads.push(ActiveDownloadEntry {
+        server_id: key_server_id.to_string(),
+        song_id: key_song_id.to_string(),
+        title: song.title.clone(),
+        artist: song.artist.clone(),
+        album: song.album.clone(),
+        started_at_ms: now_timestamp_millis(),
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn pop_active_download(server_id: &str, song_id: &str) {
+    let mut downloads = ACTIVE_DOWNLOADS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    downloads.retain(|entry| !(entry.server_id == server_id && entry.song_id == song_id));
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn list_active_downloads() -> Vec<ActiveDownloadEntry> {
+    let downloads = ACTIVE_DOWNLOADS
+        .lock()
+        .unwrap_or_else(|err| err.into_inner());
+    let mut snapshot = downloads.clone();
+    snapshot.sort_by(|left, right| left.started_at_ms.cmp(&right.started_at_ms));
+    snapshot
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn list_active_downloads() -> Vec<ActiveDownloadEntry> {
+    Vec::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+struct ActiveDownloadGuard {
+    server_id: String,
+    song_id: String,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl ActiveDownloadGuard {
+    fn new(song: &Song) -> Self {
+        push_active_download(song);
+        Self {
+            server_id: song.server_id.clone(),
+            song_id: song.id.clone(),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Drop for ActiveDownloadGuard {
+    fn drop(&mut self) {
+        pop_active_download(&self.server_id, &self.song_id);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn sync_album_collections_with_index(entries: &[DownloadIndexEntry]) {
+    let current = load_collection_index();
+    if current.is_empty() {
+        return;
+    }
+
+    let mut next = Vec::<DownloadCollectionEntry>::with_capacity(current.len());
+    for mut collection in current {
+        if collection.kind != "album" {
+            next.push(collection);
+            continue;
+        }
+
+        let album_name_key = collection.collection_id.strip_prefix("name:");
+        let mut song_count = 0usize;
+        let mut newest_updated_at = 0u64;
+        for entry in entries {
+            if entry.server_id != collection.server_id {
+                continue;
+            }
+
+            let matches = if let Some(name_key) = album_name_key {
+                entry
+                    .album
+                    .as_ref()
+                    .is_some_and(|value| value.trim() == name_key)
+            } else {
+                entry
+                    .album_id
+                    .as_ref()
+                    .is_some_and(|value| value.trim() == collection.collection_id)
+            };
+
+            if matches {
+                song_count = song_count.saturating_add(1);
+                newest_updated_at = newest_updated_at.max(entry.updated_at_ms);
+            }
+        }
+
+        if song_count == 0 {
+            continue;
+        }
+
+        collection.song_count = song_count;
+        if newest_updated_at > 0 {
+            collection.updated_at_ms = newest_updated_at;
+        }
+        next.push(collection);
+    }
+
+    save_collection_index(&next);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn remove_download_index_keys(keys: &HashSet<(String, String)>) -> usize {
+    if keys.is_empty() {
+        return 0;
+    }
+
+    let mut index = load_download_index();
+    let mut removed_entries = Vec::<DownloadIndexEntry>::new();
+    index.retain(|entry| {
+        let key = (entry.server_id.clone(), entry.song_id.clone());
+        if keys.contains(&key) {
+            removed_entries.push(entry.clone());
+            false
+        } else {
+            true
+        }
+    });
+
+    if removed_entries.is_empty() {
+        return 0;
+    }
+
+    for entry in &removed_entries {
+        let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+    }
+
+    save_download_index(&index);
+    sync_album_collections_with_index(&index);
+    removed_entries.len()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_downloaded_song(server_id: &str, song_id: &str) -> usize {
+    if server_id.trim().is_empty() || song_id.trim().is_empty() {
+        return 0;
+    }
+
+    let mut keys = HashSet::<(String, String)>::new();
+    keys.insert((server_id.trim().to_string(), song_id.trim().to_string()));
+    remove_download_index_keys(&keys)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn remove_downloaded_song(_server_id: &str, _song_id: &str) -> usize {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_downloaded_songs(keys: &[(String, String)]) -> usize {
+    let key_set: HashSet<(String, String)> = keys
+        .iter()
+        .filter_map(|(server_id, song_id)| {
+            let server_id = server_id.trim();
+            let song_id = song_id.trim();
+            if server_id.is_empty() || song_id.is_empty() {
+                None
+            } else {
+                Some((server_id.to_string(), song_id.to_string()))
+            }
+        })
+        .collect();
+    remove_download_index_keys(&key_set)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn remove_downloaded_songs(_keys: &[(String, String)]) -> usize {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_downloaded_collection(kind: &str, server_id: &str, collection_id: &str) -> usize {
+    if kind.trim().is_empty() || server_id.trim().is_empty() || collection_id.trim().is_empty() {
+        return 0;
+    }
+
+    let mut index = load_collection_index();
+    let before = index.len();
+    index.retain(|entry| {
+        !(entry.kind == kind
+            && entry.server_id == server_id.trim()
+            && entry.collection_id == collection_id.trim())
+    });
+    if index.len() != before {
+        save_collection_index(&index);
+    }
+    before.saturating_sub(index.len())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn remove_downloaded_collection(_kind: &str, _server_id: &str, _collection_id: &str) -> usize {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_downloaded_album(server_id: &str, collection_id: &str, fallback_name: &str) -> usize {
+    if server_id.trim().is_empty() || collection_id.trim().is_empty() {
+        return 0;
+    }
+
+    let mut keys = HashSet::<(String, String)>::new();
+    let by_name = collection_id
+        .strip_prefix("name:")
+        .map(str::to_string)
+        .or_else(|| {
+            let trimmed = fallback_name.trim();
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed.to_string())
+            }
+        });
+
+    for entry in load_download_index() {
+        if entry.server_id != server_id.trim() {
+            continue;
+        }
+
+        let matches = if let Some(name_key) = by_name.as_ref() {
+            collection_id.starts_with("name:")
+                && entry
+                    .album
+                    .as_ref()
+                    .is_some_and(|value| value.trim() == name_key)
+        } else {
+            entry
+                .album_id
+                .as_ref()
+                .is_some_and(|value| value.trim() == collection_id.trim())
+        };
+
+        if matches {
+            keys.insert((entry.server_id.clone(), entry.song_id.clone()));
+        }
+    }
+
+    let removed = remove_download_index_keys(&keys);
+    let _ = remove_downloaded_collection("album", server_id, collection_id);
+    removed
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn remove_downloaded_album(
+    _server_id: &str,
+    _collection_id: &str,
+    _fallback_name: &str,
+) -> usize {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn clear_downloads() -> usize {
     let Some(dir) = audio_cache_dir() else {
         return 0;
@@ -506,7 +891,7 @@ pub fn clear_downloads() -> usize {
         if path
             .extension()
             .and_then(|ext| ext.to_str())
-            .is_some_and(|ext| ext == "audio")
+            .is_some_and(is_cached_audio_extension)
             && fs::remove_file(&path).is_ok()
         {
             removed += 1;
@@ -547,7 +932,7 @@ pub fn prune_download_cache(max_count: u32, max_size_mb: u32) -> usize {
         if path
             .extension()
             .and_then(|ext| ext.to_str())
-            .is_none_or(|ext| ext != "audio")
+            .is_none_or(|ext| !is_cached_audio_extension(ext))
         {
             continue;
         }
@@ -1006,6 +1391,7 @@ pub async fn prefetch_song_audio(
     };
 
     let client = NavidromeClient::new(server);
+    let _active_download_guard = ActiveDownloadGuard::new(song);
     let stream_url = client.get_stream_url(&song.id);
     let response = AUDIO_HTTP_CLIENT
         .get(stream_url)

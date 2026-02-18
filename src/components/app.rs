@@ -144,7 +144,6 @@ pub fn AppShell() -> Element {
       if (!(img instanceof HTMLImageElement)) continue;
 
       const current = getState(img);
-      if (!img.isConnected && !current.prefetch) continue;
       current.queued = false;
       const url = current.targetUrl;
       if (!url) continue;

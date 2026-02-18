@@ -382,7 +382,7 @@ impl NavidromeClient {
             let year = json_pick_u32(&value, &["year"]);
             let genre = json_pick_string(&value, &["genre"]);
 
-            songs.push(Song {
+            let mut song = Song {
                 id,
                 title,
                 album,
@@ -404,7 +404,9 @@ impl NavidromeClient {
                 genre,
                 server_id: self.server.id.clone(),
                 server_name: self.server.name.clone(),
-            });
+            };
+            normalize_song_cover_art(&mut song);
+            songs.push(song);
         }
 
         songs
@@ -744,6 +746,7 @@ impl NavidromeClient {
 
         for album in &mut albums {
             album.server_id = self.server.id.clone();
+            normalize_album_cover_art(album);
         }
 
         let _ = cache_put_json(cache_key, &albums, Some(6));
@@ -774,11 +777,13 @@ impl NavidromeClient {
 
         let mut album_with_songs = json.subsonic_response.album.ok_or("Album not found")?;
         album_with_songs.server_id = self.server.id.clone();
+        normalize_album_cover_art(&mut album_with_songs.album);
 
         let mut songs = album_with_songs.song.take().unwrap_or_default();
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
+            normalize_song_cover_art(song);
         }
 
         let album = album_with_songs.album;
@@ -817,6 +822,7 @@ impl NavidromeClient {
         let mut song = json.subsonic_response.song.ok_or("Song not found")?;
         song.server_id = self.server.id.clone();
         song.server_name = self.server.name.clone();
+        normalize_song_cover_art(&mut song);
         let _ = cache_put_json(cache_key, &song, Some(24));
         Ok(song)
     }
@@ -852,9 +858,10 @@ impl NavidromeClient {
         let mut albums = artist_with_albums.album.take().unwrap_or_default();
         for album in &mut albums {
             album.server_id = self.server.id.clone();
+            normalize_album_cover_art(album);
         }
 
-        let artist = Artist {
+        let mut artist = Artist {
             id: artist_with_albums.id,
             name: artist_with_albums.name,
             album_count: artist_with_albums.album_count.unwrap_or(0),
@@ -862,6 +869,7 @@ impl NavidromeClient {
             starred: artist_with_albums.starred,
             server_id: self.server.id.clone(),
         };
+        normalize_artist_cover_art(&mut artist);
         let payload = (artist, albums);
         let _ = cache_put_json(cache_key, &payload, Some(24));
         Ok(payload)
@@ -892,6 +900,7 @@ impl NavidromeClient {
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
+            normalize_song_cover_art(song);
         }
         songs
     }
@@ -1035,13 +1044,16 @@ impl NavidromeClient {
 
         for artist in &mut artists {
             artist.server_id = self.server.id.clone();
+            normalize_artist_cover_art(artist);
         }
         for album in &mut albums {
             album.server_id = self.server.id.clone();
+            normalize_album_cover_art(album);
         }
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
+            normalize_song_cover_art(song);
         }
 
         let payload = (artists, albums, songs);
@@ -1289,6 +1301,7 @@ impl NavidromeClient {
 
         for playlist in &mut playlists {
             playlist.server_id = self.server.id.clone();
+            normalize_playlist_cover_art(playlist);
         }
 
         let _ = cache_put_json(cache_key, &playlists, Some(12));
@@ -1322,11 +1335,13 @@ impl NavidromeClient {
             .playlist
             .ok_or("Playlist not found")?;
         playlist_with_entries.server_id = self.server.id.clone();
+        normalize_playlist_cover_art(&mut playlist_with_entries.playlist);
 
         let mut songs = playlist_with_entries.entry.take().unwrap_or_default();
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
+            normalize_song_cover_art(song);
         }
 
         let playlist = playlist_with_entries.playlist;
@@ -1734,13 +1749,16 @@ impl NavidromeClient {
 
         for artist in &mut artists {
             artist.server_id = self.server.id.clone();
+            normalize_artist_cover_art(artist);
         }
         for album in &mut albums {
             album.server_id = self.server.id.clone();
+            normalize_album_cover_art(album);
         }
         for song in &mut songs {
             song.server_id = self.server.id.clone();
             song.server_name = self.server.name.clone();
+            normalize_song_cover_art(song);
         }
 
         let payload = SearchResult {
@@ -1806,6 +1824,52 @@ fn normalize_cover_art_id(cover_art_id: &str) -> String {
     }
 
     trimmed.to_string()
+}
+
+fn normalized_cover_art_candidate(value: &str) -> Option<String> {
+    let normalized = normalize_cover_art_id(value);
+    let trimmed = normalized.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        Some(trimmed.to_string())
+    }
+}
+
+fn normalize_cover_art_with_fallback(cover_art: &mut Option<String>, fallback_candidates: &[&str]) {
+    if let Some(existing) = cover_art
+        .as_ref()
+        .and_then(|value| normalized_cover_art_candidate(value))
+    {
+        *cover_art = Some(existing);
+        return;
+    }
+
+    for fallback in fallback_candidates {
+        if let Some(value) = normalized_cover_art_candidate(fallback) {
+            *cover_art = Some(value);
+            return;
+        }
+    }
+
+    *cover_art = None;
+}
+
+fn normalize_album_cover_art(album: &mut Album) {
+    normalize_cover_art_with_fallback(&mut album.cover_art, &[album.id.as_str()]);
+}
+
+fn normalize_artist_cover_art(artist: &mut Artist) {
+    normalize_cover_art_with_fallback(&mut artist.cover_art, &[artist.id.as_str()]);
+}
+
+fn normalize_playlist_cover_art(playlist: &mut Playlist) {
+    normalize_cover_art_with_fallback(&mut playlist.cover_art, &[playlist.id.as_str()]);
+}
+
+fn normalize_song_cover_art(song: &mut Song) {
+    let album_id = song.album_id.as_deref().unwrap_or("");
+    normalize_cover_art_with_fallback(&mut song.cover_art, &[album_id, song.id.as_str()]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]

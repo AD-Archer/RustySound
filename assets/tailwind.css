@@ -302,6 +302,9 @@
   .top-4 {
     top: calc(var(--spacing) * 4);
   }
+  .top-10 {
+    top: calc(var(--spacing) * 10);
+  }
   .top-16 {
     top: calc(var(--spacing) * 16);
   }
@@ -539,6 +542,9 @@
   .h-full {
     height: 100%;
   }
+  .max-h-40 {
+    max-height: calc(var(--spacing) * 40);
+  }
   .max-h-56 {
     max-height: calc(var(--spacing) * 56);
   }
@@ -614,6 +620,9 @@
   .w-32 {
     width: calc(var(--spacing) * 32);
   }
+  .w-44 {
+    width: calc(var(--spacing) * 44);
+  }
   .w-48 {
     width: calc(var(--spacing) * 48);
   }
@@ -655,6 +664,9 @@
   }
   .min-w-0 {
     min-width: calc(var(--spacing) * 0);
+  }
+  .min-w-\[6rem\] {
+    min-width: 6rem;
   }
   .min-w-max {
     min-width: max-content;
@@ -894,6 +906,10 @@
   .border-b {
     border-bottom-style: var(--tw-border-style);
     border-bottom-width: 1px;
+  }
+  .border-dashed {
+    --tw-border-style: dashed;
+    border-style: dashed;
   }
   .border-amber-400\/60 {
     border-color: color-mix(in srgb, oklch(82.8% 0.189 84.429) 60%, transparent);
@@ -1399,6 +1415,9 @@
   .object-cover {
     object-fit: cover;
   }
+  .p-1 {
+    padding: calc(var(--spacing) * 1);
+  }
   .p-1\.5 {
     padding: calc(var(--spacing) * 1.5);
   }
@@ -1422,6 +1441,9 @@
   }
   .px-2 {
     padding-inline: calc(var(--spacing) * 2);
+  }
+  .px-2\.5 {
+    padding-inline: calc(var(--spacing) * 2.5);
   }
   .px-3 {
     padding-inline: calc(var(--spacing) * 3);
@@ -2019,6 +2041,16 @@
       }
     }
   }
+  .hover\:border-emerald-500\/70 {
+    &:hover {
+      @media (hover: hover) {
+        border-color: color-mix(in srgb, oklch(69.6% 0.17 162.48) 70%, transparent);
+        @supports (color: color-mix(in lab, red, red)) {
+          border-color: color-mix(in oklab, var(--color-emerald-500) 70%, transparent);
+        }
+      }
+    }
+  }
   .hover\:border-red-500\/40 {
     &:hover {
       @media (hover: hover) {
@@ -2511,6 +2543,11 @@
   .md\:hidden {
     @media (width >= 48rem) {
       display: none;
+    }
+  }
+  .md\:inline-flex {
+    @media (width >= 48rem) {
+      display: inline-flex;
     }
   }
   .md\:h-16 {

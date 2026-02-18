@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::views::search::ArtistCard;
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
@@ -58,22 +59,47 @@ pub fn ArtistsView() -> Element {
         let limit = limit();
         let query = debounced_query();
         async move {
+            let active_servers: Vec<ServerConfig> =
+                servers.into_iter().filter(|s| s.active).collect();
+            if active_servers.is_empty() {
+                return (Vec::new(), false);
+            }
+
+            let mut cache_server_ids: Vec<String> = active_servers
+                .iter()
+                .map(|server| server.id.clone())
+                .collect();
+            cache_server_ids.sort();
+            let cache_prefix = format!("view:artists:v1:{}", cache_server_ids.join("|"));
+
             let mut artists = Vec::new();
             let mut more_available = false;
             if query.trim().is_empty() {
-                for server in servers.into_iter().filter(|s| s.active) {
+                let cache_key = format!("{cache_prefix}:all");
+                if let Some(mut cached_artists) = cache_get_json::<Vec<Artist>>(&cache_key) {
+                    cached_artists
+                        .sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                    if cached_artists.len() > limit {
+                        more_available = true;
+                    }
+                    cached_artists.truncate(limit);
+                    return (cached_artists, more_available);
+                }
+
+                for server in active_servers.iter().cloned() {
                     let client = NavidromeClient::new(server);
                     if let Ok(server_artists) = client.get_artists().await {
                         artists.extend(server_artists);
                     }
                 }
                 artists.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+                let _ = cache_put_json(cache_key, &artists, Some(6));
                 if artists.len() > limit {
                     more_available = true;
                 }
                 artists.truncate(limit);
             } else {
-                for server in servers.into_iter().filter(|s| s.active) {
+                for server in active_servers.into_iter() {
                     let client = NavidromeClient::new(server);
                     if let Ok(results) = client.search(&query, limit as u32 + 1, 0, 0).await {
                         if results.artists.len() > limit {

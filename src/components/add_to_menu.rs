@@ -468,7 +468,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     };
 
     let on_preview_song = Rc::new({
-        let queue = queue.clone();
         let queue_index = queue_index.clone();
         let now_playing = now_playing.clone();
         let is_playing = is_playing.clone();
@@ -478,8 +477,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         let preview_session = preview_session.clone();
         let preview_song_key = preview_song_key.clone();
         move |song: Song| {
-            let mut queue = queue.clone();
-            let mut queue_index = queue_index.clone();
+            let queue_index = queue_index.clone();
             let mut now_playing = now_playing.clone();
             let mut is_playing = is_playing.clone();
             let mut playback_position = playback_position.clone();
@@ -487,7 +485,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             let mut preview_playback = preview_playback.clone();
             let mut preview_session = preview_session.clone();
             let mut preview_song_key = preview_song_key.clone();
-            let saved_queue = queue();
             let saved_queue_index = queue_index();
             let saved_now_playing = now_playing();
             let saved_is_playing = is_playing();
@@ -504,14 +501,11 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             preview_song_key.set(Some(song_key(&song)));
             preview_playback.set(true);
 
-            queue.set(vec![song.clone()]);
-            queue_index.set(0);
             playback_position.set(0.0);
             seek_request.set(Some((song.id.clone(), 0.0)));
             now_playing.set(Some(song));
             is_playing.set(true);
 
-            let mut queue = queue.clone();
             let mut queue_index = queue_index.clone();
             let mut now_playing = now_playing.clone();
             let mut is_playing = is_playing.clone();
@@ -524,7 +518,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                 if preview_session() != session {
                     return;
                 }
-                queue.set(saved_queue);
                 queue_index.set(saved_queue_index);
                 now_playing.set(saved_now_playing);
                 is_playing.set(saved_is_playing);

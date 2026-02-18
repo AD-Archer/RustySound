@@ -171,6 +171,16 @@ pub fn Icon(name: String, class: String) -> Element {
                 }
             }
         },
+        "more-horizontal" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "currentColor",
+                circle { cx: "5", cy: "12", r: "2" }
+                circle { cx: "12", cy: "12", r: "2" }
+                circle { cx: "19", cy: "12", r: "2" }
+            }
+        },
         "shuffle" => rsx! {
             svg {
                 class: "{class}",

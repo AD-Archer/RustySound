@@ -1,13 +1,15 @@
 use crate::api::{NavidromeClient, ServerConfig, Song};
-use crate::components::{AppView, Navigation};
+use crate::components::{AppView, Icon, Navigation};
 use crate::db::{save_settings, AppSettings};
 use crate::offline_audio::{
-    clear_downloads, download_stats, list_downloaded_collections, list_downloaded_entries,
-    refresh_downloaded_cache, run_auto_download_pass, DownloadCollectionEntry, DownloadIndexEntry,
+    clear_downloads, download_stats, list_active_downloads, list_downloaded_collections,
+    list_downloaded_entries, refresh_downloaded_cache, remove_downloaded_album,
+    remove_downloaded_collection, remove_downloaded_song, remove_downloaded_songs,
+    run_auto_download_pass, ActiveDownloadEntry, DownloadCollectionEntry, DownloadIndexEntry,
 };
 use chrono::{DateTime, Local, Utc};
 use dioxus::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 fn format_size(bytes: u64) -> String {
     let mb = bytes as f64 / (1024.0 * 1024.0);
@@ -26,6 +28,20 @@ fn format_updated(ms: u64) -> String {
         .with_timezone(&Local)
         .format("%Y-%m-%d %H:%M")
         .to_string()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn download_poll_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn download_poll_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
+fn download_song_key(server_id: &str, song_id: &str) -> String {
+    format!("{}::{}", server_id.trim(), song_id.trim())
 }
 
 fn infer_downloaded_albums(entries: &[DownloadIndexEntry]) -> Vec<DownloadCollectionEntry> {
@@ -83,6 +99,19 @@ pub fn DownloadsView() -> Element {
     let action_status = use_signal(|| None::<String>);
     let mut search_query = use_signal(String::new);
     let mut active_tab = use_signal(|| DownloadsTab::Songs);
+    let selected_song_keys = use_signal(HashSet::<String>::new);
+
+    {
+        let mut refresh_nonce = refresh_nonce.clone();
+        use_effect(move || {
+            spawn(async move {
+                loop {
+                    download_poll_delay_ms(1200).await;
+                    refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                }
+            });
+        });
+    }
 
     #[cfg(target_arch = "wasm32")]
     let native_downloads_supported = false;
@@ -93,6 +122,7 @@ pub fn DownloadsView() -> Element {
     let settings = app_settings();
     let stats = download_stats();
     let all_entries = list_downloaded_entries();
+    let active_downloads: Vec<ActiveDownloadEntry> = list_active_downloads();
     let collections = list_downloaded_collections();
     let downloaded_playlists: Vec<DownloadCollectionEntry> = collections
         .iter()
@@ -153,6 +183,13 @@ pub fn DownloadsView() -> Element {
             })
             .collect()
     };
+    let selected_visible_song_count = {
+        let selected = selected_song_keys();
+        entries
+            .iter()
+            .filter(|entry| selected.contains(&download_song_key(&entry.server_id, &entry.song_id)))
+            .count()
+    };
 
     let used_size_mb = stats.total_size_bytes as f64 / (1024.0 * 1024.0);
     let size_limit_mb = settings.download_limit_mb.max(1) as f64;
@@ -199,9 +236,64 @@ pub fn DownloadsView() -> Element {
     let on_clear_downloads = {
         let mut action_status = action_status.clone();
         let mut refresh_nonce = refresh_nonce.clone();
+        let mut selected_song_keys = selected_song_keys.clone();
         move |_| {
             let removed = clear_downloads();
             action_status.set(Some(format!("Removed {removed} downloaded songs.")));
+            selected_song_keys.set(HashSet::new());
+            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+        }
+    };
+
+    let on_toggle_select_all_visible = {
+        let mut selected_song_keys = selected_song_keys.clone();
+        let entries = entries.clone();
+        move |_| {
+            let mut selected = selected_song_keys();
+            let all_visible_selected = !entries.is_empty()
+                && entries.iter().all(|entry| {
+                    selected.contains(&download_song_key(&entry.server_id, &entry.song_id))
+                });
+            if all_visible_selected {
+                for entry in &entries {
+                    selected.remove(&download_song_key(&entry.server_id, &entry.song_id));
+                }
+            } else {
+                for entry in &entries {
+                    selected.insert(download_song_key(&entry.server_id, &entry.song_id));
+                }
+            }
+            selected_song_keys.set(selected);
+        }
+    };
+
+    let on_clear_selection = {
+        let mut selected_song_keys = selected_song_keys.clone();
+        move |_| selected_song_keys.set(HashSet::new())
+    };
+
+    let on_delete_selected = {
+        let mut action_status = action_status.clone();
+        let mut refresh_nonce = refresh_nonce.clone();
+        let mut selected_song_keys = selected_song_keys.clone();
+        let entries = entries.clone();
+        move |_| {
+            let selected = selected_song_keys();
+            let keys: Vec<(String, String)> = entries
+                .iter()
+                .filter(|entry| {
+                    selected.contains(&download_song_key(&entry.server_id, &entry.song_id))
+                })
+                .map(|entry| (entry.server_id.clone(), entry.song_id.clone()))
+                .collect();
+            if keys.is_empty() {
+                action_status.set(Some("No downloaded songs selected.".to_string()));
+                return;
+            }
+
+            let removed = remove_downloaded_songs(&keys);
+            selected_song_keys.set(HashSet::new());
+            action_status.set(Some(format!("Removed {removed} selected download(s).")));
             refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
         }
     };
@@ -364,6 +456,30 @@ pub fn DownloadsView() -> Element {
                     }
                 }
 
+                if !active_downloads.is_empty() {
+                    div { class: "space-y-2",
+                        div { class: "flex items-center justify-between",
+                            p { class: "text-xs uppercase tracking-wider text-zinc-500", "Active Downloads" }
+                            p { class: "text-xs text-emerald-300", "{active_downloads.len()} in progress" }
+                        }
+                        div { class: "max-h-40 overflow-y-auto rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-2 space-y-1",
+                            for entry in active_downloads.iter().take(30) {
+                                div {
+                                    key: "active:{entry.server_id}:{entry.song_id}",
+                                    class: "flex items-center justify-between gap-3 px-2 py-1.5 rounded-lg bg-zinc-900/50",
+                                    div { class: "min-w-0",
+                                        p { class: "text-sm text-zinc-200 truncate", "{entry.title}" }
+                                        p { class: "text-xs text-zinc-500 truncate",
+                                            "{entry.artist.clone().unwrap_or_else(|| \"Unknown artist\".to_string())}"
+                                        }
+                                    }
+                                    Icon { name: "loader".to_string(), class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string() }
+                                }
+                            }
+                        }
+                    }
+                }
+
                 div { class: "flex flex-wrap items-center gap-3 pt-2",
                     button {
                         class: if settings.downloads_enabled {
@@ -486,12 +602,41 @@ pub fn DownloadsView() -> Element {
                         value: search_query,
                         oninput: move |evt| search_query.set(evt.value()),
                     }
+                    if !entries.is_empty() {
+                        div { class: "flex flex-wrap items-center gap-2",
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                                onclick: on_toggle_select_all_visible,
+                                if selected_visible_song_count == entries.len() {
+                                    "Unselect Visible"
+                                } else {
+                                    "Select Visible"
+                                }
+                            }
+                            if selected_visible_song_count > 0 {
+                                button {
+                                    class: "px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
+                                    onclick: on_delete_selected,
+                                    "Delete Selected"
+                                }
+                                button {
+                                    class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-xs",
+                                    onclick: on_clear_selection,
+                                    "Clear Selection"
+                                }
+                                span { class: "text-xs text-zinc-500", "{selected_visible_song_count} selected" }
+                            }
+                        }
+                    }
                     if entries.is_empty() {
                         div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded songs yet." }
                     } else {
                         div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
                             for entry in entries {
                                 {
+                                    let selection_key =
+                                        download_song_key(&entry.server_id, &entry.song_id);
+                                    let is_selected = selected_song_keys().contains(&selection_key);
                                     let cover_id = entry
                                         .cover_art_id
                                         .as_ref()
@@ -517,6 +662,25 @@ pub fn DownloadsView() -> Element {
                                             key: "{entry.server_id}:{entry.song_id}",
                                             class: "rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
                                             div { class: "flex items-start gap-3 min-w-0",
+                                                input {
+                                                    r#type: "checkbox",
+                                                    class: "mt-1 accent-emerald-500 flex-shrink-0",
+                                                    checked: is_selected,
+                                                    onchange: {
+                                                        let entry = entry.clone();
+                                                        let mut selected_song_keys = selected_song_keys.clone();
+                                                        move |evt| {
+                                                            let mut selected = selected_song_keys();
+                                                            let key = download_song_key(&entry.server_id, &entry.song_id);
+                                                            if evt.checked() {
+                                                                selected.insert(key);
+                                                            } else {
+                                                                selected.remove(&key);
+                                                            }
+                                                            selected_song_keys.set(selected);
+                                                        }
+                                                    },
+                                                }
                                                 if let Some(url) = cover_url {
                                                     if let Some(album_id) = entry.album_id.clone() {
                                                         button {
@@ -560,7 +724,7 @@ pub fn DownloadsView() -> Element {
                                                     }
                                                 }
                                             }
-                                            div { class: "text-right flex-shrink-0 space-y-2",
+                                            div { class: "text-right flex-shrink-0 space-y-2 min-w-[6rem]",
                                                 button {
                                                     class: "px-2 py-1 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
                                                     onclick: {
@@ -591,6 +755,27 @@ pub fn DownloadsView() -> Element {
                                                         }
                                                     },
                                                     "Play"
+                                                }
+                                                button {
+                                                    class: "px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
+                                                    onclick: {
+                                                        let entry = entry.clone();
+                                                        let mut action_status = action_status.clone();
+                                                        let mut refresh_nonce = refresh_nonce.clone();
+                                                        let mut selected_song_keys = selected_song_keys.clone();
+                                                        move |_| {
+                                                            let removed = remove_downloaded_song(&entry.server_id, &entry.song_id);
+                                                            let mut selected = selected_song_keys();
+                                                            selected.remove(&download_song_key(&entry.server_id, &entry.song_id));
+                                                            selected_song_keys.set(selected);
+                                                            action_status.set(Some(format!(
+                                                                "Removed {removed} download(s) for \"{}\".",
+                                                                entry.title
+                                                            )));
+                                                            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                                                        }
+                                                    },
+                                                    "Delete"
                                                 }
                                                 p { class: "text-xs text-zinc-300", "{format_size(entry.size_bytes)}" }
                                                 p { class: "text-[11px] text-zinc-500", "{format_updated(entry.updated_at_ms)}" }
@@ -628,40 +813,66 @@ pub fn DownloadsView() -> Element {
                                             })
                                     });
                                     rsx! {
-                                        button {
+                                        div {
                                             key: "album:{album.server_id}:{album.collection_id}",
-                                            class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3 text-left hover:border-emerald-500/40 transition-colors",
-                                            disabled: album.collection_id.starts_with("name:"),
-                                            onclick: {
-                                                let album_id = album.collection_id.clone();
-                                                let server_id = album.server_id.clone();
-                                                move |_| {
-                                                    if album_id.starts_with("name:") {
-                                                        return;
+                                            class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
+                                            button {
+                                                class: "min-w-0 flex-1 text-left hover:text-emerald-300 transition-colors",
+                                                disabled: album.collection_id.starts_with("name:"),
+                                                onclick: {
+                                                    let album_id = album.collection_id.clone();
+                                                    let server_id = album.server_id.clone();
+                                                    move |_| {
+                                                        if album_id.starts_with("name:") {
+                                                            return;
+                                                        }
+                                                        navigation.navigate_to(AppView::AlbumDetailView {
+                                                            album_id: album_id.clone(),
+                                                            server_id: server_id.clone(),
+                                                        });
                                                     }
-                                                    navigation.navigate_to(AppView::AlbumDetailView {
-                                                        album_id: album_id.clone(),
-                                                        server_id: server_id.clone(),
-                                                    });
-                                                }
-                                            },
-                                            div { class: "flex items-center gap-3 min-w-0",
-                                                if let Some(url) = cover_url {
-                                                    img {
-                                                        src: "{url}",
-                                                        alt: "{album.name}",
-                                                        class: "w-12 h-12 rounded-lg object-cover border border-zinc-800/80 flex-shrink-0",
-                                                        loading: "lazy",
+                                                },
+                                                div { class: "flex items-center gap-3 min-w-0",
+                                                    if let Some(url) = cover_url {
+                                                        img {
+                                                            src: "{url}",
+                                                            alt: "{album.name}",
+                                                            class: "w-12 h-12 rounded-lg object-cover border border-zinc-800/80 flex-shrink-0",
+                                                            loading: "lazy",
+                                                        }
+                                                    } else {
+                                                        div { class: "w-12 h-12 rounded-lg bg-zinc-800 border border-zinc-800/80 flex-shrink-0" }
                                                     }
-                                                } else {
-                                                    div { class: "w-12 h-12 rounded-lg bg-zinc-800 border border-zinc-800/80 flex-shrink-0" }
-                                                }
-                                                div { class: "min-w-0",
-                                                    p { class: "text-sm font-medium text-white truncate", "{album.name}" }
-                                                    p { class: "text-xs text-zinc-500", "{album.song_count} songs" }
+                                                    div { class: "min-w-0",
+                                                        p { class: "text-sm font-medium text-white truncate", "{album.name}" }
+                                                        p { class: "text-xs text-zinc-500", "{album.song_count} songs" }
+                                                    }
                                                 }
                                             }
-                                            p { class: "text-[11px] text-zinc-500 flex-shrink-0", "{format_updated(album.updated_at_ms)}" }
+                                            div { class: "text-right flex-shrink-0 space-y-2 min-w-[6rem]",
+                                                p { class: "text-[11px] text-zinc-500", "{format_updated(album.updated_at_ms)}" }
+                                                button {
+                                                    class: "px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
+                                                    onclick: {
+                                                        let album = album.clone();
+                                                        let mut action_status = action_status.clone();
+                                                        let mut refresh_nonce = refresh_nonce.clone();
+                                                        move |_| {
+                                                            let removed = remove_downloaded_album(
+                                                                &album.server_id,
+                                                                &album.collection_id,
+                                                                &album.name,
+                                                            );
+                                                            action_status.set(Some(format!(
+                                                                "Removed {removed} song(s) from album \"{}\".",
+                                                                album.name
+                                                            )));
+                                                            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                                                        }
+                                                    },
+                                                    "Delete"
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -674,24 +885,50 @@ pub fn DownloadsView() -> Element {
                     } else {
                         div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
                             for playlist in downloaded_playlists {
-                                button {
+                                div {
                                     key: "playlist:{playlist.server_id}:{playlist.collection_id}",
-                                    class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3 text-left hover:border-emerald-500/40 transition-colors",
-                                    onclick: {
-                                        let playlist_id = playlist.collection_id.clone();
-                                        let server_id = playlist.server_id.clone();
-                                        move |_| {
-                                            navigation.navigate_to(AppView::PlaylistDetailView {
-                                                playlist_id: playlist_id.clone(),
-                                                server_id: server_id.clone(),
-                                            });
+                                    class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
+                                    button {
+                                        class: "min-w-0 flex-1 text-left hover:text-emerald-300 transition-colors",
+                                        onclick: {
+                                            let playlist_id = playlist.collection_id.clone();
+                                            let server_id = playlist.server_id.clone();
+                                            move |_| {
+                                                navigation.navigate_to(AppView::PlaylistDetailView {
+                                                    playlist_id: playlist_id.clone(),
+                                                    server_id: server_id.clone(),
+                                                });
+                                            }
+                                        },
+                                        div { class: "min-w-0",
+                                            p { class: "text-sm font-medium text-white truncate", "{playlist.name}" }
+                                            p { class: "text-xs text-zinc-500", "{playlist.song_count} songs" }
                                         }
-                                    },
-                                    div { class: "min-w-0",
-                                        p { class: "text-sm font-medium text-white truncate", "{playlist.name}" }
-                                        p { class: "text-xs text-zinc-500", "{playlist.song_count} songs" }
                                     }
-                                    p { class: "text-[11px] text-zinc-500 flex-shrink-0", "{format_updated(playlist.updated_at_ms)}" }
+                                    div { class: "text-right flex-shrink-0 space-y-2 min-w-[6rem]",
+                                        p { class: "text-[11px] text-zinc-500", "{format_updated(playlist.updated_at_ms)}" }
+                                        button {
+                                            class: "px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
+                                            onclick: {
+                                                let playlist = playlist.clone();
+                                                let mut action_status = action_status.clone();
+                                                let mut refresh_nonce = refresh_nonce.clone();
+                                                move |_| {
+                                                    let removed = remove_downloaded_collection(
+                                                        "playlist",
+                                                        &playlist.server_id,
+                                                        &playlist.collection_id,
+                                                    );
+                                                    action_status.set(Some(format!(
+                                                        "Removed {removed} playlist download marker(s) for \"{}\".",
+                                                        playlist.name
+                                                    )));
+                                                    refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                                                }
+                                            },
+                                            "Delete"
+                                        }
+                                    }
                                 }
                             }
                         }
