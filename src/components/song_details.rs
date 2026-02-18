@@ -103,6 +103,7 @@ fn is_live_song(song: &Song) -> bool {
 #[component]
 pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let add_menu = use_context::<AddMenuController>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
@@ -399,6 +400,13 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
     } else {
         song.title.clone()
     };
+    let on_open_song_actions = {
+        let mut add_menu = add_menu.clone();
+        let song = song.clone();
+        move |_| {
+            add_menu.open(AddIntent::from_song(song.clone()));
+        }
+    };
 
     {
         let mut controller = controller.clone();
@@ -434,6 +442,15 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
                         }
                     }
                     div { class: "flex items-center gap-2",
+                        button {
+                            class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors",
+                            aria_label: "Song actions",
+                            onclick: on_open_song_actions,
+                            Icon {
+                                name: "more-horizontal".to_string(),
+                                class: "w-5 h-5".to_string(),
+                            }
+                        }
                         button {
                             class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800/80 transition-colors",
                             aria_label: "Close song details",

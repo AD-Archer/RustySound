@@ -51,6 +51,8 @@ fn PlaylistSongRow(
     is_playing: Signal<bool>,
     servers: Signal<Vec<ServerConfig>>,
     add_menu: AddMenuController,
+    can_remove_from_playlist: bool,
+    on_remove_from_playlist: EventHandler<usize>,
 ) -> Element {
     let navigation = use_context::<Navigation>();
     let app_settings = use_context::<Signal<AppSettings>>();
@@ -198,6 +200,21 @@ fn PlaylistSongRow(
         }
     };
 
+    let make_on_remove_from_playlist = {
+        let show_mobile_actions = show_mobile_actions.clone();
+        let on_remove_from_playlist = on_remove_from_playlist.clone();
+        let remove_index = display_index.saturating_sub(1);
+        move || {
+            let mut show_mobile_actions = show_mobile_actions.clone();
+            let on_remove_from_playlist = on_remove_from_playlist.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_mobile_actions.set(false);
+                on_remove_from_playlist.call(remove_index);
+            }
+        }
+    };
+
     let mut on_click_row = {
         let song = song.clone();
         let songs_for_queue = songs.clone();
@@ -320,6 +337,14 @@ fn PlaylistSongRow(
                     onclick: make_on_open_menu(),
                     Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
                 }
+                if can_remove_from_playlist {
+                    button {
+                        class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-red-300 hover:bg-red-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                        aria_label: "Remove from playlist",
+                        onclick: make_on_remove_from_playlist(),
+                        Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
+                    }
+                }
                 span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
                 button {
                     class: "md:hidden p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
@@ -375,6 +400,14 @@ fn PlaylistSongRow(
                                 "Unfavorite"
                             } else {
                                 "Favorite"
+                            }
+                        }
+                        if can_remove_from_playlist {
+                            button {
+                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
+                                onclick: make_on_remove_from_playlist(),
+                                Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
+                                "Remove from playlist"
                             }
                         }
                         div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
@@ -1190,6 +1223,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         is_playing: is_playing.clone(),
                                         servers: servers.clone(),
                                         add_menu: add_menu.clone(),
+                                        can_remove_from_playlist: editing_allowed,
+                                        on_remove_from_playlist: move |remove_index| on_remove_song(remove_index),
                                     }
                                 }
                             }

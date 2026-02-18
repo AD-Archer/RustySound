@@ -76,8 +76,24 @@ xattr -dr com.apple.quarantine /Applications/RustySound.app
 open /Applications/RustySound.app
 ```
 
-#### Windows
+### Windows
 
+#### Scoop
+
+```powershell
+scoop bucket add ad-archer https://github.com/ad-archer/bucket
+scoop install ad-archer/rustysound
+```
+
+To Update:
+
+```powershell
+# Update only RustySound
+scoop update rustysound
+```
+
+
+#### Executable
 1. Download the latest `.exe` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Open the exe and install RustySound
 

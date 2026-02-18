@@ -1283,7 +1283,14 @@ impl IosAudioPlayer {
             rate <= 0.0
         };
 
-        let ended = duration > 0.0 && current_time >= (duration - 0.35).max(0.0) && paused;
+        // Track metadata and AVPlayer timing can disagree by a few seconds.
+        // Treat "near end + paused" as ended to avoid getting stuck at ~N-4s.
+        let end_tolerance = if duration > 0.0 {
+            (duration * 0.02).clamp(0.35, 5.0)
+        } else {
+            0.35
+        };
+        let ended = duration > 0.0 && current_time >= (duration - end_tolerance).max(0.0) && paused;
         let mut action = pop_ios_remote_action();
 
         if ended {
@@ -1379,6 +1386,17 @@ impl IosAudioPlayer {
             && current_time + 1.5 < self.last_known_elapsed
         {
             // Ignore abrupt backwards jumps while actively playing.
+            current_time = if duration > 0.0 {
+                self.last_known_elapsed.min(duration)
+            } else {
+                self.last_known_elapsed
+            };
+        } else if !playing
+            && self.last_known_elapsed > 1.0
+            && current_time + 1.5 < self.last_known_elapsed
+        {
+            // At track boundaries AVPlayer may briefly rewind a few seconds.
+            // Keep the latest known position to prevent visible progress rollback.
             current_time = if duration > 0.0 {
                 self.last_known_elapsed.min(duration)
             } else {
@@ -2204,7 +2222,11 @@ pub fn AudioController() -> Element {
                         let repeat = *repeat_mode.peek();
                         let shuffle = *shuffle_enabled.peek();
                         let servers_snapshot = servers.peek().clone();
-                        let resume_after_skip = desired_playing_before_sync;
+                        let resume_after_skip = if matches!(action, "next" | "previous") {
+                            true
+                        } else {
+                            desired_playing_before_sync
+                        };
 
                         if let Some(raw_seek) = action.strip_prefix("seek:") {
                             if let Ok(target) = raw_seek.parse::<f64>() {

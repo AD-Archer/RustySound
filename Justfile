@@ -38,3 +38,5 @@ check-apple:
     cargo check --features desktop
     cargo check --target aarch64-apple-ios --features mobile
     cargo check --target aarch64-apple-ios-sim --features mobile
+merge:
+    git push && git checkout prod && git merge main && git push && git checkout main

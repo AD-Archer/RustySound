@@ -458,13 +458,12 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
 
     let on_close = {
         let mut controller = controller.clone();
-        let is_processing = is_processing.clone();
-        move |_| {
-            if *is_processing.peek() {
-                return;
-            }
-            controller.close()
-        }
+        move |_: MouseEvent| controller.close()
+    };
+
+    let on_backdrop_close = {
+        let mut controller = controller.clone();
+        move |_: MouseEvent| controller.close()
     };
 
     let on_preview_song = Rc::new({
@@ -1147,8 +1146,12 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     };
 
     rsx! {
-        div { class: "fixed inset-0 z-[95] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3 pb-20 md:pb-0 pt-3 md:pt-0",
-            div { class: "w-full md:max-w-xl max-h-[82vh] overflow-y-auto bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-5 space-y-5",
+        div {
+            class: "fixed inset-0 z-[95] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3 pb-20 md:pb-0 pt-3 md:pt-0",
+            onclick: on_backdrop_close,
+            div {
+                class: "w-full md:max-w-xl max-h-[82vh] overflow-y-auto bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-5 space-y-5",
+                onclick: move |evt: MouseEvent| evt.stop_propagation(),
                 div { class: "flex items-center justify-between gap-3",
                     div { class: "flex items-center gap-3 min-w-0",
                         if let Some(Some(cover)) = preview_cover() {
@@ -1176,9 +1179,8 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
                         }
                     }
                     button {
-                        class: if is_processing() { "p-2 rounded-lg text-zinc-600 cursor-not-allowed" } else { "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors" },
+                        class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors",
                         onclick: on_close,
-                        disabled: is_processing(),
                         Icon {
                             name: "x".to_string(),
                             class: "w-5 h-5".to_string(),
