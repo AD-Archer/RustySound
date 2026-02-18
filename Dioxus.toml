@@ -18,6 +18,11 @@ name = "RustySound"
 # The icon to use for the app (PNG)
 icon = "assets/web-app-manifest-512x512.png"
 
+# iOS-specific runtime metadata.
+[ios]
+# Ensure iOS keeps audio playback active while the app is backgrounded.
+background_modes = ["audio"]
+
 [web.app]
 
 # HTML title tag content

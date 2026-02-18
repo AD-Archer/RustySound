@@ -7,7 +7,7 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 <img width="323" height="697" alt="album" src="https://github.com/user-attachments/assets/bc93c22e-bcf1-4a41-9d3c-fdba82a36214" />
 
 
-## Features
+# Features
 
 - 🎵 **Multi-platform Support**: Available on Desktop (macOS, Windows, Linux), Mobile (iOS, Android), and Web
 - 🎧 **Audio Playback**: High-quality audio streaming with queue management
@@ -18,35 +18,50 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 - 🎚️ **Audio Controls**: Play, pause, skip, shuffle, and repeat functionality
 - 🌙 **Modern UI**: Clean, responsive interface built with Tailwind CSS
 
-## Supported Platforms
+# Supported Platforms
 
-### Web
+## Web
 
 - **Browser**: WebAssembly-based web application
 - **Progressive Web App**: Installable PWA support
 
 
-### Desktop 
+## Desktop 
 
 - **macOS**: DMG installer 
 - **Windows**: MSI installer and portable EXE (not actively mantained.)
 - **Linux**: AppImage bundle (currently disabled)
 
-### Mobile
+## Mobile
 
 - **iOS**: unsigned .ipa 
 - **Android**: apk (currently disabled)
 
 
-## Installation
+# Installation
 
-### Desktop
+## Desktop
 
-#### IOS
+### IOS
 1. Download the latest `.ipa` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Sign the IPA, Personally I sign the ipa using [Live Container](https://github.com/LiveContainer/LiveContainer) which I installed using [Altstore/Altserver](https://altstore.io/)
 
-#### macOS
+### macOS
+
+#### Homebrew
+```bash
+brew tap ad-archer/casks
+brew install --cask rustysound
+```
+
+To update:
+
+```bash
+brew upgrade rustysound
+```
+
+
+#### DMG
 
 1. Download the latest `.dmg` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Open the DMG and drag RustySound to your Applications folder
