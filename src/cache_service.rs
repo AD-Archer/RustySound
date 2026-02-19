@@ -119,35 +119,6 @@ where
     true
 }
 
-pub fn get_bytes(key: &str, include_images: bool) -> Option<Vec<u8>> {
-    if !can_cache(include_images) {
-        return None;
-    }
-
-    let cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    cache.get(key).map(|entry| entry.data.clone())
-}
-
-pub fn put_bytes(
-    key: impl Into<String>,
-    bytes: Vec<u8>,
-    content_type: impl Into<String>,
-    expiry_hours: Option<u32>,
-    include_images: bool,
-) -> bool {
-    if !can_cache(include_images) {
-        return false;
-    }
-
-    let expiry = effective_expiry_duration(expiry_hours);
-    let entry = CacheEntry::new(bytes, content_type.into(), expiry);
-
-    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
-    cache.put(key.into(), entry);
-    save_cache(&cache);
-    true
-}
-
 pub fn remove_by_prefix(prefix: &str) -> usize {
     let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     let removed = cache.remove_prefix(prefix);

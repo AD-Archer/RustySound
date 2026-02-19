@@ -20,7 +20,12 @@ use std::collections::{HashMap, HashSet};
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(any(target_os = "macos", target_os = "linux"))
+))]
+use std::path::Path;
 
 #[cfg(not(target_arch = "wasm32"))]
 static AUDIO_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
@@ -188,7 +193,10 @@ fn audio_cache_file_path(song: &Song) -> Option<PathBuf> {
     Some(dir.join(format!("{stem}.{preferred_ext}")))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(
+    not(target_arch = "wasm32"),
+    not(any(target_os = "macos", target_os = "linux"))
+))]
 fn path_to_file_url(path: &Path) -> String {
     let normalized = path.to_string_lossy().replace('\\', "/");
     if normalized.starts_with('/') {

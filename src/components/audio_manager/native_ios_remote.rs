@@ -22,15 +22,29 @@ fn with_ios_player<R>(f: impl FnOnce(&mut IosAudioPlayer) -> R) -> Option<R> {
 fn push_ios_remote_action(action: &str) {
     if let Ok(mut actions) = IOS_REMOTE_ACTIONS.lock() {
         actions.push_back(action.to_string());
+        ios_diag_log(
+            "remote.queue.push",
+            &format!("action={action} queued={}", actions.len()),
+        );
     }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn pop_ios_remote_action() -> Option<String> {
-    IOS_REMOTE_ACTIONS
-        .lock()
-        .ok()
-        .and_then(|mut actions| actions.pop_front())
+    let mut actions = IOS_REMOTE_ACTIONS.lock().ok()?;
+    let action = actions.pop_front();
+    if let Some(name) = action.as_deref() {
+        ios_diag_log(
+            "remote.queue.pop",
+            &format!("action={name} remaining={}", actions.len()),
+        );
+    }
+    action
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_remote_queue_len() -> usize {
+    IOS_REMOTE_ACTIONS.lock().map(|actions| actions.len()).unwrap_or(0)
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -132,10 +146,12 @@ fn configure_ios_audio_session() {
         let session_cls = class!(AVAudioSession);
         let session: *mut Object = msg_send![session_cls, sharedInstance];
         if session.is_null() {
+            ios_diag_log("session.config", "AVAudioSession sharedInstance is null");
             return;
         }
 
         let Some(category) = ns_string("AVAudioSessionCategoryPlayback") else {
+            ios_diag_log("session.config", "failed to allocate playback category string");
             return;
         };
 
@@ -144,6 +160,7 @@ fn configure_ios_audio_session() {
         let _: () = msg_send![category, release];
 
         let _: BOOL = msg_send![session, setActive: YES error: ptr::null_mut::<*mut Object>()];
+        ios_diag_log("session.config", "configured category=playback active=true");
     }
 }
 
@@ -181,6 +198,22 @@ fn remote_handler_class() -> &'static objc::runtime::Class {
             sel!(handleEnded:),
             ios_handle_ended as extern "C" fn(&Object, objc::runtime::Sel, *mut Object),
         );
+        decl.add_method(
+            sel!(handleDidEnterBackground:),
+            ios_handle_did_enter_background as extern "C" fn(&Object, objc::runtime::Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(handleWillEnterForeground:),
+            ios_handle_will_enter_foreground as extern "C" fn(&Object, objc::runtime::Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(handleDidBecomeActive:),
+            ios_handle_did_become_active as extern "C" fn(&Object, objc::runtime::Sel, *mut Object),
+        );
+        decl.add_method(
+            sel!(handleWillResignActive:),
+            ios_handle_will_resign_active as extern "C" fn(&Object, objc::runtime::Sel, *mut Object),
+        );
 
         let cls = decl.register();
         CLASS_PTR = cls;
@@ -191,24 +224,68 @@ fn remote_handler_class() -> &'static objc::runtime::Class {
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_play(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    ios_diag_log("remote.command", "play");
     let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "play" })));
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_pause(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    ios_diag_log("remote.command", "pause");
     let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    ios_diag_log("remote.command", "next");
+    if let Some(item) = ios_plan_take_transition("next") {
+        if let Some(src) = item.src.clone() {
+            ios_diag_log(
+                "remote.immediate",
+                &format!("action=next song_id={}", item.song_id),
+            );
+            let _ = with_ios_player(|player| {
+                player.apply(serde_json::json!({
+                    "type": "load",
+                    "src": src,
+                    "song_id": item.song_id,
+                    "position": 0.0,
+                    "play": true,
+                    "meta": item.meta,
+                }));
+                player.apply(serde_json::json!({ "type": "play" }));
+            });
+            return 0;
+        }
+    }
     push_ios_remote_action("next");
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_previous(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    ios_diag_log("remote.command", "previous");
+    if let Some(item) = ios_plan_take_transition("previous") {
+        if let Some(src) = item.src.clone() {
+            ios_diag_log(
+                "remote.immediate",
+                &format!("action=previous song_id={}", item.song_id),
+            );
+            let _ = with_ios_player(|player| {
+                player.apply(serde_json::json!({
+                    "type": "load",
+                    "src": src,
+                    "song_id": item.song_id,
+                    "position": 0.0,
+                    "play": true,
+                    "meta": item.meta,
+                }));
+                player.apply(serde_json::json!({ "type": "play" }));
+            });
+            return 0;
+        }
+    }
     push_ios_remote_action("previous");
     0
 }
@@ -219,6 +296,7 @@ extern "C" fn ios_handle_seek(_: &Object, _: objc::runtime::Sel, event: *mut Obj
         if !event.is_null() {
             let position: f64 = msg_send![event, positionTime];
             let clamped = position.max(0.0);
+            ios_diag_log("remote.command", &format!("seek target={clamped:.3}"));
             let _ = with_ios_player(|player| {
                 player.apply(serde_json::json!({
                     "type": "seek",
@@ -233,7 +311,60 @@ extern "C" fn ios_handle_seek(_: &Object, _: objc::runtime::Sel, event: *mut Obj
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_ended(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
+    ios_diag_log("remote.command", "ended-notification");
+    if let Some(item) = ios_plan_take_transition("ended") {
+        if let Some(src) = item.src.clone() {
+            ios_diag_log(
+                "remote.immediate",
+                &format!("action=ended song_id={}", item.song_id),
+            );
+            let _ = with_ios_player(|player| {
+                player.apply(serde_json::json!({
+                    "type": "load",
+                    "src": src,
+                    "song_id": item.song_id,
+                    "position": 0.0,
+                    "play": true,
+                    "meta": item.meta,
+                }));
+                player.apply(serde_json::json!({ "type": "play" }));
+            });
+            return;
+        }
+    }
     push_ios_remote_action("ended");
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_did_enter_background(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
+    ios_diag_log(
+        "app.lifecycle",
+        &format!("did-enter-background queued_actions={}", ios_remote_queue_len()),
+    );
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_will_enter_foreground(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
+    ios_diag_log(
+        "app.lifecycle",
+        &format!("will-enter-foreground queued_actions={}", ios_remote_queue_len()),
+    );
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_did_become_active(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
+    ios_diag_log(
+        "app.lifecycle",
+        &format!("did-become-active queued_actions={}", ios_remote_queue_len()),
+    );
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_will_resign_active(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
+    ios_diag_log(
+        "app.lifecycle",
+        &format!("will-resign-active queued_actions={}", ios_remote_queue_len()),
+    );
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -242,6 +373,7 @@ fn configure_ios_remote_commands() {
         let cls = remote_handler_class();
         let observer: *mut Object = msg_send![cls, new];
         if observer.is_null() {
+            ios_diag_log("remote.init", "failed to allocate observer");
             return;
         }
         set_ios_remote_observer(observer);
@@ -249,7 +381,17 @@ fn configure_ios_remote_commands() {
         let center_cls = class!(MPRemoteCommandCenter);
         let center: *mut Object = msg_send![center_cls, sharedCommandCenter];
         if center.is_null() {
+            ios_diag_log("remote.init", "MPRemoteCommandCenter sharedCommandCenter is null");
             return;
+        }
+
+        let app_cls = class!(UIApplication);
+        let app: *mut Object = msg_send![app_cls, sharedApplication];
+        if !app.is_null() {
+            let _: () = msg_send![app, beginReceivingRemoteControlEvents];
+            ios_diag_log("remote.init", "beginReceivingRemoteControlEvents");
+        } else {
+            ios_diag_log("remote.init", "UIApplication sharedApplication is null");
         }
 
         let play_cmd: *mut Object = msg_send![center, playCommand];
@@ -275,6 +417,50 @@ fn configure_ios_remote_commands() {
         let no: BOOL = false;
         let _: () = msg_send![skip_forward_cmd, setEnabled: no];
         let _: () = msg_send![skip_backward_cmd, setEnabled: no];
+
+        let notification_center_cls = class!(NSNotificationCenter);
+        let notification_center: *mut Object =
+            msg_send![notification_center_cls, defaultCenter];
+        if !notification_center.is_null() {
+            if let Some(name) = ns_string("UIApplicationDidEnterBackgroundNotification") {
+                let _: () = msg_send![notification_center,
+                    addObserver: observer
+                    selector: sel!(handleDidEnterBackground:)
+                    name: name
+                    object: ptr::null_mut::<Object>()
+                ];
+                let _: () = msg_send![name, release];
+            }
+            if let Some(name) = ns_string("UIApplicationWillEnterForegroundNotification") {
+                let _: () = msg_send![notification_center,
+                    addObserver: observer
+                    selector: sel!(handleWillEnterForeground:)
+                    name: name
+                    object: ptr::null_mut::<Object>()
+                ];
+                let _: () = msg_send![name, release];
+            }
+            if let Some(name) = ns_string("UIApplicationDidBecomeActiveNotification") {
+                let _: () = msg_send![notification_center,
+                    addObserver: observer
+                    selector: sel!(handleDidBecomeActive:)
+                    name: name
+                    object: ptr::null_mut::<Object>()
+                ];
+                let _: () = msg_send![name, release];
+            }
+            if let Some(name) = ns_string("UIApplicationWillResignActiveNotification") {
+                let _: () = msg_send![notification_center,
+                    addObserver: observer
+                    selector: sel!(handleWillResignActive:)
+                    name: name
+                    object: ptr::null_mut::<Object>()
+                ];
+                let _: () = msg_send![name, release];
+            }
+        }
+
+        ios_diag_log("remote.init", "command center + lifecycle observers configured");
     });
 }
 
@@ -283,16 +469,19 @@ fn observe_ios_item_end(item: *mut Object) {
     unsafe {
         let observer = get_ios_remote_observer();
         if observer.is_null() {
+            ios_diag_log("item.end.observe", "observer is null");
             return;
         }
 
         let center_cls = class!(NSNotificationCenter);
         let center: *mut Object = msg_send![center_cls, defaultCenter];
         if center.is_null() {
+            ios_diag_log("item.end.observe", "notification center is null");
             return;
         }
 
         let Some(notification_name) = ns_string("AVPlayerItemDidPlayToEndTimeNotification") else {
+            ios_diag_log("item.end.observe", "failed to allocate notification name");
             return;
         };
 
@@ -303,6 +492,14 @@ fn observe_ios_item_end(item: *mut Object) {
         ];
         let _: () = msg_send![center, addObserver: observer selector: sel!(handleEnded:) name: notification_name object: item];
         let _: () = msg_send![notification_name, release];
+        ios_diag_log(
+            "item.end.observe",
+            if item.is_null() {
+                "cleared item-end observer"
+            } else {
+                "attached item-end observer"
+            },
+        );
     }
 }
 
@@ -376,7 +573,13 @@ fn make_now_playing_artwork(artwork_url: &str) -> Option<*mut Object> {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn set_ios_now_playing_info(meta: &NativeTrackMetadata, elapsed: f64, duration: f64, rate: f64) {
+fn set_ios_now_playing_info(
+    meta: &NativeTrackMetadata,
+    elapsed: f64,
+    duration: f64,
+    rate: f64,
+    artwork_obj: *mut Object,
+) {
     unsafe {
         let center_cls = class!(MPNowPlayingInfoCenter);
         let center: *mut Object = msg_send![center_cls, defaultCenter];
@@ -407,14 +610,8 @@ fn set_ios_now_playing_info(meta: &NativeTrackMetadata, elapsed: f64, duration: 
         }
         set_now_playing_number(dict, MPNowPlayingInfoPropertyPlaybackRate, rate.max(0.0));
         set_now_playing_number(dict, MPNowPlayingInfoPropertyDefaultPlaybackRate, 1.0);
-        if let Some(artwork_url) = &meta.artwork {
-            if let Some(artwork_obj) = make_now_playing_artwork(artwork_url) {
-                if !MPMediaItemPropertyArtwork.is_null() {
-                    let _: () =
-                        msg_send![dict, setObject: artwork_obj forKey: MPMediaItemPropertyArtwork];
-                }
-                let _: () = msg_send![artwork_obj, release];
-            }
+        if !artwork_obj.is_null() && !MPMediaItemPropertyArtwork.is_null() {
+            let _: () = msg_send![dict, setObject: artwork_obj forKey: MPMediaItemPropertyArtwork];
         }
 
         let _: () = msg_send![center, setNowPlayingInfo: dict];

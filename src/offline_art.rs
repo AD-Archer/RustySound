@@ -9,7 +9,7 @@ use std::collections::HashSet;
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs;
 #[cfg(not(target_arch = "wasm32"))]
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 #[cfg(not(target_arch = "wasm32"))]
 use std::sync::Mutex;
 
@@ -58,16 +58,6 @@ fn cover_art_file_path(server_id: &str, cover_art_id: &str, size: u32) -> Option
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn path_to_file_url(path: &Path) -> String {
-    let normalized = path.to_string_lossy().replace('\\', "/");
-    if normalized.starts_with('/') {
-        format!("file://{normalized}")
-    } else {
-        format!("file:///{normalized}")
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub fn cached_cover_art_data_url(server_id: &str, cover_art_id: &str, size: u32) -> Option<String> {
     let path = cover_art_file_path(server_id, cover_art_id, size)?;
     let bytes = fs::read(path).ok()?;
@@ -84,21 +74,6 @@ pub fn cached_cover_art_data_url(
     _cover_art_id: &str,
     _size: u32,
 ) -> Option<String> {
-    None
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-pub fn cached_cover_art_url(server_id: &str, cover_art_id: &str, size: u32) -> Option<String> {
-    let path = cover_art_file_path(server_id, cover_art_id, size)?;
-    if path.exists() {
-        Some(path_to_file_url(&path))
-    } else {
-        None
-    }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn cached_cover_art_url(_server_id: &str, _cover_art_id: &str, _size: u32) -> Option<String> {
     None
 }
 

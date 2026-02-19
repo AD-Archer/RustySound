@@ -9,6 +9,8 @@ struct NativeAudioSnapshot {
     ended: bool,
     #[serde(default)]
     action: Option<String>,
+    #[serde(default)]
+    song_id: Option<String>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -304,6 +306,7 @@ impl WindowsAudioPlayer {
                 paused: true,
                 ended: self.ended_flag.swap(false, Ordering::SeqCst),
                 action,
+                song_id: self.current_song_id.clone(),
             };
         }
 
@@ -332,6 +335,7 @@ impl WindowsAudioPlayer {
             paused,
             ended: self.ended_flag.swap(false, Ordering::SeqCst),
             action,
+            song_id: self.current_song_id.clone(),
         }
     }
 }
@@ -351,4 +355,3 @@ fn with_windows_player<R>(f: impl FnOnce(&mut WindowsAudioPlayer) -> R) -> Optio
         guard.as_mut().map(f)
     })
 }
-

@@ -36,6 +36,12 @@ use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use std::cell::Cell;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::fs::{self, OpenOptions};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::io::Write;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::path::{Path, PathBuf};
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
 use std::cell::RefCell;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -50,7 +56,11 @@ use std::sync::{
     Arc, Mutex,
 };
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 use std::sync::{Mutex, Once};
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::{closure::Closure, JsCast};
 #[cfg(target_arch = "wasm32")]
@@ -279,6 +289,356 @@ fn click_player_control_button(id: &str) {
             }
         }
     }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_diag_enabled() -> bool {
+    static IOS_AUDIO_DEBUG_ENABLED: Lazy<bool> = Lazy::new(|| {
+        std::env::var("RUSTYSOUND_IOS_AUDIO_DEBUG")
+            .map(|raw| {
+                let normalized = raw.trim().to_ascii_lowercase();
+                !(normalized.is_empty() || normalized == "0" || normalized == "false")
+            })
+            .unwrap_or(true)
+    });
+    *IOS_AUDIO_DEBUG_ENABLED
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_diag_now_ms() -> u128 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|value| value.as_millis())
+        .unwrap_or(0)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_diag_log_file_path() -> Option<PathBuf> {
+    static IOS_AUDIO_LOG_PATH: Lazy<Mutex<Option<PathBuf>>> = Lazy::new(|| Mutex::new(None));
+
+    let mut slot = IOS_AUDIO_LOG_PATH.lock().ok()?;
+    if let Some(path) = slot.as_ref() {
+        return Some(path.clone());
+    }
+
+    let mut base = dirs::document_dir()
+        .or_else(dirs::cache_dir)
+        .or_else(|| Some(std::env::temp_dir()))?;
+    base.push("rustysound-ios-audio.log");
+    *slot = Some(base.clone());
+    Some(base)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_diag_append_to_file(line: &str) {
+    static IOS_AUDIO_LOG_PATH_REPORTED: AtomicBool = AtomicBool::new(false);
+    static IOS_AUDIO_LOG_WRITE_FAILED: AtomicBool = AtomicBool::new(false);
+
+    let Some(path) = ios_diag_log_file_path() else {
+        return;
+    };
+
+    if !IOS_AUDIO_LOG_PATH_REPORTED.swap(true, Ordering::Relaxed) {
+        eprintln!("[ios-audio][diag.file] path={}", path.display());
+    }
+
+    if let Some(parent) = path.parent() {
+        if let Err(err) = fs::create_dir_all(parent) {
+            if !IOS_AUDIO_LOG_WRITE_FAILED.swap(true, Ordering::Relaxed) {
+                eprintln!("[ios-audio][diag.file] failed to create parent dir: {err}");
+            }
+            return;
+        }
+    }
+
+    match OpenOptions::new().create(true).append(true).open(&path) {
+        Ok(mut file) => {
+            let _ = writeln!(file, "{line}");
+        }
+        Err(err) => {
+            if !IOS_AUDIO_LOG_WRITE_FAILED.swap(true, Ordering::Relaxed) {
+                eprintln!("[ios-audio][diag.file] failed to open log file: {err}");
+            }
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_diag_log(tag: &str, message: &str) {
+    if !ios_diag_enabled() {
+        return;
+    }
+    let ts = ios_diag_now_ms();
+    let line = format!("[ios-audio][{ts}][{tag}] {message}");
+    eprintln!("{line}");
+    ios_diag_append_to_file(&line);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_top_view_controller() -> Option<*mut Object> {
+    unsafe {
+        let app_cls = class!(UIApplication);
+        let app: *mut Object = msg_send![app_cls, sharedApplication];
+        if app.is_null() {
+            return None;
+        }
+
+        let mut window: *mut Object = msg_send![app, keyWindow];
+        if window.is_null() {
+            let windows: *mut Object = msg_send![app, windows];
+            if !windows.is_null() {
+                let count: usize = msg_send![windows, count];
+                for idx in 0..count {
+                    let candidate: *mut Object = msg_send![windows, objectAtIndex: idx];
+                    if candidate.is_null() {
+                        continue;
+                    }
+                    let hidden: BOOL = msg_send![candidate, isHidden];
+                    if hidden != YES {
+                        window = candidate;
+                        break;
+                    }
+                }
+                if window.is_null() && count > 0 {
+                    window = msg_send![windows, objectAtIndex: 0usize];
+                }
+            }
+        }
+        if window.is_null() {
+            return None;
+        }
+
+        let mut view_controller: *mut Object = msg_send![window, rootViewController];
+        if view_controller.is_null() {
+            return None;
+        }
+
+        for _ in 0..8 {
+            let presented: *mut Object = msg_send![view_controller, presentedViewController];
+            if presented.is_null() {
+                break;
+            }
+            view_controller = presented;
+        }
+
+        Some(view_controller)
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_present_share_sheet_for_file(path: &Path) -> Result<(), String> {
+    let Some(view_controller) = ios_top_view_controller() else {
+        return Err("Unable to find active iOS view controller.".to_string());
+    };
+
+    let path_string = path.to_string_lossy().to_string();
+    let Some(path_obj) = ns_string(&path_string) else {
+        return Err("Failed to allocate file path string for iOS share sheet.".to_string());
+    };
+
+    unsafe {
+        let url_cls = class!(NSURL);
+        let file_url: *mut Object = msg_send![url_cls, fileURLWithPath: path_obj];
+        let _: () = msg_send![path_obj, release];
+        if file_url.is_null() {
+            return Err("Failed to create file URL for exported log.".to_string());
+        }
+
+        let array_cls = class!(NSArray);
+        let items: *mut Object = msg_send![array_cls, arrayWithObject: file_url];
+        if items.is_null() {
+            return Err("Failed to create share items for exported log.".to_string());
+        }
+
+        let activity_cls = class!(UIActivityViewController);
+        let activity_alloc: *mut Object = msg_send![activity_cls, alloc];
+        if activity_alloc.is_null() {
+            return Err("Failed to allocate iOS share sheet.".to_string());
+        }
+
+        let activity_controller: *mut Object = msg_send![
+            activity_alloc,
+            initWithActivityItems: items
+            applicationActivities: ptr::null_mut::<Object>()
+        ];
+        if activity_controller.is_null() {
+            return Err("Failed to initialize iOS share sheet.".to_string());
+        }
+
+        let popover: *mut Object = msg_send![activity_controller, popoverPresentationController];
+        if !popover.is_null() {
+            let source_view: *mut Object = msg_send![view_controller, view];
+            if !source_view.is_null() {
+                let _: () = msg_send![popover, setSourceView: source_view];
+            }
+        }
+
+        let _: () = msg_send![
+            view_controller,
+            presentViewController: activity_controller
+            animated: YES
+            completion: ptr::null_mut::<Object>()
+        ];
+        let _: () = msg_send![activity_controller, release];
+    }
+
+    Ok(())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+pub fn export_ios_audio_log_txt() -> Result<String, String> {
+    if !ios_diag_enabled() {
+        return Err(
+            "iOS audio diagnostics are disabled. Enable RUSTYSOUND_IOS_AUDIO_DEBUG in release builds."
+                .to_string(),
+        );
+    }
+
+    let source = ios_diag_log_file_path()
+        .ok_or_else(|| "Unable to resolve iOS diagnostic log path.".to_string())?;
+    if !source.exists() {
+        ios_diag_append_to_file("[ios-audio][diag.file] created on export request");
+    }
+
+    let mut export_dir = dirs::document_dir()
+        .or_else(dirs::cache_dir)
+        .ok_or_else(|| "Unable to resolve iOS export directory.".to_string())?;
+    export_dir.push("RustySound");
+    export_dir.push("Logs");
+    fs::create_dir_all(&export_dir)
+        .map_err(|err| format!("Failed to create export directory: {err}"))?;
+
+    let export_name = format!("rustysound-ios-audio-{}.txt", ios_diag_now_ms());
+    let export_path = export_dir.join(export_name);
+
+    if source.exists() {
+        fs::copy(&source, &export_path)
+            .map_err(|err| format!("Failed to copy diagnostic log for export: {err}"))?;
+    } else {
+        fs::write(&export_path, "[ios-audio] Log is currently empty.\n")
+            .map_err(|err| format!("Failed to create export file: {err}"))?;
+    }
+
+    ios_present_share_sheet_for_file(&export_path)?;
+    ios_diag_log(
+        "diag.export",
+        &format!("share-sheet opened path={}", export_path.display()),
+    );
+
+    Ok(export_path.display().to_string())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[derive(Clone, Debug)]
+struct IosPlaybackPlanItem {
+    song_id: String,
+    src: Option<String>,
+    meta: NativeTrackMetadata,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[derive(Clone, Debug)]
+struct IosPlaybackPlan {
+    items: Vec<IosPlaybackPlanItem>,
+    index: usize,
+    repeat_mode: RepeatMode,
+    shuffle: bool,
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+impl Default for IosPlaybackPlan {
+    fn default() -> Self {
+        Self {
+            items: Vec::new(),
+            index: 0,
+            repeat_mode: RepeatMode::Off,
+            shuffle: false,
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_PLAYBACK_PLAN: Lazy<Mutex<IosPlaybackPlan>> =
+    Lazy::new(|| Mutex::new(IosPlaybackPlan::default()));
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_update_playback_plan(
+    items: Vec<IosPlaybackPlanItem>,
+    index: usize,
+    repeat_mode: RepeatMode,
+    shuffle: bool,
+) {
+    if let Ok(mut plan) = IOS_PLAYBACK_PLAN.lock() {
+        plan.items = items;
+        plan.index = index.min(plan.items.len().saturating_sub(1));
+        plan.repeat_mode = repeat_mode;
+        plan.shuffle = shuffle;
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_plan_sync_current_song(song_id: Option<&str>) {
+    let Some(song_id) = song_id else {
+        return;
+    };
+    if let Ok(mut plan) = IOS_PLAYBACK_PLAN.lock() {
+        if let Some(index) = plan.items.iter().position(|item| item.song_id == song_id) {
+            plan.index = index;
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_plan_take_transition(action: &str) -> Option<IosPlaybackPlanItem> {
+    let mut plan = IOS_PLAYBACK_PLAN.lock().ok()?;
+    let len = plan.items.len();
+    if len == 0 {
+        return None;
+    }
+
+    let current = plan.index.min(len.saturating_sub(1));
+    let target = match action {
+        "next" | "ended" => {
+            if current + 1 < len {
+                Some(current + 1)
+            } else if plan.repeat_mode == RepeatMode::All {
+                Some(0)
+            } else {
+                None
+            }
+        }
+        "previous" => {
+            if current > 0 {
+                Some(current - 1)
+            } else if plan.repeat_mode == RepeatMode::All {
+                Some(len.saturating_sub(1))
+            } else {
+                None
+            }
+        }
+        _ => None,
+    }?;
+
+    let item = plan.items.get(target)?.clone();
+    if item.src.is_none() {
+        return None;
+    }
+
+    plan.index = target;
+    Some(item)
+}
+
+#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+fn ios_diag_now_ms() -> u128 {
+    0
+}
+
+#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+fn ios_diag_log(_tag: &str, _message: &str) {}
+
+#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+pub fn export_ios_audio_log_txt() -> Result<String, String> {
+    Err("iOS log export is only available in native iOS builds.".to_string())
 }
 
 #[cfg(target_arch = "wasm32")]

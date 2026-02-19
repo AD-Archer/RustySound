@@ -169,10 +169,6 @@ impl SimpleCache {
         self.current_size_bytes
     }
 
-    pub fn max_size_bytes(&self) -> usize {
-        self.max_size_bytes
-    }
-
     pub fn resize_max_size_mb(&mut self, max_size_mb: u32) {
         self.max_size_bytes = (max_size_mb as usize) * 1024 * 1024;
         while self.current_size_bytes > self.max_size_bytes && !self.entries.is_empty() {
@@ -212,53 +208,6 @@ impl SimpleCache {
     }
 }
 
-/// Cache utility functions for common operations
-pub mod utils {
-    use super::*;
-    use std::time::Duration;
-
-    /// Get cache expiry duration from hours
-    pub fn expiry_from_hours(hours: u32) -> Duration {
-        Duration::from_secs(hours as u64 * 3600)
-    }
-
-    /// Cache an image with default expiry
-    #[allow(dead_code)]
-    pub fn cache_image(
-        cache: &mut SimpleCache,
-        key: String,
-        data: Vec<u8>,
-        content_type: String,
-        expiry_hours: u32,
-    ) {
-        let expiry = expiry_from_hours(expiry_hours);
-        let entry = CacheEntry::new(data, content_type, expiry);
-        cache.put(key, entry);
-    }
-
-    /// Get cached image data
-    pub fn get_cached_image<'a>(cache: &'a SimpleCache, key: &str) -> Option<&'a [u8]> {
-        cache.get(key).map(|entry| entry.data.as_slice())
-    }
-
-    /// Cache API response
-    pub fn cache_api_response(
-        cache: &mut SimpleCache,
-        key: String,
-        data: Vec<u8>,
-        expiry_hours: u32,
-    ) {
-        let expiry = expiry_from_hours(expiry_hours);
-        let entry = CacheEntry::new(data, "application/json".to_string(), expiry);
-        cache.put(key, entry);
-    }
-
-    /// Get cached API response
-    pub fn get_cached_api_response<'a>(cache: &'a SimpleCache, key: &str) -> Option<&'a [u8]> {
-        cache.get(key).map(|entry| entry.data.as_slice())
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CacheStats {
     pub entry_count: usize,
@@ -269,28 +218,6 @@ pub struct CacheStats {
 impl Default for SimpleCache {
     fn default() -> Self {
         Self::new(100) // 100MB default
-    }
-}
-
-/// Cache key generation utilities
-pub mod keys {
-    use base64::{engine::general_purpose, Engine as _};
-
-    pub fn album_cover(album_id: &str, server_id: &str, size: u32) -> String {
-        format!("album_cover:{server_id}:{album_id}:{size}")
-    }
-
-    pub fn artist_cover(artist_id: &str, server_id: &str, size: u32) -> String {
-        format!("artist_cover:{server_id}:{artist_id}:{size}")
-    }
-
-    pub fn song_cover(song_id: &str, server_id: &str, size: u32) -> String {
-        format!("song_cover:{server_id}:{song_id}:{size}")
-    }
-
-    pub fn api_response(endpoint: &str, params: &str) -> String {
-        let combined = format!("{endpoint}:{params}");
-        format!("api:{}", general_purpose::URL_SAFE_NO_PAD.encode(combined))
     }
 }
 

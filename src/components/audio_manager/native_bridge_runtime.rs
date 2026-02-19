@@ -44,6 +44,11 @@ fn native_audio_command(value: serde_json::Value) {
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn native_audio_command(value: serde_json::Value) {
+    let cmd_type = value
+        .get("type")
+        .and_then(|raw| raw.as_str())
+        .unwrap_or("unknown");
+    ios_diag_log("bridge.command", &format!("type={cmd_type}"));
     let _ = with_ios_player(|player| player.apply(value));
 }
 
@@ -167,4 +172,3 @@ fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
         is_live,
     }
 }
-

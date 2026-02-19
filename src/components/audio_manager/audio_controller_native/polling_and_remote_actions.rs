@@ -12,6 +12,7 @@
         let mut is_playing = is_playing.clone();
         let mut playback_position = playback_position.clone();
         let mut audio_state = audio_state.clone();
+        let mut last_src = last_src.clone();
         let mut last_bookmark = last_bookmark.clone();
         let mut last_ended_song = last_ended_song.clone();
         let mut repeat_one_replayed_song = repeat_one_replayed_song.clone();
@@ -20,14 +21,19 @@
         use_effect(move || {
             ensure_native_audio_bridge();
             audio_state.write().is_initialized.set(true);
+            ios_diag_log("controller.poll", "started");
 
             spawn(async move {
                 let mut paused_streak: u8 = 0;
                 let mut playing_streak: u8 = 0;
+                let mut play_request_grace_ticks: u8 = 0;
+                let mut last_desired_playing: bool = *is_playing.peek();
+                let mut last_heartbeat_ms: u128 = 0;
                 loop {
                     native_delay_ms(250).await;
 
                     let Some(snapshot) = native_audio_snapshot().await else {
+                        ios_diag_log("controller.poll", "snapshot unavailable");
                         continue;
                     };
 
@@ -41,8 +47,66 @@
                     if effective_duration.is_finite() && effective_duration > 0.0 {
                         current_time = current_time.min(effective_duration);
                     }
+
+                    if let Some(native_song_id) = snapshot.song_id.as_ref() {
+                        let current_song_id =
+                            now_playing.peek().as_ref().map(|song| song.id.clone());
+                        if current_song_id.as_deref() != Some(native_song_id.as_str()) {
+                            let queue_snapshot = queue.peek().clone();
+                            if let Some((native_idx, native_song)) = queue_snapshot
+                                .iter()
+                                .enumerate()
+                                .find(|(_, song)| song.id == *native_song_id)
+                                .map(|(idx, song)| (idx, song.clone()))
+                            {
+                                ios_diag_log(
+                                    "controller.sync",
+                                    &format!(
+                                        "aligned now_playing from native song_id={} queue_idx={native_idx}",
+                                        native_song.id
+                                    ),
+                                );
+                                let servers_snapshot = servers.peek().clone();
+                                let offline_mode = app_settings.peek().offline_mode;
+                                if let Some(url) =
+                                    resolve_stream_url(&native_song, &servers_snapshot, offline_mode)
+                                {
+                                    last_src.set(Some(url));
+                                }
+                                queue_index.set(native_idx);
+                                now_playing.set(Some(native_song));
+                            } else {
+                                ios_diag_log(
+                                    "controller.sync",
+                                    &format!(
+                                        "native song_id={} not found in queue; keeping current selection",
+                                        native_song_id
+                                    ),
+                                );
+                            }
+                        }
+                    }
+
                     playback_position.set(current_time);
                     audio_state.write().current_time.set(current_time);
+
+                    let now_ms = ios_diag_now_ms();
+                    if last_heartbeat_ms == 0 || now_ms.saturating_sub(last_heartbeat_ms) >= 5000 {
+                        let current_song_id = now_playing.peek().as_ref().map(|song| song.id.clone());
+                        ios_diag_log(
+                            "controller.tick",
+                            &format!(
+                                "song_id={:?} queue_idx={} queue_len={} paused={} ended={} action={:?} pos={current_time:.3}",
+                                current_song_id,
+                                *queue_index.peek(),
+                                queue.peek().len(),
+                                snapshot.paused,
+                                snapshot.ended,
+                                snapshot.action
+                            ),
+                        );
+                        last_heartbeat_ms = now_ms;
+                    }
 
                     if !snapshot.paused
                         && app_settings.peek().bookmark_auto_save
@@ -91,6 +155,18 @@
 
                     let has_selected_song = now_playing.peek().is_some();
                     let desired_playing_before_sync = *is_playing.peek();
+                    if desired_playing_before_sync && !last_desired_playing {
+                        // When UI or remote requests play, give AVPlayer a brief grace window
+                        // before forcing state back to paused if it reports stale paused snapshots.
+                        play_request_grace_ticks = 12;
+                        ios_diag_log(
+                            "controller.sync",
+                            &format!(
+                                "play requested; starting grace window ticks={play_request_grace_ticks}"
+                            ),
+                        );
+                    }
+                    last_desired_playing = desired_playing_before_sync;
                     if has_selected_song {
                         if snapshot.paused {
                             paused_streak = paused_streak.saturating_add(1);
@@ -98,15 +174,28 @@
                         } else {
                             playing_streak = playing_streak.saturating_add(1);
                             paused_streak = 0;
+                            play_request_grace_ticks = 0;
                         }
 
                         // Debounced sync from native player to UI state:
                         // avoid immediate false flips while a track is starting.
                         if *is_playing.peek() && paused_streak >= 3 && !snapshot.ended {
+                            if play_request_grace_ticks > 0 {
+                                play_request_grace_ticks =
+                                    play_request_grace_ticks.saturating_sub(1);
+                                continue;
+                            }
                             // Source switches can briefly report paused at t=0.
                             // Keep the requested play state during startup to avoid
                             // requiring extra user clicks after skip/end/select.
                             if current_time > 0.35 {
+                                ios_diag_log(
+                                    "controller.sync",
+                                    &format!(
+                                        "forcing is_playing=false after paused streak={} at t={current_time:.3}",
+                                        paused_streak
+                                    ),
+                                );
                                 is_playing.set(false);
                             }
                         } else if !*is_playing.peek() && playing_streak >= 2 {
@@ -115,6 +204,7 @@
                     } else {
                         paused_streak = 0;
                         playing_streak = 0;
+                        play_request_grace_ticks = 0;
                         if *is_playing.peek() {
                             is_playing.set(false);
                         }
@@ -123,9 +213,20 @@
                     let currently_playing = *is_playing.peek();
 
                     let ended_action = matches!(snapshot.action.as_deref(), Some("ended"));
+                    let mut suppress_ended_for_this_tick = false;
 
                     if let Some(action) = snapshot.action.as_deref() {
+                        ios_diag_log(
+                            "controller.action",
+                            &format!(
+                                "received action={action} queue_idx={} queue_len={} song_id={:?}",
+                                *queue_index.peek(),
+                                queue.peek().len(),
+                                now_playing.peek().as_ref().map(|song| song.id.as_str())
+                            ),
+                        );
                         if now_playing.peek().is_none() {
+                            ios_diag_log("controller.action", "ignored action because now_playing is None");
                             continue;
                         }
                         let current_is_radio = now_playing
@@ -152,6 +253,10 @@
                                 }
                                 playback_position.set(clamped);
                                 audio_state.write().current_time.set(clamped);
+                                ios_diag_log(
+                                    "controller.action",
+                                    &format!("applied seek target={target:.3} clamped={clamped:.3}"),
+                                );
                             }
                             continue;
                         }
@@ -167,6 +272,7 @@
                                 is_playing.set(false);
                             }
                             "next" => {
+                                suppress_ended_for_this_tick = true;
                                 if current_is_radio {
                                     continue;
                                 }
@@ -230,6 +336,7 @@
                                 }
                             }
                             "previous" => {
+                                suppress_ended_for_this_tick = true;
                                 if current_is_radio {
                                     continue;
                                 }
@@ -266,10 +373,27 @@
                         }
                     }
 
-                    if snapshot.ended || ended_action {
+                    if (snapshot.ended || ended_action) && suppress_ended_for_this_tick {
+                        ios_diag_log(
+                            "controller.ended",
+                            "suppressed ended handling because track-change action already applied",
+                        );
+                    } else if snapshot.ended || ended_action {
                         let current_song = now_playing.peek().clone();
                         let current_id = current_song.as_ref().map(|s| s.id.clone());
+                        ios_diag_log(
+                            "controller.ended",
+                            &format!(
+                                "triggered ended={} ended_action={} song_id={:?} queue_idx={} queue_len={}",
+                                snapshot.ended,
+                                ended_action,
+                                current_id,
+                                *queue_index.peek(),
+                                queue.peek().len()
+                            ),
+                        );
                         if *last_ended_song.peek() == current_id {
+                            ios_diag_log("controller.ended", "ignored duplicate ended event");
                             continue;
                         }
                         last_ended_song.set(current_id.clone());

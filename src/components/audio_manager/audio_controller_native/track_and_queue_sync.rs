@@ -23,6 +23,12 @@
         let servers = servers.clone();
         let app_settings = app_settings.clone();
         let volume = volume.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+        let repeat_mode = repeat_mode.clone();
+        #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+        let shuffle_enabled = shuffle_enabled.clone();
         let now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
         let mut playback_position = playback_position.clone();
@@ -37,6 +43,17 @@
         use_effect(move || {
             let song = now_playing();
             let song_id = song.as_ref().map(|s| s.id.clone());
+            let previous_song_id = last_song_id.peek().clone();
+            if song_id != previous_song_id {
+                ios_diag_log(
+                    "track.sync.song",
+                    &format!(
+                        "previous={previous_song_id:?} next={song_id:?} queue_idx={} queue_len={}",
+                        queue_index(),
+                        queue().len()
+                    ),
+                );
+            }
             let previous_song = last_song_for_bookmark.peek().clone();
 
             if let Some(prev) = previous_song {
@@ -76,6 +93,26 @@
             }
 
             let Some(song) = song else {
+                #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+                {
+                    let queue_snapshot = queue();
+                    let queue_idx = queue_index();
+                    let servers_snapshot = servers.peek().clone();
+                    let offline_mode = app_settings.peek().offline_mode;
+                    let repeat = repeat_mode();
+                    let shuffle = shuffle_enabled();
+                    let plan_items = queue_snapshot
+                        .iter()
+                        .map(|entry| IosPlaybackPlanItem {
+                            song_id: entry.id.clone(),
+                            src: resolve_stream_url(entry, &servers_snapshot, offline_mode),
+                            meta: song_metadata(entry, &servers_snapshot),
+                        })
+                        .collect::<Vec<_>>();
+                    ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
+                }
+
+                ios_diag_log("track.sync.command", "clear (no now_playing)");
                 native_audio_command(serde_json::json!({ "type": "clear" }));
                 last_src.set(None);
                 is_playing.set(false);
@@ -85,6 +122,23 @@
 
             let servers_snapshot = servers.peek().clone();
             let offline_mode = app_settings.peek().offline_mode;
+            #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+            {
+                let queue_snapshot = queue();
+                let queue_idx = queue_index();
+                let repeat = repeat_mode();
+                let shuffle = shuffle_enabled();
+                let plan_items = queue_snapshot
+                    .iter()
+                    .map(|entry| IosPlaybackPlanItem {
+                        song_id: entry.id.clone(),
+                        src: resolve_stream_url(entry, &servers_snapshot, offline_mode),
+                        meta: song_metadata(entry, &servers_snapshot),
+                    })
+                    .collect::<Vec<_>>();
+                ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
+            }
+
             if let Some(url) = resolve_stream_url(&song, &servers_snapshot, offline_mode) {
                 let requested_seek = seek_request.peek().clone().and_then(|(song_id, position)| {
                     if song_id == song.id {
@@ -107,6 +161,15 @@
                 }
 
                 if should_reload {
+                    ios_diag_log(
+                        "track.sync.command",
+                        &format!(
+                            "load song_id={} play={} seek={target_start:.3} src_prefix={}",
+                            song.id,
+                            *is_playing.peek(),
+                            url.chars().take(80).collect::<String>()
+                        ),
+                    );
                     last_src.set(Some(url.clone()));
                     playback_position.set(target_start);
                     audio_state.write().current_time.set(target_start);
@@ -126,11 +189,19 @@
                         "meta": metadata,
                     }));
                 } else if let Some(target_pos) = requested_seek {
+                    ios_diag_log(
+                        "track.sync.command",
+                        &format!("seek song_id={} target={target_pos:.3}", song.id),
+                    );
                     native_audio_command(serde_json::json!({
                         "type": "seek",
                         "position": target_pos,
                     }));
                 } else {
+                    ios_diag_log(
+                        "track.sync.command",
+                        &format!("metadata song_id={}", song.id),
+                    );
                     native_audio_command(serde_json::json!({
                         "type": "metadata",
                         "meta": metadata,
@@ -152,6 +223,10 @@
                     scrobble_song(&servers_snapshot, &song, false);
                 }
             } else {
+                ios_diag_log(
+                    "track.sync.command",
+                    &format!("clear (unresolved url) song_id={}", song.id),
+                );
                 native_audio_command(serde_json::json!({ "type": "clear" }));
                 last_src.set(None);
                 is_playing.set(false);
