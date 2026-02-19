@@ -265,3 +265,28 @@ jobs:
           artifacts/**/*.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Dispatch Homebrew tap update
+      if: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN != '' }}
+      env:
+        DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+        VERSION: ${{ steps.version.outputs.tag }}
+      run: |
+        curl --fail-with-body -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+          https://api.github.com/repos/AD-Archer/tap/dispatches \
+          -d "{\"event_type\":\"rustysound-release\",\"client_payload\":{\"version\":\"${VERSION}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"
+    - name: Dispatch Scoop update
+      if: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN != '' }}
+      env:
+        DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+        VERSION: ${{ steps.version.outputs.tag }}
+      run: |
+        curl --fail-with-body -X POST \
+          -H "Accept: application/vnd.github+json" \
+          -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+          https://api.github.com/repos/AD-Archer/scoop/dispatches \
+          -d "{\"event_type\":\"rustysound-release\",\"client_payload\":{\"version\":\"${VERSION}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"
+    - name: Skip downstream dispatch (token missing)
+      if: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN == '' }}
+      run: echo "CROSS_REPO_DISPATCH_TOKEN is not set, skipping tap/scoop dispatch."
