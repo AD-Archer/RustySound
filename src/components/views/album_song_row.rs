@@ -232,16 +232,28 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                 }
             }
             // Song info
-            div { class: "flex-1 min-w-0 text-left",
+            div { class: "flex-1 min-w-0 text-center md:text-left",
                 p { class: if is_current { "text-sm font-medium text-emerald-400 truncate transition-colors max-w-full" } else { "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors max-w-full" },
                     "{song.title}"
                 }
                 if artist_id.is_some() {
-                    p { class: "text-xs text-zinc-400 truncate max-w-full",
+                    p { class: "text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1 justify-center md:justify-start",
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                            }
+                        }
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 } else {
-                    p { class: "text-xs text-zinc-400 truncate max-w-full",
+                    p { class: "text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1 justify-center md:justify-start",
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                            }
+                        }
                         "{song.artist.clone().unwrap_or_default()}"
                     }
                 }
@@ -298,7 +310,14 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                         class: "w-4 h-4".to_string(),
                     }
                 }
-                span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
+                span {
+                    class: if is_favorited() { "text-emerald-400" } else { "text-zinc-500" },
+                    title: if is_favorited() { "Favorited" } else { "Not favorited" },
+                    Icon {
+                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
                 button {
                     class: "md:hidden p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
                     aria_label: "Song actions",
@@ -368,6 +387,8 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                                 }
                             }
                         }
+                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
+                        p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
                     }
                 }
             }

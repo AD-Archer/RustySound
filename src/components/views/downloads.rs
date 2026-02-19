@@ -480,12 +480,12 @@ pub fn DownloadsView() -> Element {
                     }
                 }
 
-                div { class: "flex flex-wrap items-center gap-3 pt-2",
+                div { class: "grid grid-cols-2 gap-2 pt-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3",
                     button {
                         class: if settings.downloads_enabled {
-                            "px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 text-center"
                         } else {
-                            "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-center"
                         },
                         onclick: on_toggle_downloads,
                         if settings.downloads_enabled {
@@ -496,9 +496,9 @@ pub fn DownloadsView() -> Element {
                     }
                     button {
                         class: if settings.auto_downloads_enabled {
-                            "px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 text-center"
                         } else {
-                            "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-center"
                         },
                         onclick: on_toggle_auto_downloads,
                         if settings.auto_downloads_enabled {
@@ -509,9 +509,9 @@ pub fn DownloadsView() -> Element {
                     }
                     button {
                         class: if action_busy() {
-                            "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center"
                         } else {
-                            "px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-center"
                         },
                         disabled: action_busy(),
                         onclick: on_run_auto,
@@ -523,9 +523,9 @@ pub fn DownloadsView() -> Element {
                     }
                     button {
                         class: if action_busy() {
-                            "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center"
                         } else {
-                            "px-3 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:text-white hover:border-cyan-400 transition-colors"
+                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:text-white hover:border-cyan-400 transition-colors text-center"
                         },
                         disabled: action_busy(),
                         onclick: on_refresh_cached_assets,
@@ -536,12 +536,12 @@ pub fn DownloadsView() -> Element {
                         }
                     }
                     button {
-                        class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors",
+                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-center",
                         onclick: on_refresh,
                         "Refresh"
                     }
                     button {
-                        class: "px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors",
+                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-center",
                         onclick: on_clear_downloads,
                         "Clear Downloads"
                     }
@@ -724,9 +724,9 @@ pub fn DownloadsView() -> Element {
                                                     }
                                                 }
                                             }
-                                            div { class: "text-right flex-shrink-0 space-y-2 min-w-[6rem]",
+                                            div { class: "flex-shrink-0 grid grid-cols-2 gap-2 w-32",
                                                 button {
-                                                    class: "px-2 py-1 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
+                                                    class: "w-full px-2 py-1 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
                                                     onclick: {
                                                         let entry = entry.clone();
                                                         let servers = servers();
@@ -757,7 +757,45 @@ pub fn DownloadsView() -> Element {
                                                     "Play"
                                                 }
                                                 button {
-                                                    class: "px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
+                                                    class: "w-full px-2 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                                                    onclick: {
+                                                        let entry = entry.clone();
+                                                        let servers = servers();
+                                                        let mut queue = queue.clone();
+                                                        let mut queue_index = queue_index.clone();
+                                                        let mut now_playing = now_playing.clone();
+                                                        move |_| {
+                                                            let server_name = servers
+                                                                .iter()
+                                                                .find(|server| server.id == entry.server_id)
+                                                                .map(|server| server.name.clone())
+                                                                .unwrap_or_else(|| "Offline".to_string());
+                                                            let song = Song {
+                                                                id: entry.song_id.clone(),
+                                                                title: entry.title.clone(),
+                                                                album: entry.album.clone(),
+                                                                album_id: entry.album_id.clone(),
+                                                                artist: entry.artist.clone(),
+                                                                cover_art: entry.cover_art_id.clone().or_else(|| entry.album_id.clone()),
+                                                                duration: 0,
+                                                                server_id: entry.server_id.clone(),
+                                                                server_name,
+                                                                ..Song::default()
+                                                            };
+                                                            let mut entries = queue();
+                                                            let was_empty = entries.is_empty();
+                                                            entries.push(song.clone());
+                                                            queue.set(entries);
+                                                            if was_empty {
+                                                                queue_index.set(0);
+                                                                now_playing.set(Some(song));
+                                                            }
+                                                        }
+                                                    },
+                                                    "Queue"
+                                                }
+                                                button {
+                                                    class: "col-span-2 w-full px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
                                                     onclick: {
                                                         let entry = entry.clone();
                                                         let mut action_status = action_status.clone();
@@ -777,8 +815,8 @@ pub fn DownloadsView() -> Element {
                                                     },
                                                     "Delete"
                                                 }
-                                                p { class: "text-xs text-zinc-300", "{format_size(entry.size_bytes)}" }
-                                                p { class: "text-[11px] text-zinc-500", "{format_updated(entry.updated_at_ms)}" }
+                                                p { class: "col-span-2 text-right text-xs text-zinc-300", "{format_size(entry.size_bytes)}" }
+                                                p { class: "col-span-2 text-right text-[11px] text-zinc-500", "{format_updated(entry.updated_at_ms)}" }
                                             }
                                         }
                                     }

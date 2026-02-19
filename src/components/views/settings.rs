@@ -1601,7 +1601,7 @@ pub fn SettingsView() -> Element {
                             max: "5000",
                             value: settings.bookmark_limit,
                             class: "w-full max-w-xs px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                            oninput: on_bookmark_limit_change,
+                            onchange: on_bookmark_limit_change,
                         }
                     }
                 }
@@ -1657,7 +1657,7 @@ pub fn SettingsView() -> Element {
                                 max: "2048",
                                 value: settings.cache_size_mb,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_cache_size_change,
+                                onchange: on_cache_size_change,
                             }
                         }
                         div {
@@ -1670,7 +1670,7 @@ pub fn SettingsView() -> Element {
                                 max: "3650",
                                 value: settings.cache_expiry_days,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_cache_expiry_change,
+                                onchange: on_cache_expiry_change,
                             }
                             p { class: "text-xs text-zinc-500 mt-2",
                                 "Use -1 to disable automatic expiry."
@@ -1822,7 +1822,7 @@ pub fn SettingsView() -> Element {
                                 max: "25",
                                 value: settings.auto_download_album_count,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_auto_download_album_count_change,
+                                onchange: on_auto_download_album_count_change,
                             }
                         }
                         div {
@@ -1833,7 +1833,7 @@ pub fn SettingsView() -> Element {
                                 max: "25",
                                 value: settings.auto_download_playlist_count,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_auto_download_playlist_count_change,
+                                onchange: on_auto_download_playlist_count_change,
                             }
                         }
                     }
@@ -1847,7 +1847,7 @@ pub fn SettingsView() -> Element {
                                 max: "20000",
                                 value: settings.download_limit_count,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_download_limit_count_change,
+                                onchange: on_download_limit_count_change,
                             }
                         }
                         div {
@@ -1858,7 +1858,7 @@ pub fn SettingsView() -> Element {
                                 max: "131072",
                                 value: settings.download_limit_mb,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_download_limit_mb_change,
+                                onchange: on_download_limit_mb_change,
                             }
                         }
                     }
@@ -1949,7 +1949,7 @@ pub fn SettingsView() -> Element {
                                 max: "20",
                                 value: settings.lyrics_request_timeout_secs,
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                oninput: on_lyrics_timeout_change,
+                                onchange: on_lyrics_timeout_change,
                             }
                         }
                         div {
@@ -1964,7 +1964,7 @@ pub fn SettingsView() -> Element {
                                     step: "50",
                                     value: settings.lyrics_offset_ms,
                                     class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                    oninput: on_lyrics_offset_change,
+                                    onchange: on_lyrics_offset_change,
                                 }
                                 button {
                                     class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",

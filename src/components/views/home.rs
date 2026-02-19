@@ -1418,6 +1418,9 @@ pub fn SongRow(
     index: usize,
     onclick: EventHandler<MouseEvent>,
     #[props(default)] show_download: bool,
+    #[props(default = true)] show_duration: bool,
+    #[props(default)] show_favorite_indicator: bool,
+    #[props(default)] show_duration_in_menu: bool,
 ) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
@@ -1755,7 +1758,18 @@ pub fn SongRow(
                         class: "w-4 h-4".to_string(),
                     }
                 }
-                span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
+                if show_favorite_indicator {
+                    span {
+                        class: if is_favorited() { "text-emerald-400" } else { "text-zinc-500" },
+                        title: if is_favorited() { "Favorited" } else { "Not favorited" },
+                        Icon {
+                            name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
+                    }
+                } else if show_duration {
+                    span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
+                }
                 button {
                     class: "md:hidden p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
                     aria_label: "Song actions",
@@ -1826,6 +1840,10 @@ pub fn SongRow(
                                     }
                                 }
                             }
+                        }
+                        if show_duration_in_menu {
+                            div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
+                            p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
                         }
                     }
                 }

@@ -24,12 +24,12 @@
         let app_settings = app_settings.clone();
         let volume = volume.clone();
         let queue = queue.clone();
-        let queue_index = queue_index.clone();
+        let mut queue_index = queue_index.clone();
         #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
         let repeat_mode = repeat_mode.clone();
         #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
         let shuffle_enabled = shuffle_enabled.clone();
-        let now_playing = now_playing.clone();
+        let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
         let mut playback_position = playback_position.clone();
         let mut audio_state = audio_state.clone();
@@ -112,8 +112,13 @@
                     ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
                 }
 
-                ios_diag_log("track.sync.command", "clear (no now_playing)");
-                native_audio_command(serde_json::json!({ "type": "clear" }));
+                let should_clear = last_src.peek().is_some()
+                    || last_song_id.peek().is_some()
+                    || *is_playing.peek();
+                if should_clear {
+                    ios_diag_log("track.sync.command", "clear (no now_playing)");
+                    native_audio_command(serde_json::json!({ "type": "clear" }));
+                }
                 last_src.set(None);
                 is_playing.set(false);
                 audio_state.write().playback_error.set(None);
@@ -223,6 +228,44 @@
                     scrobble_song(&servers_snapshot, &song, false);
                 }
             } else {
+                if offline_mode {
+                    let queue_snapshot = queue();
+                    if !queue_snapshot.is_empty() {
+                        let current_idx = queue_snapshot
+                            .iter()
+                            .position(|entry| entry.id == song.id && entry.server_id == song.server_id)
+                            .unwrap_or_else(|| queue_index().min(queue_snapshot.len().saturating_sub(1)));
+
+                        let fallback_next = queue_snapshot
+                            .iter()
+                            .enumerate()
+                            .skip(current_idx.saturating_add(1))
+                            .find(|(_, entry)| is_song_downloaded(entry))
+                            .or_else(|| {
+                                queue_snapshot
+                                    .iter()
+                                    .enumerate()
+                                    .take(current_idx.saturating_add(1))
+                                    .find(|(_, entry)| is_song_downloaded(entry))
+                            });
+
+                        if let Some((next_idx, next_song)) = fallback_next {
+                            ios_diag_log(
+                                "track.sync.command",
+                                &format!(
+                                    "offline-skip-unavailable current={} next={} next_idx={next_idx}",
+                                    song.id, next_song.id
+                                ),
+                            );
+                            queue_index.set(next_idx);
+                            now_playing.set(Some(next_song.clone()));
+                            is_playing.set(true);
+                            audio_state.write().playback_error.set(None);
+                            return;
+                        }
+                    }
+                }
+
                 ios_diag_log(
                     "track.sync.command",
                     &format!("clear (unresolved url) song_id={}", song.id),
