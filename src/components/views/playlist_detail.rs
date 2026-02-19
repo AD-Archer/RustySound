@@ -340,7 +340,7 @@ fn PlaylistSongRow(
                 if can_remove_from_playlist {
                     button {
                         class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-red-300 hover:bg-red-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                        aria_label: "Remove from playlist",
+                        aria_label: "Remove",
                         onclick: make_on_remove_from_playlist(),
                         Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
                     }
@@ -407,7 +407,7 @@ fn PlaylistSongRow(
                                 class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
                                 onclick: make_on_remove_from_playlist(),
                                 Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
-                                "Remove from playlist"
+                                "Remove"
                             }
                         }
                         div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }

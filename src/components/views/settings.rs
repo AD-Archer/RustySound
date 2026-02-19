@@ -3,7 +3,7 @@ use crate::cache_service::{
     apply_settings as apply_cache_settings, clear_all as clear_cache_storage,
     stats as current_cache_stats,
 };
-use crate::components::{export_ios_audio_log_txt, AppView, Icon, Navigation, VolumeSignal};
+use crate::components::{AppView, Icon, Navigation, VolumeSignal};
 use crate::db::{save_settings, AppSettings, ArtworkDownloadPreference};
 use crate::offline_audio::{
     clear_downloads, download_stats, refresh_downloaded_cache, run_auto_download_pass,
@@ -426,8 +426,6 @@ pub fn SettingsView() -> Element {
     let download_cache_refresh_busy = use_signal(|| false);
     let auto_download_status = use_signal(|| None::<String>);
     let download_refresh_nonce = use_signal(|| 0u64);
-    let ios_log_export_busy = use_signal(|| false);
-    let ios_log_export_status = use_signal(|| None::<String>);
 
     let can_add = use_memo(move || {
         !server_url().trim().is_empty()
@@ -1412,26 +1410,6 @@ pub fn SettingsView() -> Element {
         }
     };
 
-    let on_export_ios_audio_log = {
-        let mut ios_log_export_busy = ios_log_export_busy.clone();
-        let mut ios_log_export_status = ios_log_export_status.clone();
-        move |_| {
-            if ios_log_export_busy() {
-                return;
-            }
-            ios_log_export_busy.set(true);
-            match export_ios_audio_log_txt() {
-                Ok(path) => {
-                    ios_log_export_status.set(Some(format!("Share sheet opened for: {path}")));
-                }
-                Err(error) => {
-                    ios_log_export_status.set(Some(format!("Export failed: {error}")));
-                }
-            }
-            ios_log_export_busy.set(false);
-        }
-    };
-
     let server_list = servers();
     let settings = app_settings();
     let current_volume = volume();
@@ -1934,38 +1912,6 @@ pub fn SettingsView() -> Element {
                     if let Some(status) = auto_download_status() {
                         p { class: "text-xs text-zinc-500", "{status}" }
                     }
-                }
-            }
-
-            // Diagnostics
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-3", "Diagnostics" }
-                p { class: "text-sm text-zinc-400 mb-4",
-                    "Export iOS audio diagnostics as a .txt file and save it to Files or share it directly."
-                }
-
-                div { class: "flex flex-wrap items-center gap-3",
-                    button {
-                        class: if ios_log_export_busy() {
-                            "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm"
-                        } else {
-                            "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm"
-                        },
-                        disabled: ios_log_export_busy(),
-                        onclick: on_export_ios_audio_log,
-                        if ios_log_export_busy() {
-                            "Preparing export..."
-                        } else {
-                            "Export iOS Audio Log (.txt)"
-                        }
-                    }
-                }
-
-                if let Some(status) = ios_log_export_status() {
-                    p { class: "text-xs text-zinc-500 mt-3", "{status}" }
-                }
-                p { class: "text-xs text-zinc-600 mt-2",
-                    "This action is available in native iOS builds only."
                 }
             }
 

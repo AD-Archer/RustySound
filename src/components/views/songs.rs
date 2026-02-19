@@ -537,6 +537,7 @@ fn SongRowWithRating(
     let download_busy = use_signal(|| false);
     let initially_downloaded = is_song_downloaded(&song);
     let downloaded = use_signal(move || initially_downloaded);
+    let mut show_mobile_actions = use_signal(|| false);
 
     let on_album_click_cover = {
         let album_id = album_id.clone();
@@ -574,6 +575,13 @@ fn SongRowWithRating(
         move |evt: MouseEvent| {
             evt.stop_propagation();
             add_menu.open(AddIntent::from_song(song.clone()));
+        }
+    };
+    let make_on_open_menu = {
+        let on_open_menu = on_open_menu.clone();
+        move || {
+            let mut on_open_menu = on_open_menu.clone();
+            move |evt: MouseEvent| on_open_menu(evt)
         }
     };
 
@@ -636,6 +644,13 @@ fn SongRowWithRating(
             });
         }
     };
+    let make_on_toggle_favorite = {
+        let on_toggle_favorite = on_toggle_favorite.clone();
+        move || {
+            let on_toggle_favorite = on_toggle_favorite.clone();
+            move |evt: MouseEvent| on_toggle_favorite(evt)
+        }
+    };
 
     let on_download_song = {
         let servers = servers.clone();
@@ -665,6 +680,23 @@ fn SongRowWithRating(
                 }
                 download_busy.set(false);
             });
+        }
+    };
+    let make_on_download_song = {
+        let on_download_song = on_download_song.clone();
+        move || {
+            let mut on_download_song = on_download_song.clone();
+            move |evt: MouseEvent| on_download_song(evt)
+        }
+    };
+    let make_on_set_rating = {
+        let on_set_rating = on_set_rating.clone();
+        move |rating_value: u32| {
+            let on_set_rating = on_set_rating.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                on_set_rating(rating_value);
+            }
         }
     };
 
@@ -742,11 +774,11 @@ fn SongRowWithRating(
                 }
             }
             // Favorite + Rating
-            div { class: "flex items-center gap-2",
+            div { class: "hidden md:flex items-center gap-2",
                 button {
                     class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
                     aria_label: "Favorite",
-                    onclick: on_toggle_favorite,
+                    onclick: make_on_toggle_favorite(),
                     Icon {
                         name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
                         class: "w-4 h-4".to_string(),
@@ -757,14 +789,7 @@ fn SongRowWithRating(
                     for i in 1..=5 {
                         button {
                             class: "w-4 h-4",
-                            onclick: {
-                                let on_set_rating = on_set_rating.clone();
-                                let rating_value = i as u32;
-                                move |evt: MouseEvent| {
-                                    evt.stop_propagation();
-                                    on_set_rating(rating_value);
-                                }
-                            },
+                            onclick: make_on_set_rating(i as u32),
                             Icon {
                                 name: if i <= effective_rating {
                                     "star-filled".to_string()
@@ -778,23 +803,23 @@ fn SongRowWithRating(
                 }
             }
             // Duration and actions
-            div { class: "flex items-center gap-3",
+            div { class: "flex items-center gap-3 relative",
                 if downloaded() {
                     span {
-                        class: "text-emerald-400",
+                        class: "hidden md:inline-flex text-emerald-400",
                         title: "Downloaded",
                         Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
                     }
                 } else {
                     button {
                         class: if download_busy() {
-                            "p-2 rounded-lg text-zinc-500 cursor-not-allowed"
+                            "hidden md:inline-flex p-2 rounded-lg text-zinc-500 cursor-not-allowed"
                         } else {
-                            "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                            "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
                         },
                         aria_label: "Download song",
                         disabled: download_busy(),
-                        onclick: on_download_song,
+                        onclick: make_on_download_song(),
                         Icon {
                             name: if download_busy() { "loader".to_string() } else { "download".to_string() },
                             class: "w-4 h-4".to_string(),
@@ -802,15 +827,90 @@ fn SongRowWithRating(
                     }
                 }
                 button {
-                    class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
                     aria_label: "Add to queue",
-                    onclick: on_open_menu,
+                    onclick: make_on_open_menu(),
                     Icon {
-                        name: "plus".to_string(),
+                        name: "more-horizontal".to_string(),
                         class: "w-4 h-4".to_string(),
                     }
                 }
                 span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
+                button {
+                    class: "md:hidden p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
+                    aria_label: "Song actions",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        show_mobile_actions.set(!show_mobile_actions());
+                    },
+                    Icon {
+                        name: "more-horizontal".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
+                if show_mobile_actions() {
+                    div {
+                        class: "md:hidden absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                        button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            onclick: make_on_open_menu(),
+                            Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                            "Add To..."
+                        }
+                        if downloaded() {
+                            div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
+                                Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                "Downloaded"
+                            }
+                        } else {
+                            button {
+                                class: if download_busy() {
+                                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed"
+                                } else {
+                                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
+                                },
+                                disabled: download_busy(),
+                                onclick: make_on_download_song(),
+                                Icon {
+                                    name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                if download_busy() {
+                                    "Downloading..."
+                                } else {
+                                    "Download"
+                                }
+                            }
+                        }
+                        button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            onclick: make_on_toggle_favorite(),
+                            Icon {
+                                name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                class: "w-4 h-4".to_string(),
+                            }
+                            if is_favorited() {
+                                "Unfavorite"
+                            } else {
+                                "Favorite"
+                            }
+                        }
+                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
+                        div { class: "flex items-center gap-1 px-2 pb-1",
+                            for i in 1..=5 {
+                                button {
+                                    class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                    onclick: make_on_set_rating(i as u32),
+                                    Icon {
+                                        name: if i <= effective_rating { "star-filled".to_string() } else { "star".to_string() },
+                                        class: "w-3.5 h-3.5".to_string(),
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
