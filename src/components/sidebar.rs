@@ -46,7 +46,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
                 div { class: "flex items-center gap-3",
                     div { class: "w-10 h-10 rounded-xl bg-zinc-800/50 flex items-center justify-center shadow-lg overflow-hidden",
                         img {
-                            src: "/assets/favicon.svg",
+                            src: asset!("/assets/favicon.svg"),
                             alt: "RustySound Logo",
                             class: "w-8 h-8 object-contain",
                         }
