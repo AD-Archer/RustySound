@@ -106,7 +106,7 @@ Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization se
 #### Flatpak (Recommended)
 
 ```bash
-flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/linux-packages/repo
+flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/linux-packages/rustysound.flatpakrepo
 flatpak install --user adarcher-rustysound app.adarcher.rustysound
 flatpak run app.adarcher.rustysound
 ```

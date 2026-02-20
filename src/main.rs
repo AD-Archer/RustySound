@@ -11,11 +11,31 @@ mod offline_audio;
 
 use components::AppView;
 
+#[cfg(feature = "desktop")]
+const FAVICON: &str = "/assets/favicon.ico";
+#[cfg(not(feature = "desktop"))]
 const FAVICON: Asset = asset!("/assets/favicon.ico");
+
+#[cfg(feature = "desktop")]
+const APPLE_TOUCH_ICON: &str = "/assets/apple-touch-icon.png";
+#[cfg(not(feature = "desktop"))]
 const APPLE_TOUCH_ICON: Asset = asset!("/assets/apple-touch-icon.png");
+
+#[cfg(feature = "desktop")]
+const WEB_MANIFEST: &str = "/assets/site.webmanifest";
+#[cfg(not(feature = "desktop"))]
 const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
+
+#[cfg(not(feature = "desktop"))]
 const APP_CSS: Asset = asset!("/assets/styling/app.css");
+
+#[cfg(not(feature = "desktop"))]
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+
+#[cfg(feature = "desktop")]
+const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
+#[cfg(feature = "desktop")]
+const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
 #[cfg(all(feature = "desktop", target_os = "windows"))]
 fn windows_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
@@ -153,9 +173,27 @@ fn App() -> Element {
         document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }
         document::Meta { name: "apple-mobile-web-app-title", content: "RustySound" }
 
-        document::Stylesheet { href: TAILWIND_CSS }
-        document::Stylesheet { href: APP_CSS }
+        GlobalStyles {}
 
         Router::<AppView> {}
+    }
+}
+
+#[component]
+fn GlobalStyles() -> Element {
+    #[cfg(feature = "desktop")]
+    {
+        return rsx! {
+            document::Style { {TAILWIND_CSS_INLINE} }
+            document::Style { {APP_CSS_INLINE} }
+        };
+    }
+
+    #[cfg(not(feature = "desktop"))]
+    {
+        return rsx! {
+            document::Stylesheet { href: TAILWIND_CSS }
+            document::Stylesheet { href: APP_CSS }
+        };
     }
 }
