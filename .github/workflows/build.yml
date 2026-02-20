@@ -315,26 +315,34 @@ jobs:
           artifacts/**/*.exe
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-    - name: Dispatch tap and scoop updates
+    - name: Dispatch package updates
       env:
         DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
         VERSION: ${{ needs.version.outputs.tag }}
+        LINUX_PACKAGES_REPO: ${{ vars.LINUX_PACKAGES_REPO }}
       run: |
         if [[ -z "${DISPATCH_TOKEN}" ]]; then
-          echo "CROSS_REPO_DISPATCH_TOKEN is not set, skipping tap/scoop dispatch."
+          echo "CROSS_REPO_DISPATCH_TOKEN is not set, skipping package dispatch."
           exit 0
         fi
 
         PAYLOAD="{\"event_type\":\"rustysound-release\",\"client_payload\":{\"version\":\"${VERSION}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"
 
-        curl --fail-with-body -X POST \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
-          https://api.github.com/repos/AD-Archer/tap/dispatches \
-          -d "${PAYLOAD}"
+        dispatch_repo() {
+          local repo="$1"
+          local name="$2"
+          if [[ -z "${repo}" ]]; then
+            echo "${name} repo not configured; skipping."
+            return 0
+          fi
+          echo "Dispatching to ${name}: ${repo}"
+          curl --fail-with-body -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+            "https://api.github.com/repos/${repo}/dispatches" \
+            -d "${PAYLOAD}"
+        }
 
-        curl --fail-with-body -X POST \
-          -H "Accept: application/vnd.github+json" \
-          -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
-          https://api.github.com/repos/AD-Archer/scoop/dispatches \
-          -d "${PAYLOAD}"
+        dispatch_repo "AD-Archer/tap" "Homebrew tap"
+        dispatch_repo "AD-Archer/scoop" "Scoop bucket"
+        dispatch_repo "${LINUX_PACKAGES_REPO}" "Linux packages"
