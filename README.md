@@ -50,7 +50,7 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 
 #### Homebrew
 ```bash
-brew tap ad-archer/casks
+brew tap ad-archer/tap
 brew install --cask rustysound
 ```
 
@@ -81,7 +81,7 @@ open /Applications/RustySound.app
 #### Scoop
 
 ```powershell
-scoop bucket add ad-archer https://github.com/ad-archer/bucket
+scoop bucket add ad-archer https://github.com/ad-archer/scoop
 scoop install ad-archer/rustysound
 ```
 

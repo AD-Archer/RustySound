@@ -288,6 +288,19 @@ input:focus-visible {
   }
 }
 
+/* Keep dropdown menus readable on Linux WebKit (desktop): some themes render
+   select popup background as light while inheriting white text. */
+select {
+  color-scheme: dark;
+}
+
+select,
+select option,
+select optgroup {
+  background-color: #18181b;
+  color: #f4f4f5;
+}
+
 /* Selection */
 ::selection {
   background: rgba(16, 185, 129, 0.3);

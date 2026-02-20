@@ -32,6 +32,14 @@ fn main() {
     #[cfg(feature = "desktop")]
     {
         use dioxus::desktop::{Config, WindowBuilder};
+        #[cfg(target_os = "linux")]
+        {
+            // Linux WebKit can stutter on some Wayland/driver combinations.
+            // Keep conservative defaults unless user already configured them.
+            if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_none() {
+                unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
+            }
+        }
 
         let mut window = WindowBuilder::new().with_title("RustySound");
         #[cfg(target_os = "windows")]
@@ -44,9 +52,51 @@ fn main() {
             }
         }
 
-        dioxus::LaunchBuilder::desktop()
-            .with_cfg(Config::new().with_menu(None).with_window(window))
-            .launch(App);
+        let mut config = Config::new()
+            .with_menu(None)
+            .with_window(window)
+            // Set native WebView background before HTML/CSS load to avoid startup white flash.
+            .with_background_color((9, 9, 11, 255))
+            // Keep this explicit on Linux to avoid known DMA-BUF rendering glitches.
+            .with_disable_dma_buf_on_wayland(true);
+
+        #[cfg(target_os = "linux")]
+        {
+            config = config.with_custom_head(
+                r#"<style>
+                html, body { background: #09090b !important; }
+                .app-container {
+                  background: linear-gradient(180deg, #09090b 0%, #12141a 100%) !important;
+                }
+                .app-container::before { display: none !important; }
+                .glass {
+                  background: rgba(24, 24, 27, 0.96) !important;
+                  backdrop-filter: none !important;
+                  -webkit-backdrop-filter: none !important;
+                }
+                .main-scroll {
+                  scroll-behavior: auto !important;
+                  overscroll-behavior: contain !important;
+                }
+                @media (min-width: 1200px) {
+                  .app-container {
+                    background: #09090b !important;
+                  }
+                  .main-scroll [class*="transition"],
+                  .main-scroll [class*="animate-"] {
+                    transition: none !important;
+                    animation: none !important;
+                  }
+                  .main-scroll [class*="shadow"] {
+                    box-shadow: none !important;
+                  }
+                }
+                </style>"#
+                    .to_string(),
+            );
+        }
+
+        dioxus::LaunchBuilder::desktop().with_cfg(config).launch(App);
         return;
     }
 
