@@ -224,7 +224,6 @@ pub(super) fn PrevButton() -> Element {
         .as_ref()
         .map(|song| song.server_name == "Radio")
         .unwrap_or(false);
-    let was_playing = is_playing();
 
     rsx! {
         button {
@@ -239,6 +238,7 @@ pub(super) fn PrevButton() -> Element {
                 let idx = queue_index();
                 let queue_list = queue();
                 if idx > 0 && !queue_list.is_empty() {
+                    let was_playing = *is_playing.peek();
                     let next_idx = idx - 1;
                     if let Some(song) = queue_list.get(next_idx).cloned() {
                         queue_index.set(next_idx);

@@ -2,10 +2,7 @@ use crate::api::ServerConfig;
 use crate::components::{AppView, Icon, Navigation, SongDetailsController};
 use dioxus::prelude::*;
 
-#[cfg(feature = "desktop")]
-const SIDEBAR_LOGO: &str = "/assets/favicon.svg";
-#[cfg(not(feature = "desktop"))]
-const SIDEBAR_LOGO: Asset = asset!("/assets/favicon.svg");
+const SIDEBAR_LOGO: Asset = asset!("/assets/favicon-96x96.png");
 
 #[component]
 pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {

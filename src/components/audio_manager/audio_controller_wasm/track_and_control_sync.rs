@@ -89,6 +89,8 @@
                     let _ = audio.remove_attribute("src");
                     audio.load();
                 }
+                let servers_snapshot = servers.peek().clone();
+                web_sync_media_session_metadata(None, &servers_snapshot);
                 last_src.set(None);
                 is_playing.set(false);
                 audio_state.write().playback_error.set(None);
@@ -97,6 +99,7 @@
 
             let servers_snapshot = servers.peek().clone();
             if let Some(url) = resolve_stream_url(&song, &servers_snapshot) {
+                web_sync_media_session_metadata(Some(&song), &servers_snapshot);
                 if Some(url.clone()) != *last_src.peek() {
                     last_src.set(Some(url.clone()));
                     audio_state.write().playback_error.set(None);
@@ -131,6 +134,7 @@
                     scrobble_song(&servers_snapshot, &song, false);
                 }
             } else if let Some(audio) = get_or_create_audio_element() {
+                web_sync_media_session_metadata(None, &servers_snapshot);
                 audio.set_src("");
                 last_src.set(None);
                 is_playing.set(false);

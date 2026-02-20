@@ -108,6 +108,9 @@ pub fn get_or_create_audio_element() -> Option<HtmlAudioElement> {
     let audio: HtmlAudioElement = document.create_element("audio").ok()?.dyn_into().ok()?;
     audio.set_id("rustysound-audio");
     audio.set_attribute("preload", "metadata").ok()?;
+    let _ = audio.set_attribute("playsinline", "true");
+    let _ = audio.set_attribute("webkit-playsinline", "true");
+    let _ = audio.set_attribute("x-webkit-airplay", "allow");
     document.body()?.append_child(&audio).ok()?;
 
     Some(audio)
@@ -286,15 +289,19 @@ fn click_player_control_button(id: &str) {
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn ios_diag_enabled() -> bool {
     static IOS_AUDIO_DEBUG_ENABLED: Lazy<bool> = Lazy::new(|| {
-        if cfg!(debug_assertions) {
-            return true;
-        }
         std::env::var("RUSTYSOUND_IOS_AUDIO_DEBUG")
             .map(|raw| {
                 let normalized = raw.trim().to_ascii_lowercase();
-                !(normalized.is_empty() || normalized == "0" || normalized == "false")
+                !(normalized.is_empty()
+                    || normalized == "0"
+                    || normalized == "false"
+                    || normalized == "off"
+                    || normalized == "no")
             })
-            .unwrap_or(false)
+            // Keep iOS audio diagnostics on by default so real-device remote-control
+            // regressions (lock-screen/Control Center commands) are observable.
+            // Set RUSTYSOUND_IOS_AUDIO_DEBUG=0 to silence.
+            .unwrap_or(true)
     });
     *IOS_AUDIO_DEBUG_ENABLED
 }
@@ -308,6 +315,12 @@ fn ios_diag_now_ms() -> u128 {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_DIAG_BUFFER: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(VecDeque::new()));
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+const IOS_DIAG_BUFFER_MAX_LINES: usize = 1200;
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn ios_diag_log(tag: &str, message: &str) {
     if !ios_diag_enabled() {
         return;
@@ -315,6 +328,158 @@ fn ios_diag_log(tag: &str, message: &str) {
     let ts = ios_diag_now_ms();
     let line = format!("[ios-audio][{ts}][{tag}] {message}");
     eprintln!("{line}");
+    if let Ok(mut buffer) = IOS_DIAG_BUFFER.lock() {
+        buffer.push_back(line);
+        while buffer.len() > IOS_DIAG_BUFFER_MAX_LINES {
+            let _ = buffer.pop_front();
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+pub fn ios_audio_log_snapshot(max_lines: usize) -> Vec<String> {
+    let requested = max_lines.max(1).min(IOS_DIAG_BUFFER_MAX_LINES);
+    let Ok(buffer) = IOS_DIAG_BUFFER.lock() else {
+        return Vec::new();
+    };
+    let start = buffer.len().saturating_sub(requested);
+    buffer.iter().skip(start).cloned().collect()
+}
+
+#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+pub fn ios_audio_log_snapshot(_max_lines: usize) -> Vec<String> {
+    Vec::new()
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+pub fn ios_audio_log_clear() {
+    if let Ok(mut buffer) = IOS_DIAG_BUFFER.lock() {
+        buffer.clear();
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+unsafe fn ios_active_view_controller() -> *mut Object {
+    let app_cls = class!(UIApplication);
+    let app: *mut Object = msg_send![app_cls, sharedApplication];
+    if app.is_null() {
+        return ptr::null_mut();
+    }
+
+    let mut root: *mut Object = ptr::null_mut();
+
+    let key_window: *mut Object = msg_send![app, keyWindow];
+    if !key_window.is_null() {
+        root = msg_send![key_window, rootViewController];
+    }
+
+    if root.is_null() {
+        let windows: *mut Object = msg_send![app, windows];
+        if !windows.is_null() {
+            let count: usize = msg_send![windows, count];
+            for index in 0..count {
+                let window: *mut Object = msg_send![windows, objectAtIndex: index];
+                if window.is_null() {
+                    continue;
+                }
+                let candidate: *mut Object = msg_send![window, rootViewController];
+                if candidate.is_null() {
+                    continue;
+                }
+                let is_key_window: BOOL = msg_send![window, isKeyWindow];
+                root = candidate;
+                if is_key_window == YES {
+                    break;
+                }
+            }
+        }
+    }
+
+    if root.is_null() {
+        return ptr::null_mut();
+    }
+
+    loop {
+        let presented: *mut Object = msg_send![root, presentedViewController];
+        if presented.is_null() {
+            break;
+        }
+        root = presented;
+    }
+
+    root
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+pub fn ios_audio_log_export_txt(contents: &str) -> Result<String, String> {
+    let trimmed = contents.trim();
+    if trimmed.is_empty() {
+        return Err("No iOS logs to export yet.".to_string());
+    }
+
+    let mut export_path = std::env::temp_dir();
+    export_path.push(format!("rustysound-ios-audio-{}.txt", ios_diag_now_ms()));
+    std::fs::write(&export_path, trimmed)
+        .map_err(|error| format!("Failed to write log file: {error}"))?;
+
+    unsafe {
+        let root = ios_active_view_controller();
+        if root.is_null() {
+            return Err("Unable to find an active iOS view controller.".to_string());
+        }
+
+        let Some(path_string) = export_path.to_str() else {
+            return Err("Export path is not valid UTF-8.".to_string());
+        };
+        let Some(path_ns) = ns_string(path_string) else {
+            return Err("Failed to encode export path.".to_string());
+        };
+
+        let url_cls = class!(NSURL);
+        let file_url: *mut Object = msg_send![url_cls, fileURLWithPath: path_ns];
+        let _: () = msg_send![path_ns, release];
+        if file_url.is_null() {
+            return Err("Failed to create iOS file URL for export.".to_string());
+        }
+
+        let array_cls = class!(NSArray);
+        let items: *mut Object = msg_send![array_cls, arrayWithObject: file_url];
+        if items.is_null() {
+            return Err("Failed to create iOS activity items.".to_string());
+        }
+
+        let activity_cls = class!(UIActivityViewController);
+        let activity_alloc: *mut Object = msg_send![activity_cls, alloc];
+        if activity_alloc.is_null() {
+            return Err("Failed to allocate iOS share sheet.".to_string());
+        }
+        let activity: *mut Object = msg_send![
+            activity_alloc,
+            initWithActivityItems: items
+            applicationActivities: ptr::null_mut::<Object>()
+        ];
+        if activity.is_null() {
+            return Err("Failed to initialize iOS share sheet.".to_string());
+        }
+
+        let _: () = msg_send![
+            root,
+            presentViewController: activity
+            animated: YES
+            completion: ptr::null_mut::<Object>()
+        ];
+        let _: () = msg_send![activity, release];
+    }
+
+    Ok(export_path.display().to_string())
+}
+
+#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+pub fn ios_audio_log_clear() {}
+
+#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+pub fn ios_audio_log_export_txt(_contents: &str) -> Result<String, String> {
+    Err("iOS log export is only available in iOS builds.".to_string())
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -417,6 +582,17 @@ fn ios_plan_take_transition(action: &str) -> Option<IosPlaybackPlanItem> {
     Some(item)
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_plan_queue_stats() -> Option<(usize, usize)> {
+    let plan = IOS_PLAYBACK_PLAN.lock().ok()?;
+    let len = plan.items.len();
+    if len == 0 {
+        return None;
+    }
+    let index = plan.index.min(len.saturating_sub(1));
+    Some((index, len))
+}
+
 #[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
 fn ios_diag_now_ms() -> u128 {
     0
@@ -424,6 +600,93 @@ fn ios_diag_now_ms() -> u128 {
 
 #[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
 fn ios_diag_log(_tag: &str, _message: &str) {}
+
+#[cfg(target_arch = "wasm32")]
+fn web_sync_media_session_metadata(song: Option<&Song>, servers: &[ServerConfig]) {
+    let payload = if let Some(song) = song {
+        let is_live = song.server_name == "Radio";
+        let title = if is_live && song.title.trim().eq_ignore_ascii_case("unknown song") {
+            song.artist
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "Unknown Song".to_string())
+        } else if song.title.trim().is_empty() {
+            "Unknown Song".to_string()
+        } else {
+            song.title.clone()
+        };
+
+        let artist = song
+            .artist
+            .clone()
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or_else(|| {
+                if is_live {
+                    "Internet Radio".to_string()
+                } else {
+                    "Unknown Artist".to_string()
+                }
+            });
+
+        let album = if is_live {
+            "LIVE".to_string()
+        } else {
+            song.album
+                .clone()
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "Unknown Album".to_string())
+        };
+
+        let artwork = servers
+            .iter()
+            .find(|server| server.id == song.server_id)
+            .and_then(|server| {
+                song.cover_art
+                    .as_ref()
+                    .map(|cover| NavidromeClient::new(server.clone()).get_cover_art_url(cover, 512))
+            });
+
+        serde_json::json!({
+            "title": title,
+            "artist": artist,
+            "album": album,
+            "artwork": artwork,
+        })
+    } else {
+        serde_json::Value::Null
+    };
+
+    let payload = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
+    let script = format!(
+        r#"
+(() => {{
+  if (!("mediaSession" in navigator)) return false;
+  const meta = {payload};
+  try {{
+    if (!meta || typeof MediaMetadata === "undefined") {{
+      navigator.mediaSession.metadata = null;
+      return true;
+    }}
+
+    const artwork = meta.artwork
+      ? [{{ src: meta.artwork, sizes: "512x512", type: "image/png" }}]
+      : undefined;
+
+    navigator.mediaSession.metadata = new MediaMetadata({{
+      title: meta.title || "",
+      artist: meta.artist || "",
+      album: meta.album || "",
+      artwork,
+    }});
+    return true;
+  }} catch (_err) {{
+    return false;
+  }}
+}})();
+"#
+    );
+    let _ = js_sys::eval(&script);
+}
 
 #[cfg(target_arch = "wasm32")]
 fn ensure_web_media_session_shortcuts() {
@@ -448,7 +711,9 @@ fn ensure_web_media_session_shortcuts() {
     const element = document.getElementById(id);
     if (element && typeof element.click === "function") {
       element.click();
+      return true;
     }
+    return false;
   };
 
   const updatePlaybackState = () => {
@@ -471,11 +736,23 @@ fn ensure_web_media_session_shortcuts() {
 
   try {
     navigator.mediaSession.setActionHandler("play", () => {
-      audio.play().catch(() => {});
+      if (audio.paused) {
+        if (!clickById("play-pause-btn")) {
+          audio.play().catch(() => {});
+        }
+      }
+      updatePlaybackState();
     });
   } catch (_err) {}
   try {
-    navigator.mediaSession.setActionHandler("pause", () => audio.pause());
+    navigator.mediaSession.setActionHandler("pause", () => {
+      if (!audio.paused) {
+        if (!clickById("play-pause-btn")) {
+          audio.pause();
+        }
+      }
+      updatePlaybackState();
+    });
   } catch (_err) {}
   try {
     navigator.mediaSession.setActionHandler("nexttrack", () => clickById("next-btn"));
@@ -499,6 +776,8 @@ fn ensure_web_media_session_shortcuts() {
   audio.addEventListener("timeupdate", updatePositionState);
   audio.addEventListener("durationchange", updatePositionState);
   audio.addEventListener("ratechange", updatePositionState);
+  updatePlaybackState();
+  updatePositionState();
 
   window.__rustysoundWebMediaSessionInit = true;
   return true;

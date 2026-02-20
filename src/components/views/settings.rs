@@ -3,7 +3,10 @@ use crate::cache_service::{
     apply_settings as apply_cache_settings, clear_all as clear_cache_storage,
     stats as current_cache_stats,
 };
-use crate::components::{AppView, Icon, Navigation, VolumeSignal};
+use crate::components::{
+    ios_audio_log_clear, ios_audio_log_export_txt, ios_audio_log_snapshot, AppView, Icon,
+    Navigation, VolumeSignal,
+};
 use crate::db::{save_settings, AppSettings, ArtworkDownloadPreference};
 use crate::offline_audio::{
     clear_downloads, download_stats, refresh_downloaded_cache, run_auto_download_pass,
@@ -426,6 +429,8 @@ pub fn SettingsView() -> Element {
     let download_cache_refresh_busy = use_signal(|| false);
     let auto_download_status = use_signal(|| None::<String>);
     let download_refresh_nonce = use_signal(|| 0u64);
+    let ios_log_text = use_signal(String::new);
+    let ios_log_status = use_signal(|| None::<String>);
 
     let can_add = use_memo(move || {
         !server_url().trim().is_empty()
@@ -1410,6 +1415,61 @@ pub fn SettingsView() -> Element {
         }
     };
 
+    let on_refresh_ios_logs = {
+        let mut ios_log_text = ios_log_text.clone();
+        let mut ios_log_status = ios_log_status.clone();
+        move |_| {
+            let lines = ios_audio_log_snapshot(1000);
+            if lines.is_empty() {
+                ios_log_text.set(String::new());
+                ios_log_status
+                    .set(Some("No iOS audio logs captured yet. Reproduce the issue, then refresh."
+                        .to_string()));
+            } else {
+                ios_log_text.set(lines.join("\n"));
+                ios_log_status.set(Some(format!("Loaded {} log lines.", lines.len())));
+            }
+        }
+    };
+
+    let on_clear_ios_logs = {
+        let mut ios_log_text = ios_log_text.clone();
+        let mut ios_log_status = ios_log_status.clone();
+        move |_| {
+            ios_audio_log_clear();
+            ios_log_text.set(String::new());
+            ios_log_status.set(Some("Cleared iOS audio log buffer.".to_string()));
+        }
+    };
+
+    let on_export_ios_logs = {
+        let mut ios_log_text = ios_log_text.clone();
+        let mut ios_log_status = ios_log_status.clone();
+        move |_| {
+            let mut text = ios_log_text();
+            if text.trim().is_empty() {
+                let lines = ios_audio_log_snapshot(1000);
+                if lines.is_empty() {
+                    ios_log_status.set(Some(
+                        "No iOS audio logs captured yet. Reproduce the issue, then refresh."
+                            .to_string(),
+                    ));
+                    return;
+                }
+                text = lines.join("\n");
+                ios_log_text.set(text.clone());
+            }
+
+            match ios_audio_log_export_txt(&text) {
+                Ok(path) => ios_log_status.set(Some(format!(
+                    "Opened iOS share sheet for {} lines ({path}).",
+                    text.lines().count()
+                ))),
+                Err(error) => ios_log_status.set(Some(format!("Log export failed: {error}"))),
+            }
+        }
+    };
+
     let server_list = servers();
     let settings = app_settings();
     let current_volume = volume();
@@ -2116,6 +2176,46 @@ pub fn SettingsView() -> Element {
                                 }
                             }
                         }
+                    }
+                }
+            }
+
+            if cfg!(target_os = "ios") {
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-3", "iOS Audio Logs" }
+                    p { class: "text-sm text-zinc-400 mb-4",
+                        "Capture logs from this physical iPhone for lock-screen/control-center playback issues."
+                    }
+
+                    div { class: "flex flex-wrap items-center gap-3 mb-4",
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
+                            onclick: on_refresh_ios_logs,
+                            "Refresh Logs"
+                        }
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm",
+                            onclick: on_export_ios_logs,
+                            "Export .txt"
+                        }
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
+                            onclick: on_clear_ios_logs,
+                            "Clear Buffer"
+                        }
+                    }
+
+                    if let Some(status) = ios_log_status() {
+                        p { class: "text-xs text-zinc-500 mb-3", "{status}" }
+                    }
+
+                    textarea {
+                        class: "w-full min-h-[220px] px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs font-mono leading-relaxed focus:outline-none",
+                        readonly: true,
+                        value: ios_log_text(),
+                    }
+                    p { class: "text-xs text-zinc-500 mt-3",
+                        "After reproducing the issue, tap Refresh Logs, then Export .txt (or copy manually from the box)."
                     }
                 }
             }

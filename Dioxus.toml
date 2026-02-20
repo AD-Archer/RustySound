@@ -85,6 +85,7 @@ resources = [
     "assets/tailwind.css",
     "assets/styling/*",
     "assets/*.png",
+    "assets/*.svg",
     "assets/*.ico",
     "assets/*.icns",
     "assets/*.webmanifest",

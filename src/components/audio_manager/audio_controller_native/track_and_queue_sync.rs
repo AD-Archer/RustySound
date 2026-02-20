@@ -153,7 +153,9 @@
                     }
                 });
 
-                let should_reload = Some(url.clone()) != *last_src.peek();
+                let current_src = last_src.peek().clone();
+                let should_reload = Some(url.clone()) != current_src;
+                let same_song_as_before = previous_song_id.as_deref() == Some(song.id.as_str());
                 let metadata = song_metadata(&song, &servers_snapshot);
                 let known_duration = if song.duration > 0 {
                     song.duration as f64
@@ -165,7 +167,31 @@
                     target_start = target_start.min(known_duration);
                 }
 
-                if should_reload {
+                let retain_current_source = should_reload
+                    && current_src.is_some()
+                    && same_song_as_before
+                    && requested_seek.is_none();
+
+                if retain_current_source {
+                    // Keep the current AVPlayerItem for the active song. Switching from stream URL
+                    // to cached file URL mid-track can reset transport state and break lock-screen resume.
+                    ios_diag_log(
+                        "track.sync.command",
+                        &format!(
+                            "retain-source song_id={} old_prefix={} new_prefix={}",
+                            song.id,
+                            current_src
+                                .as_ref()
+                                .map(|value| value.chars().take(56).collect::<String>())
+                                .unwrap_or_default(),
+                            url.chars().take(56).collect::<String>()
+                        ),
+                    );
+                    native_audio_command(serde_json::json!({
+                        "type": "metadata",
+                        "meta": metadata,
+                    }));
+                } else if should_reload {
                     ios_diag_log(
                         "track.sync.command",
                         &format!(

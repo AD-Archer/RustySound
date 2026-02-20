@@ -34,11 +34,16 @@ unsafe extern "C" {
     static MPNowPlayingInfoPropertyElapsedPlaybackTime: *mut Object;
     static MPNowPlayingInfoPropertyPlaybackRate: *mut Object;
     static MPNowPlayingInfoPropertyDefaultPlaybackRate: *mut Object;
+    static MPNowPlayingInfoPropertyPlaybackQueueIndex: *mut Object;
+    static MPNowPlayingInfoPropertyPlaybackQueueCount: *mut Object;
+    static MPNowPlayingInfoPropertyIsLiveStream: *mut Object;
+    static MPNowPlayingInfoPropertyMediaType: *mut Object;
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 struct IosAudioPlayer {
     player: *mut Object,
+    now_playing_session: *mut Object,
     current_song_id: Option<String>,
     metadata: Option<NativeTrackMetadata>,
     ended_sent_for_song: Option<String>,
@@ -52,6 +57,8 @@ struct IosAudioPlayer {
     last_snapshot_ended: Option<bool>,
     last_snapshot_log_ms: u128,
     last_time_guard_code: u8,
+    last_progress_sample: Option<f64>,
+    near_end_stall_ticks: u8,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -64,6 +71,9 @@ impl Drop for IosAudioPlayer {
         unsafe {
             let _: () = msg_send![self.player, pause];
             let _: () = msg_send![self.player, release];
+            if !self.now_playing_session.is_null() {
+                let _: () = msg_send![self.now_playing_session, release];
+            }
         }
     }
 }
@@ -72,7 +82,6 @@ impl Drop for IosAudioPlayer {
 impl IosAudioPlayer {
     fn new() -> Option<Self> {
         configure_ios_audio_session();
-        configure_ios_remote_commands();
         let player = unsafe {
             let player_cls = class!(AVPlayer);
             let player_alloc: *mut Object = msg_send![player_cls, alloc];
@@ -85,9 +94,11 @@ impl IosAudioPlayer {
             }
             player
         };
+        configure_ios_remote_commands(player);
 
         Some(Self {
             player,
+            now_playing_session: get_ios_now_playing_session(),
             current_song_id: None,
             metadata: None,
             ended_sent_for_song: None,
@@ -101,6 +112,8 @@ impl IosAudioPlayer {
             last_snapshot_ended: None,
             last_snapshot_log_ms: 0,
             last_time_guard_code: u8::MAX,
+            last_progress_sample: None,
+            near_end_stall_ticks: 0,
         })
     }
 
@@ -123,7 +136,13 @@ impl IosAudioPlayer {
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0)
                     .max(0.0);
-                let volume = cmd.get("volume").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                let volume = cmd
+                    .get("volume")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or_else(|| unsafe {
+                        let current_volume: f32 = msg_send![self.player, volume];
+                        current_volume as f64
+                    });
                 let should_play = cmd.get("play").and_then(|v| v.as_bool()).unwrap_or(false);
                 let song_id = cmd
                     .get("song_id")
@@ -175,15 +194,22 @@ impl IosAudioPlayer {
                     .max(0.0);
                 self.pending_seek_target = Some(position);
                 self.pending_seek_ticks = 20;
+                self.last_progress_sample = Some(position.max(0.0));
+                self.near_end_stall_ticks = 0;
+                set_ios_remote_transport_state(should_play);
                 self.update_now_playing_info_cached(if should_play { 1.0 } else { 0.0 });
             }
             "play" => unsafe {
                 let _: () = msg_send![self.player, play];
+                self.near_end_stall_ticks = 0;
+                set_ios_remote_transport_state(true);
                 self.update_now_playing_info_cached(1.0);
                 ios_diag_log("player.transport", "play");
             },
             "pause" => unsafe {
                 let _: () = msg_send![self.player, pause];
+                self.near_end_stall_ticks = 0;
+                set_ios_remote_transport_state(false);
                 self.update_now_playing_info_cached(0.0);
                 ios_diag_log("player.transport", "pause");
             },
@@ -199,6 +225,8 @@ impl IosAudioPlayer {
                 self.last_known_elapsed = target;
                 self.pending_seek_target = Some(target);
                 self.pending_seek_ticks = 20;
+                self.last_progress_sample = Some(target.max(0.0));
+                self.near_end_stall_ticks = 0;
                 let rate: f32 = unsafe { msg_send![self.player, rate] };
                 self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
             }
@@ -252,6 +280,9 @@ impl IosAudioPlayer {
                 self.last_known_duration = 0.0;
                 self.pending_seek_target = None;
                 self.pending_seek_ticks = 0;
+                self.last_progress_sample = None;
+                self.near_end_stall_ticks = 0;
+                set_ios_remote_transport_state(false);
                 self.clear_cached_artwork();
                 observe_ios_item_end(ptr::null_mut());
                 clear_ios_now_playing_info();
@@ -284,7 +315,40 @@ impl IosAudioPlayer {
         } else {
             0.35
         };
-        let ended = duration > 0.0 && current_time >= (duration - end_tolerance).max(0.0) && paused;
+        let near_end_window = if duration > 0.0 {
+            (duration * 0.015).clamp(0.75, 3.0)
+        } else {
+            0.75
+        };
+        let near_end = duration > 0.0 && current_time >= (duration - near_end_window).max(0.0);
+        let stalled_near_end = if !paused && near_end {
+            let delta = self
+                .last_progress_sample
+                .map(|previous| (current_time - previous).abs())
+                .unwrap_or(f64::INFINITY);
+            if delta <= 0.01 {
+                self.near_end_stall_ticks = self.near_end_stall_ticks.saturating_add(1);
+            } else {
+                self.near_end_stall_ticks = 0;
+            }
+            if self.near_end_stall_ticks == 8 {
+                ios_diag_log(
+                    "player.ended",
+                    &format!(
+                        "forcing ended from near-end stall time={current_time:.3} duration={duration:.3}"
+                    ),
+                );
+            }
+            self.near_end_stall_ticks >= 8
+        } else {
+            self.near_end_stall_ticks = 0;
+            false
+        };
+        self.last_progress_sample = Some(current_time);
+
+        let ended = duration > 0.0
+            && current_time >= (duration - end_tolerance).max(0.0)
+            && (paused || stalled_near_end);
         let mut action = pop_ios_remote_action();
 
         if matches!(action.as_deref(), Some("ended")) {
@@ -341,9 +405,9 @@ impl IosAudioPlayer {
             self.last_snapshot_ended = Some(ended);
         }
 
-        // Keep lock-screen/command-center progress fresh while preserving
-        // monotonic time through transient AVPlayer glitches.
-        self.update_now_playing_info();
+        // Keep lock-screen/command-center progress in sync with the sampled
+        // player snapshot for this poll tick.
+        self.update_now_playing_info_from_snapshot(current_time, duration, paused);
 
         NativeAudioSnapshot {
             current_time,
@@ -498,21 +562,32 @@ impl IosAudioPlayer {
         );
     }
 
-    fn update_now_playing_info(&mut self) {
+    fn update_now_playing_info_from_snapshot(
+        &mut self,
+        elapsed: f64,
+        duration: f64,
+        paused: bool,
+    ) {
         let Some(meta) = self.metadata.clone() else {
             clear_ios_now_playing_info();
             return;
         };
 
-        let (elapsed, duration) = self.current_time_and_duration();
-        let paused = unsafe {
-            let rate: f32 = msg_send![self.player, rate];
-            rate <= 0.0
-        };
+        let mut bounded_elapsed = elapsed.max(0.0);
+        let mut bounded_duration = duration.max(0.0);
+        if !bounded_duration.is_finite() {
+            bounded_duration = 0.0;
+        }
+        if bounded_duration > 0.0 {
+            bounded_elapsed = bounded_elapsed.min(bounded_duration);
+            self.last_known_duration = bounded_duration;
+        }
+        self.last_known_elapsed = bounded_elapsed;
+
         set_ios_now_playing_info(
             &meta,
-            elapsed,
-            duration,
+            bounded_elapsed,
+            bounded_duration,
             if paused { 0.0 } else { 1.0 },
             self.now_playing_artwork,
         );

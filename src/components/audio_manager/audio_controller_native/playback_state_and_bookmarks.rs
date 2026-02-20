@@ -1,10 +1,19 @@
 // Native controller: apply play/pause/repeat/volume and pause-time bookmark persistence.
 {
+    let last_native_transport_play_state = use_signal(|| None::<bool>);
+
     // Handle play/pause state changes.
     {
         let is_playing = is_playing.clone();
+        let mut last_native_transport_play_state = last_native_transport_play_state.clone();
         use_effect(move || {
-            if is_playing() {
+            let playing = is_playing();
+            if *last_native_transport_play_state.peek() == Some(playing) {
+                return;
+            }
+            last_native_transport_play_state.set(Some(playing));
+
+            if playing {
                 native_audio_command(serde_json::json!({ "type": "play" }));
             } else {
                 native_audio_command(serde_json::json!({ "type": "pause" }));

@@ -8,6 +8,15 @@ static IOS_REMOTE_ACTIONS: Lazy<Mutex<VecDeque<String>>> =
 static IOS_REMOTE_INIT: Once = Once::new();
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 static IOS_REMOTE_OBSERVER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_REMOTE_CENTER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_NOW_PLAYING_CENTER: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_NOW_PLAYING_SESSION: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_LAST_REMOTE_NAV_ACTION: Lazy<Mutex<(String, u128)>> =
+    Lazy::new(|| Mutex::new((String::new(), 0)));
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn with_ios_player<R>(f: impl FnOnce(&mut IosAudioPlayer) -> R) -> Option<R> {
@@ -21,11 +30,36 @@ fn with_ios_player<R>(f: impl FnOnce(&mut IosAudioPlayer) -> R) -> Option<R> {
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn push_ios_remote_action(action: &str) {
     if let Ok(mut actions) = IOS_REMOTE_ACTIONS.lock() {
+        if matches!(action, "play" | "pause") {
+            // Only the latest transport intent matters; stale play/pause entries
+            // can force incorrect state once the app returns to foreground.
+            actions.retain(|entry| entry != "play" && entry != "pause");
+        } else if action.starts_with("seek:") {
+            // Keep only the freshest seek target.
+            actions.retain(|entry| !entry.starts_with("seek:"));
+        }
         actions.push_back(action.to_string());
         ios_diag_log(
             "remote.queue.push",
             &format!("action={action} queued={}", actions.len()),
         );
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn clear_ios_transport_intents(reason: &str) {
+    if let Ok(mut actions) = IOS_REMOTE_ACTIONS.lock() {
+        let before = actions.len();
+        actions.retain(|entry| {
+            !(entry == "play" || entry == "pause" || entry.starts_with("seek:"))
+        });
+        let after = actions.len();
+        if before != after {
+            ios_diag_log(
+                "remote.queue.clear",
+                &format!("reason={reason} removed={} remaining={after}", before - after),
+            );
+        }
     }
 }
 
@@ -61,6 +95,144 @@ fn get_ios_remote_observer() -> *mut Object {
         .ok()
         .map(|slot| *slot as *mut Object)
         .unwrap_or(ptr::null_mut())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_ios_remote_center(center: *mut Object) {
+    if let Ok(mut slot) = IOS_REMOTE_CENTER.lock() {
+        *slot = center as usize;
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn get_ios_remote_center() -> *mut Object {
+    let configured = IOS_REMOTE_CENTER
+        .lock()
+        .ok()
+        .map(|slot| *slot as *mut Object)
+        .unwrap_or(ptr::null_mut());
+    if !configured.is_null() {
+        return configured;
+    }
+    unsafe {
+        let center_cls = class!(MPRemoteCommandCenter);
+        let shared: *mut Object = msg_send![center_cls, sharedCommandCenter];
+        shared
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_ios_now_playing_center(center: *mut Object) {
+    if let Ok(mut slot) = IOS_NOW_PLAYING_CENTER.lock() {
+        *slot = center as usize;
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn get_ios_now_playing_center() -> *mut Object {
+    let configured = IOS_NOW_PLAYING_CENTER
+        .lock()
+        .ok()
+        .map(|slot| *slot as *mut Object)
+        .unwrap_or(ptr::null_mut());
+    if !configured.is_null() {
+        return configured;
+    }
+    unsafe {
+        let center_cls = class!(MPNowPlayingInfoCenter);
+        let shared: *mut Object = msg_send![center_cls, defaultCenter];
+        shared
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_ios_now_playing_session(session: *mut Object) {
+    if let Ok(mut slot) = IOS_NOW_PLAYING_SESSION.lock() {
+        *slot = session as usize;
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn get_ios_now_playing_session() -> *mut Object {
+    IOS_NOW_PLAYING_SESSION
+        .lock()
+        .ok()
+        .map(|slot| *slot as *mut Object)
+        .unwrap_or(ptr::null_mut())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn activate_ios_now_playing_session(reason: &str) {
+    let session = get_ios_now_playing_session();
+    if session.is_null() {
+        return;
+    }
+    unsafe {
+        let _: () = msg_send![
+            session,
+            becomeActiveIfPossibleWithCompletion: ptr::null_mut::<Object>()
+        ];
+    }
+    ios_diag_log("remote.session", &format!("become-active reason={reason}"));
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn should_ignore_duplicate_nav_action(action: &str) -> bool {
+    let now = ios_diag_now_ms();
+    let Ok(mut last) = IOS_LAST_REMOTE_NAV_ACTION.lock() else {
+        return false;
+    };
+    if last.0 == action && now.saturating_sub(last.1) < 650 {
+        ios_diag_log(
+            "remote.command",
+            &format!("ignored duplicate action={action} dt={}ms", now.saturating_sub(last.1)),
+        );
+        return true;
+    }
+    last.0 = action.to_string();
+    last.1 = now;
+    false
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+unsafe fn ios_log_remote_command_enabled_state(center: *mut Object, label: &str) {
+    if center.is_null() {
+        ios_diag_log("remote.state", &format!("{label}: center=null"));
+        return;
+    }
+    let play_cmd: *mut Object = msg_send![center, playCommand];
+    let pause_cmd: *mut Object = msg_send![center, pauseCommand];
+    let stop_cmd: *mut Object = msg_send![center, stopCommand];
+    let toggle_cmd: *mut Object = msg_send![center, togglePlayPauseCommand];
+    let next_cmd: *mut Object = msg_send![center, nextTrackCommand];
+    let prev_cmd: *mut Object = msg_send![center, previousTrackCommand];
+    let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
+    let seekf_cmd: *mut Object = msg_send![center, seekForwardCommand];
+    let seekb_cmd: *mut Object = msg_send![center, seekBackwardCommand];
+    let play_enabled: BOOL = msg_send![play_cmd, isEnabled];
+    let pause_enabled: BOOL = msg_send![pause_cmd, isEnabled];
+    let stop_enabled: BOOL = msg_send![stop_cmd, isEnabled];
+    let toggle_enabled: BOOL = msg_send![toggle_cmd, isEnabled];
+    let next_enabled: BOOL = msg_send![next_cmd, isEnabled];
+    let prev_enabled: BOOL = msg_send![prev_cmd, isEnabled];
+    let seek_enabled: BOOL = msg_send![seek_cmd, isEnabled];
+    let seekf_enabled: BOOL = msg_send![seekf_cmd, isEnabled];
+    let seekb_enabled: BOOL = msg_send![seekb_cmd, isEnabled];
+    ios_diag_log(
+        "remote.state",
+        &format!(
+            "{label}: play={} pause={} stop={} toggle={} next={} prev={} seek={} seekf={} seekb={}",
+            play_enabled == YES,
+            pause_enabled == YES,
+            stop_enabled == YES,
+            toggle_enabled == YES,
+            next_enabled == YES,
+            prev_enabled == YES,
+            seek_enabled == YES,
+            seekf_enabled == YES,
+            seekb_enabled == YES
+        ),
+    );
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -165,6 +337,28 @@ fn configure_ios_audio_session() {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_app_state_code() -> i64 {
+    unsafe {
+        let app_cls = class!(UIApplication);
+        let app: *mut Object = msg_send![app_cls, sharedApplication];
+        if app.is_null() {
+            return -1;
+        }
+        let state: isize = msg_send![app, applicationState];
+        state as i64
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_player_is_paused() -> bool {
+    with_ios_player(|player| unsafe {
+        let rate: f32 = msg_send![player.player, rate];
+        rate <= 0.0
+    })
+    .unwrap_or(true)
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn remote_handler_class() -> &'static objc::runtime::Class {
     static REGISTER: Once = Once::new();
     static mut CLASS_PTR: *const objc::runtime::Class = std::ptr::null();
@@ -183,12 +377,37 @@ fn remote_handler_class() -> &'static objc::runtime::Class {
             ios_handle_pause as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
         );
         decl.add_method(
+            sel!(handleTogglePlayPause:),
+            ios_handle_toggle_play_pause
+                as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleStop:),
+            ios_handle_stop as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
             sel!(handleNext:),
             ios_handle_next as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
         );
         decl.add_method(
             sel!(handlePrevious:),
             ios_handle_previous as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleSkipForward:),
+            ios_handle_skip_forward as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleSkipBackward:),
+            ios_handle_skip_backward as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleSeekForward:),
+            ios_handle_seek_forward as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
+        );
+        decl.add_method(
+            sel!(handleSeekBackward:),
+            ios_handle_seek_backward as extern "C" fn(&Object, objc::runtime::Sel, *mut Object) -> i64,
         );
         decl.add_method(
             sel!(handleSeek:),
@@ -224,26 +443,101 @@ fn remote_handler_class() -> &'static objc::runtime::Class {
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_play(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
-    ios_diag_log("remote.command", "play");
+    configure_ios_audio_session();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "play app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
     let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "play" })));
+    push_ios_remote_action("play");
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_pause(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
-    ios_diag_log("remote.command", "pause");
-    let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
+    configure_ios_audio_session();
+    let paused = ios_player_is_paused();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "pause app_state={} queued_actions={} paused={}",
+            ios_app_state_code(),
+            ios_remote_queue_len(),
+            paused
+        ),
+    );
+    if paused {
+        // Some iOS lock-screen routes can emit pause while UI shows play.
+        // Treat pause-while-paused as a toggle-to-play fallback.
+        ios_diag_log("remote.command", "pause-while-paused -> treating as play");
+        let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "play" })));
+        push_ios_remote_action("play");
+    } else {
+        let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
+        push_ios_remote_action("pause");
+    }
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
-    ios_diag_log("remote.command", "next");
-    if let Some(item) = ios_plan_take_transition("next") {
+extern "C" fn ios_handle_toggle_play_pause(
+    _: &Object,
+    _: objc::runtime::Sel,
+    _: *mut Object,
+) -> i64 {
+    configure_ios_audio_session();
+    let paused = ios_player_is_paused();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "toggle-play-pause app_state={} queued_actions={} paused={}",
+            ios_app_state_code(),
+            ios_remote_queue_len(),
+            paused
+        ),
+    );
+    if paused {
+        let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "play" })));
+        push_ios_remote_action("play");
+    } else {
+        let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
+        push_ios_remote_action("pause");
+    }
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_stop(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    configure_ios_audio_session();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "stop app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
+    let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
+    push_ios_remote_action("pause");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_apply_immediate_transition(
+    action: &str,
+    queue_action: &str,
+    clear_reason: &str,
+) -> bool {
+    if let Some(item) = ios_plan_take_transition(action) {
         if let Some(src) = item.src.clone() {
+            clear_ios_transport_intents(clear_reason);
             ios_diag_log(
                 "remote.immediate",
-                &format!("action=next song_id={}", item.song_id),
+                &format!("action={action} song_id={}", item.song_id),
             );
             let _ = with_ios_player(|player| {
                 player.apply(serde_json::json!({
@@ -256,47 +550,150 @@ extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object)
                 }));
                 player.apply(serde_json::json!({ "type": "play" }));
             });
-            return 0;
+            return true;
         }
     }
-    push_ios_remote_action("next");
+    push_ios_remote_action(queue_action);
+    false
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    configure_ios_audio_session();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "next app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
+    if should_ignore_duplicate_nav_action("next") {
+        return 0;
+    }
+    let _ = ios_apply_immediate_transition("next", "next", "next-immediate");
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_previous(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
-    ios_diag_log("remote.command", "previous");
-    if let Some(item) = ios_plan_take_transition("previous") {
-        if let Some(src) = item.src.clone() {
-            ios_diag_log(
-                "remote.immediate",
-                &format!("action=previous song_id={}", item.song_id),
-            );
-            let _ = with_ios_player(|player| {
-                player.apply(serde_json::json!({
-                    "type": "load",
-                    "src": src,
-                    "song_id": item.song_id,
-                    "position": 0.0,
-                    "play": true,
-                    "meta": item.meta,
-                }));
-                player.apply(serde_json::json!({ "type": "play" }));
-            });
-            return 0;
+    configure_ios_audio_session();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "previous app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
+    if should_ignore_duplicate_nav_action("previous") {
+        return 0;
+    }
+    let _ = ios_apply_immediate_transition("previous", "previous", "previous-immediate");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_skip_forward(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    configure_ios_audio_session();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "skip-forward app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
+    if should_ignore_duplicate_nav_action("next") {
+        return 0;
+    }
+    let _ = ios_apply_immediate_transition("next", "next", "skip-forward-immediate");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_skip_backward(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    configure_ios_audio_session();
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "skip-backward app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
+    if should_ignore_duplicate_nav_action("previous") {
+        return 0;
+    }
+    let _ = ios_apply_immediate_transition("previous", "previous", "skip-backward-immediate");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_seek_forward(_: &Object, _: objc::runtime::Sel, event: *mut Object) -> i64 {
+    configure_ios_audio_session();
+    unsafe {
+        let phase: i64 = if event.is_null() {
+            -1
+        } else {
+            let ty: isize = msg_send![event, type];
+            ty as i64
+        };
+        ios_diag_log(
+            "remote.command",
+            &format!(
+                "seek-forward app_state={} queued_actions={} phase={phase}",
+                ios_app_state_code(),
+                ios_remote_queue_len()
+            ),
+        );
+        if phase <= 0 && !should_ignore_duplicate_nav_action("next") {
+            let _ = ios_apply_immediate_transition("next", "next", "seek-forward-immediate");
         }
     }
-    push_ios_remote_action("previous");
+    0
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn ios_handle_seek_backward(_: &Object, _: objc::runtime::Sel, event: *mut Object) -> i64 {
+    configure_ios_audio_session();
+    unsafe {
+        let phase: i64 = if event.is_null() {
+            -1
+        } else {
+            let ty: isize = msg_send![event, type];
+            ty as i64
+        };
+        ios_diag_log(
+            "remote.command",
+            &format!(
+                "seek-backward app_state={} queued_actions={} phase={phase}",
+                ios_app_state_code(),
+                ios_remote_queue_len()
+            ),
+        );
+        if phase <= 0 && !should_ignore_duplicate_nav_action("previous") {
+            let _ = ios_apply_immediate_transition("previous", "previous", "seek-backward-immediate");
+        }
+    }
     0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_seek(_: &Object, _: objc::runtime::Sel, event: *mut Object) -> i64 {
+    configure_ios_audio_session();
     unsafe {
         if !event.is_null() {
             let position: f64 = msg_send![event, positionTime];
             let clamped = position.max(0.0);
-            ios_diag_log("remote.command", &format!("seek target={clamped:.3}"));
+            ios_diag_log(
+                "remote.command",
+                &format!(
+                    "seek target={clamped:.3} app_state={} queued_actions={}",
+                    ios_app_state_code(),
+                    ios_remote_queue_len()
+                ),
+            );
             let _ = with_ios_player(|player| {
                 player.apply(serde_json::json!({
                     "type": "seek",
@@ -311,9 +708,17 @@ extern "C" fn ios_handle_seek(_: &Object, _: objc::runtime::Sel, event: *mut Obj
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_ended(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
-    ios_diag_log("remote.command", "ended-notification");
+    ios_diag_log(
+        "remote.command",
+        &format!(
+            "ended-notification app_state={} queued_actions={}",
+            ios_app_state_code(),
+            ios_remote_queue_len()
+        ),
+    );
     if let Some(item) = ios_plan_take_transition("ended") {
         if let Some(src) = item.src.clone() {
+            clear_ios_transport_intents("ended-immediate");
             ios_diag_log(
                 "remote.immediate",
                 &format!("action=ended song_id={}", item.song_id),
@@ -368,7 +773,90 @@ extern "C" fn ios_handle_will_resign_active(_: &Object, _: objc::runtime::Sel, _
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn configure_ios_remote_commands() {
+unsafe fn register_ios_remote_targets_on_center(center: *mut Object, observer: *mut Object, label: &str) {
+    if center.is_null() {
+        ios_diag_log("remote.init", &format!("{label}: center is null"));
+        return;
+    }
+
+    let play_cmd: *mut Object = msg_send![center, playCommand];
+    let pause_cmd: *mut Object = msg_send![center, pauseCommand];
+    let stop_cmd: *mut Object = msg_send![center, stopCommand];
+    let toggle_play_pause_cmd: *mut Object = msg_send![center, togglePlayPauseCommand];
+    let next_cmd: *mut Object = msg_send![center, nextTrackCommand];
+    let previous_cmd: *mut Object = msg_send![center, previousTrackCommand];
+    let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
+    let seek_forward_cmd: *mut Object = msg_send![center, seekForwardCommand];
+    let seek_backward_cmd: *mut Object = msg_send![center, seekBackwardCommand];
+    let skip_forward_cmd: *mut Object = msg_send![center, skipForwardCommand];
+    let skip_backward_cmd: *mut Object = msg_send![center, skipBackwardCommand];
+
+    let _: () = msg_send![play_cmd, removeTarget: observer];
+    let _: () = msg_send![pause_cmd, removeTarget: observer];
+    let _: () = msg_send![stop_cmd, removeTarget: observer];
+    let _: () = msg_send![toggle_play_pause_cmd, removeTarget: observer];
+    let _: () = msg_send![next_cmd, removeTarget: observer];
+    let _: () = msg_send![previous_cmd, removeTarget: observer];
+    let _: () = msg_send![seek_cmd, removeTarget: observer];
+    let _: () = msg_send![seek_forward_cmd, removeTarget: observer];
+    let _: () = msg_send![seek_backward_cmd, removeTarget: observer];
+    let _: () = msg_send![skip_forward_cmd, removeTarget: observer];
+    let _: () = msg_send![skip_backward_cmd, removeTarget: observer];
+
+    let _: () = msg_send![play_cmd, addTarget: observer action: sel!(handlePlay:)];
+    let _: () = msg_send![pause_cmd, addTarget: observer action: sel!(handlePause:)];
+    let _: () = msg_send![stop_cmd, addTarget: observer action: sel!(handleStop:)];
+    let _: () = msg_send![
+        toggle_play_pause_cmd,
+        addTarget: observer
+        action: sel!(handleTogglePlayPause:)
+    ];
+    let _: () = msg_send![next_cmd, addTarget: observer action: sel!(handleNext:)];
+    let _: () = msg_send![previous_cmd, addTarget: observer action: sel!(handlePrevious:)];
+    let _: () = msg_send![
+        seek_forward_cmd,
+        addTarget: observer
+        action: sel!(handleSeekForward:)
+    ];
+    let _: () = msg_send![
+        seek_backward_cmd,
+        addTarget: observer
+        action: sel!(handleSeekBackward:)
+    ];
+    let _: () = msg_send![
+        skip_forward_cmd,
+        addTarget: observer
+        action: sel!(handleSkipForward:)
+    ];
+    let _: () = msg_send![
+        skip_backward_cmd,
+        addTarget: observer
+        action: sel!(handleSkipBackward:)
+    ];
+    let _: () = msg_send![seek_cmd, addTarget: observer action: sel!(handleSeek:)];
+
+    let _: () = msg_send![play_cmd, setEnabled: YES];
+    let _: () = msg_send![pause_cmd, setEnabled: YES];
+    let _: () = msg_send![stop_cmd, setEnabled: YES];
+    let _: () = msg_send![toggle_play_pause_cmd, setEnabled: YES];
+    let _: () = msg_send![next_cmd, setEnabled: YES];
+    let _: () = msg_send![previous_cmd, setEnabled: YES];
+    let _: () = msg_send![seek_cmd, setEnabled: YES];
+    let _: () = msg_send![seek_forward_cmd, setEnabled: YES];
+    let _: () = msg_send![seek_backward_cmd, setEnabled: YES];
+
+    // Use discrete track controls instead of interval skip controls so lock-screen
+    // buttons map to previous/next track rather than +/- seconds.
+    let no: BOOL = YES ^ YES;
+    let _: () = msg_send![skip_forward_cmd, setEnabled: no];
+    let _: () = msg_send![skip_backward_cmd, setEnabled: no];
+
+    ios_diag_log("remote.init", &format!("{label}: targets registered"));
+    ios_log_remote_command_enabled_state(center, &format!("{label}.post-register"));
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn configure_ios_remote_commands(player: *mut Object) {
     IOS_REMOTE_INIT.call_once(|| unsafe {
         let cls = remote_handler_class();
         let observer: *mut Object = msg_send![cls, new];
@@ -378,10 +866,52 @@ fn configure_ios_remote_commands() {
         }
         set_ios_remote_observer(observer);
 
-        let center_cls = class!(MPRemoteCommandCenter);
-        let center: *mut Object = msg_send![center_cls, sharedCommandCenter];
+        let mut center: *mut Object = ptr::null_mut();
+        let mut now_playing_center: *mut Object = ptr::null_mut();
+
+        if !player.is_null() {
+            if let Some(session_cls) = objc::runtime::Class::get("MPNowPlayingSession") {
+                let players_cls = class!(NSArray);
+                let players: *mut Object = msg_send![players_cls, arrayWithObject: player];
+                if !players.is_null() {
+                    let session_alloc: *mut Object = msg_send![session_cls, alloc];
+                    if !session_alloc.is_null() {
+                        let session: *mut Object = msg_send![session_alloc, initWithPlayers: players];
+                        if !session.is_null() {
+                            set_ios_now_playing_session(session);
+                            let no: BOOL = YES ^ YES;
+                            let _: () =
+                                msg_send![session, setAutomaticallyPublishesNowPlayingInfo: no];
+                            let _: () = msg_send![
+                                session,
+                                becomeActiveIfPossibleWithCompletion: ptr::null_mut::<Object>()
+                            ];
+                            center = msg_send![session, remoteCommandCenter];
+                            now_playing_center = msg_send![session, nowPlayingInfoCenter];
+                            ios_diag_log("remote.init", "using MPNowPlayingSession");
+                        }
+                    }
+                }
+            }
+        }
+
         if center.is_null() {
-            ios_diag_log("remote.init", "MPRemoteCommandCenter sharedCommandCenter is null");
+            let center_cls = class!(MPRemoteCommandCenter);
+            center = msg_send![center_cls, sharedCommandCenter];
+            set_ios_now_playing_session(ptr::null_mut());
+            ios_diag_log("remote.init", "using shared MPRemoteCommandCenter");
+        }
+
+        if now_playing_center.is_null() {
+            let now_playing_cls = class!(MPNowPlayingInfoCenter);
+            now_playing_center = msg_send![now_playing_cls, defaultCenter];
+        }
+
+        set_ios_remote_center(center);
+        set_ios_now_playing_center(now_playing_center);
+
+        if center.is_null() {
+            ios_diag_log("remote.init", "remote command center is null");
             return;
         }
 
@@ -394,29 +924,12 @@ fn configure_ios_remote_commands() {
             ios_diag_log("remote.init", "UIApplication sharedApplication is null");
         }
 
-        let play_cmd: *mut Object = msg_send![center, playCommand];
-        let pause_cmd: *mut Object = msg_send![center, pauseCommand];
-        let next_cmd: *mut Object = msg_send![center, nextTrackCommand];
-        let previous_cmd: *mut Object = msg_send![center, previousTrackCommand];
-        let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
-        let skip_forward_cmd: *mut Object = msg_send![center, skipForwardCommand];
-        let skip_backward_cmd: *mut Object = msg_send![center, skipBackwardCommand];
-
-        let _: () = msg_send![play_cmd, addTarget: observer action: sel!(handlePlay:)];
-        let _: () = msg_send![pause_cmd, addTarget: observer action: sel!(handlePause:)];
-        let _: () = msg_send![next_cmd, addTarget: observer action: sel!(handleNext:)];
-        let _: () = msg_send![previous_cmd, addTarget: observer action: sel!(handlePrevious:)];
-        let _: () = msg_send![seek_cmd, addTarget: observer action: sel!(handleSeek:)];
-
-        let _: () = msg_send![play_cmd, setEnabled: YES];
-        let _: () = msg_send![pause_cmd, setEnabled: YES];
-        let _: () = msg_send![next_cmd, setEnabled: YES];
-        let _: () = msg_send![previous_cmd, setEnabled: YES];
-        let _: () = msg_send![seek_cmd, setEnabled: YES];
-
-        let no: BOOL = false;
-        let _: () = msg_send![skip_forward_cmd, setEnabled: no];
-        let _: () = msg_send![skip_backward_cmd, setEnabled: no];
+        register_ios_remote_targets_on_center(center, observer, "primary-center");
+        let center_cls = class!(MPRemoteCommandCenter);
+        let shared_center: *mut Object = msg_send![center_cls, sharedCommandCenter];
+        if !shared_center.is_null() && shared_center != center {
+            register_ios_remote_targets_on_center(shared_center, observer, "shared-center");
+        }
 
         let notification_center_cls = class!(NSNotificationCenter);
         let notification_center: *mut Object =
@@ -462,6 +975,67 @@ fn configure_ios_remote_commands() {
 
         ios_diag_log("remote.init", "command center + lifecycle observers configured");
     });
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_ios_remote_transport_state(is_playing: bool) {
+    unsafe {
+        let center = get_ios_remote_center();
+        if center.is_null() {
+            return;
+        }
+
+        let play_cmd: *mut Object = msg_send![center, playCommand];
+        let pause_cmd: *mut Object = msg_send![center, pauseCommand];
+        let stop_cmd: *mut Object = msg_send![center, stopCommand];
+        let toggle_play_pause_cmd: *mut Object = msg_send![center, togglePlayPauseCommand];
+        let next_cmd: *mut Object = msg_send![center, nextTrackCommand];
+        let previous_cmd: *mut Object = msg_send![center, previousTrackCommand];
+        let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
+        let seek_forward_cmd: *mut Object = msg_send![center, seekForwardCommand];
+        let seek_backward_cmd: *mut Object = msg_send![center, seekBackwardCommand];
+
+        let yes: BOOL = YES;
+        let no: BOOL = YES ^ YES;
+        let play_enabled = if is_playing { no } else { yes };
+        let pause_enabled = if is_playing { yes } else { no };
+        // Match command availability to transport state; keep toggle enabled for
+        // headset routes that only emit a single media key action.
+        let _: () = msg_send![play_cmd, setEnabled: play_enabled];
+        let _: () = msg_send![pause_cmd, setEnabled: pause_enabled];
+        let _: () = msg_send![stop_cmd, setEnabled: pause_enabled];
+        let _: () = msg_send![toggle_play_pause_cmd, setEnabled: yes];
+        let _: () = msg_send![next_cmd, setEnabled: yes];
+        let _: () = msg_send![previous_cmd, setEnabled: yes];
+        let _: () = msg_send![seek_cmd, setEnabled: yes];
+        let _: () = msg_send![seek_forward_cmd, setEnabled: yes];
+        let _: () = msg_send![seek_backward_cmd, setEnabled: yes];
+        ios_log_remote_command_enabled_state(center, "transport-sync.post-set");
+        activate_ios_now_playing_session(if is_playing {
+            "transport-playing"
+        } else {
+            "transport-paused"
+        });
+        let (session_present, session_active, session_can_become_active) = {
+            let session = get_ios_now_playing_session();
+            if session.is_null() {
+                (false, false, false)
+            } else {
+                let active: BOOL = msg_send![session, isActive];
+                let can_become: BOOL = msg_send![session, canBecomeActive];
+                (true, active == YES, can_become == YES)
+            }
+        };
+        ios_diag_log(
+            "remote.transport",
+            &format!(
+                "state_sync playing={is_playing} play_enabled={} pause_enabled={} stop_enabled={} toggle+next+prev+seek+seekf+seekb=enabled session_present={session_present} session_active={session_active} can_become_active={session_can_become_active}",
+                play_enabled == yes,
+                pause_enabled == yes,
+                pause_enabled == yes
+            ),
+        );
+    }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -535,6 +1109,35 @@ fn set_now_playing_number(dict: *mut Object, key: *mut Object, value: f64) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_now_playing_usize(dict: *mut Object, key: *mut Object, value: usize) {
+    unsafe {
+        if key.is_null() {
+            return;
+        }
+        let number_cls = class!(NSNumber);
+        let value_obj: *mut Object = msg_send![number_cls, numberWithUnsignedLongLong: value as u64];
+        if !value_obj.is_null() {
+            let _: () = msg_send![dict, setObject: value_obj forKey: key];
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn set_now_playing_bool(dict: *mut Object, key: *mut Object, value: bool) {
+    unsafe {
+        if key.is_null() {
+            return;
+        }
+        let number_cls = class!(NSNumber);
+        let flag: BOOL = if value { YES } else { YES ^ YES };
+        let value_obj: *mut Object = msg_send![number_cls, numberWithBool: flag];
+        if !value_obj.is_null() {
+            let _: () = msg_send![dict, setObject: value_obj forKey: key];
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn make_now_playing_artwork(artwork_url: &str) -> Option<*mut Object> {
     unsafe {
         let url_str = ns_string(artwork_url)?;
@@ -581,8 +1184,7 @@ fn set_ios_now_playing_info(
     artwork_obj: *mut Object,
 ) {
     unsafe {
-        let center_cls = class!(MPNowPlayingInfoCenter);
-        let center: *mut Object = msg_send![center_cls, defaultCenter];
+        let center = get_ios_now_playing_center();
         if center.is_null() {
             return;
         }
@@ -610,11 +1212,23 @@ fn set_ios_now_playing_info(
         }
         set_now_playing_number(dict, MPNowPlayingInfoPropertyPlaybackRate, rate.max(0.0));
         set_now_playing_number(dict, MPNowPlayingInfoPropertyDefaultPlaybackRate, 1.0);
+        // Expose queue context so iOS can keep previous/next controls actionable.
+        if let Some((queue_index, queue_len)) = ios_plan_queue_stats() {
+            set_now_playing_usize(dict, MPNowPlayingInfoPropertyPlaybackQueueIndex, queue_index);
+            set_now_playing_usize(dict, MPNowPlayingInfoPropertyPlaybackQueueCount, queue_len);
+        }
+        // MPNowPlayingInfoMediaTypeAudio == 1.
+        set_now_playing_usize(dict, MPNowPlayingInfoPropertyMediaType, 1);
+        set_now_playing_bool(dict, MPNowPlayingInfoPropertyIsLiveStream, meta.is_live);
         if !artwork_obj.is_null() && !MPMediaItemPropertyArtwork.is_null() {
             let _: () = msg_send![dict, setObject: artwork_obj forKey: MPMediaItemPropertyArtwork];
         }
 
         let _: () = msg_send![center, setNowPlayingInfo: dict];
+        // Despite docs noting macOS focus, publishing playbackState on iOS improves
+        // lock-screen transport consistency on some routes/devices.
+        let playback_state: isize = if rate > 0.0 { 1 } else { 2 };
+        let _: () = msg_send![center, setPlaybackState: playback_state];
         let _: () = msg_send![dict, release];
     }
 }
@@ -622,12 +1236,13 @@ fn set_ios_now_playing_info(
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn clear_ios_now_playing_info() {
     unsafe {
-        let center_cls = class!(MPNowPlayingInfoCenter);
-        let center: *mut Object = msg_send![center_cls, defaultCenter];
+        let center = get_ios_now_playing_center();
         if center.is_null() {
             return;
         }
         let nil_info: *mut Object = ptr::null_mut();
         let _: () = msg_send![center, setNowPlayingInfo: nil_info];
+        let stopped_state: isize = 3;
+        let _: () = msg_send![center, setPlaybackState: stopped_state];
     }
 }
