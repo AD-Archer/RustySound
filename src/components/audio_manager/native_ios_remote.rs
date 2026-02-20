@@ -272,6 +272,18 @@ fn ns_string(value: &str) -> Option<*mut Object> {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+unsafe fn ns_string_to_rust(value: *mut Object) -> Option<String> {
+    if value.is_null() {
+        return None;
+    }
+    let utf8: *const c_char = msg_send![value, UTF8String];
+    if utf8.is_null() {
+        return None;
+    }
+    Some(CStr::from_ptr(utf8).to_string_lossy().into_owned())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn ios_file_path_from_url(src: &str) -> Option<String> {
     let raw = src.strip_prefix("file://")?;
     let normalized = if raw.starts_with('/') {

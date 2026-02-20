@@ -198,6 +198,7 @@ impl IosAudioPlayer {
                 self.near_end_stall_ticks = 0;
                 set_ios_remote_transport_state(should_play);
                 self.update_now_playing_info_cached(if should_play { 1.0 } else { 0.0 });
+                self.log_player_diagnostics("after-load", Some(position), None);
             }
             "play" => unsafe {
                 let _: () = msg_send![self.player, play];
@@ -205,6 +206,7 @@ impl IosAudioPlayer {
                 set_ios_remote_transport_state(true);
                 self.update_now_playing_info_cached(1.0);
                 ios_diag_log("player.transport", "play");
+                self.log_player_diagnostics("after-play", None, None);
             },
             "pause" => unsafe {
                 let _: () = msg_send![self.player, pause];
@@ -212,6 +214,7 @@ impl IosAudioPlayer {
                 set_ios_remote_transport_state(false);
                 self.update_now_playing_info_cached(0.0);
                 ios_diag_log("player.transport", "pause");
+                self.log_player_diagnostics("after-pause", None, None);
             },
             "seek" => {
                 let target = cmd
@@ -229,6 +232,7 @@ impl IosAudioPlayer {
                 self.near_end_stall_ticks = 0;
                 let rate: f32 = unsafe { msg_send![self.player, rate] };
                 self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+                self.log_player_diagnostics("after-seek", Some(target), None);
             }
             "volume" => {
                 let volume = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
@@ -287,6 +291,7 @@ impl IosAudioPlayer {
                 observe_ios_item_end(ptr::null_mut());
                 clear_ios_now_playing_info();
                 ios_diag_log("player.transport", "clear");
+                self.log_player_diagnostics("after-clear", Some(0.0), Some(0.0));
             }
             "loop" => {}
             _ => {}
@@ -297,6 +302,105 @@ impl IosAudioPlayer {
         unsafe {
             let time = CMTimeMakeWithSeconds(position.max(0.0), 1000);
             let _: () = msg_send![self.player, seekToTime: time];
+        }
+    }
+
+    fn time_control_status_name(status: i64) -> &'static str {
+        match status {
+            0 => "paused",
+            1 => "waiting",
+            2 => "playing",
+            _ => "unknown",
+        }
+    }
+
+    fn item_status_name(status: i64) -> &'static str {
+        match status {
+            0 => "unknown",
+            1 => "ready",
+            2 => "failed",
+            _ => "n/a",
+        }
+    }
+
+    fn log_player_diagnostics(
+        &self,
+        reason: &str,
+        sampled_time: Option<f64>,
+        sampled_duration: Option<f64>,
+    ) {
+        unsafe {
+            let rate: f32 = msg_send![self.player, rate];
+            let time_control_status_raw: isize = msg_send![self.player, timeControlStatus];
+            let time_control_status = time_control_status_raw as i64;
+            let waiting_reason_obj: *mut Object = msg_send![self.player, reasonForWaitingToPlay];
+            let waiting_reason = ns_string_to_rust(waiting_reason_obj)
+                .unwrap_or_else(|| "none".to_string())
+                .replace('\n', " ");
+
+            let current_item: *mut Object = msg_send![self.player, currentItem];
+            let mut elapsed = sampled_time.unwrap_or_else(|| {
+                let current: CMTime = msg_send![self.player, currentTime];
+                cmtime_seconds(current)
+            });
+            let mut duration = sampled_duration.unwrap_or(0.0);
+
+            let (
+                item_status,
+                playback_likely_to_keep_up,
+                playback_buffer_empty,
+                playback_buffer_full,
+                item_error,
+            ) = if current_item.is_null() {
+                (-1, false, false, false, "none".to_string())
+            } else {
+                let status_raw: isize = msg_send![current_item, status];
+                let likely_to_keep_up: BOOL = msg_send![current_item, isPlaybackLikelyToKeepUp];
+                let buffer_empty: BOOL = msg_send![current_item, isPlaybackBufferEmpty];
+                let buffer_full: BOOL = msg_send![current_item, isPlaybackBufferFull];
+                let error_obj: *mut Object = msg_send![current_item, error];
+                let error_text = if error_obj.is_null() {
+                    "none".to_string()
+                } else {
+                    let description: *mut Object = msg_send![error_obj, localizedDescription];
+                    ns_string_to_rust(description)
+                        .unwrap_or_else(|| "present".to_string())
+                        .replace('\n', " ")
+                };
+                if duration <= 0.0 {
+                    let item_duration: CMTime = msg_send![current_item, duration];
+                    duration = cmtime_seconds(item_duration);
+                }
+                (
+                    status_raw as i64,
+                    likely_to_keep_up == YES,
+                    buffer_empty == YES,
+                    buffer_full == YES,
+                    error_text,
+                )
+            };
+
+            if duration > 0.0 {
+                elapsed = elapsed.min(duration).max(0.0);
+            } else {
+                elapsed = elapsed.max(0.0);
+                duration = duration.max(0.0);
+            }
+
+            ios_diag_log(
+                "player.av",
+                &format!(
+                    "reason={reason} song_id={:?} rate={rate:.3} time_ctrl={time_control_status}({}) wait_reason={} item_status={item_status}({}) keep_up={} buffer_empty={} buffer_full={} error={} elapsed={elapsed:.3} duration={duration:.3}",
+                    self.current_song_id,
+                    Self::time_control_status_name(time_control_status),
+                    waiting_reason,
+                    Self::item_status_name(item_status),
+                    playback_likely_to_keep_up,
+                    playback_buffer_empty,
+                    playback_buffer_full,
+                    item_error
+                ),
+            );
         }
     }
 
@@ -400,6 +504,7 @@ impl IosAudioPlayer {
                     ios_remote_queue_len()
                 ),
             );
+            self.log_player_diagnostics("snapshot", Some(current_time), Some(duration));
             self.last_snapshot_log_ms = now_ms;
             self.last_snapshot_paused = Some(paused);
             self.last_snapshot_ended = Some(ended);
@@ -524,6 +629,7 @@ impl IosAudioPlayer {
                     self.last_known_elapsed
                 ),
             );
+            self.log_player_diagnostics("time-guard", Some(current_time), Some(duration));
         }
 
         if duration.is_finite() && duration > 0.0 {
@@ -534,24 +640,59 @@ impl IosAudioPlayer {
     }
 
     fn update_now_playing_info_cached(&mut self, rate: f64) {
-        let Some(meta) = self.metadata.clone() else {
-            clear_ios_now_playing_info();
-            return;
-        };
-
         let mut duration = self.last_known_duration;
-        if !(duration.is_finite() && duration > 0.0)
-            && meta.duration.is_finite()
-            && meta.duration > 0.0
-        {
-            duration = meta.duration;
+
+        // When app polling is throttled in background, `last_known_elapsed` can lag behind
+        // real AVPlayer time. Sample live timing here so lock-screen progress does not jump
+        // backwards (or to 0) on play/pause/metadata updates.
+        let live_elapsed = unsafe {
+            let current: CMTime = msg_send![self.player, currentTime];
+            cmtime_seconds(current)
+        };
+        let live_duration = unsafe {
+            let current_item: *mut Object = msg_send![self.player, currentItem];
+            if current_item.is_null() {
+                0.0
+            } else {
+                let item_duration: CMTime = msg_send![current_item, duration];
+                cmtime_seconds(item_duration)
+            }
+        };
+        if live_duration.is_finite() && live_duration > 0.0 {
+            duration = live_duration;
         }
 
         let mut elapsed = self.last_known_elapsed.max(0.0);
+        if live_elapsed.is_finite() && live_elapsed >= 0.0 {
+            let mut candidate = live_elapsed;
+            if duration.is_finite() && duration > 0.0 {
+                candidate = candidate.min(duration);
+            }
+            // Guard against transient AVPlayer rewinds while still accepting forward progress.
+            let backwards_glitch =
+                elapsed > 1.0 && candidate + 1.5 < elapsed && candidate <= 0.05;
+            if !backwards_glitch && (candidate > elapsed || elapsed <= 0.05) {
+                elapsed = candidate;
+            }
+        }
+
+        if !(duration.is_finite() && duration > 0.0) {
+            if let Some(meta) = self.metadata.as_ref() {
+                if meta.duration.is_finite() && meta.duration > 0.0 {
+                    duration = meta.duration;
+                }
+            }
+        }
+
         if duration.is_finite() && duration > 0.0 {
             elapsed = elapsed.min(duration);
             self.last_known_duration = duration;
         }
+        self.last_known_elapsed = elapsed.max(0.0);
+
+        let Some(meta) = self.metadata.clone() else {
+            return;
+        };
 
         set_ios_now_playing_info(
             &meta,

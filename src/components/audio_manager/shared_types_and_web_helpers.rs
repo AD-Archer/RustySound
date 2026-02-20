@@ -40,6 +40,10 @@ use std::cell::Cell;
 use std::cell::RefCell;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 use std::collections::VecDeque;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::ffi::CStr;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+use std::os::raw::c_char;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
 use std::collections::VecDeque;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
