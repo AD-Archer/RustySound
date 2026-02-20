@@ -19,13 +19,13 @@ use once_cell::sync::Lazy;
 use std::collections::{HashMap, HashSet};
 #[cfg(not(target_arch = "wasm32"))]
 use std::fs;
-#[cfg(not(target_arch = "wasm32"))]
-use std::path::PathBuf;
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(any(target_os = "macos", target_os = "linux"))
 ))]
 use std::path::Path;
+#[cfg(not(target_arch = "wasm32"))]
+use std::path::PathBuf;
 
 #[cfg(not(target_arch = "wasm32"))]
 static AUDIO_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);

@@ -156,7 +156,6 @@ pub struct IcyNowPlaying {
     pub raw_title: String,
 }
 
-
 include!("auth_native_and_stream.rs");
 include!("library_browsing.rs");
 include!("bookmarks_favorites_and_playlists.rs");
@@ -439,6 +438,5 @@ fn urlencoding_simple(s: &str) -> String {
     }
     result
 }
-
 
 include!("response_models.rs");

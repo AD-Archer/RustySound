@@ -2,6 +2,11 @@ use crate::api::ServerConfig;
 use crate::components::{AppView, Icon, Navigation, SongDetailsController};
 use dioxus::prelude::*;
 
+#[cfg(feature = "desktop")]
+const SIDEBAR_LOGO: &str = "/assets/favicon.svg";
+#[cfg(not(feature = "desktop"))]
+const SIDEBAR_LOGO: Asset = asset!("/assets/favicon.svg");
+
 #[component]
 pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -46,7 +51,7 @@ pub fn Sidebar(sidebar_open: Signal<bool>, overlay_mode: bool) -> Element {
                 div { class: "flex items-center gap-3",
                     div { class: "w-10 h-10 rounded-xl bg-zinc-800/50 flex items-center justify-center shadow-lg overflow-hidden",
                         img {
-                            src: "/assets/favicon.svg",
+                            src: SIDEBAR_LOGO,
                             alt: "RustySound Logo",
                             class: "w-8 h-8 object-contain",
                         }

@@ -12,9 +12,29 @@ mod offline_audio;
 use components::AppView;
 
 #[cfg(feature = "desktop")]
-const FAVICON: &str = "/assets/favicon.ico";
+const FAVICON_ICO: &str = "/assets/favicon.ico";
 #[cfg(not(feature = "desktop"))]
-const FAVICON: Asset = asset!("/assets/favicon.ico");
+const FAVICON_ICO: Asset = asset!("/assets/favicon.ico");
+
+#[cfg(feature = "desktop")]
+const FAVICON_SVG: &str = "/assets/favicon.svg";
+#[cfg(not(feature = "desktop"))]
+const FAVICON_SVG: Asset = asset!("/assets/favicon.svg");
+
+#[cfg(feature = "desktop")]
+const FAVICON_PNG_96: &str = "/assets/favicon-96x96.png";
+#[cfg(not(feature = "desktop"))]
+const FAVICON_PNG_96: Asset = asset!("/assets/favicon-96x96.png");
+
+#[cfg(feature = "desktop")]
+const APP_ICON_192: &str = "/assets/web-app-manifest-192x192.png";
+#[cfg(not(feature = "desktop"))]
+const APP_ICON_192: Asset = asset!("/assets/web-app-manifest-192x192.png");
+
+#[cfg(feature = "desktop")]
+const APP_ICON_512: &str = "/assets/web-app-manifest-512x512.png";
+#[cfg(not(feature = "desktop"))]
+const APP_ICON_512: Asset = asset!("/assets/web-app-manifest-512x512.png");
 
 #[cfg(feature = "desktop")]
 const APPLE_TOUCH_ICON: &str = "/assets/apple-touch-icon.png";
@@ -37,15 +57,53 @@ const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
 #[cfg(feature = "desktop")]
 const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
-#[cfg(all(feature = "desktop", target_os = "windows"))]
-fn windows_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
-    use dioxus::desktop::tao::dpi::PhysicalSize;
-    use dioxus::desktop::tao::platform::windows::IconExtWindows;
+#[cfg(feature = "desktop")]
+fn desktop_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
     use dioxus::desktop::tao::window::Icon;
+    use std::io::Cursor;
 
-    let icon_path = std::env::temp_dir().join("rustysound-window-icon.ico");
-    std::fs::write(&icon_path, include_bytes!("../assets/favicon.ico")).ok()?;
-    Icon::from_path(icon_path, Some(PhysicalSize::new(256, 256))).ok()
+    let mut decoder = png::Decoder::new(Cursor::new(include_bytes!(
+        "../assets/web-app-manifest-512x512.png"
+    )));
+    decoder.set_transformations(png::Transformations::normalize_to_color8());
+
+    let mut reader = decoder.read_info().ok()?;
+    let mut buffer = vec![0; reader.output_buffer_size()];
+    let info = reader.next_frame(&mut buffer).ok()?;
+    let bytes = &buffer[..info.buffer_size()];
+
+    let rgba = match info.color_type {
+        png::ColorType::Rgba => bytes.to_vec(),
+        png::ColorType::Rgb => {
+            let mut rgba = Vec::with_capacity((bytes.len() / 3) * 4);
+            for rgb in bytes.chunks_exact(3) {
+                rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], 255]);
+            }
+            rgba
+        }
+        png::ColorType::Grayscale => {
+            let mut rgba = Vec::with_capacity(bytes.len() * 4);
+            for &gray in bytes {
+                rgba.extend_from_slice(&[gray, gray, gray, 255]);
+            }
+            rgba
+        }
+        png::ColorType::GrayscaleAlpha => {
+            let mut rgba = Vec::with_capacity(bytes.len() * 2);
+            for gray_alpha in bytes.chunks_exact(2) {
+                rgba.extend_from_slice(&[
+                    gray_alpha[0],
+                    gray_alpha[0],
+                    gray_alpha[0],
+                    gray_alpha[1],
+                ]);
+            }
+            rgba
+        }
+        png::ColorType::Indexed => return None,
+    };
+
+    Icon::from_rgba(rgba, info.width, info.height).ok()
 }
 
 fn main() {
@@ -62,13 +120,13 @@ fn main() {
         }
 
         let mut window = WindowBuilder::new().with_title("RustySound");
-        #[cfg(target_os = "windows")]
-        {
-            use dioxus::desktop::tao::platform::windows::WindowBuilderExtWindows;
-            if let Some(icon) = windows_app_icon() {
-                window = window
-                    .with_window_icon(Some(icon.clone()))
-                    .with_taskbar_icon(Some(icon));
+        if let Some(icon) = desktop_app_icon() {
+            window = window.with_window_icon(Some(icon.clone()));
+
+            #[cfg(target_os = "windows")]
+            {
+                use dioxus::desktop::tao::platform::windows::WindowBuilderExtWindows;
+                window = window.with_taskbar_icon(Some(icon));
             }
         }
 
@@ -116,7 +174,9 @@ fn main() {
             );
         }
 
-        dioxus::LaunchBuilder::desktop().with_cfg(config).launch(App);
+        dioxus::LaunchBuilder::desktop()
+            .with_cfg(config)
+            .launch(App);
         return;
     }
 
@@ -129,7 +189,10 @@ fn App() -> Element {
     rsx! {
         document::Title { "RustySound" }
         // Favicon and icons
-        document::Link { rel: "icon", href: FAVICON }
+        document::Link { rel: "icon", r#type: "image/svg+xml", href: FAVICON_SVG }
+        document::Link { rel: "shortcut icon", href: FAVICON_ICO }
+        document::Link { rel: "icon", r#type: "image/x-icon", href: FAVICON_ICO }
+        document::Link { rel: "icon", r#type: "image/png", sizes: "96x96", href: FAVICON_PNG_96 }
         document::Link { rel: "apple-touch-icon-precomposed", href: APPLE_TOUCH_ICON }
         document::Link {
             rel: "apple-touch-icon",
@@ -151,13 +214,13 @@ fn App() -> Element {
             rel: "icon",
             r#type: "image/png",
             sizes: "192x192",
-            href: FAVICON,
+            href: APP_ICON_192,
         }
         document::Link {
             rel: "icon",
             r#type: "image/png",
             sizes: "512x512",
-            href: FAVICON,
+            href: APP_ICON_512,
         }
 
         // Web app manifest

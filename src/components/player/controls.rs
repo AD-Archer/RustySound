@@ -1,8 +1,6 @@
 use crate::api::*;
 use crate::components::audio_manager::spawn_shuffle_queue;
-use crate::components::{
-    seek_to, AddIntent, AddMenuController, Icon, PlaybackPositionSignal,
-};
+use crate::components::{seek_to, AddIntent, AddMenuController, Icon, PlaybackPositionSignal};
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
 
