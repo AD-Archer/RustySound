@@ -11,11 +11,11 @@ mod offline_audio;
 
 use components::AppView;
 
-const FAVICON: Asset = asset!("/assets/favicon.ico");
-const APPLE_TOUCH_ICON: Asset = asset!("/assets/apple-touch-icon.png");
-const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
-const APP_CSS: Asset = asset!("/assets/styling/app.css");
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+const FAVICON: &str = "/assets/favicon.ico";
+const APPLE_TOUCH_ICON: &str = "/assets/apple-touch-icon.png";
+const WEB_MANIFEST: &str = "/assets/site.webmanifest";
+const APP_CSS: &str = "/assets/styling/app.css";
+const TAILWIND_CSS: &str = "/assets/tailwind.css";
 
 #[cfg(all(feature = "desktop", target_os = "windows"))]
 fn windows_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {

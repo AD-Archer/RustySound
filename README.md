@@ -28,9 +28,9 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 
 ## Desktop 
 
-- **macOS**: DMG installer 
-- **Windows**: MSI installer and portable EXE (not actively mantained.)
-- **Linux**: AppImage bundle (currently disabled)
+- **macOS**: DMG installer and Homebrew
+- **Windows**: NSIS installer and scoop.
+- **Linux**: Flatpak
 
 ## Mobile
 
@@ -100,6 +100,29 @@ scoop update rustysound
 Note: Antivirus may flag this installer since this exe is not verified by windows.
 
 Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization secrets are not configured in CI. For public distribution without warnings, a paid Apple Developer signing + notarization flow is required.
+
+### Linux
+
+#### Flatpak (Recommended)
+
+```bash
+flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/linux-packages/repo
+flatpak install --user adarcher-rustysound app.adarcher.rustysound
+flatpak run app.adarcher.rustysound
+```
+
+To update:
+
+```bash
+flatpak update --user app.adarcher.rustysound
+```
+
+To remove:
+
+```bash
+flatpak uninstall --user app.adarcher.rustysound
+flatpak remote-delete --user adarcher-rustysound
+```
 
 ### Web
 

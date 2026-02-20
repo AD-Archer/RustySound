@@ -1,0 +1,50 @@
+name: Packaging Dispatch
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Dispatch packaging update events
+        env:
+          DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
+          AUR_REPO: ${{ vars.AUR_REPO }}
+          FLATPAK_REPO: ${{ vars.FLATPAK_REPO }}
+          NIX_REPO: ${{ vars.NIX_REPO }}
+          VERSION: ${{ github.event.release.tag_name }}
+          SOURCE_REPO: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          if [[ -z "${DISPATCH_TOKEN}" ]]; then
+            echo "CROSS_REPO_DISPATCH_TOKEN is not set; skipping."
+            exit 0
+          fi
+
+          payload="{\"event_type\":\"rustysound-release\",\"client_payload\":{\"version\":\"${VERSION}\",\"source_repo\":\"${SOURCE_REPO}\",\"source_sha\":\"${SOURCE_SHA}\"}}"
+
+          dispatch_repo() {
+            local repo="$1"
+            local name="$2"
+            if [[ -z "${repo}" ]]; then
+              echo "${name} repo not configured; skipping."
+              return 0
+            fi
+            echo "Dispatching to ${name}: ${repo}"
+            curl --fail-with-body -X POST \
+              -H "Accept: application/vnd.github+json" \
+              -H "Authorization: Bearer ${DISPATCH_TOKEN}" \
+              "https://api.github.com/repos/${repo}/dispatches" \
+              -d "${payload}"
+          }
+
+          dispatch_repo "${AUR_REPO}" "AUR"
+          dispatch_repo "${FLATPAK_REPO}" "Flatpak"
+          dispatch_repo "${NIX_REPO}" "Nix"

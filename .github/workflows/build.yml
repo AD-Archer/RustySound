@@ -23,10 +23,32 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.version.outputs.tag }}
+      semver: ${{ steps.version.outputs.semver }}
+    steps:
+    - name: Resolve release version
+      id: version
+      run: |
+        if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+          TAG="${GITHUB_REF_NAME}"
+        else
+          TAG="v0.1.${{ github.run_number }}"
+        fi
+        SEMVER="${TAG#v}"
+        echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+        echo "semver=${SEMVER}" >> "$GITHUB_OUTPUT"
+        echo "Resolved version tag: ${TAG}"
+
   web-docker:
+    needs: version
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Sync Cargo.toml version to release version
+      run: sed -i -E '0,/^version = ".*"/{s/^version = ".*"/version = "${{ needs.version.outputs.semver }}"/}' Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - run: cargo install dioxus-cli --version 0.7.3
@@ -63,12 +85,15 @@ jobs:
         labels: ${{ steps.meta.outputs.labels }}
 
   web-pages:
+    needs: version
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
     - uses: actions/checkout@v4
+    - name: Sync Cargo.toml version to release version
+      run: sed -i -E '0,/^version = ".*"/{s/^version = ".*"/version = "${{ needs.version.outputs.semver }}"/}' Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - run: cargo install dioxus-cli --version 0.7.3
@@ -90,9 +115,12 @@ jobs:
       uses: actions/deploy-pages@v4
 
   apple-bundles:
+    needs: version
     runs-on: macos-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Sync Cargo.toml version to release version
+      run: sed -i '' -E '0,/^version = ".*"/{s/^version = ".*"/version = "${{ needs.version.outputs.semver }}"/}' Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - run: cargo install dioxus-cli --version 0.7.3
@@ -216,9 +244,13 @@ jobs:
         path: artifacts/*
 
   windows-bundles:
+    needs: version
     runs-on: windows-latest
     steps:
     - uses: actions/checkout@v4
+    - name: Sync Cargo.toml version to release version
+      shell: bash
+      run: sed -i -E '0,/^version = ".*"/{s/^version = ".*"/version = "${{ needs.version.outputs.semver }}"/}' Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
@@ -235,7 +267,7 @@ jobs:
           dist/windows/*.exe
 
   release:
-    needs: [web-docker, web-pages, apple-bundles, windows-bundles]
+    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
@@ -245,17 +277,11 @@ jobs:
         path: artifacts/
     - name: List artifacts
       run: find artifacts -type f
-    - name: Generate version tag
-      id: version
-      run: |
-        VERSION="v0.1.${{ github.run_number }}"
-        echo "tag=$VERSION" >> $GITHUB_OUTPUT
-        echo "Generated version: $VERSION"
     - name: Create Release
       uses: softprops/action-gh-release@v1
       with:
-        tag_name: ${{ steps.version.outputs.tag }}
-        name: Release ${{ steps.version.outputs.tag }}
+        tag_name: ${{ needs.version.outputs.tag }}
+        name: Release ${{ needs.version.outputs.tag }}
         generate_release_notes: true
         draft: false
         prerelease: false
@@ -268,7 +294,7 @@ jobs:
     - name: Dispatch tap and scoop updates
       env:
         DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
-        VERSION: ${{ steps.version.outputs.tag }}
+        VERSION: ${{ needs.version.outputs.tag }}
       run: |
         if [[ -z "${DISPATCH_TOKEN}" ]]; then
           echo "CROSS_REPO_DISPATCH_TOKEN is not set, skipping tap/scoop dispatch."

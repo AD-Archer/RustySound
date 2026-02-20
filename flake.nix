@@ -16,8 +16,11 @@
       system:
       let
         pkgs = import nixpkgs { inherit system; };
+        rustysoundPkg = pkgs.callPackage ./packaging/nix/default.nix { };
       in
       {
+        packages.rustysound = rustysoundPkg;
+        packages.default = rustysoundPkg;
         devShells.default = pkgs.mkShell {
           packages = with pkgs; [
             rustup
