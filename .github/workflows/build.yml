@@ -290,8 +290,61 @@ jobs:
         path: |
           dist/windows/*.exe
 
+  android-bundles:
+    needs: version
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+    - name: Sync Cargo.toml version to release version
+      run: |
+        awk -v v='${{ needs.version.outputs.semver }}' '
+          BEGIN { done=0 }
+          !done && $0 ~ /^version = ".*"/ { print "version = \"" v "\""; done=1; next }
+          { print }
+        ' Cargo.toml > Cargo.toml.tmp
+        mv Cargo.toml.tmp Cargo.toml
+    - uses: dtolnay/rust-toolchain@stable
+    - name: Add Android Rust targets
+      run: |
+        rustup target add aarch64-linux-android
+        rustup target add x86_64-linux-android
+    - uses: actions/setup-java@v4
+      with:
+        distribution: temurin
+        java-version: '17'
+    - uses: android-actions/setup-android@v3
+    - name: Install Android SDK components
+      run: |
+        yes | sdkmanager --licenses >/dev/null
+        sdkmanager \
+          "platform-tools" \
+          "platforms;android-33" \
+          "platforms;android-34" \
+          "build-tools;33.0.2" \
+          "build-tools;34.0.0" \
+          "ndk;26.3.11579264" \
+          "cmake;3.22.1"
+    - uses: Swatinem/rust-cache@v2
+    - name: Install Dioxus CLI
+      run: cargo install dioxus-cli --version 0.7.3
+    - name: Build Android release bundle
+      run: |
+        export ANDROID_AAPT2_FROM_MAVEN_OVERRIDE="$ANDROID_HOME/build-tools/34.0.0/aapt2"
+        export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$ANDROID_AAPT2_FROM_MAVEN_OVERRIDE ${GRADLE_OPTS:-}"
+        dx bundle --platform android --release
+    - name: Collect Android artifacts
+      run: |
+        mkdir -p artifacts
+        find target -type f \( -name "*.apk" -o -name "*.aab" \) -print -exec cp {} artifacts/ \;
+        ls -lah artifacts/
+    - name: Upload Android bundle artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: android-bundles
+        path: artifacts/*
+
   release:
-    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles]
+    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-bundles]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
@@ -313,6 +366,8 @@ jobs:
           artifacts/**/*.dmg
           artifacts/**/*.ipa
           artifacts/**/*.exe
+          artifacts/**/*.apk
+          artifacts/**/*.aab
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Dispatch package updates

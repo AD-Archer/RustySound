@@ -35,7 +35,9 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 ## Mobile
 
 - **iOS**: unsigned .ipa 
-- **Android**: apk (currently disabled)
+- **Android**: APK release artifact
+
+> Android status: Android builds are published and kept feature-aligned, but Android is not under active day-to-day development and may contain platform-specific bugs.
 
 
 # Installation
@@ -45,6 +47,13 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 ### IOS
 1. Download the latest `.ipa` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Sign the IPA, Personally I sign the ipa using [Live Container](https://github.com/LiveContainer/LiveContainer) which I installed using [Altstore/Altserver](https://altstore.io/)
+
+### Android
+1. Download the latest `.apk` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
+2. Enable installation from unknown sources on your device
+3. Install the APK and launch RustySound
+
+Note: Android release artifacts are currently unsigned for Play Store distribution. Use your own signing key for production store publishing.
 
 ### macOS
 
@@ -190,6 +199,7 @@ dx serve
 just              # list recipes
 just serve        # dx serve
 just serve-ios    # iOS simulator dev (safe linker env)
+just serve-android # Android dev (auto-create/start emulator)
 just bundle       # macOS + iOS + unsigned IPA
 just check        # cargo check
 ```
@@ -224,6 +234,14 @@ dx serve --platform ios
 dx serve --platform android
 ```
 
+For NixOS convenience (auto create/start emulator + boot wait):
+
+```bash
+just serve-android
+# alias:
+just serve-andoird
+```
+
 ### Building for Production
 
 #### Desktop Bundles
@@ -241,6 +259,8 @@ dx bundle --platform ios --release
 # Android
 dx bundle --platform android --release
 ```
+
+CI/CD also builds Android release artifacts (`.apk`/`.aab`) and attaches them to GitHub Releases.
 
 #### Apple Bundles (.app + unsigned .ipa)
 
