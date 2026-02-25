@@ -13,8 +13,22 @@ const HOME_SECTION_CACHE_COUNT: usize = HOME_SECTION_BASE_COUNT + HOME_SECTION_L
 const HOME_SECTION_FETCH_LIMIT: usize = 30;
 const HOME_RANDOM_FETCH_LIMIT: usize = HOME_SECTION_FETCH_LIMIT;
 const HOME_ALBUM_PREVIEW_LIMIT: u32 = HOME_SECTION_BASE_COUNT as u32;
+const HOME_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
+#[cfg(any(target_arch = "wasm32", target_os = "ios", target_os = "android"))]
+const HOME_WARMUP_DEFAULT_ENABLED: bool = false;
+#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
+const HOME_WARMUP_DEFAULT_ENABLED: bool = true;
 #[cfg(not(target_arch = "wasm32"))]
 const HOME_LYRICS_PREFETCH_LIMIT: usize = 4;
+
+fn home_warmup_cache_key(active_servers: &[ServerConfig]) -> String {
+    let mut ids: Vec<String> = active_servers
+        .iter()
+        .map(|server| server.id.clone())
+        .collect();
+    ids.sort();
+    format!("view:home:warmup:v1:{}", ids.join("|"))
+}
 
 async fn fetch_albums_for_servers(
     active_servers: &[ServerConfig],
@@ -341,6 +355,7 @@ pub fn HomeView() -> Element {
     let most_played_songs = use_signal(|| None::<Vec<Song>>);
     let random_songs = use_signal(|| None::<Vec<Song>>);
     let quick_picks = use_signal(|| None::<Vec<Song>>);
+    let home_warmup_enabled = use_signal(|| HOME_WARMUP_DEFAULT_ENABLED);
     let load_generation = use_signal(|| 0u64);
     let mut most_played_album_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
     let mut most_played_song_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
@@ -349,6 +364,26 @@ pub fn HomeView() -> Element {
 
     {
         let servers = servers.clone();
+        let mut home_warmup_enabled = home_warmup_enabled.clone();
+        use_effect(move || {
+            let active_servers: Vec<ServerConfig> = servers()
+                .into_iter()
+                .filter(|server| server.active)
+                .collect();
+            if active_servers.is_empty() {
+                home_warmup_enabled.set(false);
+                return;
+            }
+
+            let cache_key = home_warmup_cache_key(&active_servers);
+            let enabled = cache_get_json::<bool>(&cache_key).unwrap_or(HOME_WARMUP_DEFAULT_ENABLED);
+            home_warmup_enabled.set(enabled);
+        });
+    }
+
+    {
+        let servers = servers.clone();
+        let home_warmup_enabled = home_warmup_enabled.clone();
         let mut recent_albums = recent_albums.clone();
         let mut most_played_albums = most_played_albums.clone();
         let mut recently_played_songs = recently_played_songs.clone();
@@ -358,6 +393,7 @@ pub fn HomeView() -> Element {
         let mut load_generation = load_generation.clone();
 
         use_effect(move || {
+            let warmup_enabled = home_warmup_enabled();
             let active_servers: Vec<ServerConfig> =
                 servers().into_iter().filter(|s| s.active).collect();
             let mut cache_server_ids: Vec<String> = active_servers
@@ -390,6 +426,10 @@ pub fn HomeView() -> Element {
                 most_played_songs.set(Some(Vec::new()));
                 random_songs.set(Some(Vec::new()));
                 quick_picks.set(Some(Vec::new()));
+                return;
+            }
+
+            if !warmup_enabled {
                 return;
             }
 
@@ -613,6 +653,24 @@ pub fn HomeView() -> Element {
     }
 
     let has_servers = servers().iter().any(|s| s.active);
+    let warmup_enabled = home_warmup_enabled();
+    let on_force_home_warmup = {
+        let servers = servers.clone();
+        let mut home_warmup_enabled = home_warmup_enabled.clone();
+        move |_| {
+            let active_servers: Vec<ServerConfig> = servers()
+                .into_iter()
+                .filter(|server| server.active)
+                .collect();
+            if active_servers.is_empty() {
+                return;
+            }
+
+            let cache_key = home_warmup_cache_key(&active_servers);
+            let _ = cache_put_json(cache_key, &true, Some(HOME_WARMUP_FLAG_CACHE_HOURS));
+            home_warmup_enabled.set(true);
+        }
+    };
 
     rsx! {
         div { class: "space-y-8 max-w-none",
@@ -719,8 +777,34 @@ pub fn HomeView() -> Element {
                     }
                 }
 
-                // Recently added albums
-                section { class: "mb-8",
+                if !warmup_enabled {
+                    section { class: "rounded-2xl border border-zinc-700/60 bg-zinc-900/50 p-5 space-y-4",
+                        div { class: "flex items-start justify-between gap-3",
+                            div { class: "space-y-1",
+                                h2 { class: "text-lg font-semibold text-white", "Warm Up Home Feed" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Home recommendations are paused to reduce initial load on mobile/web builds."
+                                }
+                            }
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-5 h-5 text-emerald-400 flex-shrink-0".to_string(),
+                            }
+                        }
+                        div { class: "flex flex-wrap items-center gap-2",
+                            button {
+                                class: "px-4 py-2 rounded-lg bg-emerald-500/90 hover:bg-emerald-400 text-white text-sm font-medium transition-colors",
+                                onclick: on_force_home_warmup,
+                                "Force Load Home"
+                            }
+                            p { class: "text-xs text-zinc-500",
+                                "This stores a warm-up flag in cache so future opens load the full feed."
+                            }
+                        }
+                    }
+                } else {
+                    // Recently added albums
+                    section { class: "mb-8",
                     div { class: "flex items-center justify-between mb-4",
                         h2 { class: "text-xl font-semibold text-white", "Recently Added" }
                         button {
@@ -1035,8 +1119,8 @@ pub fn HomeView() -> Element {
                     }
                 }
 
-                // Quick picks (mixed: most played + similar + random)
-                section {
+                    // Quick picks (mixed: most played + similar + random)
+                    section {
                     div { class: "flex items-center justify-between mb-4",
                         h2 { class: "text-xl font-semibold text-white", "Quick Picks" }
                         button {
@@ -1081,6 +1165,7 @@ pub fn HomeView() -> Element {
                             },
                         }
                     }
+                }
                 }
             }
         }

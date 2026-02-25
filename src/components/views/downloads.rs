@@ -85,6 +85,77 @@ enum DownloadsTab {
     Playlists,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum DownloadSongSort {
+    Newest,
+    Title,
+    Artist,
+    Album,
+    Size,
+}
+
+const DOWNLOADS_POLL_IDLE_MS: u64 = 5000;
+const DOWNLOADS_POLL_ACTIVE_MS: u64 = 1400;
+const DOWNLOADS_SONG_PAGE_SIZE: usize = 80;
+const DOWNLOADS_COLLECTION_PAGE_SIZE: usize = 60;
+
+fn download_song_sort_key(sort: DownloadSongSort) -> &'static str {
+    match sort {
+        DownloadSongSort::Newest => "newest",
+        DownloadSongSort::Title => "title",
+        DownloadSongSort::Artist => "artist",
+        DownloadSongSort::Album => "album",
+        DownloadSongSort::Size => "size",
+    }
+}
+
+fn parse_download_song_sort(value: &str) -> DownloadSongSort {
+    match value {
+        "title" => DownloadSongSort::Title,
+        "artist" => DownloadSongSort::Artist,
+        "album" => DownloadSongSort::Album,
+        "size" => DownloadSongSort::Size,
+        _ => DownloadSongSort::Newest,
+    }
+}
+
+fn normalize_download_field(value: &Option<String>) -> String {
+    value
+        .as_ref()
+        .map(|item| item.trim().to_ascii_lowercase())
+        .unwrap_or_default()
+}
+
+fn to_download_song(entry: &DownloadIndexEntry, servers: &[ServerConfig]) -> Song {
+    let server_name = servers
+        .iter()
+        .find(|server| server.id == entry.server_id)
+        .map(|server| server.name.clone())
+        .or_else(|| {
+            entry
+                .server_name
+                .clone()
+                .filter(|name| !name.trim().is_empty())
+        })
+        .unwrap_or_else(|| "Offline".to_string());
+
+    Song {
+        id: entry.song_id.clone(),
+        title: entry.title.clone(),
+        album: entry.album.clone(),
+        album_id: entry.album_id.clone(),
+        artist: entry.artist.clone(),
+        cover_art: entry
+            .cover_art_id
+            .clone()
+            .or_else(|| entry.album_id.clone()),
+        duration: 0,
+        server_id: entry.server_id.clone(),
+        server_name,
+        ..Song::default()
+    }
+}
+
 #[component]
 pub fn DownloadsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -100,16 +171,42 @@ pub fn DownloadsView() -> Element {
     let mut search_query = use_signal(String::new);
     let mut active_tab = use_signal(|| DownloadsTab::Songs);
     let selected_song_keys = use_signal(HashSet::<String>::new);
+    let mut song_sort = use_signal(|| DownloadSongSort::Newest);
+    let mut song_visible_limit = use_signal(|| DOWNLOADS_SONG_PAGE_SIZE);
+    let mut album_visible_limit = use_signal(|| DOWNLOADS_COLLECTION_PAGE_SIZE);
+    let mut playlist_visible_limit = use_signal(|| DOWNLOADS_COLLECTION_PAGE_SIZE);
 
     {
         let mut refresh_nonce = refresh_nonce.clone();
         use_effect(move || {
             spawn(async move {
                 loop {
-                    download_poll_delay_ms(1200).await;
+                    let wait_ms = if list_active_downloads().is_empty() {
+                        DOWNLOADS_POLL_IDLE_MS
+                    } else {
+                        DOWNLOADS_POLL_ACTIVE_MS
+                    };
+                    download_poll_delay_ms(wait_ms).await;
                     refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
                 }
             });
+        });
+    }
+
+    {
+        let active_tab = active_tab.clone();
+        let search_query = search_query.clone();
+        let song_sort = song_sort.clone();
+        let mut song_visible_limit = song_visible_limit.clone();
+        let mut album_visible_limit = album_visible_limit.clone();
+        let mut playlist_visible_limit = playlist_visible_limit.clone();
+        use_effect(move || {
+            let _ = active_tab();
+            let _ = search_query();
+            let _ = song_sort();
+            song_visible_limit.set(DOWNLOADS_SONG_PAGE_SIZE);
+            album_visible_limit.set(DOWNLOADS_COLLECTION_PAGE_SIZE);
+            playlist_visible_limit.set(DOWNLOADS_COLLECTION_PAGE_SIZE);
         });
     }
 
@@ -119,9 +216,11 @@ pub fn DownloadsView() -> Element {
     let native_downloads_supported = true;
 
     let _refresh = refresh_nonce();
+    let servers_snapshot = servers();
     let settings = app_settings();
     let stats = download_stats();
-    let all_entries = list_downloaded_entries();
+    let mut all_entries = list_downloaded_entries();
+    all_entries.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
     let active_downloads: Vec<ActiveDownloadEntry> = list_active_downloads();
     let collections = list_downloaded_collections();
     let downloaded_playlists: Vec<DownloadCollectionEntry> = collections
@@ -162,30 +261,89 @@ pub fn DownloadsView() -> Element {
     );
 
     let query = search_query().trim().to_ascii_lowercase();
-    let entries: Vec<DownloadIndexEntry> = if query.is_empty() {
+    let mut entries: Vec<DownloadIndexEntry> = if query.is_empty() {
         all_entries.clone()
     } else {
         all_entries
             .into_iter()
             .filter(|entry| {
                 let title = entry.title.to_ascii_lowercase();
-                let artist = entry
-                    .artist
-                    .as_ref()
-                    .map(|value| value.to_ascii_lowercase())
-                    .unwrap_or_default();
-                let album = entry
-                    .album
-                    .as_ref()
-                    .map(|value| value.to_ascii_lowercase())
-                    .unwrap_or_default();
+                let artist = normalize_download_field(&entry.artist);
+                let album = normalize_download_field(&entry.album);
                 title.contains(&query) || artist.contains(&query) || album.contains(&query)
             })
             .collect()
     };
+    match song_sort() {
+        DownloadSongSort::Newest => {
+            entries.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+        }
+        DownloadSongSort::Title => {
+            entries.sort_by(|left, right| {
+                left.title
+                    .to_ascii_lowercase()
+                    .cmp(&right.title.to_ascii_lowercase())
+            });
+        }
+        DownloadSongSort::Artist => {
+            entries.sort_by(|left, right| {
+                normalize_download_field(&left.artist).cmp(&normalize_download_field(&right.artist))
+            });
+        }
+        DownloadSongSort::Album => {
+            entries.sort_by(|left, right| {
+                normalize_download_field(&left.album).cmp(&normalize_download_field(&right.album))
+            });
+        }
+        DownloadSongSort::Size => {
+            entries.sort_by(|left, right| right.size_bytes.cmp(&left.size_bytes));
+        }
+    }
+
+    let visible_song_count = song_visible_limit().min(entries.len());
+    let visible_song_entries: Vec<DownloadIndexEntry> =
+        entries.iter().take(visible_song_count).cloned().collect();
+    let has_more_song_entries = entries.len() > visible_song_count;
+
+    let mut filtered_albums: Vec<DownloadCollectionEntry> = if query.is_empty() {
+        downloaded_albums.clone()
+    } else {
+        downloaded_albums
+            .iter()
+            .filter(|album| album.name.to_ascii_lowercase().contains(&query))
+            .cloned()
+            .collect()
+    };
+    filtered_albums.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+    let visible_album_count = album_visible_limit().min(filtered_albums.len());
+    let visible_albums: Vec<DownloadCollectionEntry> = filtered_albums
+        .iter()
+        .take(visible_album_count)
+        .cloned()
+        .collect();
+    let has_more_albums = filtered_albums.len() > visible_album_count;
+
+    let mut filtered_playlists: Vec<DownloadCollectionEntry> = if query.is_empty() {
+        downloaded_playlists.clone()
+    } else {
+        downloaded_playlists
+            .iter()
+            .filter(|playlist| playlist.name.to_ascii_lowercase().contains(&query))
+            .cloned()
+            .collect()
+    };
+    filtered_playlists.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+    let visible_playlist_count = playlist_visible_limit().min(filtered_playlists.len());
+    let visible_playlists: Vec<DownloadCollectionEntry> = filtered_playlists
+        .iter()
+        .take(visible_playlist_count)
+        .cloned()
+        .collect();
+    let has_more_playlists = filtered_playlists.len() > visible_playlist_count;
+
     let selected_visible_song_count = {
         let selected = selected_song_keys();
-        entries
+        visible_song_entries
             .iter()
             .filter(|entry| selected.contains(&download_song_key(&entry.server_id, &entry.song_id)))
             .count()
@@ -247,19 +405,19 @@ pub fn DownloadsView() -> Element {
 
     let on_toggle_select_all_visible = {
         let mut selected_song_keys = selected_song_keys.clone();
-        let entries = entries.clone();
+        let visible_song_entries = visible_song_entries.clone();
         move |_| {
             let mut selected = selected_song_keys();
-            let all_visible_selected = !entries.is_empty()
-                && entries.iter().all(|entry| {
+            let all_visible_selected = !visible_song_entries.is_empty()
+                && visible_song_entries.iter().all(|entry| {
                     selected.contains(&download_song_key(&entry.server_id, &entry.song_id))
                 });
             if all_visible_selected {
-                for entry in &entries {
+                for entry in &visible_song_entries {
                     selected.remove(&download_song_key(&entry.server_id, &entry.song_id));
                 }
             } else {
-                for entry in &entries {
+                for entry in &visible_song_entries {
                     selected.insert(download_song_key(&entry.server_id, &entry.song_id));
                 }
             }
@@ -295,6 +453,55 @@ pub fn DownloadsView() -> Element {
             selected_song_keys.set(HashSet::new());
             action_status.set(Some(format!("Removed {removed} selected download(s).")));
             refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+        }
+    };
+
+    let on_play_top_result = {
+        let entries = entries.clone();
+        let servers_snapshot = servers_snapshot.clone();
+        let mut now_playing = now_playing.clone();
+        let mut queue = queue.clone();
+        let mut queue_index = queue_index.clone();
+        let mut is_playing = is_playing.clone();
+        move |_| {
+            let Some(first) = entries.first() else {
+                return;
+            };
+            let song = to_download_song(first, &servers_snapshot);
+            queue.set(vec![song.clone()]);
+            queue_index.set(0);
+            now_playing.set(Some(song));
+            is_playing.set(true);
+        }
+    };
+
+    let on_queue_visible_results = {
+        let visible_song_entries = visible_song_entries.clone();
+        let servers_snapshot = servers_snapshot.clone();
+        let mut queue = queue.clone();
+        let mut queue_index = queue_index.clone();
+        let mut now_playing = now_playing.clone();
+        move |_| {
+            if visible_song_entries.is_empty() {
+                return;
+            }
+
+            let mut appended: Vec<Song> = visible_song_entries
+                .iter()
+                .map(|entry| to_download_song(entry, &servers_snapshot))
+                .collect();
+            if appended.is_empty() {
+                return;
+            }
+
+            let mut current_queue = queue();
+            let was_empty = current_queue.is_empty();
+            current_queue.append(&mut appended);
+            queue.set(current_queue.clone());
+            if was_empty {
+                queue_index.set(0);
+                now_playing.set(current_queue.first().cloned());
+            }
         }
     };
 
@@ -558,9 +765,9 @@ pub fn DownloadsView() -> Element {
                         if active_tab() == DownloadsTab::Songs {
                             "{entries.len()} songs"
                         } else if active_tab() == DownloadsTab::Albums {
-                            "{downloaded_albums.len()} albums"
+                            "{filtered_albums.len()} albums"
                         } else {
-                            "{downloaded_playlists.len()} playlists"
+                            "{filtered_playlists.len()} playlists"
                         }
                     }
                 }
@@ -595,19 +802,53 @@ pub fn DownloadsView() -> Element {
                     }
                 }
 
+                input {
+                    class: "w-full max-w-md px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800 text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50",
+                    placeholder: if active_tab() == DownloadsTab::Songs {
+                        "Search downloaded songs"
+                    } else if active_tab() == DownloadsTab::Albums {
+                        "Search downloaded albums"
+                    } else {
+                        "Search downloaded playlists"
+                    },
+                    value: search_query,
+                    oninput: move |evt| search_query.set(evt.value()),
+                }
+
                 if active_tab() == DownloadsTab::Songs {
-                    input {
-                        class: "w-full max-w-md px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800 text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50",
-                        placeholder: "Search downloaded songs",
-                        value: search_query,
-                        oninput: move |evt| search_query.set(evt.value()),
+                    div { class: "flex flex-wrap items-center gap-2",
+                        select {
+                            class: "px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500/50",
+                            value: download_song_sort_key(song_sort()),
+                            oninput: move |evt| {
+                                song_sort.set(parse_download_song_sort(&evt.value()));
+                            },
+                            option { value: "newest", "Sort: Recently downloaded" }
+                            option { value: "title", "Sort: Title" }
+                            option { value: "artist", "Sort: Artist" }
+                            option { value: "album", "Sort: Album" }
+                            option { value: "size", "Sort: Size" }
+                        }
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
+                            onclick: on_play_top_result,
+                            disabled: entries.is_empty(),
+                            "Play Top Result"
+                        }
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                            onclick: on_queue_visible_results,
+                            disabled: visible_song_entries.is_empty(),
+                            "Queue Visible"
+                        }
                     }
+
                     if !entries.is_empty() {
                         div { class: "flex flex-wrap items-center gap-2",
                             button {
                                 class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
                                 onclick: on_toggle_select_all_visible,
-                                if selected_visible_song_count == entries.len() {
+                                if selected_visible_song_count == visible_song_entries.len() {
                                     "Unselect Visible"
                                 } else {
                                     "Select Visible"
@@ -631,8 +872,11 @@ pub fn DownloadsView() -> Element {
                     if entries.is_empty() {
                         div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded songs yet." }
                     } else {
+                        p { class: "text-xs text-zinc-500",
+                            "Showing {visible_song_entries.len()} of {entries.len()} matching songs."
+                        }
                         div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
-                            for entry in entries {
+                            for entry in visible_song_entries.iter().cloned() {
                                 {
                                     let selection_key =
                                         download_song_key(&entry.server_id, &entry.song_id);
@@ -649,7 +893,7 @@ pub fn DownloadsView() -> Element {
                                                 .cloned()
                                         });
                                     let cover_url = cover_id.as_ref().and_then(|cover| {
-                                        servers()
+                                        servers_snapshot
                                             .iter()
                                             .find(|server| server.id == entry.server_id)
                                             .map(|server| {
@@ -729,25 +973,9 @@ pub fn DownloadsView() -> Element {
                                                     class: "w-full px-2 py-1 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
                                                     onclick: {
                                                         let entry = entry.clone();
-                                                        let servers = servers();
+                                                        let servers_snapshot = servers_snapshot.clone();
                                                         move |_| {
-                                                            let server_name = servers
-                                                                .iter()
-                                                                .find(|server| server.id == entry.server_id)
-                                                                .map(|server| server.name.clone())
-                                                                .unwrap_or_else(|| "Offline".to_string());
-                                                            let song = Song {
-                                                                id: entry.song_id.clone(),
-                                                                title: entry.title.clone(),
-                                                                album: entry.album.clone(),
-                                                                album_id: entry.album_id.clone(),
-                                                                artist: entry.artist.clone(),
-                                                                cover_art: entry.cover_art_id.clone().or_else(|| entry.album_id.clone()),
-                                                                duration: 0,
-                                                                server_id: entry.server_id.clone(),
-                                                                server_name,
-                                                                ..Song::default()
-                                                            };
+                                                            let song = to_download_song(&entry, &servers_snapshot);
                                                             queue.set(vec![song.clone()]);
                                                             queue_index.set(0);
                                                             now_playing.set(Some(song));
@@ -760,32 +988,16 @@ pub fn DownloadsView() -> Element {
                                                     class: "w-full px-2 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
                                                     onclick: {
                                                         let entry = entry.clone();
-                                                        let servers = servers();
+                                                        let servers_snapshot = servers_snapshot.clone();
                                                         let mut queue = queue.clone();
                                                         let mut queue_index = queue_index.clone();
                                                         let mut now_playing = now_playing.clone();
                                                         move |_| {
-                                                            let server_name = servers
-                                                                .iter()
-                                                                .find(|server| server.id == entry.server_id)
-                                                                .map(|server| server.name.clone())
-                                                                .unwrap_or_else(|| "Offline".to_string());
-                                                            let song = Song {
-                                                                id: entry.song_id.clone(),
-                                                                title: entry.title.clone(),
-                                                                album: entry.album.clone(),
-                                                                album_id: entry.album_id.clone(),
-                                                                artist: entry.artist.clone(),
-                                                                cover_art: entry.cover_art_id.clone().or_else(|| entry.album_id.clone()),
-                                                                duration: 0,
-                                                                server_id: entry.server_id.clone(),
-                                                                server_name,
-                                                                ..Song::default()
-                                                            };
-                                                            let mut entries = queue();
-                                                            let was_empty = entries.is_empty();
-                                                            entries.push(song.clone());
-                                                            queue.set(entries);
+                                                            let song = to_download_song(&entry, &servers_snapshot);
+                                                            let mut queue_entries = queue();
+                                                            let was_empty = queue_entries.is_empty();
+                                                            queue_entries.push(song.clone());
+                                                            queue.set(queue_entries);
                                                             if was_empty {
                                                                 queue_index.set(0);
                                                                 now_playing.set(Some(song));
@@ -823,13 +1035,28 @@ pub fn DownloadsView() -> Element {
                                 }
                             }
                         }
+                        if has_more_song_entries {
+                            button {
+                                class: "mt-3 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                                onclick: move |_| {
+                                    song_visible_limit.with_mut(|count| {
+                                        *count = count.saturating_add(DOWNLOADS_SONG_PAGE_SIZE);
+                                    });
+                                },
+                                "Load {DOWNLOADS_SONG_PAGE_SIZE} More Songs"
+                            }
+                        } else {
+                            p { class: "mt-3 text-xs text-zinc-500",
+                                "Showing all {entries.len()} matching songs."
+                            }
+                        }
                     }
                 } else if active_tab() == DownloadsTab::Albums {
-                    if downloaded_albums.is_empty() {
+                    if filtered_albums.is_empty() {
                         div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded albums yet." }
                     } else {
                         div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
-                            for album in downloaded_albums {
+                            for album in visible_albums {
                                 {
                                     let cover_id = album_cover_ids
                                         .get(&(album.server_id.clone(), album.collection_id.clone()))
@@ -842,7 +1069,7 @@ pub fn DownloadsView() -> Element {
                                             }
                                         });
                                     let cover_url = cover_id.as_ref().and_then(|cover_id| {
-                                        servers()
+                                        servers_snapshot
                                             .iter()
                                             .find(|server| server.id == album.server_id)
                                             .map(|server| {
@@ -916,13 +1143,28 @@ pub fn DownloadsView() -> Element {
                                 }
                             }
                         }
+                        if has_more_albums {
+                            button {
+                                class: "mt-3 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                                onclick: move |_| {
+                                    album_visible_limit.with_mut(|count| {
+                                        *count = count.saturating_add(DOWNLOADS_COLLECTION_PAGE_SIZE);
+                                    });
+                                },
+                                "Load {DOWNLOADS_COLLECTION_PAGE_SIZE} More Albums"
+                            }
+                        } else {
+                            p { class: "mt-3 text-xs text-zinc-500",
+                                "Showing all {filtered_albums.len()} matching albums."
+                            }
+                        }
                     }
                 } else {
-                    if downloaded_playlists.is_empty() {
+                    if filtered_playlists.is_empty() {
                         div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded playlists yet." }
                     } else {
                         div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
-                            for playlist in downloaded_playlists {
+                            for playlist in visible_playlists {
                                 div {
                                     key: "playlist:{playlist.server_id}:{playlist.collection_id}",
                                     class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
@@ -968,6 +1210,21 @@ pub fn DownloadsView() -> Element {
                                         }
                                     }
                                 }
+                            }
+                        }
+                        if has_more_playlists {
+                            button {
+                                class: "mt-3 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
+                                onclick: move |_| {
+                                    playlist_visible_limit.with_mut(|count| {
+                                        *count = count.saturating_add(DOWNLOADS_COLLECTION_PAGE_SIZE);
+                                    });
+                                },
+                                "Load {DOWNLOADS_COLLECTION_PAGE_SIZE} More Playlists"
+                            }
+                        } else {
+                            p { class: "mt-3 text-xs text-zinc-500",
+                                "Showing all {filtered_playlists.len()} matching playlists."
                             }
                         }
                     }
