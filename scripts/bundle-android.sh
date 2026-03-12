@@ -9,8 +9,8 @@ dx bundle --platform android --release "$@"
 
 echo "Collecting Android release artifacts..."
 mapfile -d '' RELEASE_ARTIFACTS < <(
-    find target -type f \
-        \( -name "*release*.apk" -o -name "*release*.aab" \) \
+    find target/dx -path "*/release/android/*" -type f \
+        \( -name "*.apk" -o -name "*.aab" \) \
         -print0
 )
 
