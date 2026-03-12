@@ -1422,9 +1422,10 @@ pub fn SettingsView() -> Element {
             let lines = ios_audio_log_snapshot(1000);
             if lines.is_empty() {
                 ios_log_text.set(String::new());
-                ios_log_status
-                    .set(Some("No iOS audio logs captured yet. Reproduce the issue, then refresh."
-                        .to_string()));
+                ios_log_status.set(Some(
+                    "No iOS audio logs captured yet. Reproduce the issue, then refresh."
+                        .to_string(),
+                ));
             } else {
                 ios_log_text.set(lines.join("\n"));
                 ios_log_status.set(Some(format!("Loaded {} log lines.", lines.len())));
@@ -1627,7 +1628,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Auto-save bookmarks" }
-                            p { class: "text-sm text-zinc-400", "Automatically save playback position while listening and when switching songs." }
+                            p { class: "text-sm text-zinc-400",
+                                "Automatically save playback position while listening and when switching songs."
+                            }
                         }
                         button {
                             class: if settings.bookmark_auto_save { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -1639,7 +1642,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Resume bookmark on launch" }
-                            p { class: "text-sm text-zinc-400", "Automatically queue and play your latest bookmark when the app starts." }
+                            p { class: "text-sm text-zinc-400",
+                                "Automatically queue and play your latest bookmark when the app starts."
+                            }
                         }
                         button {
                             class: if settings.bookmark_autoplay_on_launch { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -1685,7 +1690,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Enable cache" }
-                            p { class: "text-sm text-zinc-400", "Store song/artist/playlist/favorites metadata and lyrics locally." }
+                            p { class: "text-sm text-zinc-400",
+                                "Store song/artist/playlist/favorites metadata and lyrics locally."
+                            }
                         }
                         button {
                             class: if settings.cache_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -1697,7 +1704,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Cache album artwork" }
-                            p { class: "text-sm text-zinc-400", "Cache image responses for faster repeat views and fewer artwork requests." }
+                            p { class: "text-sm text-zinc-400",
+                                "Cache image responses for faster repeat views and fewer artwork requests."
+                            }
                         }
                         button {
                             class: if settings.cache_images_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -1759,14 +1768,12 @@ pub fn SettingsView() -> Element {
                         div { class: "flex items-center justify-between gap-3",
                             div {
                                 p { class: "font-medium text-white", "Smart Cache Warm-up" }
-                                p { class: "text-sm text-zinc-400", "Prefetch albums, songs, playlists, lyrics, and queue artwork with request throttling." }
+                                p { class: "text-sm text-zinc-400",
+                                    "Prefetch albums, songs, playlists, lyrics, and queue artwork with request throttling."
+                                }
                             }
                             button {
-                                class: if smart_cache_busy() {
-                                    "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-400 cursor-not-allowed text-sm"
-                                } else {
-                                    "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm"
-                                },
+                                class: if smart_cache_busy() { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-400 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm" },
                                 disabled: smart_cache_busy(),
                                 onclick: on_smart_cache,
                                 if smart_cache_busy() {
@@ -1820,7 +1827,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Enable downloads" }
-                            p { class: "text-sm text-zinc-400", "Allow manual and automatic audio downloads." }
+                            p { class: "text-sm text-zinc-400",
+                                "Allow manual and automatic audio downloads."
+                            }
                         }
                         button {
                             class: if settings.downloads_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -1832,7 +1841,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Auto downloads" }
-                            p { class: "text-sm text-zinc-400", "Fetch favorite songs and recent albums/playlists automatically." }
+                            p { class: "text-sm text-zinc-400",
+                                "Fetch favorite songs and recent albums/playlists automatically."
+                            }
                         }
                         button {
                             class: if settings.auto_downloads_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -1843,7 +1854,9 @@ pub fn SettingsView() -> Element {
 
                     div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
                         div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2", "Favorite tier" }
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Favorite tier"
+                            }
                             select {
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
                                 value: settings.auto_download_tier.to_string(),
@@ -1857,7 +1870,9 @@ pub fn SettingsView() -> Element {
                             }
                         }
                         div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2", "Artwork source preference" }
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Artwork source preference"
+                            }
                             select {
                                 class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
                                 value: artwork_pref_key(settings.artwork_download_preference),
@@ -1875,7 +1890,9 @@ pub fn SettingsView() -> Element {
 
                     div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
                         div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2", "Auto albums" }
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Auto albums"
+                            }
                             input {
                                 r#type: "number",
                                 min: "0",
@@ -1886,7 +1903,9 @@ pub fn SettingsView() -> Element {
                             }
                         }
                         div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2", "Auto playlists" }
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Auto playlists"
+                            }
                             input {
                                 r#type: "number",
                                 min: "0",
@@ -1900,7 +1919,9 @@ pub fn SettingsView() -> Element {
 
                     div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
                         div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2", "Download limit (songs)" }
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Download limit (songs)"
+                            }
                             input {
                                 r#type: "number",
                                 min: "25",
@@ -1911,7 +1932,9 @@ pub fn SettingsView() -> Element {
                             }
                         }
                         div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2", "Download limit (MB)" }
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Download limit (MB)"
+                            }
                             input {
                                 r#type: "number",
                                 min: "256",
@@ -1935,11 +1958,7 @@ pub fn SettingsView() -> Element {
 
                     div { class: "flex flex-wrap items-center gap-3",
                         button {
-                            class: if download_actions_busy {
-                                "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm"
-                            } else {
-                                "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm"
-                            },
+                            class: if download_actions_busy { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm" },
                             disabled: download_actions_busy,
                             onclick: on_run_auto_download,
                             if auto_download_busy() {
@@ -1949,11 +1968,7 @@ pub fn SettingsView() -> Element {
                             }
                         }
                         button {
-                            class: if download_actions_busy {
-                                "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm"
-                            } else {
-                                "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm"
-                            },
+                            class: if download_actions_busy { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm" },
                             disabled: download_actions_busy,
                             onclick: on_refresh_download_cache,
                             if download_cache_refresh_busy() {
@@ -1989,7 +2004,9 @@ pub fn SettingsView() -> Element {
                     div { class: "flex items-center justify-between",
                         div {
                             p { class: "font-medium text-white", "Sync lyrics" }
-                            p { class: "text-sm text-zinc-400", "Enable timeline-synced lyrics and tap-to-seek from the lyrics tab (default: ON)" }
+                            p { class: "text-sm text-zinc-400",
+                                "Enable timeline-synced lyrics and tap-to-seek from the lyrics tab (default: ON)"
+                            }
                         }
                         button {
                             class: if lyrics_sync_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
@@ -2037,11 +2054,13 @@ pub fn SettingsView() -> Element {
 
                     div { class: "space-y-2",
                         p { class: "text-sm font-medium text-zinc-300", "Provider priority" }
-                        for (index, provider) in lyrics_provider_order.iter().enumerate() {
+                        for (index , provider) in lyrics_provider_order.iter().enumerate() {
                             div { class: "flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-zinc-700/60 bg-zinc-900/40",
                                 div { class: "flex items-center gap-2 min-w-0",
                                     span { class: "text-xs text-zinc-500 w-6", "{index + 1}." }
-                                    span { class: "text-sm text-white truncate", "{lyrics_provider_label(provider)}" }
+                                    span { class: "text-sm text-white truncate",
+                                        "{lyrics_provider_label(provider)}"
+                                    }
                                 }
                                 div { class: "flex items-center gap-2",
                                     button {
@@ -2063,7 +2082,11 @@ pub fn SettingsView() -> Element {
                                                         settings.lyrics_provider_order = order;
                                                         let settings_clone = settings.clone();
                                                         app_settings.set(settings);
-                                                        persist_settings_with_toast(settings_clone, saved_toast.clone(), saved_toast_nonce.clone());
+                                                        persist_settings_with_toast(
+                                                            settings_clone,
+                                                            saved_toast.clone(),
+                                                            saved_toast_nonce.clone(),
+                                                        );
                                                     }
                                                 }
                                             }
@@ -2089,7 +2112,11 @@ pub fn SettingsView() -> Element {
                                                         settings.lyrics_provider_order = order;
                                                         let settings_clone = settings.clone();
                                                         app_settings.set(settings);
-                                                        persist_settings_with_toast(settings_clone, saved_toast.clone(), saved_toast_nonce.clone());
+                                                        persist_settings_with_toast(
+                                                            settings_clone,
+                                                            saved_toast.clone(),
+                                                            saved_toast_nonce.clone(),
+                                                        );
                                                     }
                                                 }
                                             }
@@ -2227,6 +2254,15 @@ pub fn SettingsView() -> Element {
                         "Edit Server"
                     } else {
                         "Add Server"
+                    }
+                }
+                if editing_server().is_some() {
+                    p { class: "text-red-400 text-sm mb-4 flex items-center gap-1",
+                        Icon {
+                            name: "arrow-up".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Scroll up to edit server"
                     }
                 }
 
@@ -2472,7 +2508,9 @@ pub fn SettingsView() -> Element {
                 div { class: "flex items-center justify-between",
                     div {
                         p { class: "font-medium text-white", "Use offline content only" }
-                        p { class: "text-sm text-zinc-400", "Disable this to return to live server access." }
+                        p { class: "text-sm text-zinc-400",
+                            "Disable this to return to live server access."
+                        }
                     }
                     button {
                         class: if settings.offline_mode { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },

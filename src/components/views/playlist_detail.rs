@@ -315,6 +315,12 @@ fn PlaylistSongRow(
                 }
             }
             div { class: "flex items-center gap-2 md:gap-3 relative",
+                button {
+                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    aria_label: "Add to queue",
+                    onclick: make_on_open_menu(),
+                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                }
                 if downloaded() {
                     span {
                         class: "hidden md:inline-flex p-2 text-emerald-400",
@@ -337,16 +343,6 @@ fn PlaylistSongRow(
                         }
                     }
                 }
-                if current_rating() > 0 {
-                    div { class: "hidden md:flex items-center gap-1 text-amber-400",
-                        for i in 1..=5 {
-                            Icon {
-                                name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
-                                class: "w-3.5 h-3.5".to_string(),
-                            }
-                        }
-                    }
-                }
                 button {
                     class: if is_favorited() { "hidden md:inline-flex p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "hidden md:inline-flex p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
                     aria_label: "Favorite",
@@ -356,12 +352,6 @@ fn PlaylistSongRow(
                         class: "w-4 h-4".to_string(),
                     }
                 }
-                button {
-                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add to queue",
-                    onclick: make_on_open_menu(),
-                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
-                }
                 if can_remove_from_playlist {
                     button {
                         class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-red-300 hover:bg-red-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
@@ -370,12 +360,14 @@ fn PlaylistSongRow(
                         Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
                     }
                 }
-                span {
-                    class: if is_favorited() { "text-emerald-400" } else { "text-zinc-500" },
-                    title: if is_favorited() { "Favorited" } else { "Not favorited" },
-                    Icon {
-                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                        class: "w-4 h-4".to_string(),
+                if current_rating() > 0 {
+                    div { class: "hidden md:flex items-center gap-1 text-amber-400",
+                        for i in 1..=5 {
+                            Icon {
+                                name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
+                                class: "w-3.5 h-3.5".to_string(),
+                            }
+                        }
                     }
                 }
                 button {

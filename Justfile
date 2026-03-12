@@ -206,6 +206,18 @@ serve-ios-url url *args:
 bundle-apple:
     ./scripts/bundle-apple.sh
 
+# Build Android release bundle and collect only release artifacts into dist/android.
+bundle-android-release *args:
+    if [ -f /etc/NIXOS ]; then \
+        nix develop -c ./scripts/bundle-android.sh {{args}}; \
+    else \
+        ./scripts/bundle-android.sh {{args}}; \
+    fi
+
+# Back-compat alias.
+bundle-android *args:
+    just bundle-android-release {{args}}
+
 # Build for iOS simulator instead of physical device.
 bundle-sim:
     IOS_TARGET=aarch64-apple-ios-sim ./scripts/bundle-apple.sh

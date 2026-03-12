@@ -331,11 +331,20 @@ jobs:
       run: |
         export ANDROID_AAPT2_FROM_MAVEN_OVERRIDE="$ANDROID_HOME/build-tools/34.0.0/aapt2"
         export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$ANDROID_AAPT2_FROM_MAVEN_OVERRIDE ${GRADLE_OPTS:-}"
-        dx bundle --platform android --release
-    - name: Collect Android artifacts
+        ./scripts/bundle-android.sh
+      env:
+        ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    - name: Collect Android release artifacts
       run: |
         mkdir -p artifacts
-        find target -type f \( -name "*.apk" -o -name "*.aab" \) -print -exec cp {} artifacts/ \;
+        find dist/android -type f \( -name "*release*.apk" -o -name "*release*.aab" \) -print -exec cp {} artifacts/ \;
+        if ! ls artifacts/*.apk >/dev/null 2>&1 && ! ls artifacts/*.aab >/dev/null 2>&1; then
+          echo "No Android release artifacts were collected." >&2
+          exit 1
+        fi
         ls -lah artifacts/
     - name: Upload Android bundle artifacts
       uses: actions/upload-artifact@v4

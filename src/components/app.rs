@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::cache_service::apply_settings as apply_cache_settings;
+use crate::cache_service::{apply_settings as apply_cache_settings, put_json as cache_put_json};
 use crate::components::{
     view_label, AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController,
     AudioState, Icon, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
@@ -10,6 +10,7 @@ use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
     save_servers, save_settings, AppSettings, PlaybackState, QueueItem,
 };
+use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::run_auto_download_pass;
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
@@ -30,6 +31,15 @@ const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
 const HISTORY_SWIPE_VERTICAL_SLOP: f64 = 72.0;
 #[cfg(target_arch = "wasm32")]
 const HISTORY_SWIPE_EDGE_ZONE: f64 = 28.0;
+const HOME_INIT_QUICK_PICK_LIMIT: usize = 8;
+const HOME_INIT_SECTION_BASE_COUNT: usize = 9;
+const HOME_INIT_SECTION_LOAD_STEP: usize = 6;
+const HOME_INIT_SECTION_CACHE_COUNT: usize =
+    HOME_INIT_SECTION_BASE_COUNT + HOME_INIT_SECTION_LOAD_STEP;
+const HOME_INIT_SECTION_FETCH_LIMIT: usize = 30;
+const HOME_INIT_RANDOM_FETCH_LIMIT: usize = HOME_INIT_SECTION_FETCH_LIMIT;
+const HOME_INIT_ALBUM_PREVIEW_LIMIT: u32 = HOME_INIT_SECTION_BASE_COUNT as u32;
+const HOME_INIT_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
 
 fn normalize_volume(mut value: f64) -> f64 {
     if !value.is_finite() {
@@ -41,6 +51,472 @@ fn normalize_volume(mut value: f64) -> f64 {
         passes += 1;
     }
     value.clamp(0.0, 1.0)
+}
+
+fn home_init_warmup_cache_key(active_servers: &[ServerConfig]) -> String {
+    let mut ids: Vec<String> = active_servers
+        .iter()
+        .map(|server| server.id.clone())
+        .collect();
+    ids.sort();
+    format!("view:home:warmup:v1:{}", ids.join("|"))
+}
+
+fn home_init_cache_prefix(active_servers: &[ServerConfig]) -> String {
+    let mut ids: Vec<String> = active_servers
+        .iter()
+        .map(|server| server.id.clone())
+        .collect();
+    ids.sort();
+    format!("view:home:v2:{}", ids.join("|"))
+}
+
+fn home_init_server_signature(active_servers: &[ServerConfig]) -> String {
+    let mut signature_parts: Vec<String> = active_servers
+        .iter()
+        .map(|server| format!("{}|{}|{}", server.id, server.url, server.username))
+        .collect();
+    signature_parts.sort();
+    signature_parts.join("||")
+}
+
+fn home_init_song_key(song: &Song) -> String {
+    format!("{}::{}", song.server_id, song.id)
+}
+
+fn dedupe_home_init_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut output = Vec::<Song>::new();
+    for song in songs {
+        let key = home_init_song_key(&song);
+        if seen.insert(key) {
+            output.push(song);
+        }
+        if output.len() >= limit {
+            break;
+        }
+    }
+    output
+}
+
+async fn fetch_home_init_albums_for_servers(
+    active_servers: &[ServerConfig],
+    album_type: &str,
+    limit: u32,
+) -> Vec<Album> {
+    let mut albums = Vec::<Album>::new();
+    for server in active_servers.iter().cloned() {
+        let client = NavidromeClient::new(server);
+        let mut fetched = client
+            .get_albums(album_type, limit, 0)
+            .await
+            .unwrap_or_default();
+        if fetched.is_empty() {
+            home_init_fetch_yield().await;
+            fetched = client
+                .get_albums(album_type, limit, 0)
+                .await
+                .unwrap_or_default();
+        }
+        albums.append(&mut fetched);
+        if albums.len() >= limit as usize {
+            break;
+        }
+        home_init_fetch_yield().await;
+    }
+    albums.truncate(limit as usize);
+    albums
+}
+
+async fn fetch_home_init_random_songs_for_servers(
+    active_servers: &[ServerConfig],
+    limit: u32,
+) -> Vec<Song> {
+    let mut songs = Vec::<Song>::new();
+    for server in active_servers.iter().cloned() {
+        let client = NavidromeClient::new(server);
+        let mut fetched = client.get_random_songs(limit).await.unwrap_or_default();
+        if fetched.is_empty() {
+            home_init_fetch_yield().await;
+            fetched = client.get_random_songs(limit).await.unwrap_or_default();
+        }
+        songs.append(&mut fetched);
+        if songs.len() >= limit as usize {
+            break;
+        }
+        home_init_fetch_yield().await;
+    }
+    dedupe_home_init_songs(songs, limit as usize)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn fetch_home_init_native_activity_songs_for_servers(
+    active_servers: &[ServerConfig],
+    sort: NativeSongSortField,
+    limit: u32,
+) -> Vec<Song> {
+    let mut songs = Vec::<Song>::new();
+    let end = limit.saturating_sub(1) as usize;
+
+    for server in active_servers.iter().cloned() {
+        let client = NavidromeClient::new(server);
+        let mut fetched = client
+            .get_native_songs(sort, NativeSortOrder::Desc, 0, end)
+            .await
+            .unwrap_or_default();
+        if fetched.is_empty() {
+            home_init_fetch_yield().await;
+            fetched = client
+                .get_native_songs(sort, NativeSortOrder::Desc, 0, end)
+                .await
+                .unwrap_or_default();
+        }
+        songs.append(&mut fetched);
+        if songs.len() >= limit as usize {
+            break;
+        }
+        home_init_fetch_yield().await;
+    }
+
+    dedupe_home_init_songs(songs, limit as usize)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn derive_home_init_web_song_sections(
+    mut pool: Vec<Song>,
+    section_limit: usize,
+) -> (Vec<Song>, Vec<Song>, Vec<Song>) {
+    if pool.is_empty() || section_limit == 0 {
+        return (Vec::new(), Vec::new(), Vec::new());
+    }
+
+    let recent = dedupe_home_init_songs(pool.clone(), section_limit);
+
+    if pool.len() > 1 {
+        let step = (section_limit / 2).max(1).min(pool.len().saturating_sub(1));
+        pool.rotate_left(step);
+    }
+    let most_played = dedupe_home_init_songs(pool.clone(), section_limit);
+
+    if pool.len() > 1 {
+        let step = (section_limit / 3).max(1).min(pool.len().saturating_sub(1));
+        pool.rotate_left(step);
+    }
+    let random = dedupe_home_init_songs(pool, HOME_INIT_RANDOM_FETCH_LIMIT);
+
+    (recent, most_played, random)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn fetch_home_init_similar_songs_for_seeds(
+    active_servers: &[ServerConfig],
+    seeds: &[Song],
+    per_seed: u32,
+    total_limit: usize,
+) -> Vec<Song> {
+    if seeds.is_empty() || per_seed == 0 {
+        return Vec::new();
+    }
+
+    let seed_keys = seeds
+        .iter()
+        .map(home_init_song_key)
+        .collect::<std::collections::HashSet<_>>();
+    let mut similar = Vec::<Song>::new();
+
+    for seed in seeds.iter().take(8).cloned() {
+        let Some(server) = active_servers
+            .iter()
+            .find(|server| server.id == seed.server_id)
+            .cloned()
+        else {
+            continue;
+        };
+
+        let client = NavidromeClient::new(server);
+        let mut fetched = client
+            .get_similar_songs2(&seed.id, per_seed)
+            .await
+            .unwrap_or_default();
+        if fetched.is_empty() {
+            fetched = client
+                .get_similar_songs(&seed.id, per_seed)
+                .await
+                .unwrap_or_default();
+        }
+        similar.append(&mut fetched);
+        home_init_fetch_yield().await;
+    }
+
+    similar.retain(|song| !seed_keys.contains(&home_init_song_key(song)));
+
+    dedupe_home_init_songs(similar, total_limit)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn build_home_init_quick_picks_mix(
+    active_servers: &[ServerConfig],
+    most_played_songs: &[Song],
+    limit: usize,
+) -> Vec<Song> {
+    if limit == 0 {
+        return Vec::new();
+    }
+
+    let anchors = dedupe_home_init_songs(most_played_songs.to_vec(), 8);
+    let similar =
+        fetch_home_init_similar_songs_for_seeds(active_servers, &anchors, 4, limit * 3).await;
+    let random =
+        fetch_home_init_random_songs_for_servers(active_servers, (limit as u32).saturating_mul(2))
+            .await;
+
+    let mut anchor_iter = anchors.into_iter();
+    let mut similar_iter = similar.into_iter();
+    let mut random_iter = random.into_iter();
+    let mut seen = std::collections::HashSet::<String>::new();
+    let mut mixed = Vec::<Song>::new();
+
+    loop {
+        let mut progressed = false;
+
+        if let Some(song) = anchor_iter.next() {
+            progressed = true;
+            let key = home_init_song_key(&song);
+            if seen.insert(key) {
+                mixed.push(song);
+            }
+        }
+
+        if mixed.len() >= limit {
+            break;
+        }
+
+        if let Some(song) = similar_iter.next() {
+            progressed = true;
+            let key = home_init_song_key(&song);
+            if seen.insert(key) {
+                mixed.push(song);
+            }
+        }
+
+        if mixed.len() >= limit {
+            break;
+        }
+
+        if let Some(song) = random_iter.next() {
+            progressed = true;
+            let key = home_init_song_key(&song);
+            if seen.insert(key) {
+                mixed.push(song);
+            }
+        }
+
+        if mixed.len() >= limit || !progressed {
+            break;
+        }
+    }
+
+    mixed.truncate(limit);
+    mixed
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn build_home_init_quick_picks_mix(
+    active_servers: &[ServerConfig],
+    _most_played_songs: &[Song],
+    limit: usize,
+) -> Vec<Song> {
+    if limit == 0 {
+        return Vec::new();
+    }
+    fetch_home_init_random_songs_for_servers(active_servers, limit as u32).await
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn home_init_fetch_yield() {
+    tokio::task::yield_now().await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn home_init_fetch_yield() {
+    gloo_timers::future::TimeoutFuture::new(0).await;
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct HomeInitSummary {
+    recent_albums: usize,
+    most_played_albums: usize,
+    recent_songs: usize,
+    most_played_songs: usize,
+    random_songs: usize,
+    quick_picks: usize,
+}
+
+async fn initialize_home_cache(active_servers: &[ServerConfig]) -> HomeInitSummary {
+    let init_start = PerfTimer::now();
+    let warmup_key = home_init_warmup_cache_key(active_servers);
+    let _ = cache_put_json(warmup_key, &true, Some(HOME_INIT_WARMUP_FLAG_CACHE_HOURS));
+
+    let cache_prefix = home_init_cache_prefix(active_servers);
+    let recent_cache_key = format!("{cache_prefix}:recent_albums");
+    let most_played_album_cache_key = format!("{cache_prefix}:most_played_albums");
+    let recent_song_cache_key = format!("{cache_prefix}:recent_songs");
+    let most_played_song_cache_key = format!("{cache_prefix}:most_played_songs");
+    let random_song_cache_key = format!("{cache_prefix}:random_songs");
+    let quick_pick_cache_key = format!("{cache_prefix}:quick_picks");
+
+    eprintln!(
+        "[app-init] starting home cache warmup for {} server(s)",
+        active_servers.len()
+    );
+
+    #[cfg(not(target_arch = "wasm32"))]
+    let (recent_played, most_played_song_items, random_song_items) = {
+        let recent_played = fetch_home_init_native_activity_songs_for_servers(
+            active_servers,
+            NativeSongSortField::PlayDate,
+            HOME_INIT_SECTION_FETCH_LIMIT as u32,
+        )
+        .await;
+        let recent_cached: Vec<Song> = recent_played
+            .iter()
+            .take(HOME_INIT_SECTION_CACHE_COUNT)
+            .cloned()
+            .collect();
+        let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
+        home_init_fetch_yield().await;
+
+        let most_played_song_items = fetch_home_init_native_activity_songs_for_servers(
+            active_servers,
+            NativeSongSortField::PlayCount,
+            HOME_INIT_SECTION_FETCH_LIMIT as u32,
+        )
+        .await;
+        let most_played_cached: Vec<Song> = most_played_song_items
+            .iter()
+            .take(HOME_INIT_SECTION_CACHE_COUNT)
+            .cloned()
+            .collect();
+        let _ = cache_put_json(
+            most_played_song_cache_key.clone(),
+            &most_played_cached,
+            Some(6),
+        );
+        home_init_fetch_yield().await;
+
+        let random_song_items = fetch_home_init_random_songs_for_servers(
+            active_servers,
+            HOME_INIT_RANDOM_FETCH_LIMIT as u32,
+        )
+        .await;
+        let _ = cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
+        home_init_fetch_yield().await;
+
+        (recent_played, most_played_song_items, random_song_items)
+    };
+
+    #[cfg(target_arch = "wasm32")]
+    let (recent_played, most_played_song_items, random_song_items) = {
+        let pool_size = (HOME_INIT_SECTION_FETCH_LIMIT * 3).max(HOME_INIT_RANDOM_FETCH_LIMIT * 2);
+        let song_pool =
+            fetch_home_init_random_songs_for_servers(active_servers, pool_size as u32).await;
+        let (recent_played, most_played_song_items, random_song_items) =
+            derive_home_init_web_song_sections(song_pool, HOME_INIT_SECTION_FETCH_LIMIT);
+
+        let recent_cached: Vec<Song> = recent_played
+            .iter()
+            .take(HOME_INIT_SECTION_CACHE_COUNT)
+            .cloned()
+            .collect();
+        let most_played_cached: Vec<Song> = most_played_song_items
+            .iter()
+            .take(HOME_INIT_SECTION_CACHE_COUNT)
+            .cloned()
+            .collect();
+        let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
+        let _ = cache_put_json(
+            most_played_song_cache_key.clone(),
+            &most_played_cached,
+            Some(6),
+        );
+        let _ = cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
+        home_init_fetch_yield().await;
+
+        (recent_played, most_played_song_items, random_song_items)
+    };
+
+    let mut quick = build_home_init_quick_picks_mix(
+        active_servers,
+        &most_played_song_items,
+        HOME_INIT_QUICK_PICK_LIMIT,
+    )
+    .await;
+    if quick.is_empty() {
+        quick = dedupe_home_init_songs(random_song_items.clone(), HOME_INIT_QUICK_PICK_LIMIT);
+    }
+    if quick.is_empty() {
+        quick = fetch_home_init_random_songs_for_servers(
+            active_servers,
+            HOME_INIT_QUICK_PICK_LIMIT as u32,
+        )
+        .await;
+    }
+    let _ = cache_put_json(quick_pick_cache_key, &quick, Some(3));
+    home_init_fetch_yield().await;
+
+    let recent_albums =
+        fetch_home_init_albums_for_servers(active_servers, "newest", HOME_INIT_ALBUM_PREVIEW_LIMIT)
+            .await;
+    let _ = cache_put_json(recent_cache_key, &recent_albums, Some(6));
+    home_init_fetch_yield().await;
+
+    let most_played_albums = fetch_home_init_albums_for_servers(
+        active_servers,
+        "frequent",
+        HOME_INIT_SECTION_FETCH_LIMIT as u32,
+    )
+    .await;
+    let most_played_cached: Vec<Album> = most_played_albums
+        .iter()
+        .take(HOME_INIT_SECTION_CACHE_COUNT)
+        .cloned()
+        .collect();
+    let _ = cache_put_json(most_played_album_cache_key, &most_played_cached, Some(6));
+
+    let summary = HomeInitSummary {
+        recent_albums: recent_albums.len(),
+        most_played_albums: most_played_albums.len(),
+        recent_songs: recent_played.len(),
+        most_played_songs: most_played_song_items.len(),
+        random_songs: random_song_items.len(),
+        quick_picks: quick.len(),
+    };
+
+    log_perf(
+        "app.home_init.total",
+        init_start,
+        &format!(
+            "servers={} recent_albums={} frequent_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
+            active_servers.len(),
+            summary.recent_albums,
+            summary.most_played_albums,
+            summary.recent_songs,
+            summary.most_played_songs,
+            summary.random_songs,
+            summary.quick_picks
+        ),
+    );
+    eprintln!(
+        "[app-init] home cache warmup complete | recent_albums={} frequent_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
+        summary.recent_albums,
+        summary.most_played_albums,
+        summary.recent_songs,
+        summary.most_played_songs,
+        summary.random_songs,
+        summary.quick_picks
+    );
+
+    summary
 }
 
 #[component]
@@ -60,6 +536,10 @@ pub fn AppShell() -> Element {
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let mut auto_download_bootstrap_done = use_signal(|| false);
+    let mut home_init_in_progress = use_signal(|| false);
+    let mut home_init_status = use_signal(|| None::<String>);
+    let mut home_init_signature = use_signal(|| None::<String>);
+    let mut home_init_generation = use_signal(|| 0u64);
     let audio_state = use_signal(AudioState::default);
     let preview_playback = use_signal(|| false);
     let sidebar_open = use_signal(|| false);
@@ -395,6 +875,58 @@ pub fn AppShell() -> Element {
         });
     });
 
+    // Warm Home cache whenever the active server set changes.
+    use_effect(move || {
+        if !db_initialized() || !settings_loaded() {
+            return;
+        }
+
+        let settings_snapshot = app_settings();
+        if settings_snapshot.offline_mode {
+            home_init_in_progress.set(false);
+            home_init_status.set(None);
+            home_init_signature.set(None);
+            return;
+        }
+
+        let active_servers: Vec<ServerConfig> = servers()
+            .into_iter()
+            .filter(|server| server.active)
+            .collect();
+        if active_servers.is_empty() {
+            home_init_in_progress.set(false);
+            home_init_status.set(None);
+            home_init_signature.set(None);
+            return;
+        }
+
+        let signature = home_init_server_signature(&active_servers);
+        if home_init_signature().as_deref() == Some(signature.as_str()) {
+            return;
+        }
+
+        home_init_signature.set(Some(signature));
+        home_init_generation.with_mut(|generation| *generation = generation.saturating_add(1));
+        let generation = *home_init_generation.peek();
+
+        home_init_in_progress.set(true);
+        home_init_status.set(Some("App initializing, please wait".to_string()));
+
+        let mut home_init_in_progress = home_init_in_progress.clone();
+        let mut home_init_status = home_init_status.clone();
+        let home_init_generation = home_init_generation.clone();
+        spawn(async move {
+            let _ = initialize_home_cache(&active_servers).await;
+
+            if *home_init_generation.peek() != generation {
+                return;
+            }
+
+            home_init_in_progress.set(false);
+            home_init_status.set(None);
+        });
+    });
+
     // Run one startup auto-download pass when enabled.
     use_effect(move || {
         if auto_download_bootstrap_done() {
@@ -612,7 +1144,10 @@ pub fn AppShell() -> Element {
     let sidebar_signal = sidebar_open.clone();
     let can_go_back = navigation.can_go_back();
     let song_details_open = song_details_state().is_open;
-    let is_bootstrapping = !db_initialized() || !settings_loaded();
+    let is_startup_bootstrapping = !db_initialized() || !settings_loaded();
+    let is_home_initializing = home_init_in_progress() && matches!(&view, AppView::HomeView {});
+    let home_init_status_text = home_init_status()
+        .unwrap_or_else(|| "Caching songs and albums for Home to avoid cold loads.".to_string());
     let offline_mode_enabled = app_settings().offline_mode;
     let app_container_class = if sidebar_open() {
         "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
@@ -784,7 +1319,7 @@ pub fn AppShell() -> Element {
             Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
         }
 
-        if is_bootstrapping {
+        if is_startup_bootstrapping {
             div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
                 div { class: "max-w-md text-center space-y-3",
                     div { class: "flex items-center justify-center",
@@ -797,6 +1332,21 @@ pub fn AppShell() -> Element {
                     p { class: "text-sm text-zinc-400",
                         "Loading servers and settings, then warming local cache for faster navigation."
                     }
+                }
+            }
+        }
+
+        if is_home_initializing {
+            div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
+                div { class: "max-w-md text-center space-y-3",
+                    div { class: "flex items-center justify-center",
+                        Icon {
+                            name: "loader".to_string(),
+                            class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+                        }
+                    }
+                    h2 { class: "text-lg font-semibold text-white", "App initializing, please wait" }
+                    p { class: "text-sm text-zinc-400", "{home_init_status_text}" }
                 }
             }
         }

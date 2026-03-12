@@ -323,8 +323,8 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                 SongRow {
                                                     song: song.clone(),
                                                     index: index + 1,
+                                                    show_download: true,
                                                     show_duration: false,
-                                                    show_favorite_indicator: true,
                                                     show_duration_in_menu: true,
                                                     onclick: move |_| {
                                                         now_playing.set(Some(song_for_queue.clone()));

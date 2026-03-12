@@ -14,9 +14,6 @@ const HOME_SECTION_FETCH_LIMIT: usize = 30;
 const HOME_RANDOM_FETCH_LIMIT: usize = HOME_SECTION_FETCH_LIMIT;
 const HOME_ALBUM_PREVIEW_LIMIT: u32 = HOME_SECTION_BASE_COUNT as u32;
 const HOME_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
-#[cfg(any(target_arch = "wasm32", target_os = "ios", target_os = "android"))]
-const HOME_WARMUP_DEFAULT_ENABLED: bool = false;
-#[cfg(not(any(target_arch = "wasm32", target_os = "ios", target_os = "android")))]
 const HOME_WARMUP_DEFAULT_ENABLED: bool = true;
 #[cfg(not(target_arch = "wasm32"))]
 const HOME_LYRICS_PREFETCH_LIMIT: usize = 4;
@@ -1794,6 +1791,15 @@ pub fn SongRow(
             }
             // Duration and actions
             div { class: "flex items-center gap-2 md:gap-3 relative",
+                button {
+                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
+                    aria_label: "Add to queue",
+                    onclick: make_on_open_menu(),
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
+                }
                 if show_download {
                     if downloaded() {
                         span { class: "hidden md:inline-flex text-emerald-400", title: "Downloaded",
@@ -1831,15 +1837,6 @@ pub fn SongRow(
                     onclick: make_on_toggle_favorite(),
                     Icon {
                         name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                button {
-                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add to queue",
-                    onclick: make_on_open_menu(),
-                    Icon {
-                        name: "plus".to_string(),
                         class: "w-4 h-4".to_string(),
                     }
                 }
