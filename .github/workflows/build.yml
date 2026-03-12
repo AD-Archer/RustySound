@@ -340,7 +340,7 @@ jobs:
     - name: Collect Android release artifacts
       run: |
         mkdir -p artifacts
-        find dist/android -type f \( -name "*release*.apk" -o -name "*release*.aab" \) -print -exec cp {} artifacts/ \;
+        find dist/android -type f \( -name "*.apk" -o -name "*.aab" \) -print -exec cp {} artifacts/ \;
         if ! ls artifacts/*.apk >/dev/null 2>&1 && ! ls artifacts/*.aab >/dev/null 2>&1; then
           echo "No Android release artifacts were collected." >&2
           exit 1
