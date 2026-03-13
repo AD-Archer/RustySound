@@ -7,9 +7,59 @@ MACOS_OUT_DIR="${DIST_DIR}/macos"
 IOS_OUT_DIR="${DIST_DIR}/ios"
 IOS_TARGET="${IOS_TARGET:-aarch64-apple-ios}"
 APP_NAME="${APP_NAME:-RustySound}"
+APP_VERSION="${APP_VERSION:-}"
 IOS_ICON_SOURCE="${IOS_ICON_SOURCE:-${ROOT_DIR}/assets/web-app-manifest-512x512.png}"
 DMG_INSTALL_FILE_NAME="${DMG_INSTALL_FILE_NAME:-INSTALL.txt}"
 CREATE_MACOS_DMG="${CREATE_MACOS_DMG:-1}"
+
+resolve_app_version() {
+    local version="${APP_VERSION}"
+
+    if [[ -z "${version}" ]]; then
+        version="$(awk -F'"' '/^version = "/ { print $2; exit }' "${ROOT_DIR}/Cargo.toml")"
+    fi
+
+    if [[ -z "${version}" ]]; then
+        echo "Unable to determine app version from APP_VERSION or Cargo.toml." >&2
+        exit 1
+    fi
+
+    printf '%s\n' "${version}"
+}
+
+normalize_apple_version() {
+    local version="$1"
+    local normalized="${version%%[-+]*}"
+
+    if [[ ! "${normalized}" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]]; then
+        echo "Apple bundle version must contain 1 to 3 numeric components. Got: ${version}" >&2
+        exit 1
+    fi
+
+    IFS='.' read -r -a parts <<< "${normalized}"
+    while (( ${#parts[@]} < 3 )); do
+        parts+=("0")
+    done
+
+    printf '%s.%s.%s\n' "${parts[0]}" "${parts[1]}" "${parts[2]}"
+}
+
+set_plist_string() {
+    local plist_path="$1"
+    local key="$2"
+    local value="$3"
+
+    /usr/libexec/PlistBuddy -c "Set :${key} ${value}" "${plist_path}" >/dev/null 2>&1 \
+        || /usr/libexec/PlistBuddy -c "Add :${key} string ${value}" "${plist_path}"
+}
+
+set_bundle_version() {
+    local plist_path="$1"
+    local version="$2"
+
+    set_plist_string "${plist_path}" "CFBundleShortVersionString" "${version}"
+    set_plist_string "${plist_path}" "CFBundleVersion" "${version}"
+}
 
 create_dmg_with_retry() {
     local app_name="$1"
@@ -85,6 +135,11 @@ if [[ ! -f "${IOS_ICON_SOURCE}" ]]; then
     exit 1
 fi
 
+APP_VERSION_RAW="$(resolve_app_version)"
+APPLE_BUNDLE_VERSION="$(normalize_apple_version "${APP_VERSION_RAW}")"
+
+echo "Using Apple bundle version: ${APPLE_BUNDLE_VERSION}"
+
 if [[ "${IOS_TARGET}" == *"-ios-sim" ]]; then
     IOS_SDK="iphonesimulator"
 else
@@ -148,6 +203,7 @@ echo "Updating iOS Info.plist metadata..."
     || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string ${APP_NAME}" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Set :CFBundleName ${APP_NAME}" "${IOS_PLIST_PATH}" \
     || /usr/libexec/PlistBuddy -c "Add :CFBundleName string ${APP_NAME}" "${IOS_PLIST_PATH}"
+set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Delete :UIBackgroundModes" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" "${IOS_PLIST_PATH}"
@@ -198,7 +254,12 @@ if [[ -z "${MACOS_APP_PATH}" ]]; then
 fi
 
 MACOS_APP_NAME="$(basename "${MACOS_APP_PATH}" .app)"
+MACOS_PLIST_PATH="${MACOS_APP_PATH}/Contents/Info.plist"
 MACOS_DMG_PATH="${MACOS_OUT_DIR}/${MACOS_APP_NAME}.dmg"
+
+echo "Updating macOS Info.plist version metadata..."
+set_bundle_version "${MACOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
+
 if [[ "${CREATE_MACOS_DMG}" == "1" ]]; then
     echo "Creating macOS installer (.dmg) with install instructions..."
     create_macos_dmg_with_instructions "${MACOS_APP_PATH}" "${MACOS_DMG_PATH}" "${MACOS_APP_NAME}"

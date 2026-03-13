@@ -144,6 +144,7 @@ jobs:
     - run: cargo install dioxus-cli --version 0.7.3
     - name: Build macOS + iOS bundles
       env:
+        APP_VERSION: ${{ needs.version.outputs.semver }}
         CREATE_MACOS_DMG: "0"
       run: ./scripts/bundle-apple.sh
     - name: Sign macOS app (ad-hoc or notarized)
