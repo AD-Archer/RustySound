@@ -25,6 +25,30 @@ pub fn Icon(name: String, class: String) -> Element {
                 path { d: "M21 21l-4.35-4.35" }
             }
         },
+        "eye" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                path { d: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8S1 12 1 12z" }
+                circle { cx: "12", cy: "12", r: "3" }
+            }
+        },
+        "refresh-cw" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                polyline { points: "23 4 23 10 17 10" }
+                polyline { points: "1 20 1 14 7 14" }
+                path { d: "M3.51 9a9 9 0 0 1 14.13-3.36L23 10" }
+                path { d: "M20.49 15a9 9 0 0 1-14.13 3.36L1 14" }
+            }
+        },
         "album" => rsx! {
             svg {
                 class: "{class}",

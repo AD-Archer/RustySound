@@ -1363,6 +1363,36 @@ pub fn SettingsView() -> Element {
         }
     };
 
+    let on_lyrics_screenshot_toggle = {
+        let mut app_settings = app_settings.clone();
+        move |_| {
+            let mut settings = app_settings();
+            settings.lyrics_screenshot_mode = !settings.lyrics_screenshot_mode;
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            persist_settings_with_toast(
+                settings_clone,
+                saved_toast.clone(),
+                saved_toast_nonce.clone(),
+            );
+        }
+    };
+
+    let on_lyrics_screenshot_timestamps_toggle = {
+        let mut app_settings = app_settings.clone();
+        move |_| {
+            let mut settings = app_settings();
+            settings.lyrics_screenshot_timestamps = !settings.lyrics_screenshot_timestamps;
+            let settings_clone = settings.clone();
+            app_settings.set(settings);
+            persist_settings_with_toast(
+                settings_clone,
+                saved_toast.clone(),
+                saved_toast_nonce.clone(),
+            );
+        }
+    };
+
     let on_start_scan = {
         let servers = servers.clone();
         let mut scan_results = scan_results.clone();
@@ -1476,6 +1506,7 @@ pub fn SettingsView() -> Element {
     let current_volume = volume();
     let lyrics_provider_order = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
     let lyrics_sync_enabled = !settings.lyrics_unsynced_mode;
+    let lyrics_screenshot_enabled = settings.lyrics_screenshot_mode;
     let cache_stats = current_cache_stats();
     let cache_used_mb = cache_stats.total_size_bytes as f64 / (1024.0 * 1024.0);
     let cache_max_mb = cache_stats.max_size_bytes as f64 / (1024.0 * 1024.0);
@@ -2047,6 +2078,38 @@ pub fn SettingsView() -> Element {
                                     class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
                                     onclick: on_lyrics_reset_offset,
                                     "Reset"
+                                }
+                            }
+                        }
+                    }
+
+                    div { class: "space-y-4 rounded-xl border border-zinc-700/50 bg-zinc-900/30 p-4",
+                        div { class: "flex items-center justify-between gap-4",
+                            div {
+                                p { class: "font-medium text-white", "Lyrics screenshot view" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Add a dedicated lyrics canvas with artwork backdrop and larger typography so users can take clean screenshots from the lyrics tab."
+                                }
+                            }
+                            button {
+                                class: if lyrics_screenshot_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_lyrics_screenshot_toggle,
+                                div { class: if lyrics_screenshot_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
+                        if lyrics_screenshot_enabled {
+                            div { class: "flex items-center justify-between gap-4",
+                                div {
+                                    p { class: "font-medium text-white", "Include timestamps" }
+                                    p { class: "text-sm text-zinc-400",
+                                        "Show synced timestamps in the screenshot view when timed lyrics are available."
+                                    }
+                                }
+                                button {
+                                    class: if settings.lyrics_screenshot_timestamps { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                    onclick: on_lyrics_screenshot_timestamps_toggle,
+                                    div { class: if settings.lyrics_screenshot_timestamps { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
                                 }
                             }
                         }

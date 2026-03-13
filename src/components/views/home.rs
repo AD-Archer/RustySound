@@ -241,7 +241,9 @@ pub fn HomeView() -> Element {
                         }
                         div { class: "grid grid-cols-2 gap-3 text-left",
                             div { class: "rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500", "Recent Albums" }
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500",
+                                    "Recent Albums"
+                                }
                                 p { class: "text-sm font-medium text-white",
                                     match home_loading_recent_count_value {
                                         Some(count) => format!("{count}"),
@@ -250,7 +252,9 @@ pub fn HomeView() -> Element {
                                 }
                             }
                             div { class: "rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500", "Most Played Albums" }
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500",
+                                    "Most Played Albums"
+                                }
                                 p { class: "text-sm font-medium text-white",
                                     match home_loading_most_played_count_value {
                                         Some(count) => format!("{count}"),
@@ -259,9 +263,7 @@ pub fn HomeView() -> Element {
                                 }
                             }
                         }
-                        p { class: "text-xs text-zinc-500",
-                            "Elapsed: {home_loading_elapsed_ms} ms"
-                        }
+                        p { class: "text-xs text-zinc-500", "Elapsed: {home_loading_elapsed_ms} ms" }
                         if let Some(error_text) = home_loading_error_text {
                             p { class: "text-xs text-amber-300", "{error_text}" }
                         }
@@ -272,9 +274,13 @@ pub fn HomeView() -> Element {
                         }
                         if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
                             div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-72 overflow-y-auto",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1",
+                                    "iOS Loading Log"
+                                }
                                 for line in ios_loading_logs_preview.iter() {
-                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
+                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all",
+                                        "{line}"
+                                    }
                                 }
                             }
                         }
@@ -318,15 +324,16 @@ pub fn HomeView() -> Element {
                 }
             } else {
                 // Quick play cards
-                div { class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8",
-                    QuickPlayCard {
-                        title: "Random Mix".to_string(),
-                        gradient: "from-purple-600 to-indigo-600".to_string(),
-                        onclick: {
-                            let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::RandomView {})
-                        },
-                    }
+                div {
+                    class: "grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mb-8",
+                    // QuickPlayCard {
+                    //     title: "Random Mix".to_string(),
+                    //     gradient: "from-purple-600 to-indigo-600".to_string(),
+                    //     onclick: {
+                    //         let nav = navigation.clone();
+                    //         move |_| nav.navigate_to(AppView::RandomView {})
+                    //     },
+                    // }
                     QuickPlayCard {
                         title: "All Songs".to_string(),
                         gradient: "from-sky-600 to-cyan-600".to_string(),
@@ -351,22 +358,22 @@ pub fn HomeView() -> Element {
                             move |_| nav.navigate_to(AppView::DownloadsView {})
                         },
                     }
-                    QuickPlayCard {
-                        title: "Radio Stations".to_string(),
-                        gradient: "from-emerald-600 to-teal-600".to_string(),
-                        onclick: {
-                            let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::RadioView {})
-                        },
-                    }
-                    QuickPlayCard {
-                        title: "All Albums".to_string(),
-                        gradient: "from-amber-600 to-orange-600".to_string(),
-                        onclick: {
-                            let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::Albums {})
-                        },
-                    }
+                    // QuickPlayCard {
+                    //     title: "Radio Stations".to_string(),
+                    //     gradient: "from-emerald-600 to-teal-600".to_string(),
+                    //     onclick: {
+                    //         let nav = navigation.clone();
+                    //         move |_| nav.navigate_to(AppView::RadioView {})
+                    //     },
+                    // }
+                    // QuickPlayCard {
+                    //     title: "All Albums".to_string(),
+                    //     gradient: "from-amber-600 to-orange-600".to_string(),
+                    //     onclick: {
+                    //         let nav = navigation.clone();
+                    //         move |_| nav.navigate_to(AppView::Albums {})
+                    //     },
+                    // }
                     QuickPlayCard {
                         title: "Playlists".to_string(),
                         gradient: "from-amber-600 to-orange-600".to_string(),
@@ -375,14 +382,14 @@ pub fn HomeView() -> Element {
                             move |_| nav.navigate_to(AppView::PlaylistsView {})
                         },
                     }
-                    QuickPlayCard {
-                        title: "Artists".to_string(),
-                        gradient: "from-purple-600 to-indigo-600".to_string(),
-                        onclick: {
-                            let nav = navigation.clone();
-                            move |_| nav.navigate_to(AppView::ArtistsView {})
-                        },
-                    }
+                                // QuickPlayCard {
+                //     title: "Artists".to_string(),
+                //     gradient: "from-purple-600 to-indigo-600".to_string(),
+                //     onclick: {
+                //         let nav = navigation.clone();
+                //         move |_| nav.navigate_to(AppView::ArtistsView {})
+                //     },
+                // }
                 }
 
                 // Recently added albums
@@ -701,8 +708,8 @@ pub fn HomeView() -> Element {
                     }
                 }
 
-                    // Quick picks (mixed: most played + similar + random)
-                    section {
+                // Quick picks (mixed: most played + similar + random)
+                section {
                     div { class: "flex items-center justify-between mb-4",
                         h2 { class: "text-xl font-semibold text-white", "Quick Picks" }
                         button {
@@ -1386,7 +1393,9 @@ pub fn SongRow(
                 }
                 if show_download {
                     if downloaded() {
-                        span { class: "hidden md:inline-flex text-emerald-400", title: "Downloaded",
+                        span {
+                            class: "hidden md:inline-flex text-emerald-400",
+                            title: "Downloaded",
                             Icon {
                                 name: "check".to_string(),
                                 class: "w-4 h-4".to_string(),
@@ -1455,13 +1464,19 @@ pub fn SongRow(
                         button {
                             class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
                             onclick: make_on_open_menu(),
-                            Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                            Icon {
+                                name: "plus".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
                             "Add To..."
                         }
                         if show_download {
                             if downloaded() {
                                 div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
-                                    Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                    Icon {
+                                        name: "check".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
                                     "Downloaded"
                                 }
                             } else {
@@ -1494,7 +1509,9 @@ pub fn SongRow(
                                 "Favorite"
                             }
                         }
-                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
+                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                            "Rating"
+                        }
                         div { class: "flex items-center gap-1 px-2 pb-1",
                             for i in 1..=5 {
                                 button {
@@ -1508,8 +1525,12 @@ pub fn SongRow(
                             }
                         }
                         if show_duration_in_menu {
-                            div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
-                            p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
+                            div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                                "Length"
+                            }
+                            p { class: "px-2.5 pb-2 text-xs text-zinc-300",
+                                "{format_duration(song.duration)}"
+                            }
                         }
                     }
                 }

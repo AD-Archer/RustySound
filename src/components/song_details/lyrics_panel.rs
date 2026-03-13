@@ -19,16 +19,90 @@ struct LyricsPanelProps {
     on_clear_manual_search: EventHandler<MouseEvent>,
 }
 
+fn plain_lyrics_lines(lyrics: &LyricsResult) -> Vec<String> {
+    lyrics
+        .plain_lyrics
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| line.to_string())
+        .collect()
+}
+
+#[derive(Clone, PartialEq)]
+struct ScreenshotLyricBar {
+    text: String,
+    timestamp_seconds: Option<f64>,
+}
+
+fn screenshot_lyrics_bars(lyrics: &LyricsResult, sync_lyrics: bool) -> Vec<ScreenshotLyricBar> {
+    if sync_lyrics && !lyrics.synced_lines.is_empty() {
+        lyrics
+            .synced_lines
+            .iter()
+            .map(|line| ScreenshotLyricBar {
+                text: line.text.trim().to_string(),
+                timestamp_seconds: Some(line.timestamp_seconds),
+            })
+            .filter(|line| !line.text.is_empty())
+            .collect()
+    } else {
+        plain_lyrics_lines(lyrics)
+            .into_iter()
+            .map(|line| ScreenshotLyricBar {
+                text: line,
+                timestamp_seconds: None,
+            })
+            .collect()
+    }
+}
+
+fn screenshot_bar_label(bar: &ScreenshotLyricBar, include_timestamp: bool) -> String {
+    if include_timestamp {
+        if let Some(timestamp_seconds) = bar.timestamp_seconds {
+            return format!("{} {}", format_timestamp(timestamp_seconds), bar.text);
+        }
+    }
+
+    bar.text.clone()
+}
+
 #[component]
 fn LyricsPanel(props: LyricsPanelProps) -> Element {
     let navigation = use_context::<Navigation>();
     let controller = use_context::<SongDetailsController>();
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
     let search_panel_open = use_signal(|| false);
+    let screenshot_view_open = use_signal(|| false);
+    let screenshot_selection_start = use_signal(|| 0_usize);
+    let screenshot_selection_count = use_signal(|| 1_usize);
+    let screenshot_manual_selection = use_signal(|| false);
+    let screenshot_story_dimmed = use_signal(|| false);
     let programmatic_scroll_until_ms = use_signal(|| 0.0_f64);
     let manual_scroll_hold_until_ms = use_signal(|| 0.0_f64);
     let last_centered_index = use_signal(|| None::<usize>);
+
+    let screenshot_settings = app_settings();
+    let screenshot_mode_enabled = screenshot_settings.lyrics_screenshot_mode;
+    let screenshot_show_timestamps = screenshot_settings.lyrics_screenshot_timestamps;
+    let screenshot_song = controller.current().song;
+    let screenshot_cover_url = screenshot_song
+        .as_ref()
+        .and_then(|song| song_cover_url(song, &servers(), 900))
+        .filter(|url| !url.trim().is_empty());
+    let screenshot_song_title = screenshot_song
+        .as_ref()
+        .map(|song| song.title.trim().to_string())
+        .filter(|title| !title.is_empty())
+        .unwrap_or_else(|| "Unknown Song".to_string());
+    let screenshot_song_artist = screenshot_song
+        .as_ref()
+        .and_then(|song| song.artist.as_ref())
+        .map(|artist| artist.trim().to_string())
+        .filter(|artist| !artist.is_empty());
 
     let on_open_settings = {
         let navigation = navigation.clone();
@@ -135,6 +209,47 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         Some(Ok(lyrics)) => Some(lyrics),
         Some(Err(_)) | None => last_successful_lyrics(),
     };
+    let screenshot_bars = display_lyrics
+        .as_ref()
+        .map(|lyrics| screenshot_lyrics_bars(lyrics, props.sync_lyrics))
+        .unwrap_or_default();
+    let screenshot_available = !screenshot_bars.is_empty();
+    let screenshot_selected_start = if screenshot_available {
+        screenshot_selection_start().min(screenshot_bars.len() - 1)
+    } else {
+        0
+    };
+    let screenshot_selected_count = if screenshot_available {
+        screenshot_selection_count()
+            .clamp(1, 5)
+            .min(screenshot_bars.len() - screenshot_selected_start)
+    } else {
+        0
+    };
+    let screenshot_selected_end = if screenshot_selected_count > 0 {
+        screenshot_selected_start + screenshot_selected_count - 1
+    } else {
+        0
+    };
+    let screenshot_scroll_container_id =
+        format!("lyrics-screenshot-scroll-{}", sanitize_dom_id(&props.panel_dom_key));
+    let screenshot_story_guide_enabled = screenshot_story_dimmed();
+    let screenshot_tip_text = if screenshot_manual_selection() {
+        "Manual screenshot frame locked."
+    } else {
+        "Following synced lyrics until you tap a line."
+    };
+    let screenshot_selected_line_class =
+        "block w-full text-left text-[2.1rem] md:text-[3.25rem] font-semibold leading-[1.08] text-white whitespace-pre-wrap break-words transition-colors";
+    let screenshot_unselected_line_class =
+        "block w-full text-left text-[2.1rem] md:text-[3.25rem] font-semibold leading-[1.08] text-white/36 hover:text-white/58 whitespace-pre-wrap break-words transition-colors";
+    let screenshot_content_width_class = if screenshot_story_guide_enabled {
+        "max-w-[34rem]"
+    } else {
+        "max-w-5xl"
+    };
+    let toolbar_button_base_class =
+        "h-10 w-10 rounded-full border flex items-center justify-center transition-colors";
     let playback_seconds_signal = playback_position();
     let playback_seconds = if (props.current_time - playback_seconds_signal).abs() > 1.0 {
         props.current_time
@@ -212,33 +327,120 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         });
     }
 
+    {
+        let screenshot_view_open = screenshot_view_open.clone();
+        let screenshot_selection_start = screenshot_selection_start.clone();
+        let screenshot_scroll_container_id = screenshot_scroll_container_id.clone();
+        let screenshot_bar_total = screenshot_bars.len();
+        use_effect(move || {
+            if !screenshot_view_open() || screenshot_bar_total == 0 {
+                return;
+            }
+
+            let selected_start = screenshot_selection_start().min(screenshot_bar_total - 1);
+            let line_id = format!("{screenshot_scroll_container_id}-line-{selected_start}");
+            let script = format!(
+                r#"(function() {{
+                    const container = document.getElementById("{screenshot_scroll_container_id}");
+                    const line = document.getElementById("{line_id}");
+                    if (!container || !line) return;
+                    const cRect = container.getBoundingClientRect();
+                    const lRect = line.getBoundingClientRect();
+                    const target = container.scrollTop + (lRect.top - cRect.top) - (cRect.height / 2) + (lRect.height / 2);
+                    container.scrollTo({{ top: target, behavior: "auto" }});
+                }})();"#
+            );
+            let _ = document::eval(&script);
+        });
+    }
+
+    {
+        let screenshot_view_open = screenshot_view_open.clone();
+        let screenshot_manual_selection = screenshot_manual_selection.clone();
+        let mut screenshot_selection_start = screenshot_selection_start.clone();
+        let active_synced_index = active_synced_index;
+        let sync_lyrics = props.sync_lyrics;
+        let is_live_stream = props.is_live_stream;
+        use_effect(move || {
+            if !screenshot_view_open() || screenshot_manual_selection() || !sync_lyrics || is_live_stream
+            {
+                return;
+            }
+
+            if let Some(index) = active_synced_index {
+                if screenshot_selection_start() != index {
+                    screenshot_selection_start.set(index);
+                }
+            }
+        });
+    }
+
+    let on_open_screenshot_view = {
+        let mut screenshot_view_open = screenshot_view_open.clone();
+        let mut screenshot_selection_start = screenshot_selection_start.clone();
+        let mut screenshot_selection_count = screenshot_selection_count.clone();
+        let mut screenshot_manual_selection = screenshot_manual_selection.clone();
+        let mut screenshot_story_dimmed = screenshot_story_dimmed.clone();
+        let active_synced_index = active_synced_index;
+        let screenshot_bars = screenshot_bars.clone();
+        move |_| {
+            let focus_index = active_synced_index
+                .unwrap_or(0)
+                .min(screenshot_bars.len().saturating_sub(1));
+            screenshot_selection_start.set(focus_index);
+            screenshot_selection_count.set(1);
+            screenshot_manual_selection.set(false);
+            screenshot_story_dimmed.set(false);
+            screenshot_view_open.set(true);
+        }
+    };
+
+    let on_close_screenshot_view = {
+        let mut screenshot_view_open = screenshot_view_open.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            screenshot_view_open.set(false);
+        }
+    };
+
     rsx! {
         div { class: "space-y-4",
             div { class: "flex items-center justify-between gap-2",
                 button {
                     class: if search_panel_open() {
-                        "px-3 py-1.5 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-emerald-200 text-xs transition-colors flex items-center gap-2"
+                        "{toolbar_button_base_class} border-emerald-500/50 text-emerald-300 hover:text-emerald-200"
                     } else {
-                        "px-3 py-1.5 rounded-lg border border-zinc-700/70 text-zinc-300 hover:text-white text-xs transition-colors flex items-center gap-2"
+                        "{toolbar_button_base_class} border-zinc-700/70 text-zinc-300 hover:text-white"
                     },
+                    title: if search_panel_open() { "Close lyrics search" } else { "Open lyrics search" },
                     onclick: on_toggle_search_panel,
-                    Icon { name: "search".to_string(), class: "w-3.5 h-3.5".to_string() }
-                    if search_panel_open() {
-                        "Close Search"
-                    } else {
-                        "Find Lyrics"
-                    }
+                    Icon { name: "search".to_string(), class: "w-4.5 h-4.5".to_string() }
                 }
                 div { class: "flex items-center gap-2",
-                    button {
-                        class: "px-3 py-1.5 rounded-lg border border-zinc-700/70 text-zinc-300 hover:text-white text-xs transition-colors",
-                        onclick: move |evt| props.on_refresh.call(evt),
-                        "Refresh"
+                    if screenshot_mode_enabled {
+                        button {
+                            class: if screenshot_available {
+                                "{toolbar_button_base_class} border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-300"
+                            } else {
+                                "{toolbar_button_base_class} border-zinc-700/70 text-zinc-500 cursor-not-allowed"
+                            },
+                            title: "Open lyrics screenshot view",
+                            disabled: !screenshot_available,
+                            onclick: on_open_screenshot_view,
+                            Icon { name: "eye".to_string(), class: "w-4.5 h-4.5".to_string() }
+                        }
                     }
                     button {
-                        class: "px-3 py-1.5 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 hover:text-emerald-200 text-xs transition-colors",
+                        class: "{toolbar_button_base_class} border-zinc-700/70 text-zinc-300 hover:text-white",
+                        title: "Refresh lyrics",
+                        onclick: move |evt| props.on_refresh.call(evt),
+                        Icon { name: "refresh-cw".to_string(), class: "w-4.5 h-4.5".to_string() }
+                    }
+                    button {
+                        class: "{toolbar_button_base_class} border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:text-emerald-200",
+                        title: "Open lyrics settings",
                         onclick: on_open_settings,
-                        "Lyrics Settings"
+                        Icon { name: "settings".to_string(), class: "w-4.5 h-4.5".to_string() }
                     }
                 }
             }
@@ -350,7 +552,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                         "Live stream detected: synced lyric scrolling and seek controls are disabled."
                     }
                 }
-                match display_lyrics {
+                match display_lyrics.clone() {
                     None => {
                         if let Some(error) = fetch_error {
                             rsx! {
@@ -373,12 +575,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                     }
                     Some(lyrics) => {
                         if !props.sync_lyrics || lyrics.synced_lines.is_empty() {
-                            let lines = lyrics
-                                .plain_lyrics
-                                .lines()
-                                .map(str::trim)
-                                .filter(|line| !line.is_empty())
-                                .collect::<Vec<_>>();
+                            let lines = plain_lyrics_lines(&lyrics);
 
                             rsx! {
                                 div { class: "p-5 space-y-2",
@@ -440,6 +637,106 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                             }
                                         }
                                     }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            if screenshot_view_open() && screenshot_mode_enabled {
+                div {
+                    class: "fixed inset-0 z-[120] bg-black/88 backdrop-blur-md",
+                    onclick: {
+                        let mut screenshot_view_open = screenshot_view_open.clone();
+                        move |_| screenshot_view_open.set(false)
+                    },
+                    button {
+                        class: "absolute top-4 right-4 z-20 rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-6 md:right-6",
+                        onclick: on_close_screenshot_view,
+                        Icon { name: "x".to_string(), class: "w-5 h-5".to_string() }
+                    }
+                    button {
+                        class: if screenshot_story_guide_enabled {
+                            "absolute top-4 left-4 z-20 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:border-white/30 transition-colors md:top-6 md:left-6"
+                        } else {
+                            "absolute top-4 left-4 z-20 rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-medium text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-6 md:left-6"
+                        },
+                        onclick: {
+                            let mut screenshot_story_dimmed = screenshot_story_dimmed.clone();
+                            move |evt: MouseEvent| {
+                                evt.stop_propagation();
+                                screenshot_story_dimmed.set(!screenshot_story_dimmed());
+                            }
+                        },
+                        "Dim"
+                    }
+                    div {
+                        class: "flex h-full w-full flex-col",
+                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                        div {
+                            class: "relative flex-1 overflow-hidden bg-zinc-950 shadow-[0_40px_120px_rgba(0,0,0,0.65)]",
+                            if let Some(url) = screenshot_cover_url.clone() {
+                                img {
+                                    class: "absolute inset-0 h-full w-full object-cover scale-110 blur-3xl opacity-35",
+                                    src: "{url}",
+                                    alt: "{screenshot_song_title}",
+                                }
+                            }
+                            div { class: "absolute inset-0 bg-[linear-gradient(180deg,rgba(74,145,173,0.72)_0%,rgba(26,57,73,0.84)_42%,rgba(8,11,16,0.98)_100%)]" }
+                            if screenshot_story_guide_enabled {
+                                div { class: "pointer-events-none absolute inset-0 z-10 flex items-center justify-center",
+                                    div {
+                                        class: "border border-white/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)]",
+                                        style: "width:min(78vw, 78vh); height:min(78vw, 78vh);",
+                                    }
+                                }
+                            }
+                            div { class: "relative z-10 mx-auto flex h-full w-full {screenshot_content_width_class} flex-col px-6 pb-8 pt-6 md:px-12 md:pb-10 md:pt-10",
+                                div { class: "space-y-1 md:max-w-[70%]",
+                                    p { class: "text-[11px] uppercase tracking-[0.28em] text-white/55", "Lyrics Screenshot" }
+                                    h3 { class: "text-2xl md:text-4xl font-semibold leading-tight text-white", "{screenshot_song_title}" }
+                                    if let Some(artist) = screenshot_song_artist.clone() {
+                                        p { class: "text-sm md:text-base text-white/70", "{artist}" }
+                                    }
+                                }
+                                div {
+                                    id: "{screenshot_scroll_container_id}",
+                                    class: "mt-8 flex-1 overflow-y-auto pr-2 md:mt-10",
+                                    if screenshot_bars.is_empty() {
+                                        p { class: "text-lg text-white/70", "Lyrics unavailable." }
+                                    } else {
+                                        div { class: "max-w-4xl space-y-4 pb-24 md:space-y-5 md:pb-28",
+                                            for (index, bar) in screenshot_bars.iter().enumerate() {
+                                                button {
+                                                    id: format!("{screenshot_scroll_container_id}-line-{index}"),
+                                                    class: if index >= screenshot_selected_start && index <= screenshot_selected_end {
+                                                        screenshot_selected_line_class
+                                                    } else {
+                                                        screenshot_unselected_line_class
+                                                    },
+                                                    onclick: {
+                                                        let mut screenshot_selection_start = screenshot_selection_start.clone();
+                                                        let mut screenshot_selection_count = screenshot_selection_count.clone();
+                                                        let mut screenshot_manual_selection = screenshot_manual_selection.clone();
+                                                        move |_| {
+                                                            screenshot_manual_selection.set(true);
+                                                            if index >= screenshot_selected_start && index - screenshot_selected_start < 5 {
+                                                                screenshot_selection_count.set(index - screenshot_selected_start + 1);
+                                                            } else {
+                                                                screenshot_selection_start.set(index);
+                                                                screenshot_selection_count.set(1);
+                                                            }
+                                                        }
+                                                    },
+                                                    "{screenshot_bar_label(bar, screenshot_show_timestamps)}"
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                p { class: "mt-4 text-[11px] uppercase tracking-[0.22em] text-white/42",
+                                    "{screenshot_selected_count} of 5 bars selected • {screenshot_tip_text}"
                                 }
                             }
                         }

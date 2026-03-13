@@ -14,6 +14,7 @@ use crate::db::{
 };
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::run_auto_download_pass;
+use chrono::{DateTime, NaiveDateTime};
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
 use dioxus_router::components::Outlet;
@@ -84,7 +85,7 @@ fn home_init_warmup_cache_key(active_servers: &[ServerConfig]) -> String {
         .map(|server| server.id.clone())
         .collect();
     ids.sort();
-    format!("view:home:warmup:v1:{}", ids.join("|"))
+    format!("view:home:warmup:v2:{}", ids.join("|"))
 }
 
 fn home_init_cache_prefix(active_servers: &[ServerConfig]) -> String {
@@ -93,7 +94,7 @@ fn home_init_cache_prefix(active_servers: &[ServerConfig]) -> String {
         .map(|server| server.id.clone())
         .collect();
     ids.sort();
-    format!("view:home:v2:{}", ids.join("|"))
+    format!("view:home:v3:{}", ids.join("|"))
 }
 
 #[derive(Clone)]
@@ -302,6 +303,81 @@ fn home_init_song_key(song: &Song) -> String {
     format!("{}::{}", song.server_id, song.id)
 }
 
+fn parse_home_init_played_timestamp(value: &str) -> Option<i64> {
+    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
+        return Some(parsed.timestamp());
+    }
+
+    for format in [
+        "%Y-%m-%dT%H:%M:%S%.f",
+        "%Y-%m-%dT%H:%M:%S",
+        "%Y-%m-%d %H:%M:%S%.f",
+        "%Y-%m-%d %H:%M:%S",
+    ] {
+        if let Ok(parsed) = NaiveDateTime::parse_from_str(value, format) {
+            return Some(parsed.and_utc().timestamp());
+        }
+    }
+
+    None
+}
+
+fn compare_home_init_optional_i64_desc(
+    left: Option<i64>,
+    right: Option<i64>,
+) -> std::cmp::Ordering {
+    match (left, right) {
+        (Some(l), Some(r)) => r.cmp(&l),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn compare_home_init_optional_u32_desc(
+    left: Option<u32>,
+    right: Option<u32>,
+) -> std::cmp::Ordering {
+    match (left, right) {
+        (Some(l), Some(r)) => r.cmp(&l),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    }
+}
+
+fn compare_home_init_song_title(left: &Song, right: &Song) -> std::cmp::Ordering {
+    left.title.to_lowercase().cmp(&right.title.to_lowercase())
+}
+
+fn sort_home_init_songs(songs: &mut [Song], sort: NativeSongSortField) {
+    songs.sort_by(|left, right| {
+        let left_played = left
+            .played
+            .as_deref()
+            .and_then(parse_home_init_played_timestamp);
+        let right_played = right
+            .played
+            .as_deref()
+            .and_then(parse_home_init_played_timestamp);
+
+        match sort {
+            NativeSongSortField::PlayDate => {
+                compare_home_init_optional_i64_desc(left_played, right_played)
+                    .then_with(|| {
+                        compare_home_init_optional_u32_desc(left.play_count, right.play_count)
+                    })
+                    .then_with(|| compare_home_init_song_title(left, right))
+            }
+            NativeSongSortField::PlayCount => {
+                compare_home_init_optional_u32_desc(left.play_count, right.play_count)
+                    .then_with(|| compare_home_init_optional_i64_desc(left_played, right_played))
+                    .then_with(|| compare_home_init_song_title(left, right))
+            }
+        }
+    });
+}
+
 fn dedupe_home_init_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
     let mut seen = std::collections::HashSet::<String>::new();
     let mut output = Vec::<Song>::new();
@@ -315,6 +391,16 @@ fn dedupe_home_init_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
         }
     }
     output
+}
+
+fn merge_home_init_song_lists(
+    primary: Vec<Song>,
+    supplemental: Vec<Song>,
+    limit: usize,
+) -> Vec<Song> {
+    let mut merged = primary;
+    merged.extend(supplemental);
+    dedupe_home_init_songs(merged, limit)
 }
 
 async fn fetch_home_init_albums_for_servers(
@@ -367,29 +453,36 @@ async fn fetch_home_init_random_songs_for_servers(
     dedupe_home_init_songs(songs, limit as usize)
 }
 
-fn derive_home_init_song_sections(
-    mut pool: Vec<Song>,
-    section_limit: usize,
-) -> (Vec<Song>, Vec<Song>, Vec<Song>) {
-    if pool.is_empty() || section_limit == 0 {
-        return (Vec::new(), Vec::new(), Vec::new());
+async fn fetch_home_init_sorted_songs_for_servers(
+    active_servers: &[ServerConfig],
+    sort: NativeSongSortField,
+    limit: u32,
+) -> Vec<Song> {
+    if active_servers.is_empty() {
+        return Vec::new();
     }
 
-    let recent = dedupe_home_init_songs(pool.clone(), section_limit);
-
-    if pool.len() > 1 {
-        let step = (section_limit / 2).max(1).min(pool.len().saturating_sub(1));
-        pool.rotate_left(step);
+    let per_server_song_target = ((limit as usize).max(30) / active_servers.len()).max(20);
+    let mut songs = Vec::<Song>::new();
+    for server in active_servers.iter().cloned() {
+        let client = NavidromeClient::new(server);
+        let mut fetched = client
+            .get_native_songs(sort, NativeSortOrder::Desc, 0, per_server_song_target)
+            .await
+            .unwrap_or_default();
+        if fetched.is_empty() {
+            home_init_fetch_yield().await;
+            fetched = client
+                .get_native_songs(sort, NativeSortOrder::Desc, 0, per_server_song_target)
+                .await
+                .unwrap_or_default();
+        }
+        songs.append(&mut fetched);
+        home_init_fetch_yield().await;
     }
-    let most_played = dedupe_home_init_songs(pool.clone(), section_limit);
 
-    if pool.len() > 1 {
-        let step = (section_limit / 3).max(1).min(pool.len().saturating_sub(1));
-        pool.rotate_left(step);
-    }
-    let random = dedupe_home_init_songs(pool, HOME_INIT_RANDOM_FETCH_LIMIT);
-
-    (recent, most_played, random)
+    sort_home_init_songs(&mut songs, sort);
+    dedupe_home_init_songs(songs, limit as usize)
 }
 #[cfg(not(target_arch = "wasm32"))]
 async fn home_init_fetch_yield() {
@@ -446,22 +539,70 @@ async fn initialize_home_cache(
         progress.set(progress_value.clamp(0.0, 1.0));
         status.set(Some(message.to_string()));
     };
-    set_stage(0.08, "Fetching Home seed songs");
+    set_stage(0.08, "Fetching recently played songs");
     ios_diag_log(
         "home.init",
         &format!("start warmup servers={}", active_servers.len()),
     );
 
     let pool_size = (HOME_INIT_SECTION_FETCH_LIMIT * 3).max(HOME_INIT_RANDOM_FETCH_LIMIT * 2);
-    set_stage(0.18, "Fetching Home song pool");
     ios_diag_log(
         "home.init",
-        &format!("fetch random song pool size={pool_size}"),
+        &format!(
+            "fetch native recent songs limit={}",
+            HOME_INIT_SECTION_FETCH_LIMIT
+        ),
+    );
+    let mut recent_played = fetch_home_init_sorted_songs_for_servers(
+        active_servers,
+        NativeSongSortField::PlayDate,
+        HOME_INIT_SECTION_FETCH_LIMIT as u32,
+    )
+    .await;
+
+    set_stage(0.18, "Fetching most played songs");
+    ios_diag_log(
+        "home.init",
+        &format!(
+            "fetch native most played songs limit={}",
+            HOME_INIT_SECTION_FETCH_LIMIT
+        ),
+    );
+    let mut most_played_song_items = fetch_home_init_sorted_songs_for_servers(
+        active_servers,
+        NativeSongSortField::PlayCount,
+        HOME_INIT_SECTION_FETCH_LIMIT as u32,
+    )
+    .await;
+
+    set_stage(0.28, "Fetching random songs");
+    ios_diag_log(
+        "home.init",
+        &format!("fetch random fallback song pool size={pool_size}"),
     );
     let song_pool =
         fetch_home_init_random_songs_for_servers(active_servers, pool_size as u32).await;
-    let (recent_played, most_played_song_items, random_song_items) =
-        derive_home_init_song_sections(song_pool, HOME_INIT_SECTION_FETCH_LIMIT);
+    let random_song_items = dedupe_home_init_songs(song_pool.clone(), HOME_INIT_RANDOM_FETCH_LIMIT);
+
+    if recent_played.len() < HOME_INIT_SECTION_FETCH_LIMIT {
+        let mut fallback_recent = song_pool.clone();
+        sort_home_init_songs(&mut fallback_recent, NativeSongSortField::PlayDate);
+        recent_played = merge_home_init_song_lists(
+            recent_played,
+            fallback_recent,
+            HOME_INIT_SECTION_FETCH_LIMIT,
+        );
+    }
+
+    if most_played_song_items.len() < HOME_INIT_SECTION_FETCH_LIMIT {
+        let mut fallback_most_played = song_pool;
+        sort_home_init_songs(&mut fallback_most_played, NativeSongSortField::PlayCount);
+        most_played_song_items = merge_home_init_song_lists(
+            most_played_song_items,
+            fallback_most_played,
+            HOME_INIT_SECTION_FETCH_LIMIT,
+        );
+    }
 
     let recent_cached: Vec<Song> = recent_played
         .iter()
@@ -485,10 +626,18 @@ async fn initialize_home_cache(
     ios_diag_log(
         "home.init",
         &format!(
-            "song sections cached recent={} most_played={} random={}",
+            "song sections cached recent={} most_played={} random={} (native recent={} native most_played={})",
             recent_played.len(),
             most_played_song_items.len(),
-            random_song_items.len()
+            random_song_items.len(),
+            recent_played
+                .iter()
+                .filter(|song| song.played.is_some())
+                .count(),
+            most_played_song_items
+                .iter()
+                .filter(|song| song.play_count.is_some())
+                .count()
         ),
     );
     set_stage(0.42, "Song sections cached");

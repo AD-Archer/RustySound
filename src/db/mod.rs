@@ -88,6 +88,10 @@ pub struct AppSettings {
     pub lyrics_offset_ms: i32,
     #[serde(default)]
     pub lyrics_unsynced_mode: bool,
+    #[serde(default = "default_lyrics_screenshot_mode")]
+    pub lyrics_screenshot_mode: bool,
+    #[serde(default)]
+    pub lyrics_screenshot_timestamps: bool,
     #[serde(default = "default_bookmark_limit")]
     pub bookmark_limit: u32,
     #[serde(default = "default_bookmark_auto_save")]
@@ -114,6 +118,10 @@ pub struct AppSettings {
 
 fn default_lyrics_request_timeout_secs() -> u32 {
     4
+}
+
+fn default_lyrics_screenshot_mode() -> bool {
+    true
 }
 
 fn default_cache_expiry_days() -> i32 {
@@ -226,6 +234,8 @@ impl Default for AppSettings {
             lyrics_request_timeout_secs: default_lyrics_request_timeout_secs(),
             lyrics_offset_ms: 0,
             lyrics_unsynced_mode: false,
+            lyrics_screenshot_mode: default_lyrics_screenshot_mode(),
+            lyrics_screenshot_timestamps: false,
             bookmark_limit: default_bookmark_limit(),
             bookmark_auto_save: default_bookmark_auto_save(),
             bookmark_autoplay_on_launch: false,
