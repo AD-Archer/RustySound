@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
+source "${ROOT_DIR}/scripts/setup-rustup-env.sh"
 
 if ! command -v dx >/dev/null 2>&1; then
     echo "dx CLI is required (https://dioxuslabs.com/learn/0.7/getting_started)." >&2

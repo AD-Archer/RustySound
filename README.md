@@ -45,7 +45,7 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 ## Desktop
 
 ### IOS
-1. Add `https://ad-archer.github.io/linux-packages/source.json` as a source in [AltStore/AltServer](https://altstore.io/) or [LiveContainer](https://github.com/LiveContainer/LiveContainer)
+1. Add `https://ad-archer.github.io/packages/source.json` as a source in [AltStore/AltServer](https://altstore.io/) or [LiveContainer](https://github.com/LiveContainer/LiveContainer)
 2. Install RustySound from that source on your device
 3. Use the latest `.ipa` from [Releases](https://github.com/AD-Archer/RustySound/releases) only if you want to sideload manually instead of using the source feed
 
@@ -108,7 +108,7 @@ Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization se
 #### Flatpak (Recommended)
 
 ```bash
-flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/linux-packages/rustysound.flatpakrepo
+flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/packages/rustysound.flatpakrepo
 flatpak install --user adarcher-rustysound app.adarcher.rustysound
 flatpak run app.adarcher.rustysound
 ```

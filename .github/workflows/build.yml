@@ -147,6 +147,67 @@ jobs:
         APP_VERSION: ${{ needs.version.outputs.semver }}
         CREATE_MACOS_DMG: "0"
       run: ./scripts/bundle-apple.sh
+    - name: Verify Apple bundle versions
+      env:
+        EXPECTED_APP_VERSION: ${{ needs.version.outputs.semver }}
+      run: |
+        set -euo pipefail
+
+        IPA_PATH="$(find dist/apple/ios -maxdepth 1 -type f -name '*-unsigned.ipa' | head -n 1)"
+        APP_PATH="$(find dist/apple/macos -maxdepth 1 -type d -name '*.app' | head -n 1)"
+
+        if [[ -z "${IPA_PATH}" ]]; then
+          echo "Unsigned IPA not found under dist/apple/ios." >&2
+          exit 1
+        fi
+
+        if [[ -z "${APP_PATH}" ]]; then
+          echo "macOS app bundle not found under dist/apple/macos." >&2
+          exit 1
+        fi
+
+        export IPA_PATH APP_PATH EXPECTED_APP_VERSION
+        python3 - <<'PY'
+        import os
+        import plistlib
+        import re
+        import zipfile
+
+
+        def normalize(version: str) -> str:
+            normalized = re.split(r"[-+]", version, maxsplit=1)[0]
+            if not re.fullmatch(r"\d+(?:\.\d+){0,2}", normalized):
+                raise SystemExit(f"Unsupported Apple bundle version: {version}")
+            parts = normalized.split(".")
+            parts.extend(["0"] * (3 - len(parts)))
+            return ".".join(parts[:3])
+
+
+        expected = normalize(os.environ["EXPECTED_APP_VERSION"])
+        ipa_path = os.environ["IPA_PATH"]
+        app_path = os.environ["APP_PATH"]
+
+        with zipfile.ZipFile(ipa_path) as zf:
+            info_member = next(
+                (name for name in zf.namelist() if re.match(r"^Payload/[^/]+\.app/Info\.plist$", name)),
+                None,
+            )
+            if info_member is None:
+                raise SystemExit("IPA Info.plist not found")
+            ipa_info = plistlib.loads(zf.read(info_member))
+
+        with open(os.path.join(app_path, "Contents", "Info.plist"), "rb") as fh:
+            mac_info = plistlib.load(fh)
+
+        for label, info in (("IPA", ipa_info), ("macOS", mac_info)):
+            short = str(info.get("CFBundleShortVersionString", ""))
+            build = str(info.get("CFBundleVersion", ""))
+            print(f"{label}: CFBundleShortVersionString={short} CFBundleVersion={build}")
+            if short != expected or build != expected:
+                raise SystemExit(
+                    f"{label} bundle version mismatch: expected {expected}, got short={short}, build={build}"
+                )
+        PY
     - name: Sign macOS app (ad-hoc or notarized)
       env:
         MACOS_CERT_P12_BASE64: ${{ secrets.MACOS_CERT_P12_BASE64 }}

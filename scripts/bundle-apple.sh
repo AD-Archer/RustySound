@@ -12,6 +12,10 @@ IOS_ICON_SOURCE="${IOS_ICON_SOURCE:-${ROOT_DIR}/assets/web-app-manifest-512x512.
 DMG_INSTALL_FILE_NAME="${DMG_INSTALL_FILE_NAME:-INSTALL.txt}"
 CREATE_MACOS_DMG="${CREATE_MACOS_DMG:-1}"
 
+# Prefer Rustup shims so dx/cargo/rustc all see the same installed Apple targets.
+# Homebrew Rust on PATH can otherwise cause false "Missing rust target" failures.
+source "${ROOT_DIR}/scripts/setup-rustup-env.sh"
+
 resolve_app_version() {
     local version="${APP_VERSION}"
 
