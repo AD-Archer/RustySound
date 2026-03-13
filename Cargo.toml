@@ -1,6 +1,6 @@
 [package]
 name = "rustysound"
-version = "2.0.1"
+version = "2.0.2"
 authors = ["ad-archer <antonioarcher.dev@gmail.com>"]
 edition = "2021"
 
