@@ -377,10 +377,13 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         let screenshot_view_open = screenshot_view_open.clone();
         let screenshot_manual_selection = screenshot_manual_selection.clone();
         let mut screenshot_selection_start = screenshot_selection_start.clone();
+        let mut screenshot_selection_count = screenshot_selection_count.clone();
         let active_synced_index = active_synced_index;
         let sync_lyrics = props.sync_lyrics;
         let is_live_stream = props.is_live_stream;
+        let audio_state = audio_state.clone();
         use_effect(move || {
+            let _playback_tick = (audio_state().current_time)();
             if !screenshot_view_open()
                 || screenshot_manual_selection()
                 || !sync_lyrics
@@ -392,6 +395,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             if let Some(index) = active_synced_index {
                 if screenshot_selection_start() != index {
                     screenshot_selection_start.set(index);
+                }
+                if screenshot_selection_count() != 1 {
+                    screenshot_selection_count.set(1);
                 }
             }
         });
@@ -800,10 +806,23 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                                         id: format!("{screenshot_scroll_container_id}-line-{index}"),
                                                         class: if index >= screenshot_selected_start && index <= screenshot_selected_end { screenshot_selected_line_class } else { screenshot_unselected_line_class },
                                                         onclick: {
+                                                            let active_synced_index = active_synced_index;
                                                             let mut screenshot_selection_start = screenshot_selection_start.clone();
                                                             let mut screenshot_selection_count = screenshot_selection_count.clone();
                                                             let mut screenshot_manual_selection = screenshot_manual_selection.clone();
                                                             move |_| {
+                                                                if screenshot_manual_selection()
+                                                                    && index >= screenshot_selected_start
+                                                                    && index <= screenshot_selected_end
+                                                                {
+                                                                    screenshot_manual_selection.set(false);
+                                                                    screenshot_selection_count.set(1);
+                                                                    if let Some(active_index) = active_synced_index {
+                                                                        screenshot_selection_start.set(active_index);
+                                                                    }
+                                                                    return;
+                                                                }
+
                                                                 screenshot_manual_selection.set(true);
                                                                 if index >= screenshot_selected_start
                                                                     && index - screenshot_selected_start < 5
