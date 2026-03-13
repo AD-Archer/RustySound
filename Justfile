@@ -206,7 +206,7 @@ serve-ios-url url *args:
 bundle-apple:
     ./scripts/bundle-apple.sh
 
-# Build Android release bundle and collect only release artifacts into dist/android.
+# Build Android release APKs and collect them into dist/android.
 bundle-android-release *args:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c ./scripts/bundle-android.sh {{args}}; \

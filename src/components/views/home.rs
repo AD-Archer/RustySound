@@ -1,340 +1,60 @@
 use crate::api::*;
-use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
-use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::components::{
+    ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController, AppView, HomeFeedState,
+    Icon, Navigation,
+};
 use crate::db::AppSettings;
-use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
 use dioxus::prelude::*;
 
-const HOME_QUICK_PICK_LIMIT: usize = 8;
 const HOME_SECTION_BASE_COUNT: usize = 9;
 const HOME_SECTION_LOAD_STEP: usize = 6;
-const HOME_SECTION_CACHE_COUNT: usize = HOME_SECTION_BASE_COUNT + HOME_SECTION_LOAD_STEP;
-const HOME_SECTION_FETCH_LIMIT: usize = 30;
-const HOME_RANDOM_FETCH_LIMIT: usize = HOME_SECTION_FETCH_LIMIT;
-const HOME_ALBUM_PREVIEW_LIMIT: u32 = HOME_SECTION_BASE_COUNT as u32;
-const HOME_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
-const HOME_WARMUP_DEFAULT_ENABLED: bool = true;
-#[cfg(not(target_arch = "wasm32"))]
-const HOME_LYRICS_PREFETCH_LIMIT: usize = 4;
+const HOME_LOADING_FORCE_UNBLOCK_MS: u64 = 12_000;
 
-fn home_warmup_cache_key(active_servers: &[ServerConfig]) -> String {
-    let mut ids: Vec<String> = active_servers
-        .iter()
-        .map(|server| server.id.clone())
-        .collect();
-    ids.sort();
-    format!("view:home:warmup:v1:{}", ids.join("|"))
+fn loading_progress_percent(progress: f32) -> u32 {
+    (progress.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
-async fn fetch_albums_for_servers(
-    active_servers: &[ServerConfig],
-    album_type: &str,
-    limit: u32,
-) -> Vec<Album> {
-    let mut albums = Vec::<Album>::new();
-    for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
-        let mut fetched = client
-            .get_albums(album_type, limit, 0)
-            .await
-            .unwrap_or_default();
-
-        // Retry once to smooth transient issues (notably on mobile/webview clients).
-        if fetched.is_empty() {
-            home_fetch_yield().await;
-            fetched = client
-                .get_albums(album_type, limit, 0)
-                .await
-                .unwrap_or_default();
-        }
-
-        albums.append(&mut fetched);
-        if albums.len() >= limit as usize {
-            break;
-        }
-        home_fetch_yield().await;
-    }
-    albums.truncate(limit as usize);
-    albums
-}
-
-fn song_key(song: &Song) -> String {
-    format!("{}::{}", song.server_id, song.id)
-}
-
-fn dedupe_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
-    let mut seen = std::collections::HashSet::<String>::new();
-    let mut output = Vec::<Song>::new();
-    for song in songs {
-        let key = song_key(&song);
-        if seen.insert(key) {
-            output.push(song);
-        }
-        if output.len() >= limit {
-            break;
-        }
-    }
-    output
-}
-
-#[cfg(target_arch = "wasm32")]
-fn derive_web_song_sections(
-    mut pool: Vec<Song>,
-    section_limit: usize,
-) -> (Vec<Song>, Vec<Song>, Vec<Song>) {
-    if pool.is_empty() || section_limit == 0 {
-        return (Vec::new(), Vec::new(), Vec::new());
-    }
-
-    let recent = dedupe_songs(pool.clone(), section_limit);
-
-    if pool.len() > 1 {
-        let step = (section_limit / 2).max(1).min(pool.len().saturating_sub(1));
-        pool.rotate_left(step);
-    }
-    let most_played = dedupe_songs(pool.clone(), section_limit);
-
-    if pool.len() > 1 {
-        let step = (section_limit / 3).max(1).min(pool.len().saturating_sub(1));
-        pool.rotate_left(step);
-    }
-    let random = dedupe_songs(pool, HOME_RANDOM_FETCH_LIMIT);
-
-    (recent, most_played, random)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn prefetch_lrclib_lyrics_for_songs(songs: Vec<Song>, limit: usize) {
-    if limit == 0 || songs.is_empty() {
-        return;
-    }
-
-    let providers = vec!["lrclib".to_string()];
-    let mut seen = std::collections::HashSet::<String>::new();
-    let mut prefetched = 0usize;
-    let start = PerfTimer::now();
-
-    for song in songs {
-        let key = song_key(&song);
-        if !seen.insert(key) {
-            continue;
-        }
-        if song.title.trim().is_empty() {
-            continue;
-        }
-
-        let query = LyricsQuery::from_song(&song);
-        let _ = fetch_lyrics_with_fallback(&query, &providers, 4).await;
-        prefetched += 1;
-        if prefetched >= limit {
-            break;
-        }
-        home_fetch_yield().await;
-    }
-
-    log_perf(
-        "home.lyrics_prefetch",
-        start,
-        &format!("prefetched={prefetched}"),
-    );
-}
-
-async fn fetch_random_songs_for_servers(active_servers: &[ServerConfig], limit: u32) -> Vec<Song> {
-    let mut songs = Vec::<Song>::new();
-    for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
-        let mut fetched = client.get_random_songs(limit).await.unwrap_or_default();
-        if fetched.is_empty() {
-            home_fetch_yield().await;
-            fetched = client.get_random_songs(limit).await.unwrap_or_default();
-        }
-        songs.append(&mut fetched);
-        if songs.len() >= limit as usize {
-            break;
-        }
-        home_fetch_yield().await;
-    }
-    dedupe_songs(songs, limit as usize)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn fetch_native_activity_songs_for_servers(
-    active_servers: &[ServerConfig],
-    sort: NativeSongSortField,
-    limit: u32,
-) -> Vec<Song> {
-    let mut songs = Vec::<Song>::new();
-    let end = limit.saturating_sub(1) as usize;
-
-    for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
-        let mut fetched = client
-            .get_native_songs(sort, NativeSortOrder::Desc, 0, end)
-            .await
-            .unwrap_or_default();
-
-        // Retry once for intermittent native API auth/network hiccups.
-        if fetched.is_empty() {
-            home_fetch_yield().await;
-            fetched = client
-                .get_native_songs(sort, NativeSortOrder::Desc, 0, end)
-                .await
-                .unwrap_or_default();
-        }
-
-        songs.append(&mut fetched);
-        if songs.len() >= limit as usize {
-            break;
-        }
-        home_fetch_yield().await;
-    }
-
-    dedupe_songs(songs, limit as usize)
-}
-
-#[cfg(target_arch = "wasm32")]
-#[allow(dead_code)]
-async fn fetch_native_activity_songs_for_servers(
-    active_servers: &[ServerConfig],
-    _sort: NativeSongSortField,
-    limit: u32,
-) -> Vec<Song> {
-    // Native API endpoints are expensive/unstable on web clients.
-    // Use regular Subsonic random songs for fast, reliable home loading.
-    fetch_random_songs_for_servers(active_servers, limit).await
-}
-
-async fn fetch_similar_songs_for_seeds(
-    active_servers: &[ServerConfig],
-    seeds: &[Song],
-    per_seed: u32,
-    total_limit: usize,
-) -> Vec<Song> {
-    if seeds.is_empty() || per_seed == 0 {
-        return Vec::new();
-    }
-
-    let seed_keys = seeds
-        .iter()
-        .map(song_key)
-        .collect::<std::collections::HashSet<_>>();
-    let mut similar = Vec::<Song>::new();
-
-    for seed in seeds.iter().take(8).cloned() {
-        let Some(server) = active_servers
-            .iter()
-            .find(|s| s.id == seed.server_id)
-            .cloned()
-        else {
-            continue;
-        };
-
-        let client = NavidromeClient::new(server);
-        let mut fetched = client
-            .get_similar_songs2(&seed.id, per_seed)
-            .await
-            .unwrap_or_default();
-        if fetched.is_empty() {
-            fetched = client
-                .get_similar_songs(&seed.id, per_seed)
-                .await
-                .unwrap_or_default();
-        }
-        similar.append(&mut fetched);
-        home_fetch_yield().await;
-    }
-
-    similar.retain(|song| !seed_keys.contains(&song_key(song)));
-
-    dedupe_songs(similar, total_limit)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn build_quick_picks_mix(
-    active_servers: &[ServerConfig],
-    most_played_songs: &[Song],
-    limit: usize,
-) -> Vec<Song> {
-    if limit == 0 {
-        return Vec::new();
-    }
-
-    let anchors = dedupe_songs(most_played_songs.to_vec(), 8);
-    let similar = fetch_similar_songs_for_seeds(active_servers, &anchors, 4, limit * 3).await;
-    let random =
-        fetch_random_songs_for_servers(active_servers, (limit as u32).saturating_mul(2)).await;
-
-    let mut anchor_iter = anchors.into_iter();
-    let mut similar_iter = similar.into_iter();
-    let mut random_iter = random.into_iter();
-    let mut seen = std::collections::HashSet::<String>::new();
-    let mut mixed = Vec::<Song>::new();
-
-    loop {
-        let mut progressed = false;
-
-        if let Some(song) = anchor_iter.next() {
-            progressed = true;
-            let key = song_key(&song);
-            if seen.insert(key) {
-                mixed.push(song);
+#[component]
+fn LoadingProgressBar(progress: f32, stage: String) -> Element {
+    let percent = loading_progress_percent(progress);
+    rsx! {
+        div { class: "w-full space-y-2",
+            div { class: "flex items-center justify-between gap-3 text-xs text-zinc-500",
+                p { class: "truncate text-left", "{stage}" }
+                p { class: "shrink-0 font-medium text-zinc-400", "{percent}%" }
+            }
+            div { class: "h-2 overflow-hidden rounded-full bg-zinc-800/80",
+                div {
+                    class: "h-full rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-300 transition-[width] duration-500 ease-out",
+                    style: format!("width: {percent}%;"),
+                }
             }
         }
-
-        if mixed.len() >= limit {
-            break;
-        }
-
-        if let Some(song) = similar_iter.next() {
-            progressed = true;
-            let key = song_key(&song);
-            if seen.insert(key) {
-                mixed.push(song);
-            }
-        }
-
-        if mixed.len() >= limit {
-            break;
-        }
-
-        if let Some(song) = random_iter.next() {
-            progressed = true;
-            let key = song_key(&song);
-            if seen.insert(key) {
-                mixed.push(song);
-            }
-        }
-
-        if mixed.len() >= limit || !progressed {
-            break;
-        }
     }
-
-    mixed.truncate(limit);
-    mixed
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn build_quick_picks_mix(
-    active_servers: &[ServerConfig],
-    _most_played_songs: &[Song],
-    limit: usize,
-) -> Vec<Song> {
-    if limit == 0 {
-        return Vec::new();
-    }
-    fetch_random_songs_for_servers(active_servers, limit as u32).await
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn home_fetch_yield() {
-    tokio::task::yield_now().await;
+async fn home_loading_log_poll_sleep() {
+    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
 }
 
 #[cfg(target_arch = "wasm32")]
-async fn home_fetch_yield() {
-    gloo_timers::future::TimeoutFuture::new(0).await;
+async fn home_loading_log_poll_sleep() {
+    gloo_timers::future::TimeoutFuture::new(350).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn home_now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| duration.as_millis() as u64)
+        .unwrap_or(0)
+}
+
+#[cfg(target_arch = "wasm32")]
+fn home_now_millis() -> u64 {
+    js_sys::Date::now().max(0.0).round() as u64
 }
 
 #[component]
@@ -346,331 +66,222 @@ pub fn HomeView() -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
 
-    let recent_albums = use_signal(|| None::<Vec<Album>>);
-    let most_played_albums = use_signal(|| None::<Vec<Album>>);
-    let recently_played_songs = use_signal(|| None::<Vec<Song>>);
-    let most_played_songs = use_signal(|| None::<Vec<Song>>);
-    let random_songs = use_signal(|| None::<Vec<Song>>);
-    let quick_picks = use_signal(|| None::<Vec<Song>>);
-    let home_warmup_enabled = use_signal(|| HOME_WARMUP_DEFAULT_ENABLED);
-    let load_generation = use_signal(|| 0u64);
+    let home_feed = use_context::<HomeFeedState>();
+    let recent_albums = home_feed.recent_albums;
+    let most_played_albums = home_feed.most_played_albums;
+    let recently_played_songs = home_feed.recently_played_songs;
+    let most_played_songs = home_feed.most_played_songs;
+    let random_songs = home_feed.random_songs;
+    let quick_picks = home_feed.quick_picks;
+    let home_loading_progress = home_feed.progress;
+    let home_loading_status = home_feed.status;
+    let mut ios_loading_log_lines = use_signal(Vec::<String>::new);
+    let mut ios_loading_log_poll_generation = use_signal(|| 0u64);
+    let mut home_loading_started_at_ms = use_signal(|| None::<u64>);
+    let mut home_loading_elapsed_ms = use_signal(|| 0u64);
+    let mut home_loading_force_unblocked = use_signal(|| false);
     let mut most_played_album_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
     let mut most_played_song_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
     let mut last_played_song_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
     let mut random_song_visible = use_signal(|| HOME_SECTION_BASE_COUNT);
 
-    {
-        let servers = servers.clone();
-        let mut home_warmup_enabled = home_warmup_enabled.clone();
-        use_effect(move || {
-            let active_servers: Vec<ServerConfig> = servers()
-                .into_iter()
-                .filter(|server| server.active)
-                .collect();
-            if active_servers.is_empty() {
-                home_warmup_enabled.set(false);
-                return;
-            }
-
-            let cache_key = home_warmup_cache_key(&active_servers);
-            let enabled = cache_get_json::<bool>(&cache_key).unwrap_or(HOME_WARMUP_DEFAULT_ENABLED);
-            home_warmup_enabled.set(enabled);
-        });
-    }
-
-    {
-        let servers = servers.clone();
-        let home_warmup_enabled = home_warmup_enabled.clone();
-        let mut recent_albums = recent_albums.clone();
-        let mut most_played_albums = most_played_albums.clone();
-        let mut recently_played_songs = recently_played_songs.clone();
-        let mut most_played_songs = most_played_songs.clone();
-        let mut random_songs = random_songs.clone();
-        let mut quick_picks = quick_picks.clone();
-        let mut load_generation = load_generation.clone();
-
-        use_effect(move || {
-            let warmup_enabled = home_warmup_enabled();
-            let active_servers: Vec<ServerConfig> =
-                servers().into_iter().filter(|s| s.active).collect();
-            let mut cache_server_ids: Vec<String> = active_servers
-                .iter()
-                .map(|server| server.id.clone())
-                .collect();
-            cache_server_ids.sort();
-            let cache_prefix = format!("view:home:v2:{}", cache_server_ids.join("|"));
-            let recent_cache_key = format!("{cache_prefix}:recent_albums");
-            let most_played_album_cache_key = format!("{cache_prefix}:most_played_albums");
-            let recent_song_cache_key = format!("{cache_prefix}:recent_songs");
-            let most_played_song_cache_key = format!("{cache_prefix}:most_played_songs");
-            let random_song_cache_key = format!("{cache_prefix}:random_songs");
-            let quick_pick_cache_key = format!("{cache_prefix}:quick_picks");
-
-            load_generation.with_mut(|value| *value = value.saturating_add(1));
-            let generation = *load_generation.peek();
-
-            recent_albums.set(cache_get_json::<Vec<Album>>(&recent_cache_key));
-            most_played_albums.set(cache_get_json::<Vec<Album>>(&most_played_album_cache_key));
-            recently_played_songs.set(cache_get_json::<Vec<Song>>(&recent_song_cache_key));
-            most_played_songs.set(cache_get_json::<Vec<Song>>(&most_played_song_cache_key));
-            random_songs.set(cache_get_json::<Vec<Song>>(&random_song_cache_key));
-            quick_picks.set(cache_get_json::<Vec<Song>>(&quick_pick_cache_key));
-
-            if active_servers.is_empty() {
-                recent_albums.set(Some(Vec::new()));
-                most_played_albums.set(Some(Vec::new()));
-                recently_played_songs.set(Some(Vec::new()));
-                most_played_songs.set(Some(Vec::new()));
-                random_songs.set(Some(Vec::new()));
-                quick_picks.set(Some(Vec::new()));
-                return;
-            }
-
-            if !warmup_enabled {
-                return;
-            }
-
-            spawn(async move {
-                let total_start = PerfTimer::now();
-
-                #[cfg(not(target_arch = "wasm32"))]
-                let (recent_played, most_played_song_items, random_song_items) = {
-                    let recent_played_start = PerfTimer::now();
-                    let recent_played = fetch_native_activity_songs_for_servers(
-                        &active_servers,
-                        NativeSongSortField::PlayDate,
-                        HOME_SECTION_FETCH_LIMIT as u32,
-                    )
-                    .await;
-                    let recent_cached: Vec<Song> = recent_played
-                        .iter()
-                        .take(HOME_SECTION_CACHE_COUNT)
-                        .cloned()
-                        .collect();
-                    let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
-                    log_perf(
-                        "home.recently_played_songs",
-                        recent_played_start,
-                        &format!("count={}", recent_played.len()),
-                    );
-                    if *load_generation.peek() != generation {
-                        return;
-                    }
-                    recently_played_songs.set(Some(recent_played.clone()));
-                    home_fetch_yield().await;
-
-                    let most_played_song_start = PerfTimer::now();
-                    let most_played_song_items = fetch_native_activity_songs_for_servers(
-                        &active_servers,
-                        NativeSongSortField::PlayCount,
-                        HOME_SECTION_FETCH_LIMIT as u32,
-                    )
-                    .await;
-                    let most_played_cached: Vec<Song> = most_played_song_items
-                        .iter()
-                        .take(HOME_SECTION_CACHE_COUNT)
-                        .cloned()
-                        .collect();
-                    let _ = cache_put_json(
-                        most_played_song_cache_key.clone(),
-                        &most_played_cached,
-                        Some(6),
-                    );
-                    log_perf(
-                        "home.most_played_songs",
-                        most_played_song_start,
-                        &format!("count={}", most_played_song_items.len()),
-                    );
-                    if *load_generation.peek() != generation {
-                        return;
-                    }
-                    most_played_songs.set(Some(most_played_song_items.clone()));
-                    home_fetch_yield().await;
-
-                    let random_start = PerfTimer::now();
-                    let random_song_items = fetch_random_songs_for_servers(
-                        &active_servers,
-                        HOME_RANDOM_FETCH_LIMIT as u32,
-                    )
-                    .await;
-                    let _ =
-                        cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
-                    log_perf(
-                        "home.random_songs",
-                        random_start,
-                        &format!("count={}", random_song_items.len()),
-                    );
-                    if *load_generation.peek() != generation {
-                        return;
-                    }
-                    random_songs.set(Some(random_song_items.clone()));
-                    home_fetch_yield().await;
-
-                    (recent_played, most_played_song_items, random_song_items)
-                };
-
-                #[cfg(target_arch = "wasm32")]
-                let (_recent_played, most_played_song_items, random_song_items) = {
-                    let web_song_start = PerfTimer::now();
-                    let pool_size = (HOME_SECTION_FETCH_LIMIT * 3).max(HOME_RANDOM_FETCH_LIMIT * 2);
-                    let song_pool =
-                        fetch_random_songs_for_servers(&active_servers, pool_size as u32).await;
-                    let (recent_played, most_played_song_items, random_song_items) =
-                        derive_web_song_sections(song_pool, HOME_SECTION_FETCH_LIMIT);
-
-                    let recent_cached: Vec<Song> = recent_played
-                        .iter()
-                        .take(HOME_SECTION_CACHE_COUNT)
-                        .cloned()
-                        .collect();
-                    let most_played_cached: Vec<Song> = most_played_song_items
-                        .iter()
-                        .take(HOME_SECTION_CACHE_COUNT)
-                        .cloned()
-                        .collect();
-                    let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
-                    let _ = cache_put_json(
-                        most_played_song_cache_key.clone(),
-                        &most_played_cached,
-                        Some(6),
-                    );
-                    let _ =
-                        cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
-
-                    log_perf(
-                        "home.web_song_sections",
-                        web_song_start,
-                        &format!(
-                            "recent={} most_played={} random={}",
-                            recent_played.len(),
-                            most_played_song_items.len(),
-                            random_song_items.len()
-                        ),
-                    );
-                    if *load_generation.peek() != generation {
-                        return;
-                    }
-                    recently_played_songs.set(Some(recent_played.clone()));
-                    most_played_songs.set(Some(most_played_song_items.clone()));
-                    random_songs.set(Some(random_song_items.clone()));
-                    home_fetch_yield().await;
-
-                    (recent_played, most_played_song_items, random_song_items)
-                };
-
-                let quick_pick_start = PerfTimer::now();
-                let mut quick = build_quick_picks_mix(
-                    &active_servers,
-                    &most_played_song_items,
-                    HOME_QUICK_PICK_LIMIT,
-                )
-                .await;
-                if quick.is_empty() {
-                    quick = dedupe_songs(random_song_items.clone(), HOME_QUICK_PICK_LIMIT);
-                }
-                if quick.is_empty() {
-                    quick = fetch_random_songs_for_servers(
-                        &active_servers,
-                        HOME_QUICK_PICK_LIMIT as u32,
-                    )
-                    .await;
-                }
-                let _ = cache_put_json(quick_pick_cache_key.clone(), &quick, Some(3));
-                log_perf(
-                    "home.quick_picks",
-                    quick_pick_start,
-                    &format!("count={}", quick.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                quick_picks.set(Some(quick));
-                home_fetch_yield().await;
-
-                let recent_start = PerfTimer::now();
-                let recent =
-                    fetch_albums_for_servers(&active_servers, "newest", HOME_ALBUM_PREVIEW_LIMIT)
-                        .await;
-                let _ = cache_put_json(recent_cache_key.clone(), &recent, Some(6));
-                log_perf(
-                    "home.recent_albums",
-                    recent_start,
-                    &format!("count={}", recent.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                recent_albums.set(Some(recent));
-                home_fetch_yield().await;
-
-                let most_played_start = PerfTimer::now();
-                let most_played = fetch_albums_for_servers(
-                    &active_servers,
-                    "frequent",
-                    HOME_SECTION_FETCH_LIMIT as u32,
-                )
-                .await;
-                let most_played_cached: Vec<Album> = most_played
-                    .iter()
-                    .take(HOME_SECTION_CACHE_COUNT)
-                    .cloned()
-                    .collect();
-                let _ = cache_put_json(
-                    most_played_album_cache_key.clone(),
-                    &most_played_cached,
-                    Some(6),
-                );
-                log_perf(
-                    "home.most_played_albums",
-                    most_played_start,
-                    &format!("count={}", most_played.len()),
-                );
-                if *load_generation.peek() != generation {
-                    return;
-                }
-                most_played_albums.set(Some(most_played));
-
-                log_perf(
-                    "home.total",
-                    total_start,
-                    &format!("servers={}", active_servers.len()),
-                );
-
-                #[cfg(not(target_arch = "wasm32"))]
-                {
-                    let mut lyrics_seeds = most_played_song_items.clone();
-                    lyrics_seeds.extend(recent_played.into_iter());
-                    spawn(async move {
-                        prefetch_lrclib_lyrics_for_songs(lyrics_seeds, HOME_LYRICS_PREFETCH_LIMIT)
-                            .await;
-                    });
-                }
-            });
-        });
-    }
+    use_effect(move || {
+        ios_diag_log("home.view.mount", "HomeView mounted");
+    });
 
     let has_servers = servers().iter().any(|s| s.active);
-    let warmup_enabled = home_warmup_enabled();
-    let on_force_home_warmup = {
-        let servers = servers.clone();
-        let mut home_warmup_enabled = home_warmup_enabled.clone();
-        move |_| {
-            let active_servers: Vec<ServerConfig> = servers()
-                .into_iter()
-                .filter(|server| server.active)
-                .collect();
-            if active_servers.is_empty() {
-                return;
-            }
+    let is_home_album_loading =
+        has_servers && (recent_albums().is_none() || most_played_albums().is_none());
+    let show_home_album_overlay = is_home_album_loading && !home_loading_force_unblocked();
+    let show_ios_loading_logs = cfg!(all(not(target_arch = "wasm32"), target_os = "ios"));
 
-            let cache_key = home_warmup_cache_key(&active_servers);
-            let _ = cache_put_json(cache_key, &true, Some(HOME_WARMUP_FLAG_CACHE_HOURS));
-            home_warmup_enabled.set(true);
+    use_effect(move || {
+        let recent_album_count = recent_albums().as_ref().map(Vec::len);
+        let most_played_album_count = most_played_albums().as_ref().map(Vec::len);
+        let recent_song_count = recently_played_songs().as_ref().map(Vec::len);
+        let most_played_song_count = most_played_songs().as_ref().map(Vec::len);
+        let random_song_count = random_songs().as_ref().map(Vec::len);
+        let quick_pick_count = quick_picks().as_ref().map(Vec::len);
+
+        ios_diag_log(
+            "home.view.state",
+            &format!(
+                "servers_active={} overlay={} recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
+                has_servers,
+                show_home_album_overlay,
+                recent_album_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "pending".to_string()),
+                most_played_album_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "pending".to_string()),
+                recent_song_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "pending".to_string()),
+                most_played_song_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "pending".to_string()),
+                random_song_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "pending".to_string()),
+                quick_pick_count
+                    .map(|count| count.to_string())
+                    .unwrap_or_else(|| "pending".to_string()),
+            ),
+        );
+    });
+
+    use_effect(move || {
+        if !is_home_album_loading {
+            home_loading_started_at_ms.set(None);
+            home_loading_elapsed_ms.set(0);
+            home_loading_force_unblocked.set(false);
+            return;
+        }
+
+        if home_loading_started_at_ms().is_some() {
+            return;
+        }
+
+        let started_at = home_now_millis();
+        home_loading_started_at_ms.set(Some(started_at));
+        home_loading_elapsed_ms.set(0);
+        home_loading_force_unblocked.set(false);
+        ios_diag_log(
+            "home.view.load",
+            &format!("album loading overlay shown at={started_at}"),
+        );
+    });
+
+    use_effect(move || {
+        if !cfg!(all(not(target_arch = "wasm32"), target_os = "ios")) {
+            ios_loading_log_lines.set(Vec::new());
+            return;
+        }
+
+        if !is_home_album_loading {
+            ios_loading_log_lines.set(Vec::new());
+            ios_loading_log_poll_generation
+                .with_mut(|generation| *generation = generation.saturating_add(1));
+            return;
+        }
+
+        ios_loading_log_poll_generation
+            .with_mut(|generation| *generation = generation.saturating_add(1));
+        let generation = *ios_loading_log_poll_generation.peek();
+        let mut ios_loading_log_lines = ios_loading_log_lines.clone();
+        let ios_loading_log_poll_generation = ios_loading_log_poll_generation.clone();
+        let mut home_loading_started_at_ms = home_loading_started_at_ms.clone();
+        let mut home_loading_elapsed_ms = home_loading_elapsed_ms.clone();
+        let mut home_loading_force_unblocked = home_loading_force_unblocked.clone();
+        spawn(async move {
+            loop {
+                ios_loading_log_lines.set(ios_audio_log_snapshot(16));
+                let started_at_ms = match home_loading_started_at_ms() {
+                    Some(value) => value,
+                    None => {
+                        let now = home_now_millis();
+                        home_loading_started_at_ms.set(Some(now));
+                        now
+                    }
+                };
+                let elapsed_ms = home_now_millis().saturating_sub(started_at_ms);
+                home_loading_elapsed_ms.set(elapsed_ms);
+
+                if !home_loading_force_unblocked() && elapsed_ms >= HOME_LOADING_FORCE_UNBLOCK_MS {
+                    home_loading_force_unblocked.set(true);
+                    ios_diag_log(
+                        "home.view.load",
+                        &format!(
+                            "force dismiss album loading overlay after {elapsed_ms}ms timeout"
+                        ),
+                    );
+                }
+                home_loading_log_poll_sleep().await;
+                if *ios_loading_log_poll_generation.peek() != generation {
+                    break;
+                }
+            }
+        });
+    });
+
+    let ios_loading_logs_preview = ios_loading_log_lines();
+    let home_loading_elapsed_ms = home_loading_elapsed_ms();
+    let home_loading_progress_value = home_loading_progress();
+    let home_loading_status_text =
+        home_loading_status().unwrap_or_else(|| "Loading Home feed".to_string());
+    let home_loading_recent_count_value = recent_albums().as_ref().map(Vec::len);
+    let home_loading_most_played_count_value = most_played_albums().as_ref().map(Vec::len);
+    let home_loading_error_text = None::<String>;
+    let on_unblock_home_loading = {
+        let mut home_loading_force_unblocked = home_loading_force_unblocked.clone();
+        move |_| {
+            home_loading_force_unblocked.set(true);
+            ios_diag_log("home.view.load", "manual dismiss of album loading overlay");
         }
     };
-
     rsx! {
         div { class: "space-y-8 max-w-none",
+            if show_home_album_overlay {
+                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm overflow-y-auto px-6 py-8 flex items-center justify-center",
+                    div { class: "w-full max-w-lg text-center space-y-4 rounded-2xl border border-zinc-700/70 bg-zinc-950/95 px-5 py-5 shadow-2xl",
+                        div { class: "flex items-center justify-center",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-10 h-10 text-emerald-400 animate-spin".to_string(),
+                            }
+                        }
+                        h2 { class: "text-xl font-semibold text-white", "Loading Home" }
+                        p { class: "text-sm text-zinc-400",
+                            "Fetching albums and preparing your home feed."
+                        }
+                        LoadingProgressBar {
+                            progress: home_loading_progress_value,
+                            stage: home_loading_status_text,
+                        }
+                        div { class: "grid grid-cols-2 gap-3 text-left",
+                            div { class: "rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2",
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500", "Recent Albums" }
+                                p { class: "text-sm font-medium text-white",
+                                    match home_loading_recent_count_value {
+                                        Some(count) => format!("{count}"),
+                                        None => "Pending".to_string(),
+                                    }
+                                }
+                            }
+                            div { class: "rounded-xl border border-zinc-800 bg-zinc-900/70 px-3 py-2",
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500", "Most Played Albums" }
+                                p { class: "text-sm font-medium text-white",
+                                    match home_loading_most_played_count_value {
+                                        Some(count) => format!("{count}"),
+                                        None => "Pending".to_string(),
+                                    }
+                                }
+                            }
+                        }
+                        p { class: "text-xs text-zinc-500",
+                            "Elapsed: {home_loading_elapsed_ms} ms"
+                        }
+                        if let Some(error_text) = home_loading_error_text {
+                            p { class: "text-xs text-amber-300", "{error_text}" }
+                        }
+                        button {
+                            class: "mt-1 px-3 py-2 rounded-lg border border-zinc-600 text-zinc-200 hover:text-white hover:border-zinc-400 transition-colors text-sm",
+                            onclick: on_unblock_home_loading,
+                            "Continue without blocking"
+                        }
+                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
+                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-72 overflow-y-auto",
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
+                                for line in ios_loading_logs_preview.iter() {
+                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
             // Welcome header
             header { class: "page-header",
                 h1 { class: "page-title", "Good evening" }
@@ -774,34 +385,8 @@ pub fn HomeView() -> Element {
                     }
                 }
 
-                if !warmup_enabled {
-                    section { class: "rounded-2xl border border-zinc-700/60 bg-zinc-900/50 p-5 space-y-4",
-                        div { class: "flex items-start justify-between gap-3",
-                            div { class: "space-y-1",
-                                h2 { class: "text-lg font-semibold text-white", "Warm Up Home Feed" }
-                                p { class: "text-sm text-zinc-400",
-                                    "Home recommendations are paused to reduce initial load on mobile/web builds."
-                                }
-                            }
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-5 h-5 text-emerald-400 flex-shrink-0".to_string(),
-                            }
-                        }
-                        div { class: "flex flex-wrap items-center gap-2",
-                            button {
-                                class: "px-4 py-2 rounded-lg bg-emerald-500/90 hover:bg-emerald-400 text-white text-sm font-medium transition-colors",
-                                onclick: on_force_home_warmup,
-                                "Force Load Home"
-                            }
-                            p { class: "text-xs text-zinc-500",
-                                "This stores a warm-up flag in cache so future opens load the full feed."
-                            }
-                        }
-                    }
-                } else {
-                    // Recently added albums
-                    section { class: "mb-8",
+                // Recently added albums
+                section { class: "mb-8",
                     div { class: "flex items-center justify-between mb-4",
                         h2 { class: "text-xl font-semibold text-white", "Recently Added" }
                         button {
@@ -1162,7 +747,6 @@ pub fn HomeView() -> Element {
                             },
                         }
                     }
-                }
                 }
             }
         }

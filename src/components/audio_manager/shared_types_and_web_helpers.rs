@@ -325,7 +325,7 @@ static IOS_DIAG_BUFFER: Lazy<Mutex<VecDeque<String>>> = Lazy::new(|| Mutex::new(
 const IOS_DIAG_BUFFER_MAX_LINES: usize = 1200;
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn ios_diag_log(tag: &str, message: &str) {
+pub fn ios_diag_log(tag: &str, message: &str) {
     if !ios_diag_enabled() {
         return;
     }
@@ -603,7 +603,7 @@ fn ios_diag_now_ms() -> u128 {
 }
 
 #[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
-fn ios_diag_log(_tag: &str, _message: &str) {}
+pub fn ios_diag_log(_tag: &str, _message: &str) {}
 
 #[cfg(target_arch = "wasm32")]
 fn web_sync_media_session_metadata(song: Option<&Song>, servers: &[ServerConfig]) {

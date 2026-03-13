@@ -302,7 +302,7 @@ pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element 
         .to_uppercase();
 
     rsx! {
-        button { class: "group text-center", onclick: move |e| onclick.call(e),
+        button { class: "group w-full min-w-0 text-center", onclick: move |e| onclick.call(e),
             // Artist image
             div { class: "aspect-square rounded-full bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow mx-auto",
                 {
@@ -328,10 +328,12 @@ pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element 
                 }
             }
             // Artist info
-            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
-                "{artist.name}"
+            div { class: "min-w-0 space-y-1",
+                p { class: "font-medium text-white text-sm leading-snug whitespace-normal break-words [overflow-wrap:anywhere] line-clamp-2 min-h-[2.5rem] group-hover:text-emerald-400 transition-colors",
+                    "{artist.name}"
+                }
+                p { class: "text-xs text-zinc-400 truncate max-w-full", "{artist.album_count} albums" }
             }
-            p { class: "text-xs text-zinc-400", "{artist.album_count} albums" }
         }
     }
 }
