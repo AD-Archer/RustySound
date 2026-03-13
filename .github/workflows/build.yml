@@ -290,7 +290,7 @@ jobs:
         path: |
           dist/windows/*.exe
 
-  android-bundles:
+  android-apks:
     needs: version
     runs-on: ubuntu-latest
     steps:
@@ -327,7 +327,7 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
       run: cargo install dioxus-cli --version 0.7.3
-    - name: Build Android release bundle
+    - name: Build Android release APK
       run: |
         export ANDROID_AAPT2_FROM_MAVEN_OVERRIDE="$ANDROID_HOME/build-tools/34.0.0/aapt2"
         export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$ANDROID_AAPT2_FROM_MAVEN_OVERRIDE ${GRADLE_OPTS:-}"
@@ -337,23 +337,23 @@ jobs:
         ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-    - name: Collect Android release artifacts
+    - name: Collect Android release APKs
       run: |
         mkdir -p artifacts
-        find dist/android -type f \( -name "*.apk" -o -name "*.aab" \) -print -exec cp {} artifacts/ \;
-        if ! ls artifacts/*.apk >/dev/null 2>&1 && ! ls artifacts/*.aab >/dev/null 2>&1; then
-          echo "No Android release artifacts were collected." >&2
+        find dist/android -type f -name "*.apk" -print -exec cp {} artifacts/ \;
+        if ! ls artifacts/*.apk >/dev/null 2>&1; then
+          echo "No Android release APKs were collected." >&2
           exit 1
         fi
         ls -lah artifacts/
-    - name: Upload Android bundle artifacts
+    - name: Upload Android APK artifacts
       uses: actions/upload-artifact@v4
       with:
-        name: android-bundles
+        name: android-apks
         path: artifacts/*
 
   release:
-    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-bundles]
+    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-apks]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
     steps:
@@ -376,7 +376,6 @@ jobs:
           artifacts/**/*.ipa
           artifacts/**/*.exe
           artifacts/**/*.apk
-          artifacts/**/*.aab
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Dispatch package updates

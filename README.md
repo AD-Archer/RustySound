@@ -53,8 +53,8 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 2. Enable installation from unknown sources on your device
 3. Install the APK and launch RustySound
 
-Note: `just serve-android` is a development/debug workflow. For production APK/AAB artifacts, use the release bundle flow below.
-If signing keys are not configured, release Android artifacts are still generated but remain unsigned for Play Store distribution.
+Note: `just serve-android` is a development/debug workflow. For production Android APKs, use the release bundle flow below.
+If signing keys are not configured, release Android APKs are still generated but remain unsigned and are not ready for end-user installation/distribution.
 
 ### macOS
 
@@ -202,7 +202,7 @@ just serve        # dx serve
 just serve-ios    # iOS simulator dev (safe linker env)
 just serve-android # Android dev/debug (auto-create/start emulator)
 just bundle       # macOS + iOS + unsigned IPA
-just bundle-android-release # Android release APK/AAB into dist/android
+just bundle-android-release # Android release APK into dist/android
 just check        # cargo check
 ```
 
@@ -264,7 +264,7 @@ dx bundle --platform ios --release
 just bundle-android-release
 ```
 
-`scripts/bundle-android.sh` only exports `*release*.apk` / `*release*.aab` artifacts (no debug output).
+`scripts/bundle-android.sh` only exports Android release `.apk` artifacts into `dist/android`.
 
 Optional signing env vars for `scripts/bundle-android.sh`:
 
@@ -273,7 +273,7 @@ Optional signing env vars for `scripts/bundle-android.sh`:
 - `ANDROID_KEY_ALIAS`
 - `ANDROID_KEY_PASSWORD` (optional)
 
-CI/CD builds Android release artifacts (`.apk`/`.aab`) and now only publishes release artifacts from `dist/android`.
+CI/CD builds Android release APKs and publishes only `.apk` artifacts from `dist/android`.
 
 #### Apple Bundles (.app + unsigned .ipa)
 
