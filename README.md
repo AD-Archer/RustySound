@@ -2,9 +2,9 @@
 
 A cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus.
 
-<img width="1918" height="905" alt="album page art" src="https://github.com/user-attachments/assets/06267508-388f-456b-a2e3-ae45dc00f11c" />
-<img width="2000" height="2000" alt="logo" src="https://github.com/user-attachments/assets/06a667e0-e700-4da4-b47d-5c8d4dcd3938" />
-<img width="323" height="697" alt="album" src="https://github.com/user-attachments/assets/bc93c22e-bcf1-4a41-9d3c-fdba82a36214" />
+![RustySound desktop screenshot](https://www.antonioarcher.com/images/projects/rustysound/desktop/sound_menu.webp)
+<img alt="album page art" src="https://github.com/user-attachments/assets/06267508-388f-456b-a2e3-ae45dc00f11c" />
+<img alt="album" src="https://github.com/user-attachments/assets/bc93c22e-bcf1-4a41-9d3c-fdba82a36214" />
 
 
 # Features
@@ -45,16 +45,15 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 ## Desktop
 
 ### IOS
-1. Download the latest `.ipa` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
-2. Sign the IPA, Personally I sign the ipa using [Live Container](https://github.com/LiveContainer/LiveContainer) which I installed using [Altstore/Altserver](https://altstore.io/)
+1. Add `https://ad-archer.github.io/linux-packages/source.json` as a source in [AltStore/AltServer](https://altstore.io/) or [LiveContainer](https://github.com/LiveContainer/LiveContainer)
+2. Install RustySound from that source on your device
+3. Use the latest `.ipa` from [Releases](https://github.com/AD-Archer/RustySound/releases) only if you want to sideload manually instead of using the source feed
 
 ### Android
 1. Download the latest `.apk` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Enable installation from unknown sources on your device
 3. Install the APK and launch RustySound
 
-Note: `just serve-android` is a development/debug workflow. For production Android APKs, use the release bundle flow below.
-If signing keys are not configured, release Android APKs are still generated but remain unsigned and are not ready for end-user installation/distribution.
 
 ### macOS
 
@@ -95,13 +94,6 @@ scoop bucket add ad-archer https://github.com/ad-archer/scoop
 scoop install ad-archer/rustysound
 ```
 
-To Update:
-
-```powershell
-# Update only RustySound
-scoop update rustysound
-```
-
 
 #### Executable
 1. Download the latest `.exe` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
@@ -119,12 +111,6 @@ Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization se
 flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/linux-packages/rustysound.flatpakrepo
 flatpak install --user adarcher-rustysound app.adarcher.rustysound
 flatpak run app.adarcher.rustysound
-```
-
-To update:
-
-```bash
-flatpak update --user app.adarcher.rustysound
 ```
 
 To remove:

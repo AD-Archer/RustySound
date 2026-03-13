@@ -62,6 +62,31 @@ async fn fetch_songs_from_album_order(
     songs
 }
 
+async fn fetch_songs_from_native_order(
+    active_servers: &[ServerConfig],
+    sort: NativeSongSortField,
+    desired_song_count: u32,
+) -> Vec<Song> {
+    if active_servers.is_empty() {
+        return Vec::new();
+    }
+
+    let per_server_song_target =
+        ((desired_song_count as usize).max(30) / active_servers.len()).max(20);
+    let tasks = active_servers.iter().cloned().map(|server| async move {
+        let client = NavidromeClient::new(server);
+        client
+            .get_native_songs(sort, NativeSortOrder::Desc, 0, per_server_song_target)
+            .await
+            .unwrap_or_default()
+    });
+
+    let mut songs: Vec<Song> = join_all(tasks).await.into_iter().flatten().collect();
+    let mut seen = HashSet::new();
+    songs.retain(|song| seen.insert(song.id.clone()));
+    songs
+}
+
 #[component]
 pub fn SongsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -90,23 +115,39 @@ pub fn SongsView() -> Element {
 
             if query_snapshot.trim().is_empty() {
                 match sort_option_snapshot.as_str() {
-                    // Pull from server-side "recent" ordering first so last played is meaningful.
+                    // Prefer Navidrome's native song ordering when the UI is sorting songs directly.
                     "last_played" => {
-                        songs = fetch_songs_from_album_order(
+                        songs = fetch_songs_from_native_order(
                             &active_servers,
-                            "recent",
+                            NativeSongSortField::PlayDate,
                             candidate_limit,
                         )
                         .await;
+                        if songs.is_empty() {
+                            songs = fetch_songs_from_album_order(
+                                &active_servers,
+                                "recent",
+                                candidate_limit,
+                            )
+                            .await;
+                        }
                     }
-                    // Pull from server-side "frequent" ordering first for most played mode.
+                    // Fall back to album ordering when the native Navidrome API is unavailable.
                     "most_played" => {
-                        songs = fetch_songs_from_album_order(
+                        songs = fetch_songs_from_native_order(
                             &active_servers,
-                            "frequent",
+                            NativeSongSortField::PlayCount,
                             candidate_limit,
                         )
                         .await;
+                        if songs.is_empty() {
+                            songs = fetch_songs_from_album_order(
+                                &active_servers,
+                                "frequent",
+                                candidate_limit,
+                            )
+                            .await;
+                        }
                     }
                     // Use backend "highest" ordering as the best available source for ratings.
                     "rating" => {
