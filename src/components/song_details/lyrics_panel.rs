@@ -67,6 +67,8 @@ fn screenshot_bar_label(bar: &ScreenshotLyricBar, include_timestamp: bool) -> St
     bar.text.clone()
 }
 
+const RUSTYSOUND_MARK: Asset = asset!("/assets/favicon-96x96.png");
+
 #[component]
 fn LyricsPanel(props: LyricsPanelProps) -> Element {
     let navigation = use_context::<Navigation>();
@@ -80,7 +82,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     let screenshot_selection_start = use_signal(|| 0_usize);
     let screenshot_selection_count = use_signal(|| 1_usize);
     let screenshot_manual_selection = use_signal(|| false);
-    let screenshot_story_dimmed = use_signal(|| false);
+    let screenshot_shot_mode = use_signal(|| false);
     let programmatic_scroll_until_ms = use_signal(|| 0.0_f64);
     let manual_scroll_hold_until_ms = use_signal(|| 0.0_f64);
     let last_centered_index = use_signal(|| None::<usize>);
@@ -231,22 +233,39 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     } else {
         0
     };
-    let screenshot_scroll_container_id =
-        format!("lyrics-screenshot-scroll-{}", sanitize_dom_id(&props.panel_dom_key));
-    let screenshot_story_guide_enabled = screenshot_story_dimmed();
-    let screenshot_tip_text = if screenshot_manual_selection() {
-        "Manual screenshot frame locked."
-    } else {
-        "Following synced lyrics until you tap a line."
-    };
+    let screenshot_scroll_container_id = format!(
+        "lyrics-screenshot-scroll-{}",
+        sanitize_dom_id(&props.panel_dom_key)
+    );
+    let screenshot_shot_mode_enabled = screenshot_shot_mode();
     let screenshot_selected_line_class =
-        "block w-full text-left text-[2.1rem] md:text-[3.25rem] font-semibold leading-[1.08] text-white whitespace-pre-wrap break-words transition-colors";
+        "block w-full rounded-2xl px-1 py-1.5 text-left text-[1.85rem] md:text-[3.05rem] font-semibold leading-[1.08] text-white whitespace-pre-wrap break-words transition-colors";
     let screenshot_unselected_line_class =
-        "block w-full text-left text-[2.1rem] md:text-[3.25rem] font-semibold leading-[1.08] text-white/36 hover:text-white/58 whitespace-pre-wrap break-words transition-colors";
-    let screenshot_content_width_class = if screenshot_story_guide_enabled {
-        "max-w-[34rem]"
+        "block w-full rounded-2xl px-1 py-1.5 text-left text-[1.85rem] md:text-[3.05rem] font-semibold leading-[1.08] text-white/36 hover:bg-white/6 hover:text-white/58 whitespace-pre-wrap break-words transition-colors";
+    let screenshot_browser_width_class = "max-w-5xl";
+    let screenshot_selected_bars = if screenshot_selected_count > 0 {
+        screenshot_bars
+            .iter()
+            .skip(screenshot_selected_start)
+            .take(screenshot_selected_count)
+            .cloned()
+            .collect::<Vec<_>>()
     } else {
-        "max-w-5xl"
+        Vec::new()
+    };
+    let screenshot_share_lyrics_class = match screenshot_selected_count {
+        0 | 1 => "text-[2rem] md:text-[2.9rem] font-semibold leading-[1.02] text-zinc-950",
+        2 => "text-[1.7rem] md:text-[2.35rem] font-semibold leading-[1.05] text-zinc-950",
+        3 => "text-[1.45rem] md:text-[1.95rem] font-semibold leading-[1.08] text-zinc-950",
+        4 => "text-[1.2rem] md:text-[1.6rem] font-semibold leading-[1.1] text-zinc-950",
+        _ => "text-[1.02rem] md:text-[1.35rem] font-semibold leading-[1.1] text-zinc-950",
+    };
+    let screenshot_share_spacing_class = match screenshot_selected_count {
+        0 | 1 => "space-y-6",
+        2 => "space-y-5",
+        3 => "space-y-4",
+        4 => "space-y-3.5",
+        _ => "space-y-3",
     };
     let toolbar_button_base_class =
         "h-10 w-10 rounded-full border flex items-center justify-center transition-colors";
@@ -362,7 +381,10 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         let sync_lyrics = props.sync_lyrics;
         let is_live_stream = props.is_live_stream;
         use_effect(move || {
-            if !screenshot_view_open() || screenshot_manual_selection() || !sync_lyrics || is_live_stream
+            if !screenshot_view_open()
+                || screenshot_manual_selection()
+                || !sync_lyrics
+                || is_live_stream
             {
                 return;
             }
@@ -380,7 +402,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         let mut screenshot_selection_start = screenshot_selection_start.clone();
         let mut screenshot_selection_count = screenshot_selection_count.clone();
         let mut screenshot_manual_selection = screenshot_manual_selection.clone();
-        let mut screenshot_story_dimmed = screenshot_story_dimmed.clone();
+        let mut screenshot_shot_mode = screenshot_shot_mode.clone();
         let active_synced_index = active_synced_index;
         let screenshot_bars = screenshot_bars.clone();
         move |_| {
@@ -390,7 +412,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             screenshot_selection_start.set(focus_index);
             screenshot_selection_count.set(1);
             screenshot_manual_selection.set(false);
-            screenshot_story_dimmed.set(false);
+            screenshot_shot_mode.set(false);
             screenshot_view_open.set(true);
         }
     };
@@ -407,47 +429,53 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         div { class: "space-y-4",
             div { class: "flex items-center justify-between gap-2",
                 button {
-                    class: if search_panel_open() {
-                        "{toolbar_button_base_class} border-emerald-500/50 text-emerald-300 hover:text-emerald-200"
-                    } else {
-                        "{toolbar_button_base_class} border-zinc-700/70 text-zinc-300 hover:text-white"
-                    },
+                    class: if search_panel_open() { "{toolbar_button_base_class} border-emerald-500/50 text-emerald-300 hover:text-emerald-200" } else { "{toolbar_button_base_class} border-zinc-700/70 text-zinc-300 hover:text-white" },
                     title: if search_panel_open() { "Close lyrics search" } else { "Open lyrics search" },
                     onclick: on_toggle_search_panel,
-                    Icon { name: "search".to_string(), class: "w-4.5 h-4.5".to_string() }
+                    Icon {
+                        name: "search".to_string(),
+                        class: "w-4.5 h-4.5".to_string(),
+                    }
                 }
                 div { class: "flex items-center gap-2",
                     if screenshot_mode_enabled {
                         button {
-                            class: if screenshot_available {
-                                "{toolbar_button_base_class} border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-300"
-                            } else {
-                                "{toolbar_button_base_class} border-zinc-700/70 text-zinc-500 cursor-not-allowed"
-                            },
+                            class: if screenshot_available { "{toolbar_button_base_class} border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-300" } else { "{toolbar_button_base_class} border-zinc-700/70 text-zinc-500 cursor-not-allowed" },
                             title: "Open lyrics screenshot view",
                             disabled: !screenshot_available,
                             onclick: on_open_screenshot_view,
-                            Icon { name: "eye".to_string(), class: "w-4.5 h-4.5".to_string() }
+                            Icon {
+                                name: "eye".to_string(),
+                                class: "w-4.5 h-4.5".to_string(),
+                            }
                         }
                     }
                     button {
                         class: "{toolbar_button_base_class} border-zinc-700/70 text-zinc-300 hover:text-white",
                         title: "Refresh lyrics",
                         onclick: move |evt| props.on_refresh.call(evt),
-                        Icon { name: "refresh-cw".to_string(), class: "w-4.5 h-4.5".to_string() }
+                        Icon {
+                            name: "refresh-cw".to_string(),
+                            class: "w-4.5 h-4.5".to_string(),
+                        }
                     }
                     button {
                         class: "{toolbar_button_base_class} border-emerald-500/40 bg-emerald-500/20 text-emerald-300 hover:text-emerald-200",
                         title: "Open lyrics settings",
                         onclick: on_open_settings,
-                        Icon { name: "settings".to_string(), class: "w-4.5 h-4.5".to_string() }
+                        Icon {
+                            name: "settings".to_string(),
+                            class: "w-4.5 h-4.5".to_string(),
+                        }
                     }
                 }
             }
 
             if search_panel_open() {
                 div { class: "rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 space-y-3",
-                    p { class: "text-xs uppercase tracking-wider text-zinc-500", "Search And Pick Lyrics" }
+                    p { class: "text-xs uppercase tracking-wider text-zinc-500",
+                        "Search And Pick Lyrics"
+                    }
                     div { class: "flex flex-col sm:flex-row gap-2",
                         input {
                             r#type: "text",
@@ -513,9 +541,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                                         div { class: "flex items-center justify-between gap-3",
                                                             div { class: "min-w-0",
                                                                 p { class: "text-sm text-white truncate", "{candidate.title}" }
-                                                                p { class: "text-xs text-zinc-500 truncate",
-                                                                    "{candidate.artist}"
-                                                                }
+                                                                p { class: "text-xs text-zinc-500 truncate", "{candidate.artist}" }
                                                             }
                                                             div { class: "text-right flex-shrink-0",
                                                                 p { class: "text-[10px] uppercase tracking-wider text-zinc-500",
@@ -558,9 +584,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                             rsx! {
                                 div { class: "p-6 space-y-2",
                                     p { class: "text-sm text-zinc-400", "No lyrics found for this song." }
-                                    p { class: "text-xs text-zinc-500",
-                                        "Try a manual search and pick the exact match."
-                                    }
+                                    p { class: "text-xs text-zinc-500", "Try a manual search and pick the exact match." }
                                     p { class: "text-xs text-zinc-600 break-words", "{error}" }
                                 }
                             }
@@ -596,7 +620,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                         p { class: "text-base text-zinc-500", "Lyrics unavailable." }
                                     } else {
                                         for line in lines {
-                                            p { class: "text-base text-zinc-300 leading-relaxed whitespace-pre-wrap break-words", "{line}" }
+                                            p { class: "text-base text-zinc-300 leading-relaxed whitespace-pre-wrap break-words",
+                                                "{line}"
+                                            }
                                         }
                                     }
                                 }
@@ -612,14 +638,10 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                     div { class: "text-xs uppercase tracking-wider text-zinc-500 pb-1",
                                         "Source: {lyrics.provider.label()}"
                                     }
-                                    for (index, line) in lyrics.synced_lines.iter().enumerate() {
+                                    for (index , line) in lyrics.synced_lines.iter().enumerate() {
                                         button {
                                             id: format!("{scroll_container_id}-line-{index}"),
-                                            class: if Some(index) == active_synced_index {
-                                                "w-full text-left px-3 py-2.5 rounded-lg bg-emerald-500/15 text-emerald-300 overflow-hidden"
-                                            } else {
-                                                "w-full text-left px-3 py-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors overflow-hidden"
-                                            },
+                                            class: if Some(index) == active_synced_index { "w-full text-left px-3 py-2.5 rounded-lg bg-emerald-500/15 text-emerald-300 overflow-hidden" } else { "w-full text-left px-3 py-2 rounded-lg text-zinc-400 hover:text-zinc-200 hover:bg-zinc-800/60 transition-colors overflow-hidden" },
                                             onclick: {
                                                 let line = line.clone();
                                                 move |_| on_seek_line(line.clone())
@@ -627,12 +649,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                             span { class: "text-xs text-zinc-500 mr-2 font-mono",
                                                 "{format_timestamp(line.timestamp_seconds)}"
                                             }
-                                            span {
-                                                class: if Some(index) == active_synced_index {
-                                                    "text-lg md:text-xl font-semibold leading-relaxed whitespace-pre-wrap break-words align-top"
-                                                } else {
-                                                    "text-base leading-relaxed whitespace-pre-wrap break-words align-top"
-                                                },
+                                            span { class: if Some(index) == active_synced_index { "text-lg md:text-xl font-semibold leading-relaxed whitespace-pre-wrap break-words align-top" } else { "text-base leading-relaxed whitespace-pre-wrap break-words align-top" },
                                                 "{line.text}"
                                             }
                                         }
@@ -649,33 +666,40 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                     class: "fixed inset-0 z-[120] bg-black/88 backdrop-blur-md",
                     onclick: {
                         let mut screenshot_view_open = screenshot_view_open.clone();
-                        move |_| screenshot_view_open.set(false)
+                        let mut screenshot_shot_mode = screenshot_shot_mode.clone();
+                        move |_| {
+                            if screenshot_shot_mode() {
+                                screenshot_shot_mode.set(false);
+                            } else {
+                                screenshot_view_open.set(false);
+                            }
+                        }
                     },
                     button {
-                        class: "absolute top-4 right-4 z-20 rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-6 md:right-6",
+                        class: "absolute top-12 right-4 z-20 rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-14 md:right-6",
                         onclick: on_close_screenshot_view,
-                        Icon { name: "x".to_string(), class: "w-5 h-5".to_string() }
+                        Icon {
+                            name: "x".to_string(),
+                            class: "w-5 h-5".to_string(),
+                        }
                     }
-                    button {
-                        class: if screenshot_story_guide_enabled {
-                            "absolute top-4 left-4 z-20 rounded-full border border-white/20 bg-white/10 px-4 py-2 text-sm font-medium text-white hover:border-white/30 transition-colors md:top-6 md:left-6"
-                        } else {
-                            "absolute top-4 left-4 z-20 rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-medium text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-6 md:left-6"
-                        },
-                        onclick: {
-                            let mut screenshot_story_dimmed = screenshot_story_dimmed.clone();
-                            move |evt: MouseEvent| {
-                                evt.stop_propagation();
-                                screenshot_story_dimmed.set(!screenshot_story_dimmed());
-                            }
-                        },
-                        "Dim"
+                    if !screenshot_shot_mode_enabled {
+                        button {
+                            class: "absolute top-12 left-4 z-20 rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-medium text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-14 md:left-6",
+                            onclick: {
+                                let mut screenshot_shot_mode = screenshot_shot_mode.clone();
+                                move |evt: MouseEvent| {
+                                    evt.stop_propagation();
+                                    screenshot_shot_mode.set(true);
+                                }
+                            },
+                            "Shot"
+                        }
                     }
                     div {
                         class: "flex h-full w-full flex-col",
                         onclick: move |evt: MouseEvent| evt.stop_propagation(),
-                        div {
-                            class: "relative flex-1 overflow-hidden bg-zinc-950 shadow-[0_40px_120px_rgba(0,0,0,0.65)]",
+                        div { class: "relative flex-1 overflow-hidden bg-zinc-950 shadow-[0_40px_120px_rgba(0,0,0,0.65)]",
                             if let Some(url) = screenshot_cover_url.clone() {
                                 img {
                                     class: "absolute inset-0 h-full w-full object-cover scale-110 blur-3xl opacity-35",
@@ -684,59 +708,119 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                 }
                             }
                             div { class: "absolute inset-0 bg-[linear-gradient(180deg,rgba(74,145,173,0.72)_0%,rgba(26,57,73,0.84)_42%,rgba(8,11,16,0.98)_100%)]" }
-                            if screenshot_story_guide_enabled {
-                                div { class: "pointer-events-none absolute inset-0 z-10 flex items-center justify-center",
+                            if screenshot_shot_mode_enabled {
+                                div { class: "relative z-10 flex h-full min-h-0 w-full items-center justify-center px-4 pb-6 pt-16 md:px-8 md:pb-10 md:pt-20",
                                     div {
-                                        class: "border border-white/15 shadow-[0_0_0_9999px_rgba(0,0,0,0.42)]",
-                                        style: "width:min(78vw, 78vh); height:min(78vw, 78vh);",
-                                    }
-                                }
-                            }
-                            div { class: "relative z-10 mx-auto flex h-full w-full {screenshot_content_width_class} flex-col px-6 pb-8 pt-6 md:px-12 md:pb-10 md:pt-10",
-                                div { class: "space-y-1 md:max-w-[70%]",
-                                    p { class: "text-[11px] uppercase tracking-[0.28em] text-white/55", "Lyrics Screenshot" }
-                                    h3 { class: "text-2xl md:text-4xl font-semibold leading-tight text-white", "{screenshot_song_title}" }
-                                    if let Some(artist) = screenshot_song_artist.clone() {
-                                        p { class: "text-sm md:text-base text-white/70", "{artist}" }
-                                    }
-                                }
-                                div {
-                                    id: "{screenshot_scroll_container_id}",
-                                    class: "mt-8 flex-1 overflow-y-auto pr-2 md:mt-10",
-                                    if screenshot_bars.is_empty() {
-                                        p { class: "text-lg text-white/70", "Lyrics unavailable." }
-                                    } else {
-                                        div { class: "max-w-4xl space-y-4 pb-24 md:space-y-5 md:pb-28",
-                                            for (index, bar) in screenshot_bars.iter().enumerate() {
-                                                button {
-                                                    id: format!("{screenshot_scroll_container_id}-line-{index}"),
-                                                    class: if index >= screenshot_selected_start && index <= screenshot_selected_end {
-                                                        screenshot_selected_line_class
-                                                    } else {
-                                                        screenshot_unselected_line_class
-                                                    },
-                                                    onclick: {
-                                                        let mut screenshot_selection_start = screenshot_selection_start.clone();
-                                                        let mut screenshot_selection_count = screenshot_selection_count.clone();
-                                                        let mut screenshot_manual_selection = screenshot_manual_selection.clone();
-                                                        move |_| {
-                                                            screenshot_manual_selection.set(true);
-                                                            if index >= screenshot_selected_start && index - screenshot_selected_start < 5 {
-                                                                screenshot_selection_count.set(index - screenshot_selected_start + 1);
-                                                            } else {
-                                                                screenshot_selection_start.set(index);
-                                                                screenshot_selection_count.set(1);
+                                        class: "relative aspect-square overflow-hidden rounded-[2rem] border border-white/14 bg-[#62bac9] shadow-[0_28px_90px_rgba(0,0,0,0.35)]",
+                                        style: "width:min(33rem, calc(100vw - 2.5rem), calc(100vh - 7rem));",
+                                        div { class: "absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.14)_0%,rgba(255,255,255,0.03)_100%)]" }
+                                        div { class: "relative flex h-full flex-col p-5 md:p-6",
+                                            div { class: "flex items-start gap-3",
+                                                if let Some(url) = screenshot_cover_url.clone() {
+                                                    img {
+                                                        class: "h-14 w-14 rounded-2xl object-cover shadow-lg md:h-16 md:w-16",
+                                                        src: "{url}",
+                                                        alt: "{screenshot_song_title}",
+                                                    }
+                                                } else {
+                                                    div { class: "flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900/10 text-zinc-950/75 md:h-16 md:w-16",
+                                                        Icon {
+                                                            name: "music".to_string(),
+                                                            class: "h-7 w-7".to_string(),
+                                                        }
+                                                    }
+                                                }
+                                                div { class: "min-w-0 flex-1",
+                                                    p { class: "truncate text-2xl font-semibold leading-tight text-zinc-950 md:text-[2rem]",
+                                                        "{screenshot_song_title}"
+                                                    }
+                                                    if let Some(artist) = screenshot_song_artist.clone() {
+                                                        p { class: "truncate text-lg font-medium text-zinc-950/65 md:text-[1.35rem]",
+                                                            "{artist}"
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            div { class: "flex flex-1 items-center py-5 md:py-6",
+                                                if screenshot_selected_bars.is_empty() {
+                                                    p { class: "text-xl font-semibold text-zinc-950/80",
+                                                        "Lyrics unavailable."
+                                                    }
+                                                } else {
+                                                    div { class: "w-full {screenshot_share_spacing_class}",
+                                                        for bar in screenshot_selected_bars.iter() {
+                                                            p { class: "{screenshot_share_lyrics_class}",
+                                                                "{bar.text}"
                                                             }
                                                         }
-                                                    },
-                                                    "{screenshot_bar_label(bar, screenshot_show_timestamps)}"
+                                                    }
+                                                }
+                                            }
+                                            div { class: "flex items-center gap-3 pt-3",
+                                                div { class: "flex items-center gap-3",
+                                                    img {
+                                                        class: "h-8 w-8 rounded-lg",
+                                                        src: RUSTYSOUND_MARK,
+                                                        alt: "RustySound",
+                                                    }
+                                                    div {
+                                                        p { class: "text-sm font-semibold uppercase tracking-[0.22em] text-zinc-950/80",
+                                                            "RustySound"
+                                                        }
+                                                        p { class: "text-xs text-zinc-950/50",
+                                                            "Shared lyrics"
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
                                     }
                                 }
-                                p { class: "mt-4 text-[11px] uppercase tracking-[0.22em] text-white/42",
-                                    "{screenshot_selected_count} of 5 bars selected • {screenshot_tip_text}"
+                            } else {
+                                div { class: "relative z-10 mx-auto flex h-full min-h-0 w-full {screenshot_browser_width_class} flex-col px-6 pb-8 pt-24 md:px-12 md:pb-10 md:pt-28",
+                                    div { class: "space-y-1 md:max-w-[70%]",
+                                        h3 { class: "text-2xl md:text-4xl font-semibold leading-tight text-white",
+                                            "{screenshot_song_title}"
+                                        }
+                                        if let Some(artist) = screenshot_song_artist.clone() {
+                                            p { class: "text-sm md:text-base text-white/70",
+                                                "{artist}"
+                                            }
+                                        }
+                                    }
+                                    div {
+                                        id: "{screenshot_scroll_container_id}",
+                                        class: "mt-8 flex-1 overflow-y-auto pr-2 md:mt-10",
+                                        if screenshot_bars.is_empty() {
+                                            p { class: "text-lg text-white/70", "Lyrics unavailable." }
+                                        } else {
+                                            div { class: "max-w-4xl space-y-4 pb-24 md:space-y-5 md:pb-28",
+                                                for (index , bar) in screenshot_bars.iter().enumerate() {
+                                                    button {
+                                                        id: format!("{screenshot_scroll_container_id}-line-{index}"),
+                                                        class: if index >= screenshot_selected_start && index <= screenshot_selected_end { screenshot_selected_line_class } else { screenshot_unselected_line_class },
+                                                        onclick: {
+                                                            let mut screenshot_selection_start = screenshot_selection_start.clone();
+                                                            let mut screenshot_selection_count = screenshot_selection_count.clone();
+                                                            let mut screenshot_manual_selection = screenshot_manual_selection.clone();
+                                                            move |_| {
+                                                                screenshot_manual_selection.set(true);
+                                                                if index >= screenshot_selected_start
+                                                                    && index - screenshot_selected_start < 5
+                                                                {
+                                                                    screenshot_selection_count.set(index - screenshot_selected_start + 1);
+                                                                } else {
+                                                                    screenshot_selection_start.set(index);
+                                                                    screenshot_selection_count.set(1);
+                                                                }
+                                                            }
+                                                        },
+                                                        "{screenshot_bar_label(bar, screenshot_show_timestamps)}"
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }
