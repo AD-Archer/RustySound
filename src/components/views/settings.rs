@@ -69,6 +69,101 @@ fn normalize_server_url(raw: &str) -> String {
     }
 }
 
+// Helper function to sanitize server URLs by removing reverse proxy paths
+fn sanitize_server_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/').to_string();
+
+    // If contains /app or similar reverse proxy path, remove it
+    if let Some(pos) = trimmed.find("/app") {
+        let base = &trimmed[..pos];
+        return normalize_server_url(base);
+    }
+
+    normalize_server_url(&trimmed)
+}
+
+// Format connection errors into user-friendly messages
+fn format_connection_error(error: &str) -> String {
+    let lower = error.to_lowercase();
+
+    // Connection refused - port unreachable or service not responding
+    if lower.contains("connection refused")
+        || lower.contains("econnrefused")
+        || lower.contains("reset by peer") {
+        return "Server is not responding. Check the URL and port number.".to_string();
+    }
+
+    // DNS resolution failures
+    if lower.contains("name or service not known")
+        || lower.contains("no address associated")
+        || lower.contains("nodename nor servname")
+        || lower.contains("failed to lookup address information")
+        || lower.contains("nxdomain")
+        || lower.contains("getaddrinfo failed") {
+        return "Invalid server address. Check your hostname/IP address.".to_string();
+    }
+
+    // SSL/TLS certificate errors
+    if lower.contains("ssl")
+        || lower.contains("certificate")
+        || lower.contains("tls")
+        || lower.contains("x509")
+        || lower.contains("certificate verify failed")
+        || lower.contains("self signed") {
+        return "SSL certificate issue. Try using HTTP instead of HTTPS, or contact your server admin.".to_string();
+    }
+
+    // Connection timeout
+    if lower.contains("timeout")
+        || lower.contains("timed out") {
+        return "Server took too long to respond. Check your network connection and server URL.".to_string();
+    }
+
+    // Invalid URL
+    if lower.contains("invalid url")
+        || lower.contains("invalid scheme")
+        || lower.contains("empty domain")
+        || lower.contains("relative url") {
+        return "Invalid server URL format. Use http://hostname:port or https://hostname:port".to_string();
+    }
+
+    // Connection reset/broken pipe
+    if lower.contains("connection reset")
+        || lower.contains("broken pipe")
+        || lower.contains("epipe") {
+        return "Server connection was interrupted. Try again.".to_string();
+    }
+
+    // HTTP status errors (4xx, 5xx)
+    if lower.contains("401") || lower.contains("unauthorized") {
+        return "Authentication failed. Check your username and password.".to_string();
+    }
+    if lower.contains("403") || lower.contains("forbidden") {
+        return "Access denied. Check your permissions on the server.".to_string();
+    }
+    if lower.contains("404") || lower.contains("not found") {
+        return "Server endpoint not found. Verify the server is running.".to_string();
+    }
+    if lower.contains("5") && (lower.contains("error") || lower.contains("internal")) {
+        return "Server error. The server may be overloaded or malfunctioning.".to_string();
+    }
+
+    // Network unreachable
+    if lower.contains("network unreachable")
+        || lower.contains("enetunreach") {
+        return "Network is unreachable. Check your internet connection.".to_string();
+    }
+
+    // Permission denied (can happen with certain network configs)
+    if lower.contains("permission denied")
+        || lower.contains("eacces") {
+        return "Permission denied. Check firewall settings and port access.".to_string();
+    }
+
+    // Fallback for unknown errors
+    format!("Connection failed: {}. Check server URL and network connectivity.", error)
+}
+
 fn lyrics_provider_label(provider_key: &str) -> &'static str {
     LyricsProvider::from_key(provider_key)
         .map(|provider| provider.label())
@@ -405,6 +500,159 @@ fn persist_servers_immediately(servers: Vec<ServerConfig>) {
     let _ = save_servers_now(&servers);
 }
 
+// CSS utility constants for consistent styling across forms
+const INPUT_FIELD_CLASS: &str = "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20";
+
+// Reusable server form fields component - used by both onboarding and add/edit forms
+#[component]
+fn ServerFormFields(
+    server_name: Signal<String>,
+    server_url: Signal<String>,
+    server_user: Signal<String>,
+    server_pass: Signal<String>,
+    test_result: Signal<Option<Result<(), String>>>,
+    is_testing: bool,
+    can_add: bool,
+    force_http: Signal<bool>,
+    on_test: EventHandler<MouseEvent>,
+    on_add: EventHandler<MouseEvent>,
+) -> Element {
+    rsx! {
+        div { class: "grid gap-4",
+            // URL (shown first so it's always the top field in settings)
+            div {
+                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                    "Server URL"
+                }
+                input {
+                    class: INPUT_FIELD_CLASS,
+                    placeholder: "https://navidrome.example.com",
+                    value: server_url,
+                    oninput: move |e| {
+                        server_url.set(e.value());
+                        test_result.set(None);
+                    },
+                }
+                p { class: "text-xs text-zinc-500 mt-2",
+                    "Remote HTTP URLs are automatically upgraded to HTTPS. Local network hosts keep HTTP."
+                }
+            }
+
+            // Server name
+            div {
+                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                    "Server Name"
+                }
+                input {
+                    class: INPUT_FIELD_CLASS,
+                    placeholder: "My Navidrome Server",
+                    value: server_name,
+                    oninput: move |e| {
+                        server_name.set(e.value());
+                        test_result.set(None);
+                    },
+                }
+            }
+
+            // SSL/TLS toggle
+            div { class: "flex items-center gap-3 p-3 bg-zinc-900/30 rounded-lg border border-zinc-700/30",
+                div {
+                    p { class: "font-medium text-white text-sm", "Use HTTPS (SSL)" }
+                    p { class: "text-xs text-zinc-400", "Enable for remote servers or when required" }
+                }
+                button {
+                    class: if force_http() { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors flex-shrink-0" } else { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors flex-shrink-0" },
+                    onclick: move |_| force_http.set(!force_http()),
+                    div { class: if force_http() { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } else { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } }
+                }
+            }
+
+            // Username & Password
+            div { class: "grid grid-cols-1 sm:grid-cols-2 gap-4",
+                div {
+                    label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                        "Username"
+                    }
+                    input {
+                        class: INPUT_FIELD_CLASS,
+                        placeholder: "admin",
+                        value: server_user,
+                        oninput: move |e| {
+                            server_user.set(e.value());
+                            test_result.set(None);
+                        },
+                    }
+                }
+                div {
+                    label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                        "Password"
+                    }
+                    input {
+                        class: INPUT_FIELD_CLASS,
+                        r#type: "password",
+                        placeholder: "••••••••",
+                        value: server_pass,
+                        oninput: move |e| {
+                            server_pass.set(e.value());
+                            test_result.set(None);
+                        },
+                    }
+                }
+            }
+
+            // Test result
+            {
+                match test_result() {
+                    Some(Ok(())) => rsx! {
+                        div { class: "flex items-center gap-2 text-emerald-400 text-sm",
+                            Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                            "Connection successful!"
+                        }
+                    },
+                    Some(Err(e)) => rsx! {
+                        div { class: "flex items-center gap-2 text-red-400 text-sm",
+                            Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
+                            "Failed: {e}"
+                        }
+                    },
+                    None => rsx! {},
+                }
+            }
+
+            // Buttons
+            div { class: "flex flex-col sm:flex-row gap-3 pt-2",
+                button {
+                    class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2 justify-center",
+                    disabled: is_testing,
+                    onclick: on_test,
+                    if is_testing {
+                        Icon {
+                            name: "loader".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                    } else {
+                        Icon {
+                            name: "server".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                    }
+                    "Test Connection"
+                }
+                button {
+                    class: if can_add { "w-full sm:w-auto px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2 justify-center" } else { "w-full sm:w-auto px-6 py-2 rounded-xl bg-zinc-700/50 text-zinc-500 cursor-not-allowed flex items-center gap-2 justify-center" },
+                    disabled: !can_add,
+                    onclick: on_add,
+                    Icon {
+                        name: "plus".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
+                    "Add Server"
+                }
+            }
+        }
+    }
+}
+
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -418,6 +666,7 @@ pub fn SettingsView() -> Element {
     let mut server_url = use_signal(String::new);
     let mut server_user = use_signal(String::new);
     let mut server_pass = use_signal(String::new);
+    let mut force_http = use_signal(|| true);
     let mut is_testing = use_signal(|| false);
     let mut test_result = use_signal(|| None::<Result<(), String>>);
     let mut editing_server = use_signal(|| None::<ServerConfig>);
@@ -435,6 +684,7 @@ pub fn SettingsView() -> Element {
     let download_refresh_nonce = use_signal(|| 0u64);
     let ios_log_text = use_signal(String::new);
     let ios_log_status = use_signal(|| None::<String>);
+    let mut active_tab = use_signal(|| "playback".to_string());
 
     let can_add = use_memo(move || {
         !server_url().trim().is_empty()
@@ -448,13 +698,19 @@ pub fn SettingsView() -> Element {
         let url = server_url.clone();
         let user = server_user.clone();
         let pass = server_pass.clone();
+        let use_http = force_http.clone();
         move |_| {
             if is_testing() {
                 return;
             }
-            let url = normalize_server_url(&url());
+            let mut url = sanitize_server_url(&url());
             let user = user().trim().to_string();
             let pass = pass().trim().to_string();
+
+            // Apply force_http preference
+            if use_http() {
+                url = url.replacen("https://", "http://", 1);
+            }
 
             is_testing.set(true);
             test_result.set(None);
@@ -464,7 +720,9 @@ pub fn SettingsView() -> Element {
                 let client = NavidromeClient::new(test_server);
                 let result = client.ping().await;
 
-                test_result.set(Some(result.map(|_| ())));
+                // Format error messages for better UX
+                let formatted_result = result.map_err(|e| format_connection_error(&e));
+                test_result.set(Some(formatted_result.map(|_| ())));
                 is_testing.set(false);
             });
         }
@@ -475,12 +733,15 @@ pub fn SettingsView() -> Element {
         let mut server_url = server_url.clone();
         let mut server_user = server_user.clone();
         let mut server_pass = server_pass.clone();
+        let mut force_http = force_http.clone();
         move |server: ServerConfig| {
+            let is_http = server.url.starts_with("http://");
             editing_server.set(Some(server.clone()));
             server_name.set(server.name);
             server_url.set(server.url);
             server_user.set(server.username);
             server_pass.set(server.password);
+            force_http.set(is_http);
             test_result.set(None);
         }
     };
@@ -491,15 +752,21 @@ pub fn SettingsView() -> Element {
         server_url.set(String::new());
         server_user.set(String::new());
         server_pass.set(String::new());
+        force_http.set(true);
         test_result.set(None);
     };
 
     let on_save_edit = move |_| {
         if let Some(editing) = editing_server() {
-            let url = normalize_server_url(&server_url());
+            let mut url = sanitize_server_url(&server_url());
             let name = resolve_server_name(&server_name(), &url);
             let user = server_user().trim().to_string();
             let pass = server_pass().trim().to_string();
+
+            // Apply force_http preference
+            if force_http() {
+                url = url.replacen("https://", "http://", 1);
+            }
 
             if url.is_empty() || user.is_empty() || pass.is_empty() {
                 return;
@@ -520,6 +787,7 @@ pub fn SettingsView() -> Element {
             server_url.set(String::new());
             server_user.set(String::new());
             server_pass.set(String::new());
+            force_http.set(true);
             test_result.set(None);
 
             save_status.set(Some("Server updated!".to_string()));
@@ -535,10 +803,15 @@ pub fn SettingsView() -> Element {
     };
 
     let on_add = move |_| {
-        let url = normalize_server_url(&server_url());
+        let mut url = sanitize_server_url(&server_url());
         let name = resolve_server_name(&server_name(), &url);
         let user = server_user().trim().to_string();
         let pass = server_pass().trim().to_string();
+
+        // Apply force_http preference
+        if force_http() {
+            url = url.replacen("https://", "http://", 1);
+        }
 
         if url.is_empty() || user.is_empty() || pass.is_empty() {
             return;
@@ -552,6 +825,7 @@ pub fn SettingsView() -> Element {
         server_url.set(String::new());
         server_user.set(String::new());
         server_pass.set(String::new());
+        force_http.set(true);
         test_result.set(None);
 
         save_status.set(Some("Server added!".to_string()));
@@ -1508,6 +1782,7 @@ pub fn SettingsView() -> Element {
     };
 
     let server_list = servers();
+    let has_servers = !server_list.is_empty();
     let settings = app_settings();
     let current_volume = volume();
     let lyrics_provider_order = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
@@ -1574,698 +1849,1030 @@ pub fn SettingsView() -> Element {
                 }
             }
 
-            // Playback Settings
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-6", "Playback Settings" }
+            if has_servers {
+                // Tab navigation
+                nav { class: "flex overflow-x-auto border-b border-zinc-700/50 -mx-1",
+                    button {
+                        class: if active_tab() == "playback" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "playback".to_string(),
+                        Icon { name: "music".to_string(), class: "w-4 h-4".to_string() }
+                        "Playback"
+                    }
+                    button {
+                        class: if active_tab() == "storage" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "storage".to_string(),
+                        Icon { name: "hard-drive".to_string(), class: "w-4 h-4".to_string() }
+                        "Storage"
+                    }
+                    button {
+                        class: if active_tab() == "lyrics" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "lyrics".to_string(),
+                        Icon { name: "file-text".to_string(), class: "w-4 h-4".to_string() }
+                        "Lyrics"
+                    }
+                    button {
+                        class: if active_tab() == "advanced" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "advanced".to_string(),
+                        Icon { name: "settings".to_string(), class: "w-4 h-4".to_string() }
+                        "Advanced"
+                    }
+                    button {
+                        class: if active_tab() == "servers" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "servers".to_string(),
+                        Icon { name: "server".to_string(), class: "w-4 h-4".to_string() }
+                        "Servers"
+                    }
+                }
 
-                div { class: "space-y-6",
-                    // Volume control
-                    div {
-                        label { class: "block text-sm font-medium text-zinc-400 mb-3",
-                            "Default Volume"
-                        }
-                        div { class: "flex items-center gap-4",
+                if active_tab() == "servers" {
+                div { class: "flex flex-col gap-8",
+                // Connected servers list
+                section { class: "order-2 bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-4", "Connected Servers" }
+                    p { class: "text-sm text-amber-200/80 bg-amber-500/10 border border-amber-500/40 rounded-xl px-3 py-2 mb-4",
+                        "Playlists can only be managed when a single server is active. Enabling one server will automatically disable the others."
+                    }
+
+                    if server_list.is_empty() {
+                        div { class: "flex flex-col items-center justify-center py-12 text-center",
                             Icon {
-                                name: if current_volume > 0.5 { "volume-2".to_string() } else if current_volume > 0.0 { "volume-1".to_string() } else { "volume-x".to_string() },
-                                class: "w-5 h-5 text-zinc-400".to_string(),
+                                name: "server".to_string(),
+                                class: "w-12 h-12 text-zinc-600 mb-4".to_string(),
                             }
-                            input {
-                                r#type: "range",
-                                min: "0",
-                                max: "100",
-                                value: (current_volume * 100.0).round() as i32,
-                                class: "flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500",
-                                oninput: on_volume_change,
-                                onchange: on_volume_change,
+                            p { class: "text-zinc-400", "No servers connected yet" }
+                            p { class: "text-zinc-500 text-sm",
+                                "Add a Navidrome server above to get started"
                             }
-                            span { class: "text-sm text-zinc-400 w-12 text-right",
-                                "{(current_volume * 100.0).round() as i32}%"
+                        }
+                    } else {
+                        div { class: "space-y-3",
+                            for server in server_list.clone() {
+                                ServerCard {
+                                    is_editing: editing_server().as_ref().map(|e| e.id == server.id).unwrap_or(false),
+                                    server: server.clone(),
+                                    on_toggle: {
+                                        let server_id = server.id.clone();
+                                        move |_| {
+                                            servers
+                                                .with_mut(|list| {
+                                                    let new_state = list
+                                                        .iter()
+                                                        .find(|s| s.id == server_id)
+                                                        .map(|s| !s.active)
+                                                        .unwrap_or(false);
+
+                                                    if new_state {
+                                                        for srv in list.iter_mut() {
+                                                            srv.active = false;
+                                                        }
+                                                    }
+
+                                                    if let Some(s) =
+                                                        list.iter_mut().find(|s| s.id == server_id)
+                                                    {
+                                                        s.active = new_state;
+                                                    }
+                                                });
+                                            persist_servers_immediately(servers());
+                                        }
+                                    },
+                                    on_edit: {
+                                        let server = server.clone();
+                                        move |_| on_edit_server(server.clone())
+                                    },
+                                    on_test: {
+                                        let server_id = server.id.clone();
+                                        move |_| on_test_existing(server_id.clone())
+                                    },
+                                    on_remove: {
+                                        let server_id = server.id.clone();
+                                        move |_| {
+                                            servers
+                                                .with_mut(|list| {
+                                                    list.retain(|s| s.id != server_id);
+                                                });
+                                            persist_servers_immediately(servers());
+                                        }
+                                    },
+                                    is_testing: is_testing_connection(),
+                                }
+                            }
+                        }
+
+                        // Connection test result for existing servers
+                        {
+                            match connection_test_result() {
+                                Some(Ok(())) => rsx! {
+                                    div { class: "mt-4 flex items-center gap-2 text-emerald-400 text-sm",
+                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                        "Connection test successful!"
+                                    }
+                                },
+                                Some(Err(e)) => rsx! {
+                                    div { class: "mt-4 flex items-center gap-2 text-red-400 text-sm",
+                                        Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
+                                        "Connection test failed: {e}"
+                                    }
+                                },
+                                None => rsx! {},
                             }
                         }
                     }
+                }
 
-                    // Crossfade toggle
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Crossfade" }
-                            p { class: "text-sm text-zinc-400", "Smoothly transition between songs" }
-                        }
-                        button {
-                            class: if settings.crossfade_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_crossfade_toggle,
-                            div { class: if settings.crossfade_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                // Add/Edit server form (kept at top so URL remains immediately visible)
+                section { class: "order-1 bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-4",
+                        if editing_server().is_some() {
+                            "Edit Server"
+                        } else {
+                            "Add Server"
                         }
                     }
 
-                    // Crossfade duration (show only if crossfade is enabled)
-                    if settings.crossfade_enabled {
+                    div { class: "grid gap-4",
+                        // URL (shown first so it's always at the top of this section)
                         div {
                             label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Crossfade Duration"
+                                "Server URL"
+                            }
+                            input {
+                                class: INPUT_FIELD_CLASS,
+                                placeholder: "https://navidrome.example.com",
+                                value: server_url,
+                                oninput: move |e| {
+                                    server_url.set(e.value());
+                                    test_result.set(None);
+                                },
+                            }
+                            p { class: "text-xs text-zinc-500 mt-2",
+                                "Remote HTTP URLs are automatically upgraded to HTTPS. Local network hosts keep HTTP."
+                            }
+                        }
+
+                        // Server name
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                "Server Name"
+                            }
+                            input {
+                                class: INPUT_FIELD_CLASS,
+                                placeholder: "My Navidrome Server",
+                                value: server_name,
+                                oninput: move |e| {
+                                    server_name.set(e.value());
+                                    test_result.set(None);
+                                },
+                            }
+                        }
+
+                        // SSL/TLS toggle (always available in both add + edit modes)
+                        div { class: "flex items-center gap-3 p-3 bg-zinc-900/30 rounded-lg border border-zinc-700/30",
+                            div {
+                                p { class: "font-medium text-white text-sm", "Use HTTPS (SSL)" }
+                                p { class: "text-xs text-zinc-400", "Enable for remote servers or when required" }
+                            }
+                            button {
+                                class: if force_http() { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors flex-shrink-0" } else { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors flex-shrink-0" },
+                                onclick: move |_| force_http.set(!force_http()),
+                                div { class: if force_http() { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } else { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } }
+                            }
+                        }
+
+                        // Username & Password
+                        div { class: "grid grid-cols-1 sm:grid-cols-2 gap-4",
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Username"
+                                }
+                                input {
+                                    class: INPUT_FIELD_CLASS,
+                                    placeholder: "admin",
+                                    value: server_user,
+                                    oninput: move |e| {
+                                        server_user.set(e.value());
+                                        test_result.set(None);
+                                    },
+                                }
+                            }
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Password"
+                                }
+                                input {
+                                    class: INPUT_FIELD_CLASS,
+                                    r#type: "password",
+                                    placeholder: "••••••••",
+                                    value: server_pass,
+                                    oninput: move |e| {
+                                        server_pass.set(e.value());
+                                        test_result.set(None);
+                                    },
+                                }
+                            }
+                        }
+
+                        // Test result
+                        {
+                            match test_result() {
+                                Some(Ok(())) => rsx! {
+                                    div { class: "flex items-center gap-2 text-emerald-400 text-sm",
+                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                        "Connection successful!"
+                                    }
+                                },
+                                Some(Err(e)) => rsx! {
+                                    div { class: "flex items-center gap-2 text-red-400 text-sm",
+                                        Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
+                                        "Failed: {e}"
+                                    }
+                                },
+                                None => rsx! {},
+                            }
+                        }
+
+                        // Buttons
+                        div { class: "flex flex-col sm:flex-row gap-3 pt-2",
+                            button {
+                                class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
+                                disabled: is_testing(),
+                                onclick: on_test,
+                                if is_testing() {
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                } else {
+                                    Icon {
+                                        name: "server".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                }
+                                "Test Connection"
+                            }
+                            if editing_server().is_some() {
+                                button {
+                                    class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
+                                    onclick: on_save_edit,
+                                    Icon {
+                                        name: "check".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                    "Save Changes"
+                                }
+                                button {
+                                    class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
+                                    onclick: on_cancel_edit,
+                                    Icon {
+                                        name: "x".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                    "Cancel"
+                                }
+                            } else {
+                                button {
+                                    class: if can_add() { "w-full sm:w-auto px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2" } else { "w-full sm:w-auto px-6 py-2 rounded-xl bg-zinc-700/50 text-zinc-500 cursor-not-allowed flex items-center gap-2" },
+                                    disabled: !can_add(),
+                                    onclick: on_add,
+                                    Icon {
+                                        name: "plus".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                    "Add Server"
+                                }
+                            }
+                        }
+                    }
+                }
+                }
+                } // end servers tab
+
+                if active_tab() == "playback" {
+                // Playback Settings
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-6", "Playback Settings" }
+
+                    div { class: "space-y-6",
+                        // Volume control
+                        div {
+                            label { class: "block text-sm font-medium text-zinc-400 mb-3",
+                                "Default Volume"
                             }
                             div { class: "flex items-center gap-4",
+                                Icon {
+                                    name: if current_volume > 0.5 { "volume-2".to_string() } else if current_volume > 0.0 { "volume-1".to_string() } else { "volume-x".to_string() },
+                                    class: "w-5 h-5 text-zinc-400".to_string(),
+                                }
                                 input {
                                     r#type: "range",
-                                    min: "1",
-                                    max: "12",
-                                    value: settings.crossfade_duration,
+                                    min: "0",
+                                    max: "100",
+                                    value: (current_volume * 100.0).round() as i32,
                                     class: "flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500",
-                                    oninput: on_crossfade_duration_change,
+                                    oninput: on_volume_change,
+                                    onchange: on_volume_change,
                                 }
-                                span { class: "text-sm text-zinc-400 w-16 text-right",
-                                    "{settings.crossfade_duration} seconds"
+                                span { class: "text-sm text-zinc-400 w-12 text-right",
+                                    "{(current_volume * 100.0).round() as i32}%"
                                 }
                             }
                         }
-                    }
 
-                    // Replay Gain toggle
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Replay Gain" }
-                            p { class: "text-sm text-zinc-400", "Normalize volume across tracks" }
-                        }
-                        button {
-                            class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_replay_gain_toggle,
-                            div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-                }
-            }
-
-            // Bookmark settings
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-3", "Bookmark Settings" }
-                p { class: "text-sm text-zinc-400 mb-5",
-                    "Bookmarks remember your listening position so you can quickly continue where you left off."
-                }
-
-                div { class: "space-y-5",
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Auto-save bookmarks" }
-                            p { class: "text-sm text-zinc-400",
-                                "Automatically save playback position while listening and when switching songs."
-                            }
-                        }
-                        button {
-                            class: if settings.bookmark_auto_save { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_bookmark_auto_save_toggle,
-                            div { class: if settings.bookmark_auto_save { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Resume bookmark on launch" }
-                            p { class: "text-sm text-zinc-400",
-                                "Automatically queue and play your latest bookmark when the app starts."
-                            }
-                        }
-                        button {
-                            class: if settings.bookmark_autoplay_on_launch { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_bookmark_autoplay_toggle,
-                            div { class: if settings.bookmark_autoplay_on_launch { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-
-                    div {
-                        label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                            "Bookmark Limit"
-                        }
-                        p { class: "text-xs text-zinc-500 mb-3",
-                            "Keep only the newest bookmarks per server user. Oldest bookmarks are deleted when this limit is exceeded."
-                        }
-                        input {
-                            r#type: "number",
-                            min: "1",
-                            max: "5000",
-                            value: settings.bookmark_limit,
-                            class: "w-full max-w-xs px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                            onchange: on_bookmark_limit_change,
-                        }
-                    }
-                }
-            }
-
-            // Cache settings
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                div { class: "flex items-center justify-between gap-3 mb-3",
-                    h2 { class: "text-lg font-semibold text-white", "Cache" }
-                    button {
-                        class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
-                        onclick: on_use_recommended_cache,
-                        "Use Recommended"
-                    }
-                }
-                p { class: "text-sm text-zinc-400 mb-5",
-                    "Control metadata, artwork, and lyrics caching. Native apps also prefetch now playing + next songs for offline continuity."
-                }
-
-                div { class: "space-y-5",
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Enable cache" }
-                            p { class: "text-sm text-zinc-400",
-                                "Store song/artist/playlist/favorites metadata and lyrics locally."
-                            }
-                        }
-                        button {
-                            class: if settings.cache_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_cache_enabled_toggle,
-                            div { class: if settings.cache_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Cache album artwork" }
-                            p { class: "text-sm text-zinc-400",
-                                "Cache image responses for faster repeat views and fewer artwork requests."
-                            }
-                        }
-                        button {
-                            class: if settings.cache_images_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_cache_images_toggle,
-                            div { class: if settings.cache_images_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-
-                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Max cache size (MB)"
-                            }
-                            input {
-                                r#type: "number",
-                                min: "25",
-                                max: "2048",
-                                value: settings.cache_size_mb,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_cache_size_change,
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Cache expiry (days)"
-                            }
-                            input {
-                                r#type: "number",
-                                min: "-1",
-                                max: "3650",
-                                value: settings.cache_expiry_days,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_cache_expiry_change,
-                            }
-                            p { class: "text-xs text-zinc-500 mt-2",
-                                "Use -1 to disable automatic expiry."
-                            }
-                        }
-                    }
-
-                    div { class: "space-y-2 pt-1",
-                        div { class: "flex items-center justify-between gap-3",
-                            p { class: "text-xs text-zinc-500", "{cache_usage_label}" }
-                            button {
-                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-rose-500/60 transition-colors text-sm",
-                                onclick: on_clear_cache,
-                                "Clear cache"
-                            }
-                        }
-                        div { class: "w-full h-2 rounded-full bg-zinc-700/70 overflow-hidden",
+                        // Crossfade toggle
+                        div { class: "flex items-center justify-between",
                             div {
-                                class: "h-full bg-emerald-500/80 transition-all",
-                                style: "width: {cache_usage_bar_width}",
-                            }
-                        }
-                    }
-
-                    div { class: "space-y-2 pt-2 border-t border-zinc-800/80",
-                        div { class: "flex items-center justify-between gap-3",
-                            div {
-                                p { class: "font-medium text-white", "Smart Cache Warm-up" }
+                                p { class: "font-medium text-white", "Crossfade" }
                                 p { class: "text-sm text-zinc-400",
-                                    "Prefetch albums, songs, playlists, lyrics, and queue artwork with request throttling."
+                                    "Smoothly transition between songs"
                                 }
                             }
                             button {
-                                class: if smart_cache_busy() { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-400 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm" },
-                                disabled: smart_cache_busy(),
-                                onclick: on_smart_cache,
-                                if smart_cache_busy() {
-                                    "Warming..."
-                                } else {
-                                    "Run Smart Cache"
-                                }
+                                class: if settings.crossfade_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_crossfade_toggle,
+                                div { class: if settings.crossfade_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
                             }
                         }
-                        if let Some(status) = smart_cache_status() {
-                            p { class: "text-xs text-zinc-500", "{status}" }
-                        }
-                        if smart_cache_busy() {
-                            div { class: "w-full h-2 rounded-full bg-zinc-700/70 overflow-hidden",
-                                div {
-                                    class: "h-full bg-emerald-500/80 transition-all",
-                                    style: "{smart_cache_progress_style}",
-                                }
-                            }
-                            p { class: "text-xs text-zinc-500", "{smart_cache_percent}% complete" }
-                        }
-                    }
 
-                }
-            }
-
-            // Downloads settings
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                div { class: "flex items-center justify-between gap-3 mb-4",
-                    div {
-                        h2 { class: "text-lg font-semibold text-white", "Downloads" }
-                        p { class: "text-sm text-zinc-400",
-                            "Store songs and lyrics offline, manage auto-download limits, and control artwork source preference."
-                        }
-                    }
-                    div { class: "flex flex-wrap items-center gap-2",
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
-                            onclick: on_use_recommended_downloads,
-                            "Use Recommended"
-                        }
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-sm",
-                            onclick: move |_| navigation.navigate_to(AppView::DownloadsView {}),
-                            "Open Downloads Page"
-                        }
-                    }
-                }
-
-                div { class: "space-y-5",
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Enable downloads" }
-                            p { class: "text-sm text-zinc-400",
-                                "Allow manual and automatic audio downloads."
-                            }
-                        }
-                        button {
-                            class: if settings.downloads_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_downloads_enabled_toggle,
-                            div { class: if settings.downloads_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Auto downloads" }
-                            p { class: "text-sm text-zinc-400",
-                                "Fetch favorite songs and recent albums/playlists automatically."
-                            }
-                        }
-                        button {
-                            class: if settings.auto_downloads_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_auto_downloads_enabled_toggle,
-                            div { class: if settings.auto_downloads_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
-                    }
-
-                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Favorite tier"
-                            }
-                            select {
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                value: settings.auto_download_tier.to_string(),
-                                oninput: on_auto_download_tier_change,
-                                option { value: "1", "Tier 1 (50 favorites)" }
-                                option { value: "2", "Tier 2 (100 favorites)" }
-                                option { value: "3", "Tier 3 (150 favorites)" }
-                            }
-                            p { class: "text-xs text-zinc-500 mt-2",
-                                "Current tier keeps up to {favorite_tier_limit} favorite songs."
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Artwork source preference"
-                            }
-                            select {
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                value: artwork_pref_key(settings.artwork_download_preference),
-                                oninput: on_artwork_pref_change,
-                                option { value: "server_only", "Server artwork only" }
-                                option { value: "id3_only", "ID3 artwork only" }
-                                option { value: "prefer_server", "Prefer server artwork" }
-                                option { value: "prefer_id3", "Prefer ID3 artwork" }
-                            }
-                            p { class: "text-xs text-zinc-500 mt-2",
-                                "Large artwork warm-ups can trigger server rate limits if repeated frequently."
-                            }
-                        }
-                    }
-
-                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Auto albums"
-                            }
-                            input {
-                                r#type: "number",
-                                min: "0",
-                                max: "25",
-                                value: settings.auto_download_album_count,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_auto_download_album_count_change,
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Auto playlists"
-                            }
-                            input {
-                                r#type: "number",
-                                min: "0",
-                                max: "25",
-                                value: settings.auto_download_playlist_count,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_auto_download_playlist_count_change,
-                            }
-                        }
-                    }
-
-                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Download limit (songs)"
-                            }
-                            input {
-                                r#type: "number",
-                                min: "25",
-                                max: "20000",
-                                value: settings.download_limit_count,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_download_limit_count_change,
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Download limit (MB)"
-                            }
-                            input {
-                                r#type: "number",
-                                min: "256",
-                                max: "131072",
-                                value: settings.download_limit_mb,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_download_limit_mb_change,
-                            }
-                        }
-                    }
-
-                    div { class: "space-y-2",
-                        p { class: "text-xs text-zinc-500", "{download_usage_label}" }
-                        div { class: "h-2 w-full rounded-full bg-zinc-700/70 overflow-hidden",
+                        // Crossfade duration (show only if crossfade is enabled)
+                        if settings.crossfade_enabled {
                             div {
-                                class: "h-full bg-cyan-500/80 transition-all",
-                                style: "width: {download_size_usage_bar_width}",
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Crossfade Duration"
+                                }
+                                div { class: "flex items-center gap-4",
+                                    input {
+                                        r#type: "range",
+                                        min: "1",
+                                        max: "12",
+                                        value: settings.crossfade_duration,
+                                        class: "flex-1 h-2 bg-zinc-700 rounded-lg appearance-none cursor-pointer accent-emerald-500",
+                                        oninput: on_crossfade_duration_change,
+                                    }
+                                    span { class: "text-sm text-zinc-400 w-16 text-right",
+                                        "{settings.crossfade_duration} seconds"
+                                    }
+                                }
                             }
                         }
-                    }
 
-                    div { class: "flex flex-wrap items-center gap-3",
-                        button {
-                            class: if download_actions_busy { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm" },
-                            disabled: download_actions_busy,
-                            onclick: on_run_auto_download,
-                            if auto_download_busy() {
-                                "Running auto-download..."
-                            } else {
-                                "Run Auto-Download Now"
+                        // Replay Gain toggle
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Replay Gain" }
+                                p { class: "text-sm text-zinc-400", "Normalize volume across tracks" }
+                            }
+                            button {
+                                class: if settings.replay_gain { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_replay_gain_toggle,
+                                div { class: if settings.replay_gain { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
                             }
                         }
-                        button {
-                            class: if download_actions_busy { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm" },
-                            disabled: download_actions_busy,
-                            onclick: on_refresh_download_cache,
-                            if download_cache_refresh_busy() {
-                                "Refreshing cache..."
-                            } else {
-                                "Refresh Downloaded Cache"
-                            }
-                        }
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-sm",
-                            onclick: on_clear_downloads,
-                            "Clear Downloads"
-                        }
-                    }
-
-                    if let Some(status) = auto_download_status() {
-                        p { class: "text-xs text-zinc-500", "{status}" }
                     }
                 }
-            }
 
-            // Lyrics settings
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-3", "Lyrics Sync" }
-                p { class: "text-sm text-zinc-400 mb-5",
-                    "Configure provider priority, lookup timeout, and sync behavior for the song menu lyrics panel. Changes are auto-saved."
-                }
-                p { class: "text-xs text-zinc-500 mb-5",
-                    "Web note: browser CORS blocks direct Netease and Genius requests in web builds. Keep LRCLIB first on web. Desktop supports all providers."
-                }
-
-                div { class: "space-y-5",
-                    div { class: "flex items-center justify-between",
-                        div {
-                            p { class: "font-medium text-white", "Sync lyrics" }
-                            p { class: "text-sm text-zinc-400",
-                                "Enable timeline-synced lyrics and tap-to-seek from the lyrics tab (default: ON)"
-                            }
-                        }
-                        button {
-                            class: if lyrics_sync_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                            onclick: on_lyrics_sync_toggle,
-                            div { class: if lyrics_sync_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
-                        }
+                // Bookmark settings
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-3", "Bookmark Settings" }
+                    p { class: "text-sm text-zinc-400 mb-5",
+                        "Bookmarks remember your listening position so you can quickly continue where you left off."
                     }
 
-                    div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                    div { class: "space-y-5",
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Auto-save bookmarks" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Automatically save playback position while listening and when switching songs."
+                                }
+                            }
+                            button {
+                                class: if settings.bookmark_auto_save { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_bookmark_auto_save_toggle,
+                                div { class: if settings.bookmark_auto_save { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Resume bookmark on launch" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Automatically queue and play your latest bookmark when the app starts."
+                                }
+                            }
+                            button {
+                                class: if settings.bookmark_autoplay_on_launch { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_bookmark_autoplay_toggle,
+                                div { class: if settings.bookmark_autoplay_on_launch { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
                         div {
                             label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Provider timeout (seconds)"
+                                "Bookmark Limit"
+                            }
+                            p { class: "text-xs text-zinc-500 mb-3",
+                                "Keep only the newest bookmarks per server user. Oldest bookmarks are deleted when this limit is exceeded."
                             }
                             input {
                                 r#type: "number",
                                 min: "1",
-                                max: "20",
-                                value: settings.lyrics_request_timeout_secs,
-                                class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                onchange: on_lyrics_timeout_change,
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Sync offset (ms)"
-                            }
-                            div { class: "flex items-center gap-2",
-                                input {
-                                    r#type: "number",
-                                    min: "-5000",
-                                    max: "5000",
-                                    step: "50",
-                                    value: settings.lyrics_offset_ms,
-                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
-                                    onchange: on_lyrics_offset_change,
-                                }
-                                button {
-                                    class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
-                                    onclick: on_lyrics_reset_offset,
-                                    "Reset"
-                                }
+                                max: "5000",
+                                value: settings.bookmark_limit,
+                                class: "w-full max-w-xs px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                onchange: on_bookmark_limit_change,
                             }
                         }
                     }
+                }
 
-                    div { class: "space-y-4 rounded-xl border border-zinc-700/50 bg-zinc-900/30 p-4",
-                        div { class: "flex items-center justify-between gap-4",
+                } // end playback tab
+
+                if active_tab() == "playback" || active_tab() == "servers" {
+                // Offline Mode
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-3", "Offline Mode" }
+                    p { class: "text-sm text-zinc-400 mb-5",
+                        "When enabled, RustySound uses downloaded and cached content only. New network requests are blocked until you turn it off."
+                    }
+                    div { class: "flex items-center justify-between",
+                        div {
+                            p { class: "font-medium text-white", "Use offline content only" }
+                            p { class: "text-sm text-zinc-400",
+                                "Disable this to return to live server access."
+                            }
+                        }
+                        button {
+                            class: if settings.offline_mode { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                            onclick: on_offline_mode_toggle,
+                            div { class: if settings.offline_mode { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                        }
+                    }
+                }
+                } // end offline mode tabs
+
+                if active_tab() == "storage" {
+                // Cache settings
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    div { class: "flex items-center justify-between gap-3 mb-3",
+                        h2 { class: "text-lg font-semibold text-white", "Cache" }
+                        button {
+                            class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
+                            onclick: on_use_recommended_cache,
+                            "Use Recommended"
+                        }
+                    }
+                    p { class: "text-sm text-zinc-400 mb-5",
+                        "Control metadata, artwork, and lyrics caching. Native apps also prefetch now playing + next songs for offline continuity."
+                    }
+
+                    div { class: "space-y-5",
+                        div { class: "flex items-center justify-between",
                             div {
-                                p { class: "font-medium text-white", "Lyrics screenshot view" }
+                                p { class: "font-medium text-white", "Enable cache" }
                                 p { class: "text-sm text-zinc-400",
-                                    "Add a dedicated lyrics canvas with artwork backdrop and larger typography so users can take clean screenshots from the lyrics tab."
+                                    "Store song/artist/playlist/favorites metadata and lyrics locally."
                                 }
                             }
                             button {
-                                class: if lyrics_screenshot_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                                onclick: on_lyrics_screenshot_toggle,
-                                div { class: if lyrics_screenshot_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                                class: if settings.cache_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_cache_enabled_toggle,
+                                div { class: if settings.cache_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
                             }
                         }
 
-                        if lyrics_screenshot_enabled {
-                            div { class: "flex items-center justify-between gap-4",
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Cache album artwork" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Cache image responses for faster repeat views and fewer artwork requests."
+                                }
+                            }
+                            button {
+                                class: if settings.cache_images_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_cache_images_toggle,
+                                div { class: if settings.cache_images_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
+                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Max cache size (MB)"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "25",
+                                    max: "2048",
+                                    value: settings.cache_size_mb,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_cache_size_change,
+                                }
+                            }
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Cache expiry (days)"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "-1",
+                                    max: "3650",
+                                    value: settings.cache_expiry_days,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_cache_expiry_change,
+                                }
+                                p { class: "text-xs text-zinc-500 mt-2",
+                                    "Use -1 to disable automatic expiry."
+                                }
+                            }
+                        }
+
+                        div { class: "space-y-2 pt-1",
+                            div { class: "flex items-center justify-between gap-3",
+                                p { class: "text-xs text-zinc-500", "{cache_usage_label}" }
+                                button {
+                                    class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-rose-500/60 transition-colors text-sm",
+                                    onclick: on_clear_cache,
+                                    "Clear cache"
+                                }
+                            }
+                            div { class: "w-full h-2 rounded-full bg-zinc-700/70 overflow-hidden",
                                 div {
-                                    p { class: "font-medium text-white", "Include timestamps" }
+                                    class: "h-full bg-emerald-500/80 transition-all",
+                                    style: "width: {cache_usage_bar_width}",
+                                }
+                            }
+                        }
+
+                        div { class: "space-y-2 pt-2 border-t border-zinc-800/80",
+                            div { class: "flex items-center justify-between gap-3",
+                                div {
+                                    p { class: "font-medium text-white", "Smart Cache Warm-up" }
                                     p { class: "text-sm text-zinc-400",
-                                        "Show synced timestamps in the screenshot view when timed lyrics are available."
+                                        "Prefetch albums, songs, playlists, lyrics, and queue artwork with request throttling."
                                     }
                                 }
                                 button {
-                                    class: if settings.lyrics_screenshot_timestamps { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                                    onclick: on_lyrics_screenshot_timestamps_toggle,
-                                    div { class: if settings.lyrics_screenshot_timestamps { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                                    class: if smart_cache_busy() { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-400 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm" },
+                                    disabled: smart_cache_busy(),
+                                    onclick: on_smart_cache,
+                                    if smart_cache_busy() {
+                                        "Warming..."
+                                    } else {
+                                        "Run Smart Cache"
+                                    }
                                 }
+                            }
+                            if let Some(status) = smart_cache_status() {
+                                p { class: "text-xs text-zinc-500", "{status}" }
+                            }
+                            if smart_cache_busy() {
+                                div { class: "w-full h-2 rounded-full bg-zinc-700/70 overflow-hidden",
+                                    div {
+                                        class: "h-full bg-emerald-500/80 transition-all",
+                                        style: "{smart_cache_progress_style}",
+                                    }
+                                }
+                                p { class: "text-xs text-zinc-500", "{smart_cache_percent}% complete" }
+                            }
+                        }
+                    
+                    }
+                }
+
+                // Downloads settings
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    div { class: "flex items-center justify-between gap-3 mb-4",
+                        div {
+                            h2 { class: "text-lg font-semibold text-white", "Downloads" }
+                            p { class: "text-sm text-zinc-400",
+                                "Store songs and lyrics offline, manage auto-download limits, and control artwork source preference."
+                            }
+                        }
+                        div { class: "flex flex-wrap items-center gap-2",
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
+                                onclick: on_use_recommended_downloads,
+                                "Use Recommended"
+                            }
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-sm",
+                                onclick: move |_| navigation.navigate_to(AppView::DownloadsView {}),
+                                "Open Downloads Page"
                             }
                         }
                     }
 
-                    div { class: "space-y-2",
-                        p { class: "text-sm font-medium text-zinc-300", "Provider priority" }
-                        for (index , provider) in lyrics_provider_order.iter().enumerate() {
-                            div { class: "flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-zinc-700/60 bg-zinc-900/40",
-                                div { class: "flex items-center gap-2 min-w-0",
-                                    span { class: "text-xs text-zinc-500 w-6", "{index + 1}." }
-                                    span { class: "text-sm text-white truncate",
-                                        "{lyrics_provider_label(provider)}"
-                                    }
+                    div { class: "space-y-5",
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Enable downloads" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Allow manual and automatic audio downloads."
+                                }
+                            }
+                            button {
+                                class: if settings.downloads_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_downloads_enabled_toggle,
+                                div { class: if settings.downloads_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Auto downloads" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Fetch favorite songs and recent albums/playlists automatically."
+                                }
+                            }
+                            button {
+                                class: if settings.auto_downloads_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_auto_downloads_enabled_toggle,
+                                div { class: if settings.auto_downloads_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
+                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Favorite tier"
+                                }
+                                select {
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    value: settings.auto_download_tier.to_string(),
+                                    oninput: on_auto_download_tier_change,
+                                    option { value: "1", "Tier 1 (50 favorites)" }
+                                    option { value: "2", "Tier 2 (100 favorites)" }
+                                    option { value: "3", "Tier 3 (150 favorites)" }
+                                }
+                                p { class: "text-xs text-zinc-500 mt-2",
+                                    "Current tier keeps up to {favorite_tier_limit} favorite songs."
+                                }
+                            }
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Artwork source preference"
+                                }
+                                select {
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    value: artwork_pref_key(settings.artwork_download_preference),
+                                    oninput: on_artwork_pref_change,
+                                    option { value: "server_only", "Server artwork only" }
+                                    option { value: "id3_only", "ID3 artwork only" }
+                                    option { value: "prefer_server", "Prefer server artwork" }
+                                    option { value: "prefer_id3", "Prefer ID3 artwork" }
+                                }
+                                p { class: "text-xs text-zinc-500 mt-2",
+                                    "Large artwork warm-ups can trigger server rate limits if repeated frequently."
+                                }
+                            }
+                        }
+
+                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Auto albums"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "0",
+                                    max: "25",
+                                    value: settings.auto_download_album_count,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_auto_download_album_count_change,
+                                }
+                            }
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Auto playlists"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "0",
+                                    max: "25",
+                                    value: settings.auto_download_playlist_count,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_auto_download_playlist_count_change,
+                                }
+                            }
+                        }
+
+                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Download limit (songs)"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "25",
+                                    max: "20000",
+                                    value: settings.download_limit_count,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_download_limit_count_change,
+                                }
+                            }
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Download limit (MB)"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "256",
+                                    max: "131072",
+                                    value: settings.download_limit_mb,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_download_limit_mb_change,
+                                }
+                            }
+                        }
+
+                        div { class: "space-y-2",
+                            p { class: "text-xs text-zinc-500", "{download_usage_label}" }
+                            div { class: "h-2 w-full rounded-full bg-zinc-700/70 overflow-hidden",
+                                div {
+                                    class: "h-full bg-cyan-500/80 transition-all",
+                                    style: "width: {download_size_usage_bar_width}",
+                                }
+                            }
+                        }
+
+                        div { class: "flex flex-wrap items-center gap-3",
+                            button {
+                                class: if download_actions_busy { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm" },
+                                disabled: download_actions_busy,
+                                onclick: on_run_auto_download,
+                                if auto_download_busy() {
+                                    "Running auto-download..."
+                                } else {
+                                    "Run Auto-Download Now"
+                                }
+                            }
+                            button {
+                                class: if download_actions_busy { "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-sm" } else { "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm" },
+                                disabled: download_actions_busy,
+                                onclick: on_refresh_download_cache,
+                                if download_cache_refresh_busy() {
+                                    "Refreshing cache..."
+                                } else {
+                                    "Refresh Downloaded Cache"
+                                }
+                            }
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-sm",
+                                onclick: on_clear_downloads,
+                                "Clear Downloads"
+                            }
+                        }
+
+                        if let Some(status) = auto_download_status() {
+                            p { class: "text-xs text-zinc-500", "{status}" }
+                        }
+                    }
+                }
+                } // end storage tab
+
+                if active_tab() == "lyrics" {
+                // Lyrics settings
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-3", "Lyrics Sync" }
+                    p { class: "text-sm text-zinc-400 mb-5",
+                        "Configure provider priority, lookup timeout, and sync behavior for the song menu lyrics panel. Changes are auto-saved."
+                    }
+                    p { class: "text-xs text-zinc-500 mb-5",
+                        "Web note: browser CORS blocks direct Netease and Genius requests in web builds. Keep LRCLIB first on web. Desktop supports all providers."
+                    }
+
+                    div { class: "space-y-5",
+                        div { class: "flex items-center justify-between",
+                            div {
+                                p { class: "font-medium text-white", "Sync lyrics" }
+                                p { class: "text-sm text-zinc-400",
+                                    "Enable timeline-synced lyrics and tap-to-seek from the lyrics tab (default: ON)"
+                                }
+                            }
+                            button {
+                                class: if lyrics_sync_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                onclick: on_lyrics_sync_toggle,
+                                div { class: if lyrics_sync_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                            }
+                        }
+
+                        div { class: "grid grid-cols-1 md:grid-cols-2 gap-4",
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Provider timeout (seconds)"
+                                }
+                                input {
+                                    r#type: "number",
+                                    min: "1",
+                                    max: "20",
+                                    value: settings.lyrics_request_timeout_secs,
+                                    class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                    onchange: on_lyrics_timeout_change,
+                                }
+                            }
+                            div {
+                                label { class: "block text-sm font-medium text-zinc-400 mb-2",
+                                    "Sync offset (ms)"
                                 }
                                 div { class: "flex items-center gap-2",
-                                    button {
-                                        class: "px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-white text-xs disabled:opacity-40",
-                                        disabled: index == 0,
-                                        onclick: {
-                                            let provider = provider.clone();
-                                            let mut app_settings = app_settings.clone();
-                                            move |_| {
-                                                let mut settings = app_settings();
-                                                let mut order = normalize_lyrics_provider_order(
-                                                    &settings.lyrics_provider_order,
-                                                );
-                                                if let Some(position) =
-                                                    order.iter().position(|entry| entry == &provider)
-                                                {
-                                                    if position > 0 {
-                                                        order.swap(position, position - 1);
-                                                        settings.lyrics_provider_order = order;
-                                                        let settings_clone = settings.clone();
-                                                        app_settings.set(settings);
-                                                        persist_settings_with_toast(
-                                                            settings_clone,
-                                                            saved_toast.clone(),
-                                                            saved_toast_nonce.clone(),
-                                                        );
-                                                    }
-                                                }
-                                            }
-                                        },
-                                        "Up"
+                                    input {
+                                        r#type: "number",
+                                        min: "-5000",
+                                        max: "5000",
+                                        step: "50",
+                                        value: settings.lyrics_offset_ms,
+                                        class: "w-full px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-white focus:outline-none focus:border-emerald-500/50",
+                                        onchange: on_lyrics_offset_change,
                                     }
                                     button {
-                                        class: "px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-white text-xs disabled:opacity-40",
-                                        disabled: index + 1 >= lyrics_provider_order.len(),
-                                        onclick: {
-                                            let provider = provider.clone();
-                                            let mut app_settings = app_settings.clone();
-                                            move |_| {
-                                                let mut settings = app_settings();
-                                                let mut order = normalize_lyrics_provider_order(
-                                                    &settings.lyrics_provider_order,
-                                                );
-                                                if let Some(position) =
-                                                    order.iter().position(|entry| entry == &provider)
-                                                {
-                                                    if position + 1 < order.len() {
-                                                        order.swap(position, position + 1);
-                                                        settings.lyrics_provider_order = order;
-                                                        let settings_clone = settings.clone();
-                                                        app_settings.set(settings);
-                                                        persist_settings_with_toast(
-                                                            settings_clone,
-                                                            saved_toast.clone(),
-                                                            saved_toast_nonce.clone(),
-                                                        );
+                                        class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
+                                        onclick: on_lyrics_reset_offset,
+                                        "Reset"
+                                    }
+                                }
+                            }
+                        }
+
+                        div { class: "space-y-4 rounded-xl border border-zinc-700/50 bg-zinc-900/30 p-4",
+                            div { class: "flex items-center justify-between gap-4",
+                                div {
+                                    p { class: "font-medium text-white", "Lyrics screenshot view" }
+                                    p { class: "text-sm text-zinc-400",
+                                        "Add a dedicated lyrics canvas with artwork backdrop and larger typography so users can take clean screenshots from the lyrics tab."
+                                    }
+                                }
+                                button {
+                                    class: if lyrics_screenshot_enabled { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                    onclick: on_lyrics_screenshot_toggle,
+                                    div { class: if lyrics_screenshot_enabled { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                                }
+                            }
+
+                            if lyrics_screenshot_enabled {
+                                div { class: "flex items-center justify-between gap-4",
+                                    div {
+                                        p { class: "font-medium text-white", "Include timestamps" }
+                                        p { class: "text-sm text-zinc-400",
+                                            "Show synced timestamps in the screenshot view when timed lyrics are available."
+                                        }
+                                    }
+                                    button {
+                                        class: if settings.lyrics_screenshot_timestamps { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
+                                        onclick: on_lyrics_screenshot_timestamps_toggle,
+                                        div { class: if settings.lyrics_screenshot_timestamps { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
+                                    }
+                                }
+                            }
+                        }
+
+                        div { class: "space-y-2",
+                            p { class: "text-sm font-medium text-zinc-300", "Provider priority" }
+                            for (index , provider) in lyrics_provider_order.iter().enumerate() {
+                                div { class: "flex items-center justify-between gap-3 px-3 py-2 rounded-xl border border-zinc-700/60 bg-zinc-900/40",
+                                    div { class: "flex items-center gap-2 min-w-0",
+                                        span { class: "text-xs text-zinc-500 w-6", "{index + 1}." }
+                                        span { class: "text-sm text-white truncate",
+                                            "{lyrics_provider_label(provider)}"
+                                        }
+                                    }
+                                    div { class: "flex items-center gap-2",
+                                        button {
+                                            class: "px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-white text-xs disabled:opacity-40",
+                                            disabled: index == 0,
+                                            onclick: {
+                                                let provider = provider.clone();
+                                                let mut app_settings = app_settings.clone();
+                                                move |_| {
+                                                    let mut settings = app_settings();
+                                                    let mut order = normalize_lyrics_provider_order(
+                                                        &settings.lyrics_provider_order,
+                                                    );
+                                                    if let Some(position) =
+                                                        order.iter().position(|entry| entry == &provider)
+                                                    {
+                                                        if position > 0 {
+                                                            order.swap(position, position - 1);
+                                                            settings.lyrics_provider_order = order;
+                                                            let settings_clone = settings.clone();
+                                                            app_settings.set(settings);
+                                                            persist_settings_with_toast(
+                                                                settings_clone,
+                                                                saved_toast.clone(),
+                                                                saved_toast_nonce.clone(),
+                                                            );
+                                                        }
                                                     }
                                                 }
-                                            }
-                                        },
-                                        "Down"
+                                            },
+                                            "Up"
+                                        }
+                                        button {
+                                            class: "px-2 py-1 rounded border border-zinc-700 text-zinc-400 hover:text-white text-xs disabled:opacity-40",
+                                            disabled: index + 1 >= lyrics_provider_order.len(),
+                                            onclick: {
+                                                let provider = provider.clone();
+                                                let mut app_settings = app_settings.clone();
+                                                move |_| {
+                                                    let mut settings = app_settings();
+                                                    let mut order = normalize_lyrics_provider_order(
+                                                        &settings.lyrics_provider_order,
+                                                    );
+                                                    if let Some(position) =
+                                                        order.iter().position(|entry| entry == &provider)
+                                                    {
+                                                        if position + 1 < order.len() {
+                                                            order.swap(position, position + 1);
+                                                            settings.lyrics_provider_order = order;
+                                                            let settings_clone = settings.clone();
+                                                            app_settings.set(settings);
+                                                            persist_settings_with_toast(
+                                                                settings_clone,
+                                                                saved_toast.clone(),
+                                                                saved_toast_nonce.clone(),
+                                                            );
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            "Down"
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
+                } // end lyrics tab
 
-            // Quick Scan Section
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-3", "Quick Scan" }
+                if active_tab() == "advanced" {
+                // Quick Scan Section
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    h2 { class: "text-lg font-semibold text-white mb-3", "Quick Scan" }
 
-                div { class: "space-y-4",
-                    p { class: "text-sm text-zinc-400",
-                        "Trigger a quick scan on your connected servers and keep an eye on the status."
-                    }
-                    div { class: "flex flex-wrap gap-3",
-                        button {
-                            class: if scan_busy() { "px-4 py-2 rounded-xl bg-emerald-500/60 text-white cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center gap-2" },
-                            disabled: scan_busy(),
-                            onclick: on_start_scan,
-                            if scan_busy() {
-                                Icon {
-                                    name: "loader".to_string(),
-                                    class: "w-4 h-4 text-white animate-spin".to_string(),
+                    div { class: "space-y-4",
+                        p { class: "text-sm text-zinc-400",
+                            "Trigger a quick scan on your connected servers and keep an eye on the status."
+                        }
+                        div { class: "flex flex-wrap gap-3",
+                            button {
+                                class: if scan_busy() { "px-4 py-2 rounded-xl bg-emerald-500/60 text-white cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center gap-2" },
+                                disabled: scan_busy(),
+                                onclick: on_start_scan,
+                                if scan_busy() {
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-4 h-4 text-white animate-spin".to_string(),
+                                    }
+                                    "Scanning..."
+                                } else {
+                                    Icon {
+                                        name: "search".to_string(),
+                                        class: "w-4 h-4 text-white".to_string(),
+                                    }
+                                    "Start Quick Scan"
                                 }
-                                "Scanning..."
-                            } else {
-                                Icon {
-                                    name: "search".to_string(),
-                                    class: "w-4 h-4 text-white".to_string(),
+                            }
+                            button {
+                                class: if scan_busy() { "px-4 py-2 rounded-xl bg-zinc-700/40 text-zinc-300 cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-700/60 text-white hover:bg-zinc-700 transition-colors flex items-center gap-2" },
+                                disabled: scan_busy(),
+                                onclick: on_refresh_scan,
+                                if scan_busy() {
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-4 h-4 text-white animate-spin".to_string(),
+                                    }
+                                    "Refreshing..."
+                                } else {
+                                    Icon {
+                                        name: "repeat".to_string(),
+                                        class: "w-4 h-4 text-white".to_string(),
+                                    }
+                                    "Refresh Status"
                                 }
-                                "Start Quick Scan"
                             }
                         }
-                        button {
-                            class: if scan_busy() { "px-4 py-2 rounded-xl bg-zinc-700/40 text-zinc-300 cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-xl bg-zinc-700/60 text-white hover:bg-zinc-700 transition-colors flex items-center gap-2" },
-                            disabled: scan_busy(),
-                            onclick: on_refresh_scan,
-                            if scan_busy() {
-                                Icon {
-                                    name: "loader".to_string(),
-                                    class: "w-4 h-4 text-white animate-spin".to_string(),
-                                }
-                                "Refreshing..."
-                            } else {
-                                Icon {
-                                    name: "repeat".to_string(),
-                                    class: "w-4 h-4 text-white".to_string(),
-                                }
-                                "Refresh Status"
-                            }
-                        }
-                    }
 
-                    {
-                        if scan_results().is_empty() {
-                            rsx! {
-                                p { class: "text-sm text-zinc-500", "No scan status available yet." }
-                            }
-                        } else {
-                            rsx! {
-                                div { class: "space-y-3",
-                                    for entry in scan_results() {
-                                        div { class: "p-4 bg-zinc-900/50 border border-zinc-800/70 rounded-2xl space-y-1",
-                                            span { class: "text-sm text-zinc-500", "{entry.server_name}" }
-                                            p { class: "text-sm text-white", "Status: {entry.status.status}" }
-                                            if let Some(task) = entry.status.current_task.as_ref() {
-                                                span { class: "text-xs text-zinc-500", "Task: {task}" }
-                                            }
-                                            if let Some(seconds) = entry.status.seconds_remaining {
-                                                span { class: "text-xs text-zinc-500", "{seconds}s remaining" }
-                                            }
-                                            if let Some(elapsed) = entry.status.seconds_elapsed {
-                                                span { class: "text-xs text-zinc-500", "Elapsed: {elapsed}s" }
+                        {
+                            if scan_results().is_empty() {
+                                rsx! {
+                                    p { class: "text-sm text-zinc-500", "No scan status available yet." }
+                                }
+                            } else {
+                                rsx! {
+                                    div { class: "space-y-3",
+                                        for entry in scan_results() {
+                                            div { class: "p-4 bg-zinc-900/50 border border-zinc-800/70 rounded-2xl space-y-1",
+                                                span { class: "text-sm text-zinc-500", "{entry.server_name}" }
+                                                p { class: "text-sm text-white", "Status: {entry.status.status}" }
+                                                if let Some(task) = entry.status.current_task.as_ref() {
+                                                    span { class: "text-xs text-zinc-500", "Task: {task}" }
+                                                }
+                                                if let Some(seconds) = entry.status.seconds_remaining {
+                                                    span { class: "text-xs text-zinc-500", "{seconds}s remaining" }
+                                                }
+                                                if let Some(elapsed) = entry.status.seconds_elapsed {
+                                                    span { class: "text-xs text-zinc-500", "Elapsed: {elapsed}s" }
+                                                }
                                             }
                                         }
                                     }
@@ -2274,319 +2881,79 @@ pub fn SettingsView() -> Element {
                         }
                     }
                 }
-            }
 
-            if cfg!(target_os = "ios") {
-                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                    h2 { class: "text-lg font-semibold text-white mb-3", "iOS Audio Logs" }
-                    p { class: "text-sm text-zinc-400 mb-4",
-                        "Capture logs from this physical iPhone for lock-screen/control-center playback issues."
-                    }
-
-                    div { class: "flex flex-wrap items-center gap-3 mb-4",
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
-                            onclick: on_refresh_ios_logs,
-                            "Refresh Logs"
+                if cfg!(target_os = "ios") {
+                    section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                        h2 { class: "text-lg font-semibold text-white mb-3", "iOS Audio Logs" }
+                        p { class: "text-sm text-zinc-400 mb-4",
+                            "Capture logs from this physical iPhone for lock-screen/control-center playback issues."
                         }
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm",
-                            onclick: on_export_ios_logs,
-                            "Export .txt"
-                        }
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
-                            onclick: on_clear_ios_logs,
-                            "Clear Buffer"
-                        }
-                    }
 
-                    if let Some(status) = ios_log_status() {
-                        p { class: "text-xs text-zinc-500 mb-3", "{status}" }
-                    }
+                        div { class: "flex flex-wrap items-center gap-3 mb-4",
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-emerald-500/40 text-emerald-300 hover:text-white hover:border-emerald-400/70 transition-colors text-sm",
+                                onclick: on_refresh_ios_logs,
+                                "Refresh Logs"
+                            }
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-cyan-500/40 text-cyan-300 hover:text-white hover:border-cyan-400/70 transition-colors text-sm",
+                                onclick: on_export_ios_logs,
+                                "Export .txt"
+                            }
+                            button {
+                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
+                                onclick: on_clear_ios_logs,
+                                "Clear Buffer"
+                            }
+                        }
 
-                    textarea {
-                        class: "w-full min-h-[220px] px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs font-mono leading-relaxed focus:outline-none",
-                        readonly: true,
-                        value: ios_log_text(),
-                    }
-                    p { class: "text-xs text-zinc-500 mt-3",
-                        "After reproducing the issue, tap Refresh Logs, then Export .txt (or copy manually from the box)."
+                        if let Some(status) = ios_log_status() {
+                            p { class: "text-xs text-zinc-500 mb-3", "{status}" }
+                        }
+
+                        textarea {
+                            class: "w-full min-h-[220px] px-3 py-2 rounded-lg border border-zinc-700 bg-zinc-900 text-zinc-200 text-xs font-mono leading-relaxed focus:outline-none",
+                            readonly: true,
+                            value: ios_log_text(),
+                        }
+                        p { class: "text-xs text-zinc-500 mt-3",
+                            "After reproducing the issue, tap Refresh Logs, then Export .txt (or copy manually from the box)."
+                        }
                     }
                 }
-            }
-
-            // Add/Edit server form
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-4",
-                    if editing_server().is_some() {
-                        "Edit Server"
-                    } else {
-                        "Add Server"
-                    }
-                }
-                if editing_server().is_some() {
-                    p { class: "text-red-400 text-sm mb-4 flex items-center gap-1",
-                        Icon {
-                            name: "arrow-up".to_string(),
-                            class: "w-4 h-4".to_string(),
-                        }
-                        "Scroll up to edit server"
-                    }
-                }
-
-                div { class: "grid gap-4",
-                    // Server name
-                    div {
-                        label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                            "Server Name"
-                        }
-                        input {
-                            class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                            placeholder: "My Navidrome Server",
-                            value: server_name,
-                            oninput: move |e| {
-                                server_name.set(e.value());
-                                test_result.set(None);
-                            },
-                        }
-                    }
-
-                    // URL
-                    div {
-                        label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                            "Server URL"
-                        }
-                        input {
-                            class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                            placeholder: "https://navidrome.example.com",
-                            value: server_url,
-                            oninput: move |e| {
-                                server_url.set(e.value());
-                                test_result.set(None);
-                            },
-                        }
-                        p { class: "text-xs text-zinc-500 mt-2",
-                            "Remote HTTP URLs are automatically upgraded to HTTPS. Local network hosts keep HTTP."
-                        }
-                    }
-
-                    // Username & Password
-                    div { class: "grid grid-cols-1 sm:grid-cols-2 gap-4",
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Username"
-                            }
-                            input {
-                                class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                                placeholder: "admin",
-                                value: server_user,
-                                oninput: move |e| {
-                                    server_user.set(e.value());
-                                    test_result.set(None);
-                                },
-                            }
-                        }
-                        div {
-                            label { class: "block text-sm font-medium text-zinc-400 mb-2",
-                                "Password"
-                            }
-                            input {
-                                class: "w-full px-4 py-3 bg-zinc-900/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                                r#type: "password",
-                                placeholder: "••••••••",
-                                value: server_pass,
-                                oninput: move |e| {
-                                    server_pass.set(e.value());
-                                    test_result.set(None);
-                                },
-                            }
-                        }
-                    }
-
-                    // Test result
-                    {
-                        match test_result() {
-                            Some(Ok(())) => rsx! {
-                                div { class: "flex items-center gap-2 text-emerald-400 text-sm",
-                                    Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                                    "Connection successful!"
-                                }
-                            },
-                            Some(Err(e)) => rsx! {
-                                div { class: "flex items-center gap-2 text-red-400 text-sm",
-                                    Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
-                                    "Failed: {e}"
-                                }
-                            },
-                            None => rsx! {},
-                        }
-                    }
-
-                    // Buttons
-                    div { class: "flex flex-col sm:flex-row gap-3 pt-2",
-                        button {
-                            class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
-                            disabled: is_testing(),
-                            onclick: on_test,
-                            if is_testing() {
-                                Icon {
-                                    name: "loader".to_string(),
-                                    class: "w-4 h-4".to_string(),
-                                }
-                            } else {
+                } // end advanced tab
+            } else {
+                // Onboarding layout - show when no servers exist
+                div { class: "flex items-center justify-center min-h-[60vh] px-4",
+                    div { class: "w-full max-w-4xl text-center space-y-8",
+                        div { class: "space-y-4 mb-8",
+                            div { class: "w-20 h-20 rounded-2xl bg-emerald-500/10 flex items-center justify-center mx-auto mb-4",
                                 Icon {
                                     name: "server".to_string(),
-                                    class: "w-4 h-4".to_string(),
+                                    class: "w-10 h-10 text-emerald-500".to_string(),
                                 }
                             }
-                            "Test Connection"
-                        }
-                        if editing_server().is_some() {
-                            button {
-                                class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
-                                onclick: on_save_edit,
-                                Icon {
-                                    name: "check".to_string(),
-                                    class: "w-4 h-4".to_string(),
-                                }
-                                "Save Changes"
-                            }
-                            button {
-                                class: "w-full sm:w-auto px-4 py-2 rounded-xl bg-zinc-700/50 text-zinc-300 hover:text-white hover:bg-zinc-700 transition-colors flex items-center gap-2",
-                                onclick: on_cancel_edit,
-                                Icon {
-                                    name: "x".to_string(),
-                                    class: "w-4 h-4".to_string(),
-                                }
-                                "Cancel"
-                            }
-                        } else {
-                            button {
-                                class: if can_add() { "w-full sm:w-auto px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2" } else { "w-full sm:w-auto px-6 py-2 rounded-xl bg-zinc-700/50 text-zinc-500 cursor-not-allowed flex items-center gap-2" },
-                                disabled: !can_add(),
-                                onclick: on_add,
-                                Icon {
-                                    name: "plus".to_string(),
-                                    class: "w-4 h-4".to_string(),
-                                }
-                                "Add Server"
+                            h2 { class: "text-3xl font-bold text-white", "Add Your First Server" }
+                            p { class: "text-zinc-400 text-lg max-w-lg mx-auto",
+                                "Connect to your Navidrome server to start streaming your music collection."
                             }
                         }
-                    }
-                }
-            }
 
-            // Connected servers
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-4", "Connected Servers" }
-                p { class: "text-sm text-amber-200/80 bg-amber-500/10 border border-amber-500/40 rounded-xl px-3 py-2 mb-4",
-                    "Playlists can only be managed when a single server is active. Enabling one server will automatically disable the others."
-                }
-
-                if server_list.is_empty() {
-                    div { class: "flex flex-col items-center justify-center py-12 text-center",
-                        Icon {
-                            name: "server".to_string(),
-                            class: "w-12 h-12 text-zinc-600 mb-4".to_string(),
-                        }
-                        p { class: "text-zinc-400", "No servers connected yet" }
-                        p { class: "text-zinc-500 text-sm",
-                            "Add a Navidrome server above to get started"
-                        }
-                    }
-                } else {
-                    div { class: "space-y-3",
-                        for server in server_list {
-                            ServerCard {
-                                server: server.clone(),
-                                on_toggle: {
-                                    let server_id = server.id.clone();
-                                    move |_| {
-                                        servers
-                                            .with_mut(|list| {
-                                                let new_state = list
-                                                    .iter()
-                                                    .find(|s| s.id == server_id)
-                                                    .map(|s| !s.active)
-                                                    .unwrap_or(false);
-
-                                                if new_state {
-                                                    for srv in list.iter_mut() {
-                                                        srv.active = false;
-                                                    }
-                                                }
-
-                                                if let Some(s) =
-                                                    list.iter_mut().find(|s| s.id == server_id)
-                                                {
-                                                    s.active = new_state;
-                                                }
-                                            });
-                                        persist_servers_immediately(servers());
-                                    }
-                                },
-                                on_edit: {
-                                    let server = server.clone();
-                                    move |_| on_edit_server(server.clone())
-                                },
-                                on_test: {
-                                    let server_id = server.id.clone();
-                                    move |_| on_test_existing(server_id.clone())
-                                },
-                                on_remove: {
-                                    let server_id = server.id.clone();
-                                    move |_| {
-                                        servers
-                                            .with_mut(|list| {
-                                                list.retain(|s| s.id != server_id);
-                                            });
-                                        persist_servers_immediately(servers());
-                                    }
-                                },
-                                is_testing: is_testing_connection(),
+                        div { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                            h3 { class: "text-lg font-semibold text-white mb-4", "Server Setup" }
+                            ServerFormFields {
+                                server_name,
+                                server_url,
+                                server_user,
+                                server_pass,
+                                test_result,
+                                is_testing: is_testing(),
+                                can_add: can_add(),
+                                force_http,
+                                on_test,
+                                on_add,
                             }
                         }
-                    }
-
-                    // Connection test result for existing servers
-                    {
-                        match connection_test_result() {
-                            Some(Ok(())) => rsx! {
-                                div { class: "mt-4 flex items-center gap-2 text-emerald-400 text-sm",
-                                    Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                                    "Connection test successful!"
-                                }
-                            },
-                            Some(Err(e)) => rsx! {
-                                div { class: "mt-4 flex items-center gap-2 text-red-400 text-sm",
-                                    Icon { name: "x".to_string(), class: "w-4 h-4".to_string() }
-                                    "Connection test failed: {e}"
-                                }
-                            },
-                            None => rsx! {},
-                        }
-                    }
-                }
-            }
-
-            // Offline mode card
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
-                h2 { class: "text-lg font-semibold text-white mb-3", "Offline Mode" }
-                p { class: "text-sm text-zinc-400 mb-5",
-                    "When enabled, RustySound uses downloaded and cached content only. New network requests are blocked until you turn it off."
-                }
-                div { class: "flex items-center justify-between",
-                    div {
-                        p { class: "font-medium text-white", "Use offline content only" }
-                        p { class: "text-sm text-zinc-400",
-                            "Disable this to return to live server access."
-                        }
-                    }
-                    button {
-                        class: if settings.offline_mode { "w-12 h-6 bg-emerald-500 rounded-full relative transition-colors" } else { "w-12 h-6 bg-zinc-700 rounded-full relative transition-colors" },
-                        onclick: on_offline_mode_toggle,
-                        div { class: if settings.offline_mode { "w-5 h-5 bg-white rounded-full absolute top-0.5 right-0.5 transition-all" } else { "w-5 h-5 bg-zinc-400 rounded-full absolute top-0.5 left-0.5 transition-all" } }
                     }
                 }
             }
@@ -2602,6 +2969,7 @@ fn ServerCard(
     on_edit: EventHandler<MouseEvent>,
     on_test: EventHandler<MouseEvent>,
     is_testing: bool,
+    is_editing: bool,
 ) -> Element {
     let initials: String = server
         .name
@@ -2612,7 +2980,7 @@ fn ServerCard(
         .to_uppercase();
 
     rsx! {
-        div { class: "p-4 rounded-xl bg-zinc-900/50 border border-zinc-700/30",
+        div { class: if is_editing { "p-4 rounded-xl bg-zinc-900/50 border border-amber-500/40" } else { "p-4 rounded-xl bg-zinc-900/50 border border-zinc-700/30" },
             // Server info row
             div { class: "flex items-center gap-4 mb-3",
                 // Icon
@@ -2677,6 +3045,11 @@ fn ServerCard(
                             class: "w-4 h-4".to_string(),
                         }
                     }
+                }
+            }
+            if is_editing {
+                div { class: "mt-3 text-xs text-amber-200/90 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2",
+                    "Scroll up to edit this server in the form above."
                 }
             }
         }
