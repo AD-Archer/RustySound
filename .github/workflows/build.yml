@@ -444,13 +444,17 @@ jobs:
       env:
         DISPATCH_TOKEN: ${{ secrets.CROSS_REPO_DISPATCH_TOKEN }}
         VERSION: ${{ needs.version.outputs.tag }}
+        PACKAGES_REPO: ${{ vars.PACKAGES_REPO }}
         LINUX_PACKAGES_REPO: ${{ vars.LINUX_PACKAGES_REPO }}
       run: |
+        set -euo pipefail
+
         if [[ -z "${DISPATCH_TOKEN}" ]]; then
           echo "CROSS_REPO_DISPATCH_TOKEN is not set, skipping package dispatch."
           exit 0
         fi
 
+        PACKAGES_REPO="${PACKAGES_REPO:-${LINUX_PACKAGES_REPO:-AD-Archer/packages}}"
         PAYLOAD="{\"event_type\":\"rustysound-release\",\"client_payload\":{\"version\":\"${VERSION}\",\"source_repo\":\"${GITHUB_REPOSITORY}\",\"source_sha\":\"${GITHUB_SHA}\"}}"
 
         dispatch_repo() {
@@ -470,4 +474,4 @@ jobs:
 
         dispatch_repo "AD-Archer/tap" "Homebrew tap"
         dispatch_repo "AD-Archer/scoop" "Scoop bucket"
-        dispatch_repo "${LINUX_PACKAGES_REPO}" "Linux packages"
+        dispatch_repo "${PACKAGES_REPO}" "Packages"
