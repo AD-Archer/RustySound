@@ -8,6 +8,7 @@ mod db;
 mod diagnostics;
 mod offline_art;
 mod offline_audio;
+mod storage;
 
 use components::AppView;
 

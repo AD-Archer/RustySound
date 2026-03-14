@@ -255,6 +255,7 @@ mod wasm_impl {
 #[cfg(not(target_arch = "wasm32"))]
 mod native_impl {
     use super::*;
+    use crate::storage::app_cache_dir;
     use std::fs;
     use std::path::PathBuf;
 
@@ -274,12 +275,10 @@ mod native_impl {
         }
 
         fn get_cache_file_path() -> Option<PathBuf> {
-            dirs::cache_dir()
-                .map(|dir: PathBuf| dir.join("rustysound"))
-                .map(|dir: PathBuf| {
-                    let _ = fs::create_dir_all(&dir);
-                    dir.join("cache.json")
-                })
+            app_cache_dir().map(|dir| {
+                let _ = fs::create_dir_all(&dir);
+                dir.join("cache.json")
+            })
         }
     }
 }

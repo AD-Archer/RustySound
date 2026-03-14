@@ -763,6 +763,7 @@ pub fn AppShell() -> Element {
     let mut playback_position = use_signal(|| 0.0f64);
     let mut last_playback_save = use_signal(|| None::<(String, String, u64, usize, usize)>);
     let mut db_initialized = use_signal(|| false);
+    let mut servers_loaded = use_signal(|| false);
     let mut settings_loaded = use_signal(|| false);
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
@@ -1088,6 +1089,7 @@ pub fn AppShell() -> Element {
                 #[cfg(not(target_arch = "wasm32"))]
                 eprintln!("Failed to initialize database: {}", _e);
                 db_initialized.set(true);
+                servers_loaded.set(true);
                 settings_loaded.set(true);
                 startup_bootstrap_progress.set(1.0);
                 startup_bootstrap_status.set("Startup ready".to_string());
@@ -1102,6 +1104,7 @@ pub fn AppShell() -> Element {
             if let Ok(saved_servers) = load_servers().await {
                 servers.set(saved_servers);
             }
+            servers_loaded.set(true);
 
             // Load settings
             startup_bootstrap_progress.set(0.72);
@@ -1486,7 +1489,7 @@ pub fn AppShell() -> Element {
     // Auto-save servers when they change
     use_effect(move || {
         let current_servers = servers();
-        if db_initialized() && !current_servers.is_empty() {
+        if db_initialized() && servers_loaded() {
             spawn(async move {
                 let _ = save_servers(current_servers).await;
             });

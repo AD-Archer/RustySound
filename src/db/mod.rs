@@ -1,6 +1,8 @@
 use crate::api::{
     default_lyrics_provider_order, models::ServerConfig, normalize_lyrics_provider_order,
 };
+#[cfg(not(target_arch = "wasm32"))]
+use crate::storage::app_data_dir;
 use dioxus::prelude::*;
 use serde::{Deserialize, Serialize};
 
@@ -463,70 +465,10 @@ pub async fn initialize_database() -> Result<(), StorageError> {
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
 fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
-    use std::path::PathBuf;
-
-    // Get data directory
-    let data_dir = dirs_next().unwrap_or_else(|| PathBuf::from("."));
+    let data_dir = app_data_dir()
+        .ok_or_else(|| DbError::new("Failed to resolve application data directory"))?;
     let db_path = data_dir.join("rustysound.db");
 
     rusqlite::Connection::open(&db_path)
         .map_err(|e| DbError::new(format!("Failed to open database: {}", e)))
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-fn dirs_next() -> Option<std::path::PathBuf> {
-    // Use proper application data directory for each platform
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            let data_dir = std::path::PathBuf::from(home)
-                .join("Library")
-                .join("Application Support")
-                .join("app.adarcher.rustysound");
-            std::fs::create_dir_all(&data_dir).ok()?;
-            Some(data_dir)
-        } else {
-            None
-        }
-    }
-
-    #[cfg(target_os = "windows")]
-    {
-        if let Ok(app_data) = std::env::var("APPDATA") {
-            let data_dir = std::path::PathBuf::from(app_data).join("RustySound");
-            std::fs::create_dir_all(&data_dir).ok()?;
-            Some(data_dir)
-        } else {
-            None
-        }
-    }
-
-    #[cfg(target_os = "linux")]
-    {
-        if let Ok(home) = std::env::var("HOME") {
-            let data_dir = std::path::PathBuf::from(home)
-                .join(".local")
-                .join("share")
-                .join("rustysound");
-            std::fs::create_dir_all(&data_dir).ok()?;
-            Some(data_dir)
-        } else {
-            None
-        }
-    }
-
-    #[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
-    {
-        // Fallback for other platforms
-        if let Ok(home) = std::env::var("HOME") {
-            let data_dir = std::path::PathBuf::from(home).join(".rustysound");
-            std::fs::create_dir_all(&data_dir).ok()?;
-            Some(data_dir)
-        } else {
-            let data_dir = std::path::PathBuf::from(".rustysound");
-            std::fs::create_dir_all(&data_dir).ok()?;
-            Some(data_dir)
-        }
-    }
 }

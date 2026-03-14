@@ -1,6 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::cache_service::is_enabled as cache_enabled;
 #[cfg(not(target_arch = "wasm32"))]
+use crate::storage::app_cache_dir;
+#[cfg(not(target_arch = "wasm32"))]
 use base64::{engine::general_purpose, Engine as _};
 #[cfg(not(target_arch = "wasm32"))]
 use once_cell::sync::Lazy;
@@ -42,9 +44,7 @@ fn sanitize_file_component(raw: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn cover_art_cache_dir() -> Option<PathBuf> {
-    let base = dirs::cache_dir()?
-        .join("rustysound")
-        .join(COVER_ART_CACHE_SUBDIR);
+    let base = app_cache_dir()?.join(COVER_ART_CACHE_SUBDIR);
     let _ = fs::create_dir_all(&base);
     Some(base)
 }

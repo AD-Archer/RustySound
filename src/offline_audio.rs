@@ -6,6 +6,8 @@ use crate::api::{ServerConfig, Song};
 use crate::db::AppSettings;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::db::ArtworkDownloadPreference;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::storage::app_cache_dir;
 use serde::{Deserialize, Serialize};
 
 #[cfg(all(
@@ -151,9 +153,7 @@ fn sanitize_file_component(raw: &str) -> String {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn audio_cache_dir() -> Option<PathBuf> {
-    let base = dirs::cache_dir()?
-        .join("rustysound")
-        .join(AUDIO_CACHE_SUBDIR);
+    let base = app_cache_dir()?.join(AUDIO_CACHE_SUBDIR);
     let _ = fs::create_dir_all(&base);
     Some(base)
 }
