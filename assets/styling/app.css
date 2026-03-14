@@ -22,9 +22,11 @@ body {
 .app-container {
   position: relative;
   isolation: isolate;
+  height: 100vh;
   height: 100dvh;
   --player-height: 11.5rem;
-  background: radial-gradient(
+  background:
+    radial-gradient(
       900px circle at 8% -10%,
       rgba(16, 185, 129, 0.18),
       transparent 45%
@@ -116,7 +118,9 @@ body {
   z-index: 140;
   pointer-events: none;
   transform: translateY(-50%);
-  transition: opacity 120ms linear, transform 120ms linear;
+  transition:
+    opacity 120ms linear,
+    transform 120ms linear;
 }
 
 .swipe-hint--back {
@@ -130,12 +134,14 @@ body {
 .page-shell {
   width: min(100%, 1200px);
   margin: 0 auto;
-  padding: 1.5rem 1.25rem calc(var(--player-height) + env(safe-area-inset-bottom) + 4rem);
+  padding: 1.5rem 1.25rem
+    calc(var(--player-height) + env(safe-area-inset-bottom) + 4rem);
 }
 
 @media (min-width: 768px) {
   .page-shell {
-    padding: 2rem 2rem calc(var(--player-height) + env(safe-area-inset-bottom) + 4.5rem);
+    padding: 2rem 2rem
+      calc(var(--player-height) + env(safe-area-inset-bottom) + 4.5rem);
   }
 }
 
@@ -183,8 +189,12 @@ body {
 }
 
 .main-scroll {
-  padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 6rem);
-  scroll-padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 6rem);
+  padding-bottom: calc(
+    var(--player-height) + env(safe-area-inset-bottom) + 6rem
+  );
+  scroll-padding-bottom: calc(
+    var(--player-height) + env(safe-area-inset-bottom) + 6rem
+  );
 }
 
 /* Extra bottom clearance on phones so long forms (Settings) stay above the player. */
@@ -194,12 +204,18 @@ body {
   }
 
   .page-shell {
-    padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 8rem);
+    padding-bottom: calc(
+      var(--player-height) + env(safe-area-inset-bottom) + 8rem
+    );
   }
 
   .main-scroll {
-    padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 8rem);
-    scroll-padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom) + 8rem);
+    padding-bottom: calc(
+      var(--player-height) + env(safe-area-inset-bottom) + 8rem
+    );
+    scroll-padding-bottom: calc(
+      var(--player-height) + env(safe-area-inset-bottom) + 8rem
+    );
   }
 }
 

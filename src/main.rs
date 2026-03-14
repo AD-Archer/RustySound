@@ -47,6 +47,12 @@ const WEB_MANIFEST: &str = "/assets/site.webmanifest";
 #[cfg(not(feature = "desktop"))]
 const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
 
+#[cfg(not(feature = "desktop"))]
+const APP_CSS: Asset = asset!("/assets/styling/app.css");
+
+#[cfg(not(feature = "desktop"))]
+const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
+
 #[cfg(feature = "desktop")]
 const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
 #[cfg(feature = "desktop")]
@@ -249,6 +255,9 @@ fn GlobalStyles() -> Element {
 
     #[cfg(not(feature = "desktop"))]
     {
-        rsx! {}
+        return rsx! {
+            document::Stylesheet { href: TAILWIND_CSS }
+            document::Stylesheet { href: APP_CSS }
+        };
     }
 }
