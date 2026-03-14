@@ -274,32 +274,53 @@ pub struct QueueItem {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), DbError> {
-    let conn = get_db_connection()?;
+    save_servers_now(&servers)
+}
 
-    // Clear existing servers and insert new ones
-    conn.execute("DELETE FROM servers", [])
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_servers_now(servers: &[ServerConfig]) -> Result<(), DbError> {
+    let mut conn = get_db_connection()?;
+    save_servers_inner(&mut conn, servers)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_servers_inner(
+    conn: &mut rusqlite::Connection,
+    servers: &[ServerConfig],
+) -> Result<(), DbError> {
+    let tx = conn
+        .transaction()
+        .map_err(|e| DbError::new(e.to_string()))?;
+
+    tx.execute("DELETE FROM servers", [])
         .map_err(|e| DbError::new(e.to_string()))?;
 
     for server in servers {
-        conn.execute(
+        tx.execute(
             "INSERT INTO servers (id, name, url, username, password, active) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            [
+            rusqlite::params![
                 &server.id,
                 &server.name,
                 &server.url,
                 &server.username,
                 &server.password,
-                &(if server.active { "1" } else { "0" }).to_string(),
+                if server.active { "1" } else { "0" },
             ],
-        ).map_err(|e| DbError::new(e.to_string()))?;
+        )
+        .map_err(|e| DbError::new(e.to_string()))?;
     }
 
-    Ok(())
+    tx.commit().map_err(|e| DbError::new(e.to_string()))
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), StorageError> {
-    LocalStorage::set(SERVERS_KEY, servers).map_err(|e| e)
+    save_servers_now(&servers)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_servers_now(servers: &[ServerConfig]) -> Result<(), StorageError> {
+    LocalStorage::set(SERVERS_KEY, servers.to_vec()).map_err(|e| e)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -469,6 +490,11 @@ fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
         .ok_or_else(|| DbError::new("Failed to resolve application data directory"))?;
     let db_path = data_dir.join("rustysound.db");
 
-    rusqlite::Connection::open(&db_path)
-        .map_err(|e| DbError::new(format!("Failed to open database: {}", e)))
+    rusqlite::Connection::open(&db_path).map_err(|e| {
+        DbError::new(format!(
+            "Failed to open database at {}: {}",
+            db_path.display(),
+            e
+        ))
+    })
 }

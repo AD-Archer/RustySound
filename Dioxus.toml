@@ -35,7 +35,7 @@ base_path = "/"
 [web.resource]
 
 # Additional CSS style files
-style = []
+style = ["assets/tailwind.css", "assets/styling/app.css"]
 
 # Additional JavaScript files
 script = []

@@ -7,7 +7,7 @@ use crate::components::{
     ios_audio_log_clear, ios_audio_log_export_txt, ios_audio_log_snapshot, AppView, Icon,
     Navigation, VolumeSignal,
 };
-use crate::db::{save_settings, AppSettings, ArtworkDownloadPreference};
+use crate::db::{save_servers_now, save_settings, AppSettings, ArtworkDownloadPreference};
 use crate::offline_audio::{
     clear_downloads, download_stats, refresh_downloaded_cache, run_auto_download_pass,
 };
@@ -401,6 +401,10 @@ fn persist_settings_with_toast(
     });
 }
 
+fn persist_servers_immediately(servers: Vec<ServerConfig>) {
+    let _ = save_servers_now(&servers);
+}
+
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -509,6 +513,7 @@ pub fn SettingsView() -> Element {
                     server.password = pass;
                 }
             });
+            persist_servers_immediately(servers());
 
             editing_server.set(None);
             server_name.set(String::new());
@@ -541,6 +546,7 @@ pub fn SettingsView() -> Element {
 
         let new_server = ServerConfig::new(name, url, user, pass);
         servers.with_mut(|list| list.push(new_server));
+        persist_servers_immediately(servers());
 
         server_name.set(String::new());
         server_url.set(String::new());
@@ -2517,6 +2523,7 @@ pub fn SettingsView() -> Element {
                                                     s.active = new_state;
                                                 }
                                             });
+                                        persist_servers_immediately(servers());
                                     }
                                 },
                                 on_edit: {
@@ -2534,6 +2541,7 @@ pub fn SettingsView() -> Element {
                                             .with_mut(|list| {
                                                 list.retain(|s| s.id != server_id);
                                             });
+                                        persist_servers_immediately(servers());
                                     }
                                 },
                                 is_testing: is_testing_connection(),

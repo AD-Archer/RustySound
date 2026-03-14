@@ -26,7 +26,7 @@ serve *args:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c dx serve {{args}}; \
     else \
-        dx serve {{args}}; \
+        ./scripts/run-with-rustup-env.sh dx serve --open false {{args}}; \
     fi
 
 # Create an Android emulator (AVD) with sane defaults.
@@ -187,12 +187,12 @@ bundle *args:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c dx bundle {{args}}; \
     else \
-        dx bundle {{args}}; \
+        ./scripts/run-with-rustup-env.sh dx bundle {{args}}; \
     fi
 
 # Build Windows NSIS installer (.exe).
 bundle-windows *args:
-    dx bundle --windows --release --package-types nsis --out-dir dist/windows {{args}}
+    ./scripts/run-with-rustup-env.sh dx bundle --windows --release --package-types nsis --out-dir dist/windows {{args}}
 # iOS simulator development server with sanitized linker environment.
 serve-ios *args:
     ./scripts/serve-ios.sh {{args}}
@@ -224,14 +224,14 @@ bundle-sim:
 
 # Quick compile check using default features.
 check:
-    cargo check
+    ./scripts/run-with-rustup-env.sh cargo check
 
 # Android mobile compile check (no run).
 check-android:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c cargo check --target x86_64-linux-android --features mobile; \
     else \
-        cargo check --target x86_64-linux-android --features mobile; \
+        ./scripts/run-with-rustup-env.sh cargo check --target x86_64-linux-android --features mobile; \
     fi
 
 # Web compile check.
@@ -239,7 +239,7 @@ check-web:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c cargo check --target wasm32-unknown-unknown --features web; \
     else \
-        cargo check --target wasm32-unknown-unknown --features web; \
+        ./scripts/run-with-rustup-env.sh cargo check --target wasm32-unknown-unknown --features web; \
     fi
 
 # Linux desktop compile check.
@@ -247,7 +247,7 @@ check-linux:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c cargo check --features desktop; \
     else \
-        cargo check --features desktop; \
+        ./scripts/run-with-rustup-env.sh cargo check --features desktop; \
     fi
 
 # Cross-platform sanity matrix.
@@ -258,16 +258,16 @@ check-matrix:
 
 # Apple-focused compile checks.
 check-apple:
-    cargo check --features desktop
-    cargo check --target aarch64-apple-ios --features mobile
-    cargo check --target aarch64-apple-ios-sim --features mobile
+    ./scripts/run-with-rustup-env.sh cargo check --features desktop
+    ./scripts/run-with-rustup-env.sh cargo check --target aarch64-apple-ios --features mobile
+    ./scripts/run-with-rustup-env.sh cargo check --target aarch64-apple-ios-sim --features mobile
 
 # Linux desktop dev server (Dioxus desktop platform).
 serve-linux:
     if [ -f /etc/NIXOS ]; then \
         just nix-serve; \
     else \
-        dx serve --linux; \
+        ./scripts/run-with-rustup-env.sh dx serve --linux; \
     fi
 
 # Linux desktop server in release mode for smoother runtime perf checks.
@@ -275,7 +275,7 @@ serve-linux-release:
     if [ -f /etc/NIXOS ]; then \
         nix develop -c dx serve --linux --release; \
     else \
-        dx serve --linux --release; \
+        ./scripts/run-with-rustup-env.sh dx serve --linux --release; \
     fi
 
 # Linux desktop bundle (Dioxus desktop platform).
@@ -283,7 +283,7 @@ bundle-linux:
     if [ -f /etc/NIXOS ]; then \
         just nix-bundle; \
     else \
-        dx bundle --linux --out-dir dist/linux; \
+        ./scripts/run-with-rustup-env.sh dx bundle --linux --out-dir dist/linux; \
     fi
 
 # Run a built Linux desktop binary inside the Nix runtime environment.
