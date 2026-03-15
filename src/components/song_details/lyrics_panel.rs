@@ -93,7 +93,16 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     let screenshot_shot_mode = use_signal(|| false);
     let screenshot_shot_customize_open = use_signal(|| false);
     let screenshot_shot_font_scale = use_signal(|| 100_i32);
-    let screenshot_shot_theme = use_signal(|| ScreenshotShotTheme::Lagoon);
+    let screenshot_shot_theme = {
+        let default_theme = app_settings().lyrics_default_theme.clone();
+        use_signal(move || match default_theme.as_str() {
+            "lagoon" => ScreenshotShotTheme::Lagoon,
+            "ember" => ScreenshotShotTheme::Ember,
+            "midnight" => ScreenshotShotTheme::Midnight,
+            _ => ScreenshotShotTheme::Cover,
+        })
+    };
+    let theme_picker_open = use_signal(|| false);
     let programmatic_scroll_until_ms = use_signal(|| 0.0_f64);
     let manual_scroll_hold_until_ms = use_signal(|| 0.0_f64);
     let last_centered_index = use_signal(|| None::<usize>);
@@ -287,6 +296,20 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         }
         ScreenshotShotTheme::Cover => {
             "absolute inset-0 bg-[linear-gradient(180deg,rgba(7,10,14,0.18)_0%,rgba(7,10,14,0.22)_28%,rgba(7,10,14,0.78)_100%)]"
+        }
+    };
+    let main_backdrop_overlay_class = match screenshot_shot_theme_active {
+        ScreenshotShotTheme::Lagoon => {
+            "absolute inset-0 bg-[linear-gradient(180deg,rgba(74,145,173,0.72)_0%,rgba(26,57,73,0.84)_42%,rgba(8,11,16,0.98)_100%)]"
+        }
+        ScreenshotShotTheme::Ember => {
+            "absolute inset-0 bg-[linear-gradient(180deg,rgba(210,140,90,0.72)_0%,rgba(140,60,40,0.84)_42%,rgba(8,11,16,0.98)_100%)]"
+        }
+        ScreenshotShotTheme::Midnight => {
+            "absolute inset-0 bg-[linear-gradient(180deg,rgba(30,45,75,0.82)_0%,rgba(10,16,30,0.92)_42%,rgba(4,6,12,0.99)_100%)]"
+        }
+        ScreenshotShotTheme::Cover => {
+            "absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.18)_0%,rgba(0,0,0,0.46)_42%,rgba(0,0,0,0.92)_100%)]"
         }
     };
     let screenshot_shot_primary_text_class = if screenshot_shot_dark_text {
@@ -763,8 +786,11 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                         let mut screenshot_view_open = screenshot_view_open.clone();
                         let mut screenshot_shot_mode = screenshot_shot_mode.clone();
                         let mut screenshot_shot_customize_open = screenshot_shot_customize_open.clone();
+                        let mut theme_picker_open = theme_picker_open.clone();
                         move |_| {
-                            if screenshot_shot_mode() {
+                            if theme_picker_open() {
+                                theme_picker_open.set(false);
+                            } else if screenshot_shot_mode() {
                                 screenshot_shot_mode.set(false);
                                 screenshot_shot_customize_open.set(false);
                             } else {
@@ -772,12 +798,131 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                             }
                         }
                     },
-                    button {
-                        class: "absolute top-12 right-4 z-20 rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-14 md:right-6",
-                        onclick: on_close_screenshot_view,
-                        Icon {
-                            name: "x".to_string(),
-                            class: "w-5 h-5".to_string(),
+                    div { class: "absolute top-12 right-4 z-20 flex items-center gap-2 md:top-14 md:right-6",
+                        button {
+                            class: if theme_picker_open() { "rounded-full border border-white/30 bg-white/14 p-2 text-white transition-colors" } else { "rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors" },
+                            title: "Choose background theme",
+                            onclick: {
+                                let mut theme_picker_open = theme_picker_open.clone();
+                                let mut screenshot_shot_customize_open = screenshot_shot_customize_open.clone();
+                                move |evt: MouseEvent| {
+                                    evt.stop_propagation();
+                                    let opening = !theme_picker_open();
+                                    theme_picker_open.set(opening);
+                                    if opening {
+                                        screenshot_shot_customize_open.set(false);
+                                    }
+                                }
+                            },
+                            Icon {
+                                name: "swatch".to_string(),
+                                class: "w-5 h-5".to_string(),
+                            }
+                        }
+                        button {
+                            class: "rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors",
+                            onclick: on_close_screenshot_view,
+                            Icon {
+                                name: "x".to_string(),
+                                class: "w-5 h-5".to_string(),
+                            }
+                        }
+                    }
+                    if theme_picker_open() {
+                        div {
+                            class: "absolute right-4 top-28 z-20 w-[min(18rem,calc(100vw-2rem))] rounded-[1.4rem] border border-white/15 bg-black/45 p-4 text-white shadow-[0_22px_60px_rgba(0,0,0,0.38)] backdrop-blur-xl md:right-6 md:top-32",
+                            onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                            p { class: "text-sm font-semibold text-white mb-3", "Background theme" }
+                            div { class: "flex flex-wrap gap-2",
+                                button {
+                                    class: if screenshot_shot_theme_active == ScreenshotShotTheme::Lagoon { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
+                                    onclick: {
+                                        let mut screenshot_shot_theme = screenshot_shot_theme.clone();
+                                        let mut app_settings = app_settings.clone();
+                                        let mut theme_picker_open = theme_picker_open.clone();
+                                        move |_| {
+                                            screenshot_shot_theme.set(ScreenshotShotTheme::Lagoon);
+                                            theme_picker_open.set(false);
+                                            let mut settings = app_settings();
+                                            settings.lyrics_default_theme = "lagoon".to_string();
+                                            app_settings.set(settings.clone());
+                                            spawn(async move {
+                                                let _ = crate::db::save_settings(settings).await;
+                                            });
+                                        }
+                                    },
+                                    span { class: "h-3 w-3 rounded-full bg-[#62bac9]" }
+                                    "Lagoon"
+                                }
+                                button {
+                                    class: if screenshot_shot_theme_active == ScreenshotShotTheme::Ember { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
+                                    onclick: {
+                                        let mut screenshot_shot_theme = screenshot_shot_theme.clone();
+                                        let mut app_settings = app_settings.clone();
+                                        let mut theme_picker_open = theme_picker_open.clone();
+                                        move |_| {
+                                            screenshot_shot_theme.set(ScreenshotShotTheme::Ember);
+                                            theme_picker_open.set(false);
+                                            let mut settings = app_settings();
+                                            settings.lyrics_default_theme = "ember".to_string();
+                                            app_settings.set(settings.clone());
+                                            spawn(async move {
+                                                let _ = crate::db::save_settings(settings).await;
+                                            });
+                                        }
+                                    },
+                                    span { class: "h-3 w-3 rounded-full bg-[#df8a71]" }
+                                    "Ember"
+                                }
+                                button {
+                                    class: if screenshot_shot_theme_active == ScreenshotShotTheme::Midnight { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
+                                    onclick: {
+                                        let mut screenshot_shot_theme = screenshot_shot_theme.clone();
+                                        let mut app_settings = app_settings.clone();
+                                        let mut theme_picker_open = theme_picker_open.clone();
+                                        move |_| {
+                                            screenshot_shot_theme.set(ScreenshotShotTheme::Midnight);
+                                            theme_picker_open.set(false);
+                                            let mut settings = app_settings();
+                                            settings.lyrics_default_theme = "midnight".to_string();
+                                            app_settings.set(settings.clone());
+                                            spawn(async move {
+                                                let _ = crate::db::save_settings(settings).await;
+                                            });
+                                        }
+                                    },
+                                    span { class: "h-3 w-3 rounded-full bg-[#1f2a44]" }
+                                    "Midnight"
+                                }
+                                if screenshot_cover_url.is_some() {
+                                    button {
+                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Cover { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
+                                        onclick: {
+                                            let mut screenshot_shot_theme = screenshot_shot_theme.clone();
+                                            let mut app_settings = app_settings.clone();
+                                            let mut theme_picker_open = theme_picker_open.clone();
+                                            move |_| {
+                                                screenshot_shot_theme.set(ScreenshotShotTheme::Cover);
+                                                theme_picker_open.set(false);
+                                                let mut settings = app_settings();
+                                                settings.lyrics_default_theme = "cover".to_string();
+                                                app_settings.set(settings.clone());
+                                                spawn(async move {
+                                                    let _ = crate::db::save_settings(settings).await;
+                                                });
+                                            }
+                                        },
+                                        if let Some(url) = screenshot_cover_url.clone() {
+                                            img {
+                                                class: "h-4 w-4 rounded object-cover",
+                                                src: "{url}",
+                                                alt: "Album art",
+                                            }
+                                        }
+                                        "Cover"
+                                    }
+                                }
+                            }
                         }
                     }
                     if !screenshot_shot_mode_enabled {
@@ -786,21 +931,19 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                             onclick: {
                                 let mut screenshot_shot_mode = screenshot_shot_mode.clone();
                                 let mut screenshot_shot_customize_open = screenshot_shot_customize_open.clone();
+                                let mut theme_picker_open = theme_picker_open.clone();
                                 move |evt: MouseEvent| {
                                     evt.stop_propagation();
                                     screenshot_shot_mode.set(true);
                                     screenshot_shot_customize_open.set(false);
+                                    theme_picker_open.set(false);
                                 }
                             },
                             "Shot"
                         }
                     } else {
                         button {
-                            class: if screenshot_shot_customize_opened {
-                                "absolute top-12 left-4 z-20 rounded-full border border-white/30 bg-white/14 px-4 py-2 text-sm font-medium text-white transition-colors md:top-14 md:left-6"
-                            } else {
-                                "absolute top-12 left-4 z-20 rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-medium text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-14 md:left-6"
-                            },
+                            class: if screenshot_shot_customize_opened { "absolute top-12 left-4 z-20 rounded-full border border-white/30 bg-white/14 px-4 py-2 text-sm font-medium text-white transition-colors md:top-14 md:left-6" } else { "absolute top-12 left-4 z-20 rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm font-medium text-white/80 hover:text-white hover:border-white/30 transition-colors md:top-14 md:left-6" },
                             onclick: {
                                 let mut screenshot_shot_customize_open = screenshot_shot_customize_open.clone();
                                 move |evt: MouseEvent| {
@@ -823,16 +966,25 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                     onclick: {
                                         let mut screenshot_shot_font_scale = screenshot_shot_font_scale.clone();
                                         let mut screenshot_shot_theme = screenshot_shot_theme.clone();
+                                        let mut app_settings = app_settings.clone();
                                         move |_| {
                                             screenshot_shot_font_scale.set(100);
-                                            screenshot_shot_theme.set(ScreenshotShotTheme::Lagoon);
+                                            screenshot_shot_theme.set(ScreenshotShotTheme::Cover);
+                                            let mut settings = app_settings();
+                                            settings.lyrics_default_theme = "cover".to_string();
+                                            app_settings.set(settings.clone());
+                                            spawn(async move {
+                                                let _ = crate::db::save_settings(settings).await;
+                                            });
                                         }
                                     },
                                     "Reset"
                                 }
                             }
                             div { class: "mt-4 space-y-2",
-                                p { class: "text-[11px] uppercase tracking-[0.22em] text-white/45", "Lyrics size" }
+                                p { class: "text-[11px] uppercase tracking-[0.22em] text-white/45",
+                                    "Lyrics size"
+                                }
                                 div { class: "flex items-center gap-3",
                                     span { class: "text-xs text-white/55", "A" }
                                     input {
@@ -851,62 +1003,88 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                             }
                                         },
                                     }
-                                    span { class: "text-base font-semibold text-white/78", "A" }
+                                    span { class: "text-base font-semibold text-white/78",
+                                        "A"
+                                    }
                                 }
-                                p { class: "text-[11px] text-white/45", "{screenshot_shot_font_scale_percent}%" }
+                                p { class: "text-[11px] text-white/45",
+                                    "{screenshot_shot_font_scale_percent}%"
+                                }
                             }
                             div { class: "mt-4 space-y-2",
-                                p { class: "text-[11px] uppercase tracking-[0.22em] text-white/45", "Background" }
+                                p { class: "text-[11px] uppercase tracking-[0.22em] text-white/45",
+                                    "Background"
+                                }
                                 div { class: "flex flex-wrap gap-2",
                                     button {
-                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Lagoon {
-                                            "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white"
-                                        } else {
-                                            "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors"
-                                        },
+                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Lagoon { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
                                         onclick: {
                                             let mut screenshot_shot_theme = screenshot_shot_theme.clone();
-                                            move |_| screenshot_shot_theme.set(ScreenshotShotTheme::Lagoon)
+                                            let mut app_settings = app_settings.clone();
+                                            move |_| {
+                                                screenshot_shot_theme.set(ScreenshotShotTheme::Lagoon);
+                                                let mut settings = app_settings();
+                                                settings.lyrics_default_theme = "lagoon".to_string();
+                                                app_settings.set(settings.clone());
+                                                spawn(async move {
+                                                    let _ = crate::db::save_settings(settings).await;
+                                                });
+                                            }
                                         },
                                         span { class: "h-3 w-3 rounded-full bg-[#62bac9]" }
                                         "Lagoon"
                                     }
                                     button {
-                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Ember {
-                                            "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white"
-                                        } else {
-                                            "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors"
-                                        },
+                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Ember { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
                                         onclick: {
                                             let mut screenshot_shot_theme = screenshot_shot_theme.clone();
-                                            move |_| screenshot_shot_theme.set(ScreenshotShotTheme::Ember)
+                                            let mut app_settings = app_settings.clone();
+                                            move |_| {
+                                                screenshot_shot_theme.set(ScreenshotShotTheme::Ember);
+                                                let mut settings = app_settings();
+                                                settings.lyrics_default_theme = "ember".to_string();
+                                                app_settings.set(settings.clone());
+                                                spawn(async move {
+                                                    let _ = crate::db::save_settings(settings).await;
+                                                });
+                                            }
                                         },
                                         span { class: "h-3 w-3 rounded-full bg-[#df8a71]" }
                                         "Ember"
                                     }
                                     button {
-                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Midnight {
-                                            "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white"
-                                        } else {
-                                            "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors"
-                                        },
+                                        class: if screenshot_shot_theme_active == ScreenshotShotTheme::Midnight { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
                                         onclick: {
                                             let mut screenshot_shot_theme = screenshot_shot_theme.clone();
-                                            move |_| screenshot_shot_theme.set(ScreenshotShotTheme::Midnight)
+                                            let mut app_settings = app_settings.clone();
+                                            move |_| {
+                                                screenshot_shot_theme.set(ScreenshotShotTheme::Midnight);
+                                                let mut settings = app_settings();
+                                                settings.lyrics_default_theme = "midnight".to_string();
+                                                app_settings.set(settings.clone());
+                                                spawn(async move {
+                                                    let _ = crate::db::save_settings(settings).await;
+                                                });
+                                            }
                                         },
                                         span { class: "h-3 w-3 rounded-full bg-[#1f2a44]" }
                                         "Midnight"
                                     }
                                     if screenshot_cover_url.is_some() {
                                         button {
-                                            class: if screenshot_shot_theme_active == ScreenshotShotTheme::Cover {
-                                                "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white"
-                                            } else {
-                                                "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors"
-                                            },
+                                            class: if screenshot_shot_theme_active == ScreenshotShotTheme::Cover { "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white" } else { "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors" },
                                             onclick: {
                                                 let mut screenshot_shot_theme = screenshot_shot_theme.clone();
-                                                move |_| screenshot_shot_theme.set(ScreenshotShotTheme::Cover)
+                                                let mut app_settings = app_settings.clone();
+                                                move |_| {
+                                                    screenshot_shot_theme.set(ScreenshotShotTheme::Cover);
+                                                    let mut settings = app_settings();
+                                                    settings.lyrics_default_theme = "cover".to_string();
+                                                    app_settings.set(settings.clone());
+                                                    spawn(async move {
+                                                        let _ = crate::db::save_settings(settings).await;
+                                                    });
+                                                }
                                             },
                                             if let Some(url) = screenshot_cover_url.clone() {
                                                 img {
@@ -933,7 +1111,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                     alt: "{screenshot_song_title}",
                                 }
                             }
-                            div { class: "absolute inset-0 bg-[linear-gradient(180deg,rgba(74,145,173,0.72)_0%,rgba(26,57,73,0.84)_42%,rgba(8,11,16,0.98)_100%)]" }
+                            div { class: "{main_backdrop_overlay_class}" }
                             if screenshot_shot_mode_enabled {
                                 div { class: "relative z-10 flex h-full min-h-0 w-full items-center justify-center px-4 pb-6 pt-16 md:px-8 md:pb-10 md:pt-20",
                                     div {

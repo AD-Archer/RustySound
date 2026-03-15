@@ -410,7 +410,12 @@ pub fn Icon(name: String, class: String) -> Element {
                 stroke_width: "2",
                 path { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }
                 polyline { points: "7 10 12 15 17 10" }
-                line { x1: "12", y1: "15", x2: "12", y2: "3" }
+                line {
+                    x1: "12",
+                    y1: "15",
+                    x2: "12",
+                    y2: "3",
+                }
             }
         },
         "server" => rsx! {
@@ -527,7 +532,12 @@ pub fn Icon(name: String, class: String) -> Element {
                 stroke: "currentColor",
                 stroke_width: "2",
                 polyline { points: "15 18 9 12 15 6" }
-                line { x1: "9", y1: "12", x2: "21", y2: "12" }
+                line {
+                    x1: "9",
+                    y1: "12",
+                    x2: "21",
+                    y2: "12",
+                }
             }
         },
         "chevron-up" => rsx! {
@@ -548,6 +558,45 @@ pub fn Icon(name: String, class: String) -> Element {
                 stroke: "currentColor",
                 stroke_width: "2",
                 polyline { points: "6 9 12 15 18 9" }
+            }
+        },
+        "swatch" => rsx! {
+            svg {
+                class: "{class}",
+                view_box: "0 0 24 24",
+                fill: "none",
+                stroke: "currentColor",
+                stroke_width: "2",
+                stroke_linecap: "round",
+                stroke_linejoin: "round",
+                rect {
+                    x: "2",
+                    y: "2",
+                    width: "9",
+                    height: "9",
+                    rx: "1.5",
+                }
+                rect {
+                    x: "13",
+                    y: "2",
+                    width: "9",
+                    height: "9",
+                    rx: "1.5",
+                }
+                rect {
+                    x: "2",
+                    y: "13",
+                    width: "9",
+                    height: "9",
+                    rx: "1.5",
+                }
+                rect {
+                    x: "13",
+                    y: "13",
+                    width: "9",
+                    height: "9",
+                    rx: "1.5",
+                }
             }
         },
         _ => rsx! {
