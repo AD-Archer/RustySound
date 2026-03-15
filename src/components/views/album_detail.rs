@@ -2,7 +2,10 @@ use crate::api::*;
 use crate::components::views::album_song_row::AlbumSongRow;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
-use crate::offline_audio::{download_songs_batch, is_song_downloaded, mark_collection_downloaded};
+use crate::offline_audio::{
+    download_songs_batch, is_song_downloaded, mark_collection_downloaded,
+    sync_downloaded_collection_members,
+};
 use dioxus::prelude::*;
 
 #[component]
@@ -119,6 +122,12 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         &album_meta.name,
                         songs.len(),
                     );
+                    sync_downloaded_collection_members(
+                        "album",
+                        &album_meta.server_id,
+                        &album_meta.id,
+                        &songs,
+                    );
                 }
                 download_status.set(Some(format!(
                     "Album download complete: {} new, {} skipped, {} failed, {} purged.",
@@ -215,6 +224,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             }));
                         let downloaded_song_count =
                             songs.iter().filter(|song| is_song_downloaded(song)).count();
+                        let album_fully_downloaded =
+                            !songs.is_empty() && downloaded_song_count >= songs.len();
                         rsx! {
                             div { class: "flex flex-col md:flex-row gap-8 mb-8 overflow-x-hidden items-center md:items-end",
                                 div { class: "w-64 h-64 rounded-2xl bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0 mx-auto md:mx-0",
@@ -292,14 +303,28 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                         button {
                                             class: if download_busy() {
                                                 "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center"
+                                            } else if album_fully_downloaded {
+                                                "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
                                             } else {
                                                 "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center"
                                             },
                                             disabled: download_busy(),
                                             onclick: on_download_album,
-                                            title: if download_busy() { "Downloading album" } else { "Download album" },
+                                            title: if download_busy() {
+                                                "Downloading album"
+                                            } else if album_fully_downloaded {
+                                                "Album fully downloaded"
+                                            } else {
+                                                "Download album"
+                                            },
                                             Icon {
-                                                name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                                name: if download_busy() {
+                                                    "loader".to_string()
+                                                } else if album_fully_downloaded {
+                                                    "check".to_string()
+                                                } else {
+                                                    "download".to_string()
+                                                },
                                                 class: "w-5 h-5".to_string(),
                                             }
                                         }

@@ -8,7 +8,7 @@ use crate::db::AppSettings;
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{
     download_songs_batch, is_song_downloaded, list_downloaded_collections,
-    mark_collection_downloaded, prefetch_song_audio,
+    mark_collection_downloaded, prefetch_song_audio, sync_downloaded_collection_members,
 };
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -714,6 +714,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         &playlist_meta.name,
                         songs.len(),
                     );
+                    sync_downloaded_collection_members(
+                        "playlist",
+                        &playlist_meta.server_id,
+                        &playlist_meta.id,
+                        &songs,
+                    );
                 }
                 download_status.set(Some(format!(
                     "Playlist download complete: {} new, {} skipped, {} failed, {} purged.",
@@ -855,6 +861,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     &playlist_name,
                                     playlist_song_count,
                                 );
+                                if let Ok((_, refreshed_songs)) = client.get_playlist(&playlist_id).await {
+                                    sync_downloaded_collection_members(
+                                        "playlist",
+                                        &playlist_server_id,
+                                        &playlist_id,
+                                        &refreshed_songs,
+                                    );
+                                }
                             }
                             recently_added_seed.set(Some(song_for_seed));
                             reload.set(reload() + 1);
@@ -1043,6 +1057,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     let editing_allowed = !is_auto_imported;
                     let downloaded_song_count =
                         songs.iter().filter(|song| is_song_downloaded(song)).count();
+                    let playlist_fully_downloaded =
+                        !songs.is_empty() && downloaded_song_count >= songs.len();
 
                     rsx! {
                         div { class: "flex flex-col md:flex-row gap-8 mb-8 items-center md:items-end",
@@ -1110,14 +1126,28 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     button {
                                         class: if download_busy() {
                                             "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center"
+                                        } else if playlist_fully_downloaded {
+                                            "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
                                         } else {
                                             "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center"
                                         },
                                         disabled: download_busy(),
                                         onclick: on_download_playlist,
-                                        title: if download_busy() { "Downloading playlist" } else { "Download playlist" },
+                                        title: if download_busy() {
+                                            "Downloading playlist"
+                                        } else if playlist_fully_downloaded {
+                                            "Playlist fully downloaded"
+                                        } else {
+                                            "Download playlist"
+                                        },
                                         Icon {
-                                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                            name: if download_busy() {
+                                                "loader".to_string()
+                                            } else if playlist_fully_downloaded {
+                                                "check".to_string()
+                                            } else {
+                                                "download".to_string()
+                                            },
                                             class: "w-5 h-5".to_string(),
                                         }
                                     }

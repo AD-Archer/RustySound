@@ -180,6 +180,10 @@ body {
   padding-bottom: var(--safe-area-bottom);
 }
 
+.player-shell__content {
+  position: relative;
+}
+
 .main-scroll {
   -webkit-overflow-scrolling: touch; /* momentum scroll on iOS */
   overflow-x: hidden;
@@ -187,9 +191,21 @@ body {
   touch-action: pan-y;
 }
 
+.touch-scroll-y {
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+}
+
 @media (max-width: 767px) {
   .page-shell {
     padding-bottom: 1.5rem;
+  }
+
+  .player-shell__content {
+    top: clamp(0px, calc(var(--safe-area-bottom) * 0.18), 0.45rem);
   }
 }
 

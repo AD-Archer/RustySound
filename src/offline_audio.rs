@@ -39,6 +39,8 @@ const DOWNLOAD_INDEX_FILE: &str = "download_index.json";
 #[cfg(not(target_arch = "wasm32"))]
 const COLLECTION_INDEX_FILE: &str = "download_collections.json";
 #[cfg(not(target_arch = "wasm32"))]
+const COLLECTION_MEMBERSHIP_INDEX_FILE: &str = "download_collection_memberships.json";
+#[cfg(not(target_arch = "wasm32"))]
 const DOWNLOAD_ARTWORK_SIZES: [u32; 7] = [80, 100, 120, 160, 300, 500, 512];
 #[cfg(not(target_arch = "wasm32"))]
 const CACHE_AUDIO_EXTENSIONS: [&str; 8] =
@@ -102,7 +104,45 @@ pub struct DownloadCollectionEntry {
     pub server_id: String,
     pub collection_id: String,
     pub name: String,
+    #[serde(default)]
     pub song_count: usize,
+    #[serde(default)]
+    pub total_song_count: usize,
+    #[serde(default)]
+    pub downloaded_song_count: usize,
+    pub updated_at_ms: u64,
+}
+
+impl DownloadCollectionEntry {
+    pub fn effective_total_song_count(&self) -> usize {
+        if self.total_song_count > 0 {
+            self.total_song_count
+                .max(self.song_count)
+                .max(self.downloaded_song_count)
+        } else {
+            self.song_count.max(self.downloaded_song_count)
+        }
+    }
+
+    pub fn effective_downloaded_song_count(&self) -> usize {
+        let total_song_count = self.effective_total_song_count();
+        if self.downloaded_song_count > 0 {
+            self.downloaded_song_count.min(total_song_count)
+        } else if self.total_song_count == 0 {
+            self.song_count
+        } else {
+            0
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct DownloadCollectionMembershipEntry {
+    pub kind: String,
+    pub server_id: String,
+    pub collection_id: String,
+    #[serde(default)]
+    pub song_ids: Vec<String>,
     pub updated_at_ms: u64,
 }
 
@@ -326,6 +366,11 @@ fn collection_index_file_path() -> Option<PathBuf> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+fn collection_membership_index_file_path() -> Option<PathBuf> {
+    Some(audio_cache_dir()?.join(COLLECTION_MEMBERSHIP_INDEX_FILE))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn load_download_index() -> Vec<DownloadIndexEntry> {
     let Some(path) = index_file_path() else {
         return Vec::new();
@@ -360,6 +405,27 @@ fn load_collection_index() -> Vec<DownloadCollectionEntry> {
 #[cfg(not(target_arch = "wasm32"))]
 fn save_collection_index(index: &[DownloadCollectionEntry]) {
     let Some(path) = collection_index_file_path() else {
+        return;
+    };
+    if let Ok(json) = serde_json::to_string(index) {
+        let _ = fs::write(path, json);
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn load_collection_membership_index() -> Vec<DownloadCollectionMembershipEntry> {
+    let Some(path) = collection_membership_index_file_path() else {
+        return Vec::new();
+    };
+    let Ok(json) = fs::read_to_string(path) else {
+        return Vec::new();
+    };
+    serde_json::from_str::<Vec<DownloadCollectionMembershipEntry>>(&json).unwrap_or_default()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn save_collection_membership_index(index: &[DownloadCollectionMembershipEntry]) {
+    let Some(path) = collection_membership_index_file_path() else {
         return;
     };
     if let Ok(json) = serde_json::to_string(index) {
@@ -417,6 +483,8 @@ fn purge_index_missing_files() -> Vec<DownloadIndexEntry> {
     });
     if index.len() != original_len {
         save_download_index(&index);
+        sync_collection_memberships_with_index(&index);
+        sync_collection_download_counts_with_index(&index);
     }
     index
 }
@@ -563,6 +631,8 @@ pub fn mark_collection_downloaded(
     }) {
         entry.name = name.to_string();
         entry.song_count = song_count;
+        entry.total_song_count = song_count;
+        entry.downloaded_song_count = entry.downloaded_song_count.min(song_count);
         entry.updated_at_ms = now_timestamp_millis();
     } else {
         index.push(DownloadCollectionEntry {
@@ -571,6 +641,8 @@ pub fn mark_collection_downloaded(
             collection_id: collection_id.to_string(),
             name: name.to_string(),
             song_count,
+            total_song_count: song_count,
+            downloaded_song_count: 0,
             updated_at_ms: now_timestamp_millis(),
         });
     }
@@ -588,6 +660,81 @@ pub fn mark_collection_downloaded(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn sync_downloaded_collection_members(
+    kind: &str,
+    server_id: &str,
+    collection_id: &str,
+    songs: &[Song],
+) {
+    if kind.trim().is_empty() || server_id.trim().is_empty() || collection_id.trim().is_empty() {
+        return;
+    }
+
+    let mut song_ids = Vec::<String>::new();
+    let mut seen = HashSet::<String>::new();
+    for song in songs {
+        let song_id = song.id.trim();
+        if song_id.is_empty() {
+            continue;
+        }
+        if seen.insert(song_id.to_string()) {
+            song_ids.push(song_id.to_string());
+        }
+    }
+
+    let mut index = load_collection_membership_index();
+    if song_ids.is_empty() {
+        let before = index.len();
+        index.retain(|entry| {
+            !(entry.kind == kind
+                && entry.server_id == server_id
+                && entry.collection_id == collection_id)
+        });
+        if index.len() != before {
+            save_collection_membership_index(&index);
+            sync_collection_download_counts_with_index(&load_download_index());
+        }
+        return;
+    }
+
+    if let Some(entry) = index.iter_mut().find(|entry| {
+        entry.kind == kind && entry.server_id == server_id && entry.collection_id == collection_id
+    }) {
+        entry.song_ids = song_ids;
+        entry.updated_at_ms = now_timestamp_millis();
+    } else {
+        index.push(DownloadCollectionMembershipEntry {
+            kind: kind.to_string(),
+            server_id: server_id.to_string(),
+            collection_id: collection_id.to_string(),
+            song_ids,
+            updated_at_ms: now_timestamp_millis(),
+        });
+    }
+    save_collection_membership_index(&index);
+    sync_collection_download_counts_with_index(&load_download_index());
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn sync_downloaded_collection_members(
+    _kind: &str,
+    _server_id: &str,
+    _collection_id: &str,
+    _songs: &[Song],
+) {
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn list_downloaded_collection_memberships() -> Vec<DownloadCollectionMembershipEntry> {
+    load_collection_membership_index()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn list_downloaded_collection_memberships() -> Vec<DownloadCollectionMembershipEntry> {
+    Vec::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn list_downloaded_collections() -> Vec<DownloadCollectionEntry> {
     let mut entries = load_collection_index();
     entries.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
@@ -597,6 +744,126 @@ pub fn list_downloaded_collections() -> Vec<DownloadCollectionEntry> {
 #[cfg(target_arch = "wasm32")]
 pub fn list_downloaded_collections() -> Vec<DownloadCollectionEntry> {
     Vec::new()
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn sync_downloaded_collection_metadata(servers: &[ServerConfig]) -> usize {
+    let entries = list_downloaded_entries();
+    if entries.is_empty() {
+        return 0;
+    }
+
+    let active_servers = servers.iter().fold(
+        HashMap::<String, ServerConfig>::new(),
+        |mut map, server| {
+            if server.active {
+                map.insert(server.id.clone(), server.clone());
+            }
+            map
+        },
+    );
+    if active_servers.is_empty() {
+        return 0;
+    }
+
+    let existing_collections = list_downloaded_collections();
+    let tracked_playlist_keys = existing_collections.iter().fold(
+        HashSet::<(String, String)>::new(),
+        |mut set, entry| {
+            if entry.kind == "playlist" {
+                set.insert((entry.server_id.clone(), entry.collection_id.clone()));
+            }
+            set
+        },
+    );
+    let downloaded_song_ids_by_server = entries.iter().fold(
+        HashMap::<String, HashSet<String>>::new(),
+        |mut map, entry| {
+            map.entry(entry.server_id.clone())
+                .or_default()
+                .insert(entry.song_id.clone());
+            map
+        },
+    );
+    let album_ids_by_server = entries.iter().fold(
+        HashMap::<String, HashSet<String>>::new(),
+        |mut map, entry| {
+            if let Some(album_id) = entry
+                .album_id
+                .as_ref()
+                .filter(|value| !value.trim().is_empty())
+            {
+                map.entry(entry.server_id.clone())
+                    .or_default()
+                    .insert(album_id.trim().to_string());
+            }
+            map
+        },
+    );
+
+    let mut synced = 0usize;
+    for (server_id, server) in active_servers {
+        let client = NavidromeClient::new(server.clone());
+
+        if let Some(album_ids) = album_ids_by_server.get(&server_id) {
+            for album_id in album_ids {
+                if let Ok((album, songs)) = client.get_album(album_id).await {
+                    mark_collection_downloaded(
+                        "album",
+                        &server_id,
+                        &album.id,
+                        &album.name,
+                        songs.len(),
+                    );
+                    sync_downloaded_collection_members("album", &server_id, &album.id, &songs);
+                    synced = synced.saturating_add(1);
+                }
+            }
+        }
+
+        let Some(downloaded_song_ids) = downloaded_song_ids_by_server.get(&server_id) else {
+            continue;
+        };
+        if downloaded_song_ids.is_empty() && !tracked_playlist_keys.iter().any(|(sid, _)| sid == &server_id)
+        {
+            continue;
+        }
+
+        let Ok(playlists) = client.get_playlists().await else {
+            continue;
+        };
+        for playlist in playlists {
+            let playlist_key = (server_id.clone(), playlist.id.clone());
+            let should_check = tracked_playlist_keys.contains(&playlist_key);
+            let Ok((playlist_meta, songs)) = client.get_playlist(&playlist.id).await else {
+                continue;
+            };
+            if !should_check
+                && !songs
+                    .iter()
+                    .any(|song| downloaded_song_ids.contains(song.id.trim()))
+            {
+                continue;
+            }
+
+            mark_collection_downloaded(
+                "playlist",
+                &server_id,
+                &playlist_meta.id,
+                &playlist_meta.name,
+                songs.len(),
+            );
+            sync_downloaded_collection_members("playlist", &server_id, &playlist_meta.id, &songs);
+            synced = synced.saturating_add(1);
+        }
+    }
+
+    synced
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn sync_downloaded_collection_metadata(_servers: &[ServerConfig]) -> usize {
+    0
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -675,28 +942,23 @@ impl Drop for ActiveDownloadGuard {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn sync_album_collections_with_index(entries: &[DownloadIndexEntry]) {
-    let current = load_collection_index();
-    if current.is_empty() {
-        return;
+fn collection_index_key(kind: &str, server_id: &str, collection_id: &str) -> (String, String, String) {
+    (
+        kind.to_string(),
+        server_id.to_string(),
+        collection_id.to_string(),
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn entry_matches_collection(collection: &DownloadCollectionEntry, entry: &DownloadIndexEntry) -> bool {
+    if entry.server_id != collection.server_id {
+        return false;
     }
 
-    let mut next = Vec::<DownloadCollectionEntry>::with_capacity(current.len());
-    for mut collection in current {
-        if collection.kind != "album" {
-            next.push(collection);
-            continue;
-        }
-
-        let album_name_key = collection.collection_id.strip_prefix("name:");
-        let mut song_count = 0usize;
-        let mut newest_updated_at = 0u64;
-        for entry in entries {
-            if entry.server_id != collection.server_id {
-                continue;
-            }
-
-            let matches = if let Some(name_key) = album_name_key {
+    match collection.kind.as_str() {
+        "album" => {
+            if let Some(name_key) = collection.collection_id.strip_prefix("name:") {
                 entry
                     .album
                     .as_ref()
@@ -706,19 +968,90 @@ fn sync_album_collections_with_index(entries: &[DownloadIndexEntry]) {
                     .album_id
                     .as_ref()
                     .is_some_and(|value| value.trim() == collection.collection_id)
-            };
-
-            if matches {
-                song_count = song_count.saturating_add(1);
-                newest_updated_at = newest_updated_at.max(entry.updated_at_ms);
             }
         }
+        _ => false,
+    }
+}
 
-        if song_count == 0 {
+#[cfg(not(target_arch = "wasm32"))]
+fn sync_collection_download_counts_with_index(entries: &[DownloadIndexEntry]) {
+    let current = load_collection_index();
+    if current.is_empty() {
+        return;
+    }
+
+    let memberships = load_collection_membership_index();
+    let membership_lookup = memberships.iter().fold(
+        HashMap::<(String, String, String), &DownloadCollectionMembershipEntry>::new(),
+        |mut map, entry| {
+            map.insert(
+                collection_index_key(&entry.kind, &entry.server_id, &entry.collection_id),
+                entry,
+            );
+            map
+        },
+    );
+    let mut available_song_ids = HashMap::<String, HashSet<String>>::new();
+    for entry in entries {
+        available_song_ids
+            .entry(entry.server_id.clone())
+            .or_default()
+            .insert(entry.song_id.clone());
+    }
+
+    let mut next = Vec::<DownloadCollectionEntry>::with_capacity(current.len());
+    for mut collection in current {
+        let downloaded_song_count = membership_lookup
+            .get(&collection_index_key(
+                &collection.kind,
+                &collection.server_id,
+                &collection.collection_id,
+            ))
+            .map(|membership| {
+                available_song_ids
+                    .get(&collection.server_id)
+                    .map(|song_ids| {
+                        membership
+                            .song_ids
+                            .iter()
+                            .filter(|song_id| song_ids.contains(song_id.trim()))
+                            .count()
+                    })
+                    .unwrap_or(0)
+            })
+            .unwrap_or_else(|| {
+                if collection.kind == "album" {
+                    entries
+                        .iter()
+                        .filter(|entry| entry_matches_collection(&collection, entry))
+                        .count()
+                } else {
+                    collection.effective_downloaded_song_count()
+                }
+            });
+
+        if downloaded_song_count == 0 {
             continue;
         }
 
-        collection.song_count = song_count;
+        let total_song_count = collection
+            .effective_total_song_count()
+            .max(downloaded_song_count);
+        collection.song_count = total_song_count;
+        collection.total_song_count = total_song_count;
+        collection.downloaded_song_count = downloaded_song_count;
+
+        let newest_updated_at = if collection.kind == "album" {
+            entries
+                .iter()
+                .filter(|entry| entry_matches_collection(&collection, entry))
+                .map(|entry| entry.updated_at_ms)
+                .max()
+                .unwrap_or(0)
+        } else {
+            0
+        };
         if newest_updated_at > 0 {
             collection.updated_at_ms = newest_updated_at;
         }
@@ -726,6 +1059,45 @@ fn sync_album_collections_with_index(entries: &[DownloadIndexEntry]) {
     }
 
     save_collection_index(&next);
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn sync_collection_memberships_with_index(entries: &[DownloadIndexEntry]) {
+    let current = load_collection_membership_index();
+    if current.is_empty() {
+        return;
+    }
+
+    let mut available_song_ids = HashMap::<String, HashSet<String>>::new();
+    for entry in entries {
+        available_song_ids
+            .entry(entry.server_id.clone())
+            .or_default()
+            .insert(entry.song_id.clone());
+    }
+
+    let mut next = Vec::<DownloadCollectionMembershipEntry>::with_capacity(current.len());
+    for mut collection in current {
+        let Some(server_song_ids) = available_song_ids.get(&collection.server_id) else {
+            continue;
+        };
+
+        let mut seen = HashSet::<String>::new();
+        collection.song_ids.retain(|song_id| {
+            let trimmed = song_id.trim();
+            !trimmed.is_empty()
+                && server_song_ids.contains(trimmed)
+                && seen.insert(trimmed.to_string())
+        });
+
+        if collection.song_ids.is_empty() {
+            continue;
+        }
+
+        next.push(collection);
+    }
+
+    save_collection_membership_index(&next);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -755,7 +1127,8 @@ fn remove_download_index_keys(keys: &HashSet<(String, String)>) -> usize {
     }
 
     save_download_index(&index);
-    sync_album_collections_with_index(&index);
+    sync_collection_memberships_with_index(&index);
+    sync_collection_download_counts_with_index(&index);
     removed_entries.len()
 }
 
@@ -813,6 +1186,13 @@ pub fn remove_downloaded_collection(kind: &str, server_id: &str, collection_id: 
     if index.len() != before {
         save_collection_index(&index);
     }
+    let mut membership_index = load_collection_membership_index();
+    membership_index.retain(|entry| {
+        !(entry.kind == kind
+            && entry.server_id == server_id.trim()
+            && entry.collection_id == collection_id.trim())
+    });
+    save_collection_membership_index(&membership_index);
     before.saturating_sub(index.len())
 }
 
@@ -908,6 +1288,7 @@ pub fn clear_downloads() -> usize {
 
     save_download_index(&[]);
     save_collection_index(&[]);
+    save_collection_membership_index(&[]);
     removed
 }
 
@@ -1355,6 +1736,8 @@ pub async fn refresh_downloaded_cache(
 
         tokio::time::sleep(std::time::Duration::from_millis(35)).await;
     }
+
+    let _ = sync_downloaded_collection_metadata(servers).await;
 
     Ok(report)
 }
