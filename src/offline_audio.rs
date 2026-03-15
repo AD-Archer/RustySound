@@ -586,6 +586,21 @@ pub fn is_song_downloaded(_song: &Song) -> bool {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn is_album_downloaded(server_id: &str, album_id: &str) -> bool {
+    list_downloaded_collections().iter().any(|entry| {
+        entry.kind == "album"
+            && entry.server_id == server_id
+            && entry.collection_id == album_id
+            && entry.effective_downloaded_song_count() > 0
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn is_album_downloaded(_server_id: &str, _album_id: &str) -> bool {
+    false
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn download_stats() -> DownloadStats {
     let entries = purge_index_missing_files();
     let song_count = entries.len();
@@ -753,29 +768,29 @@ pub async fn sync_downloaded_collection_metadata(servers: &[ServerConfig]) -> us
         return 0;
     }
 
-    let active_servers = servers.iter().fold(
-        HashMap::<String, ServerConfig>::new(),
-        |mut map, server| {
-            if server.active {
-                map.insert(server.id.clone(), server.clone());
-            }
-            map
-        },
-    );
+    let active_servers =
+        servers
+            .iter()
+            .fold(HashMap::<String, ServerConfig>::new(), |mut map, server| {
+                if server.active {
+                    map.insert(server.id.clone(), server.clone());
+                }
+                map
+            });
     if active_servers.is_empty() {
         return 0;
     }
 
     let existing_collections = list_downloaded_collections();
-    let tracked_playlist_keys = existing_collections.iter().fold(
-        HashSet::<(String, String)>::new(),
-        |mut set, entry| {
-            if entry.kind == "playlist" {
-                set.insert((entry.server_id.clone(), entry.collection_id.clone()));
-            }
-            set
-        },
-    );
+    let tracked_playlist_keys =
+        existing_collections
+            .iter()
+            .fold(HashSet::<(String, String)>::new(), |mut set, entry| {
+                if entry.kind == "playlist" {
+                    set.insert((entry.server_id.clone(), entry.collection_id.clone()));
+                }
+                set
+            });
     let downloaded_song_ids_by_server = entries.iter().fold(
         HashMap::<String, HashSet<String>>::new(),
         |mut map, entry| {
@@ -824,7 +839,10 @@ pub async fn sync_downloaded_collection_metadata(servers: &[ServerConfig]) -> us
         let Some(downloaded_song_ids) = downloaded_song_ids_by_server.get(&server_id) else {
             continue;
         };
-        if downloaded_song_ids.is_empty() && !tracked_playlist_keys.iter().any(|(sid, _)| sid == &server_id)
+        if downloaded_song_ids.is_empty()
+            && !tracked_playlist_keys
+                .iter()
+                .any(|(sid, _)| sid == &server_id)
         {
             continue;
         }
@@ -942,7 +960,11 @@ impl Drop for ActiveDownloadGuard {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn collection_index_key(kind: &str, server_id: &str, collection_id: &str) -> (String, String, String) {
+fn collection_index_key(
+    kind: &str,
+    server_id: &str,
+    collection_id: &str,
+) -> (String, String, String) {
     (
         kind.to_string(),
         server_id.to_string(),
@@ -951,7 +973,10 @@ fn collection_index_key(kind: &str, server_id: &str, collection_id: &str) -> (St
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn entry_matches_collection(collection: &DownloadCollectionEntry, entry: &DownloadIndexEntry) -> bool {
+fn entry_matches_collection(
+    collection: &DownloadCollectionEntry,
+    entry: &DownloadIndexEntry,
+) -> bool {
     if entry.server_id != collection.server_id {
         return false;
     }

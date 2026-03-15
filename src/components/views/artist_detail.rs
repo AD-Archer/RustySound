@@ -1,50 +1,20 @@
 use crate::api::*;
-use crate::components::views::home::SongRow;
-use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::components::views::home::{AlbumCard, SongRow};
+use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const ARTIST_ALBUM_BATCH_SIZE: usize = 24;
 
-fn render_album_item(
-    album: Album,
-    artist_server: Option<ServerConfig>,
-    navigation: Navigation,
-    add_menu: AddMenuController,
-) -> Element {
+fn render_album_item(album: Album, navigation: Navigation) -> Element {
     let album_id = album.id.clone();
     let album_server_id = album.server_id.clone();
     let album_id_for_nav = album_id.clone();
     let album_server_id_for_nav = album_server_id.clone();
-    let album_clone_for_add = album.clone();
-    let album_cover = artist_server.as_ref().and_then(|server| {
-        let client = NavidromeClient::new(server.clone());
-        album
-            .cover_art
-            .as_ref()
-            .map(|ca| client.get_cover_art_url(ca, 300))
-    });
-
-    let album_cover_element = match &album_cover {
-        Some(url) => rsx! {
-            img {
-                class: "w-full h-full object-cover group-hover:scale-105 transition-transform duration-300",
-                src: "{url}",
-            }
-        },
-        None => rsx! {
-            div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-zinc-700 to-zinc-800",
-                Icon {
-                    name: "album".to_string(),
-                    class: "w-12 h-12 text-zinc-500".to_string(),
-                }
-            }
-        },
-    };
 
     rsx! {
-        div {
+        AlbumCard {
             key: "{album_id}",
-            class: "group text-left cursor-pointer",
+            album: album.clone(),
             onclick: move |_| {
                 let navigation = navigation.clone();
                 navigation
@@ -53,40 +23,6 @@ fn render_album_item(
                         server_id: album_server_id_for_nav.clone(),
                     });
             },
-            div { class: "aspect-square rounded-xl bg-zinc-800 overflow-hidden mb-3 shadow-lg group-hover:shadow-emerald-500/20 transition-shadow relative",
-                {album_cover_element}
-                button {
-                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add album",
-                    onclick: move |evt: MouseEvent| {
-                        evt.stop_propagation();
-                        let mut add_menu = add_menu.clone();
-                        add_menu.open(AddIntent::from_album(&album_clone_for_add));
-                    },
-                    Icon {
-                        name: "plus".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
-                    div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-lg transform translate-y-2 group-hover:translate-y-0 transition-transform",
-                        Icon {
-                            name: "play".to_string(),
-                            class: "w-5 h-5 text-white ml-0.5".to_string(),
-                        }
-                    }
-                }
-            }
-            h3 { class: "font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
-                "{album.name}"
-            }
-            div { class: "flex items-center gap-2 text-sm text-zinc-400",
-                if let Some(year) = album.year {
-                    span { "{year}" }
-                    span { "•" }
-                }
-                span { "{album.song_count} songs" }
-            }
         }
     }
 }
@@ -96,7 +32,6 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let queue = use_context::<Signal<Vec<Song>>>();
-    let add_menu = use_context::<AddMenuController>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<Signal<bool>>();
     let visible_album_count = use_signal(|| ARTIST_ALBUM_BATCH_SIZE);
@@ -212,7 +147,6 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             match artist_data() {
                 Some(Some((artist, albums))) => {
                     let top_songs = top_songs_data().flatten().unwrap_or_default();
-                    let artist_server = servers().iter().find(|s| s.id == artist.server_id).cloned();
                     let cover_url = artist_server.as_ref().and_then(|server| {
                         let client = NavidromeClient::new(server.clone());
                         artist
@@ -285,12 +219,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                         .iter()
                                         .take(current_album_limit)
                                         .map(|album| {
-                                            render_album_item(
-                                                album.clone(),
-                                                artist_server.clone(),
-                                                navigation.clone(),
-                                                add_menu.clone(),
-                                            )
+                                            render_album_item(album.clone(), navigation.clone())
                                         })
                                 }
                             }

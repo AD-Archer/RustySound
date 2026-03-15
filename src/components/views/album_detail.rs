@@ -3,7 +3,7 @@ use crate::components::views::album_song_row::AlbumSongRow;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use crate::offline_audio::{
-    download_songs_batch, is_song_downloaded, mark_collection_downloaded,
+    download_songs_batch, is_album_downloaded, is_song_downloaded, mark_collection_downloaded,
     sync_downloaded_collection_members,
 };
 use dioxus::prelude::*;
@@ -224,6 +224,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             }));
                         let downloaded_song_count =
                             songs.iter().filter(|song| is_song_downloaded(song)).count();
+                        let album_downloaded = is_album_downloaded(&album.server_id, &album.id);
                         let album_fully_downloaded =
                             !songs.is_empty() && downloaded_song_count >= songs.len();
                         rsx! {
@@ -260,27 +261,43 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                         }
                                         span { class: "text-zinc-500", "•" }
                                         if let Some(artist_id) = &album.artist_id {
-                                            button {
-                                                class: "text-lg text-zinc-300 hover:text-emerald-400 transition-colors max-w-full min-w-0",
-                                                style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;",
-                                                onclick: {
-                                                    let artist_id = artist_id.clone();
-                                                    let server_id = album.server_id.clone();
-                                                    let navigation = navigation.clone();
-                                                    move |evt| {
-                                                        evt.stop_propagation();
-                                                        navigation.navigate_to(AppView::ArtistDetailView {
-                                                            artist_id: artist_id.clone(),
-                                                            server_id: server_id.clone(),
-                                                        });
+                                            div { class: "flex items-center gap-2 max-w-full min-w-0",
+                                                button {
+                                                    class: "text-lg text-zinc-300 hover:text-emerald-400 transition-colors max-w-full min-w-0",
+                                                    style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;",
+                                                    onclick: {
+                                                        let artist_id = artist_id.clone();
+                                                        let server_id = album.server_id.clone();
+                                                        let navigation = navigation.clone();
+                                                        move |evt| {
+                                                            evt.stop_propagation();
+                                                            navigation.navigate_to(AppView::ArtistDetailView {
+                                                                artist_id: artist_id.clone(),
+                                                                server_id: server_id.clone(),
+                                                            });
+                                                        }
+                                                    },
+                                                    "{album.artist}"
+                                                }
+                                                if album_downloaded {
+                                                    Icon {
+                                                        name: "download".to_string(),
+                                                        class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string(),
                                                     }
-                                                },
-                                                "{album.artist}"
+                                                }
                                             }
                                         } else {
-                                            p { class: "text-lg text-zinc-300 max-w-full",
-                                                style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;",
-                                                "{album.artist}"
+                                            div { class: "flex items-center gap-2 max-w-full min-w-0",
+                                                p { class: "text-lg text-zinc-300 max-w-full min-w-0",
+                                                    style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;",
+                                                    "{album.artist}"
+                                                }
+                                                if album_downloaded {
+                                                    Icon {
+                                                        name: "download".to_string(),
+                                                        class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string(),
+                                                    }
+                                                }
                                             }
                                         }
                                     }

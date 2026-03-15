@@ -192,9 +192,9 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
     rsx! {
         div {
             class: if is_current {
-                "relative w-full flex items-center gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer"
+                "relative w-full flex items-start gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer"
             } else {
-                "relative w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer"
+                "relative w-full flex items-start gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer"
             },
             onclick: move |e| {
                 show_mobile_actions.set(false);
@@ -232,155 +232,119 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                 }
             }
             // Song info
-            div { class: "flex-1 min-w-0 text-center md:text-left",
-                p { class: if is_current { "text-sm font-medium text-emerald-400 truncate transition-colors max-w-full" } else { "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors max-w-full" },
-                    "{song.title}"
-                }
-                if artist_id.is_some() {
-                    p { class: "text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1 justify-center md:justify-start",
-                        if downloaded() {
-                            Icon {
-                                name: "download".to_string(),
-                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                            }
-                        }
-                        "{song.artist.clone().unwrap_or_default()}"
+            div { class: "flex-1 min-w-0 text-center md:text-left pt-0.5",
+                div { class: "flex items-start justify-between gap-2 min-w-0",
+                    p { class: if is_current { "min-w-0 flex-1 text-sm font-medium text-emerald-400 truncate transition-colors" } else { "min-w-0 flex-1 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors" },
+                        "{song.title}"
                     }
-                } else {
-                    p { class: "text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1 justify-center md:justify-start",
-                        if downloaded() {
-                            Icon {
-                                name: "download".to_string(),
-                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                            }
-                        }
-                        "{song.artist.clone().unwrap_or_default()}"
-                    }
-                }
-            }
-            // Actions
-            div { class: "flex items-center gap-2 md:gap-3 relative",
-                button {
-                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add to queue",
-                    onclick: make_on_open_menu(),
-                    Icon {
-                        name: "plus".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                if downloaded() {
-                    span {
-                        class: "hidden md:inline-flex text-emerald-400",
-                        title: "Downloaded",
-                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                    }
-                } else {
-                    button {
-                        class: if download_busy() {
-                            "hidden md:inline-flex p-2 rounded-lg text-zinc-500 cursor-not-allowed"
-                        } else {
-                            "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                        },
-                        aria_label: "Download song",
-                        disabled: download_busy(),
-                        onclick: make_on_download_song(),
-                        Icon {
-                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
-                            class: "w-4 h-4".to_string(),
-                        }
-                    }
-                }
-                button {
-                    class: if is_favorited() { "hidden md:inline-flex p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "hidden md:inline-flex p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
-                    aria_label: "Favorite",
-                    onclick: make_on_toggle_favorite(),
-                    Icon {
-                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                if current_rating() > 0 {
-                    div { class: "hidden md:flex items-center gap-1 text-amber-400",
-                        for i in 1..=5 {
-                            Icon {
-                                name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
-                                class: "w-3.5 h-3.5".to_string(),
-                            }
-                        }
-                    }
-                }
-                button {
-                    class: "md:hidden p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
-                    aria_label: "Song actions",
-                    onclick: move |evt: MouseEvent| {
-                        evt.stop_propagation();
-                        show_mobile_actions.set(!show_mobile_actions());
-                    },
-                    Icon {
-                        name: "more-horizontal".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                if show_mobile_actions() {
-                    div {
-                        class: "md:hidden absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                    div { class: "relative flex items-center gap-1 flex-shrink-0 -mr-1",
                         button {
-                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                            onclick: make_on_open_menu(),
-                            Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
-                            "Add To..."
-                        }
-                        if downloaded() {
-                            div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
-                                Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                                "Downloaded"
-                            }
-                        } else {
-                            button {
-                                class: if download_busy() { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed" } else { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors" },
-                                disabled: download_busy(),
-                                onclick: make_on_download_song(),
-                                Icon {
-                                    name: if download_busy() { "loader".to_string() } else { "download".to_string() },
-                                    class: "w-4 h-4".to_string(),
-                                }
-                                if download_busy() {
-                                    "Downloading..."
-                                } else {
-                                    "Download"
-                                }
-                            }
-                        }
-                        button {
-                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            class: if is_favorited() {
+                                "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                            } else {
+                                "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                            },
+                            aria_label: if is_favorited() { "Unfavorite" } else { "Favorite" },
                             onclick: make_on_toggle_favorite(),
                             Icon {
                                 name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
                                 class: "w-4 h-4".to_string(),
                             }
-                            if is_favorited() {
-                                "Unfavorite"
-                            } else {
-                                "Favorite"
+                        }
+                        button {
+                            class: "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
+                            aria_label: "Song actions",
+                            onclick: move |evt: MouseEvent| {
+                                evt.stop_propagation();
+                                show_mobile_actions.set(!show_mobile_actions());
+                            },
+                            Icon {
+                                name: "more-horizontal".to_string(),
+                                class: "w-4 h-4".to_string(),
                             }
                         }
-                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
-                        div { class: "flex items-center gap-1 px-2 pb-1",
-                            for i in 1..=5 {
+                        if show_mobile_actions() {
+                            div {
+                                class: "absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                                onclick: move |evt: MouseEvent| evt.stop_propagation(),
                                 button {
-                                    class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
-                                    onclick: make_on_set_rating(i as u32),
-                                    Icon {
-                                        name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
-                                        class: "w-3.5 h-3.5".to_string(),
+                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                    onclick: make_on_open_menu(),
+                                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                                    "Add To..."
+                                }
+                                if downloaded() {
+                                    div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
+                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                        "Downloaded"
+                                    }
+                                } else {
+                                    button {
+                                        class: if download_busy() { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed" } else { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors" },
+                                        disabled: download_busy(),
+                                        onclick: make_on_download_song(),
+                                        Icon {
+                                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        if download_busy() {
+                                            "Downloading..."
+                                        } else {
+                                            "Download"
+                                        }
                                     }
                                 }
+                                button {
+                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                    onclick: make_on_toggle_favorite(),
+                                    Icon {
+                                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                    if is_favorited() {
+                                        "Unfavorite"
+                                    } else {
+                                        "Favorite"
+                                    }
+                                }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
+                                div { class: "flex items-center gap-1 px-2 pb-1",
+                                    for i in 1..=5 {
+                                        button {
+                                            class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                            onclick: make_on_set_rating(i as u32),
+                                            Icon {
+                                                name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
+                                                class: "w-3.5 h-3.5".to_string(),
+                                            }
+                                        }
+                                    }
+                                }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
+                                p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
                             }
                         }
-                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
-                        p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
+                    }
+                }
+                if artist_id.is_some() {
+                    div { class: "mt-1.5 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1 justify-center md:justify-start",
+                        span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                            }
+                        }
+                    }
+                } else {
+                    div { class: "mt-1.5 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1 justify-center md:justify-start",
+                        span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                            }
+                        }
                     }
                 }
             }

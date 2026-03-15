@@ -258,6 +258,7 @@ pub fn RandomView() -> Element {
                         SongRow {
                             song: song.clone(),
                             index: index + 1,
+                            show_download: true,
                             onclick: {
                                 let song = song.clone();
                                 let songs_for_queue = songs.clone();

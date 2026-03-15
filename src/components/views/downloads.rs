@@ -2,8 +2,8 @@ use crate::api::{NavidromeClient, ServerConfig, Song};
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::{save_settings, AppSettings};
 use crate::offline_audio::{
-    clear_downloads, download_stats, list_active_downloads, list_downloaded_collections,
-    list_downloaded_collection_memberships, list_downloaded_entries, refresh_downloaded_cache,
+    clear_downloads, download_stats, list_active_downloads, list_downloaded_collection_memberships,
+    list_downloaded_collections, list_downloaded_entries, refresh_downloaded_cache,
     remove_downloaded_album, remove_downloaded_collection, remove_downloaded_song,
     run_auto_download_pass, sync_downloaded_collection_members,
     sync_downloaded_collection_metadata, ActiveDownloadEntry, DownloadCollectionEntry,
@@ -115,10 +115,12 @@ fn collection_progress(
 
 fn collection_detail_view(collection: &DownloadCollectionEntry) -> Option<AppView> {
     match collection.kind.as_str() {
-        "album" if !collection.collection_id.starts_with("name:") => Some(AppView::AlbumDetailView {
-            album_id: collection.collection_id.clone(),
-            server_id: collection.server_id.clone(),
-        }),
+        "album" if !collection.collection_id.starts_with("name:") => {
+            Some(AppView::AlbumDetailView {
+                album_id: collection.collection_id.clone(),
+                server_id: collection.server_id.clone(),
+            })
+        }
         "playlist" => Some(AppView::PlaylistDetailView {
             playlist_id: collection.collection_id.clone(),
             server_id: collection.server_id.clone(),
@@ -442,10 +444,8 @@ pub fn DownloadsView() -> Element {
                 .song_ids
                 .iter()
                 .filter(|song_id| {
-                    downloaded_entry_lookup.contains_key(&(
-                        entry.server_id.clone(),
-                        song_id.trim().to_string(),
-                    ))
+                    downloaded_entry_lookup
+                        .contains_key(&(entry.server_id.clone(), song_id.trim().to_string()))
                 })
                 .count();
             map.insert(
@@ -629,7 +629,9 @@ pub fn DownloadsView() -> Element {
     };
     match album_sort() {
         "title" => filtered_albums.sort_by(|left, right| left.name.cmp(&right.name)),
-        "oldest" => filtered_albums.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms)),
+        "oldest" => {
+            filtered_albums.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms))
+        }
         _ => filtered_albums.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms)), // recent (default)
     }
     let visible_album_count = album_visible_limit().min(filtered_albums.len());
@@ -651,7 +653,9 @@ pub fn DownloadsView() -> Element {
     };
     match playlist_sort() {
         "title" => filtered_playlists.sort_by(|left, right| left.name.cmp(&right.name)),
-        "oldest" => filtered_playlists.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms)),
+        "oldest" => {
+            filtered_playlists.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms))
+        }
         _ => filtered_playlists.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms)), // recent (default)
     }
     let visible_playlist_count = playlist_visible_limit().min(filtered_playlists.len());
@@ -750,14 +754,12 @@ pub fn DownloadsView() -> Element {
                     name,
                 } => {
                     if kind == "album" {
-                        let removed =
-                            remove_downloaded_album(&server_id, &collection_id, &name);
+                        let removed = remove_downloaded_album(&server_id, &collection_id, &name);
                         action_status.set(Some(format!(
                             "Removed {removed} song(s) from album \"{name}\"."
                         )));
                     } else {
-                        let _ =
-                            remove_downloaded_collection(&kind, &server_id, &collection_id);
+                        let _ = remove_downloaded_collection(&kind, &server_id, &collection_id);
                         action_status
                             .set(Some(format!("Removed playlist \"{name}\" from downloads.")));
                     }

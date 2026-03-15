@@ -272,10 +272,10 @@ fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Elemen
                 }
                 button {
                     class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
-                    aria_label: "Add playlist to queue",
+                    aria_label: "Playlist options",
                     onclick: on_open_menu,
                     Icon {
-                        name: "plus".to_string(),
+                        name: "more-horizontal".to_string(),
                         class: "w-4 h-4".to_string(),
                     }
                 }

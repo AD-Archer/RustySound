@@ -595,21 +595,6 @@ fn SongRowWithRating(
         }
     };
 
-    let on_album_click_text = {
-        let album_id = album_id.clone();
-        let server_id = server_id.clone();
-        let navigation = navigation.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id: album_id_val,
-                    server_id: server_id.clone(),
-                });
-            }
-        }
-    };
-
     let on_open_menu = {
         let mut add_menu = add_menu.clone();
         let song = song.clone();
@@ -620,9 +605,14 @@ fn SongRowWithRating(
     };
     let make_on_open_menu = {
         let on_open_menu = on_open_menu.clone();
+        let show_mobile_actions = show_mobile_actions.clone();
         move || {
             let mut on_open_menu = on_open_menu.clone();
-            move |evt: MouseEvent| on_open_menu(evt)
+            let mut show_mobile_actions = show_mobile_actions.clone();
+            move |evt: MouseEvent| {
+                show_mobile_actions.set(false);
+                on_open_menu(evt);
+            }
         }
     };
 
@@ -652,8 +642,10 @@ fn SongRowWithRating(
         let server_id = song.server_id.clone();
         let mut queue = queue.clone();
         let mut is_favorited = is_favorited.clone();
+        let mut show_mobile_actions = show_mobile_actions.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
+            show_mobile_actions.set(false);
             let should_star = !is_favorited();
             let servers = servers.clone();
             let song_id = song_id.clone();
@@ -688,7 +680,7 @@ fn SongRowWithRating(
     let make_on_toggle_favorite = {
         let on_toggle_favorite = on_toggle_favorite.clone();
         move || {
-            let on_toggle_favorite = on_toggle_favorite.clone();
+            let mut on_toggle_favorite = on_toggle_favorite.clone();
             move |evt: MouseEvent| on_toggle_favorite(evt)
         }
     };
@@ -699,8 +691,10 @@ fn SongRowWithRating(
         let song = song.clone();
         let mut download_busy = download_busy.clone();
         let mut downloaded = downloaded.clone();
+        let mut show_mobile_actions = show_mobile_actions.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
+            show_mobile_actions.set(false);
             if download_busy() || downloaded() {
                 return;
             }
@@ -732,10 +726,13 @@ fn SongRowWithRating(
     };
     let make_on_set_rating = {
         let on_set_rating = on_set_rating.clone();
+        let show_mobile_actions = show_mobile_actions.clone();
         move |rating_value: u32| {
             let on_set_rating = on_set_rating.clone();
+            let mut show_mobile_actions = show_mobile_actions.clone();
             move |evt: MouseEvent| {
                 evt.stop_propagation();
+                show_mobile_actions.set(false);
                 on_set_rating(rating_value);
             }
         }
@@ -743,8 +740,11 @@ fn SongRowWithRating(
 
     rsx! {
         div {
-            class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
-            onclick: move |e| onclick.call(e),
+            class: "w-full flex items-start gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
+            onclick: move |e| {
+                show_mobile_actions.set(false);
+                onclick.call(e);
+            },
             // Index
             span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{index}" }
             span { class: "w-6 text-sm text-white hidden group-hover:block",
@@ -786,168 +786,121 @@ fn SongRowWithRating(
                 }
             }
             // Song info
-            div { class: "flex-1 min-w-0 text-left",
-                p { class: "text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors max-w-full",
-                    "{song.title}"
-                }
-                if artist_id.is_some() {
-                    p { class: "text-xs text-zinc-400 truncate max-w-full",
-                        "{song.artist.clone().unwrap_or_default()}"
+            div { class: "flex-1 min-w-0 text-left pt-0.5",
+                div { class: "flex items-start justify-between gap-2 min-w-0",
+                    p { class: "min-w-0 flex-1 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                        "{song.title}"
                     }
-                } else {
-                    p { class: "text-xs text-zinc-400 truncate max-w-full",
-                        "{song.artist.clone().unwrap_or_default()}"
-                    }
-                }
-            }
-            // Album
-            div { class: "hidden md:block flex-1 min-w-0",
-                if album_id.is_some() {
-                    button {
-                        class: "text-sm text-zinc-400 truncate hover:text-emerald-400 transition-colors text-left w-full",
-                        onclick: on_album_click_text,
-                        "{song.album.clone().unwrap_or_default()}"
-                    }
-                } else {
-                    p { class: "text-sm text-zinc-400 truncate",
-                        "{song.album.clone().unwrap_or_default()}"
-                    }
-                }
-            }
-            // Favorite + Rating
-            div { class: "hidden md:flex items-center gap-2",
-                button {
-                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
-                    aria_label: "Favorite",
-                    onclick: make_on_toggle_favorite(),
-                    Icon {
-                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                // Hide star ratings on mobile to leave space for titles
-                div { class: "hidden sm:flex items-center gap-1",
-                    for i in 1..=5 {
+                    div { class: "relative flex items-center gap-1 flex-shrink-0 -mr-1",
                         button {
-                            class: "w-4 h-4",
-                            onclick: make_on_set_rating(i as u32),
-                            Icon {
-                                name: if i <= effective_rating {
-                                    "star-filled".to_string()
-                                } else {
-                                    "star".to_string()
-                                },
-                                class: "w-4 h-4 text-amber-400 hover:text-amber-300 transition-colors".to_string(),
-                            }
-                        }
-                    }
-                }
-            }
-            // Duration and actions
-            div { class: "flex items-center gap-3 relative",
-                if downloaded() {
-                    span {
-                        class: "hidden md:inline-flex text-emerald-400",
-                        title: "Downloaded",
-                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                    }
-                } else {
-                    button {
-                        class: if download_busy() {
-                            "hidden md:inline-flex p-2 rounded-lg text-zinc-500 cursor-not-allowed"
-                        } else {
-                            "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                        },
-                        aria_label: "Download song",
-                        disabled: download_busy(),
-                        onclick: make_on_download_song(),
-                        Icon {
-                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
-                            class: "w-4 h-4".to_string(),
-                        }
-                    }
-                }
-                button {
-                    class: "hidden md:inline-flex p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add to queue",
-                    onclick: make_on_open_menu(),
-                    Icon {
-                        name: "more-horizontal".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                span { class: "text-sm text-zinc-500", "{format_duration(song.duration)}" }
-                button {
-                    class: "md:hidden p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
-                    aria_label: "Song actions",
-                    onclick: move |evt: MouseEvent| {
-                        evt.stop_propagation();
-                        show_mobile_actions.set(!show_mobile_actions());
-                    },
-                    Icon {
-                        name: "more-horizontal".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                if show_mobile_actions() {
-                    div {
-                        class: "md:hidden absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
-                        button {
-                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                            onclick: make_on_open_menu(),
-                            Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
-                            "Add To..."
-                        }
-                        if downloaded() {
-                            div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
-                                Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                                "Downloaded"
-                            }
-                        } else {
-                            button {
-                                class: if download_busy() {
-                                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed"
-                                } else {
-                                    "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
-                                },
-                                disabled: download_busy(),
-                                onclick: make_on_download_song(),
-                                Icon {
-                                    name: if download_busy() { "loader".to_string() } else { "download".to_string() },
-                                    class: "w-4 h-4".to_string(),
-                                }
-                                if download_busy() {
-                                    "Downloading..."
-                                } else {
-                                    "Download"
-                                }
-                            }
-                        }
-                        button {
-                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            class: if is_favorited() {
+                                "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
+                            } else {
+                                "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
+                            },
+                            aria_label: if is_favorited() { "Unfavorite" } else { "Favorite" },
                             onclick: make_on_toggle_favorite(),
                             Icon {
                                 name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
                                 class: "w-4 h-4".to_string(),
                             }
-                            if is_favorited() {
-                                "Unfavorite"
-                            } else {
-                                "Favorite"
+                        }
+                        button {
+                            class: "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
+                            aria_label: "Song actions",
+                            onclick: move |evt: MouseEvent| {
+                                evt.stop_propagation();
+                                show_mobile_actions.set(!show_mobile_actions());
+                            },
+                            Icon {
+                                name: "more-horizontal".to_string(),
+                                class: "w-4 h-4".to_string(),
                             }
                         }
-                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
-                        div { class: "flex items-center gap-1 px-2 pb-1",
-                            for i in 1..=5 {
+                        if show_mobile_actions() {
+                            div {
+                                class: "absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                                onclick: move |evt: MouseEvent| evt.stop_propagation(),
                                 button {
-                                    class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
-                                    onclick: make_on_set_rating(i as u32),
-                                    Icon {
-                                        name: if i <= effective_rating { "star-filled".to_string() } else { "star".to_string() },
-                                        class: "w-3.5 h-3.5".to_string(),
+                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                    onclick: make_on_open_menu(),
+                                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                                    "Add To..."
+                                }
+                                if downloaded() {
+                                    div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
+                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                        "Downloaded"
+                                    }
+                                } else {
+                                    button {
+                                        class: if download_busy() {
+                                            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed"
+                                        } else {
+                                            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
+                                        },
+                                        disabled: download_busy(),
+                                        onclick: make_on_download_song(),
+                                        Icon {
+                                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        if download_busy() {
+                                            "Downloading..."
+                                        } else {
+                                            "Download"
+                                        }
                                     }
                                 }
+                                button {
+                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                    onclick: make_on_toggle_favorite(),
+                                    Icon {
+                                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                    if is_favorited() {
+                                        "Unfavorite"
+                                    } else {
+                                        "Favorite"
+                                    }
+                                }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
+                                div { class: "flex items-center gap-1 px-2 pb-1",
+                                    for i in 1..=5 {
+                                        button {
+                                            class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                            onclick: make_on_set_rating(i as u32),
+                                            Icon {
+                                                name: if i <= effective_rating { "star-filled".to_string() } else { "star".to_string() },
+                                                class: "w-3.5 h-3.5".to_string(),
+                                            }
+                                        }
+                                    }
+                                }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
+                                p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
+                            }
+                        }
+                    }
+                }
+                if artist_id.is_some() {
+                    div { class: "mt-1.5 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
+                        span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                            }
+                        }
+                    }
+                } else {
+                    div { class: "mt-1.5 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
+                        span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
                             }
                         }
                     }
