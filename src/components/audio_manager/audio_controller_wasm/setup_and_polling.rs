@@ -165,10 +165,17 @@
                             if playback_error_signal.peek().as_ref() != Some(&message) {
                                 playback_error_signal.set(Some(message));
                             }
+                            set_transport_loading(audio_state.clone(), false, None);
                         } else if playback_error_signal.peek().is_some() {
                             let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !paused;
                             if has_started {
                                 playback_error_signal.set(None);
+                                set_transport_loading(audio_state.clone(), false, None);
+                            }
+                        } else {
+                            let has_started = time > 0.0 || (!dur.is_nan() && dur > 0.0) || !paused;
+                            if has_started {
+                                set_transport_loading(audio_state.clone(), false, None);
                             }
                         }
                     } else {
@@ -180,6 +187,7 @@
                         if playback_error_signal.peek().is_some() {
                             playback_error_signal.set(None);
                         }
+                        set_transport_loading(audio_state.clone(), false, None);
                     }
 
                     if audio.ended() {
@@ -244,6 +252,7 @@
                                     queue_index.clone(),
                                     now_playing.clone(),
                                     is_playing.clone(),
+                                    audio_state.clone(),
                                     current_song,
                                     Some(true),
                                 );

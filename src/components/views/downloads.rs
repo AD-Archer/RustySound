@@ -1,10 +1,9 @@
 use crate::api::{NavidromeClient, ServerConfig, Song};
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{Icon, Navigation};
 use crate::db::{save_settings, AppSettings};
 use crate::offline_audio::{
     clear_downloads, download_stats, list_active_downloads, list_downloaded_collections,
-    list_downloaded_entries, refresh_downloaded_cache, remove_downloaded_album,
-    remove_downloaded_collection, remove_downloaded_song, remove_downloaded_songs,
+    list_downloaded_entries, refresh_downloaded_cache, remove_downloaded_song,
     run_auto_download_pass, ActiveDownloadEntry, DownloadCollectionEntry, DownloadIndexEntry,
 };
 use chrono::{DateTime, Local, Utc};
@@ -115,7 +114,7 @@ fn parse_download_song_sort(value: &str) -> DownloadSongSort {
         "artist" => DownloadSongSort::Artist,
         "album" => DownloadSongSort::Album,
         "size" => DownloadSongSort::Size,
-        _ => DownloadSongSort::Newest,
+        _ => DownloadSongSort::Title,
     }
 }
 
@@ -171,10 +170,13 @@ pub fn DownloadsView() -> Element {
     let mut search_query = use_signal(String::new);
     let mut active_tab = use_signal(|| DownloadsTab::Songs);
     let selected_song_keys = use_signal(HashSet::<String>::new);
-    let mut song_sort = use_signal(|| DownloadSongSort::Newest);
+    let mut song_sort = use_signal(|| DownloadSongSort::Title);
+    let mut album_sort = use_signal(|| "title"); // "title", "recent", "oldest"
+    let mut playlist_sort = use_signal(|| "title");
     let mut song_visible_limit = use_signal(|| DOWNLOADS_SONG_PAGE_SIZE);
     let mut album_visible_limit = use_signal(|| DOWNLOADS_COLLECTION_PAGE_SIZE);
     let mut playlist_visible_limit = use_signal(|| DOWNLOADS_COLLECTION_PAGE_SIZE);
+    let mut selected_collection_modal = use_signal(|| None::<(String, String, String)>);
 
     {
         let mut refresh_nonce = refresh_nonce.clone();
@@ -265,13 +267,14 @@ pub fn DownloadsView() -> Element {
         all_entries.clone()
     } else {
         all_entries
-            .into_iter()
+            .iter()
             .filter(|entry| {
                 let title = entry.title.to_ascii_lowercase();
                 let artist = normalize_download_field(&entry.artist);
                 let album = normalize_download_field(&entry.album);
                 title.contains(&query) || artist.contains(&query) || album.contains(&query)
             })
+            .cloned()
             .collect()
     };
     match song_sort() {
@@ -314,7 +317,11 @@ pub fn DownloadsView() -> Element {
             .cloned()
             .collect()
     };
-    filtered_albums.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+    match album_sort() {
+        "title" => filtered_albums.sort_by(|left, right| left.name.cmp(&right.name)),
+        "oldest" => filtered_albums.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms)),
+        _ => filtered_albums.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms)), // recent (default)
+    }
     let visible_album_count = album_visible_limit().min(filtered_albums.len());
     let visible_albums: Vec<DownloadCollectionEntry> = filtered_albums
         .iter()
@@ -332,7 +339,11 @@ pub fn DownloadsView() -> Element {
             .cloned()
             .collect()
     };
-    filtered_playlists.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
+    match playlist_sort() {
+        "title" => filtered_playlists.sort_by(|left, right| left.name.cmp(&right.name)),
+        "oldest" => filtered_playlists.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms)),
+        _ => filtered_playlists.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms)), // recent (default)
+    }
     let visible_playlist_count = playlist_visible_limit().min(filtered_playlists.len());
     let visible_playlists: Vec<DownloadCollectionEntry> = filtered_playlists
         .iter()
@@ -400,108 +411,6 @@ pub fn DownloadsView() -> Element {
             action_status.set(Some(format!("Removed {removed} downloaded songs.")));
             selected_song_keys.set(HashSet::new());
             refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
-        }
-    };
-
-    let on_toggle_select_all_visible = {
-        let mut selected_song_keys = selected_song_keys.clone();
-        let visible_song_entries = visible_song_entries.clone();
-        move |_| {
-            let mut selected = selected_song_keys();
-            let all_visible_selected = !visible_song_entries.is_empty()
-                && visible_song_entries.iter().all(|entry| {
-                    selected.contains(&download_song_key(&entry.server_id, &entry.song_id))
-                });
-            if all_visible_selected {
-                for entry in &visible_song_entries {
-                    selected.remove(&download_song_key(&entry.server_id, &entry.song_id));
-                }
-            } else {
-                for entry in &visible_song_entries {
-                    selected.insert(download_song_key(&entry.server_id, &entry.song_id));
-                }
-            }
-            selected_song_keys.set(selected);
-        }
-    };
-
-    let on_clear_selection = {
-        let mut selected_song_keys = selected_song_keys.clone();
-        move |_| selected_song_keys.set(HashSet::new())
-    };
-
-    let on_delete_selected = {
-        let mut action_status = action_status.clone();
-        let mut refresh_nonce = refresh_nonce.clone();
-        let mut selected_song_keys = selected_song_keys.clone();
-        let entries = entries.clone();
-        move |_| {
-            let selected = selected_song_keys();
-            let keys: Vec<(String, String)> = entries
-                .iter()
-                .filter(|entry| {
-                    selected.contains(&download_song_key(&entry.server_id, &entry.song_id))
-                })
-                .map(|entry| (entry.server_id.clone(), entry.song_id.clone()))
-                .collect();
-            if keys.is_empty() {
-                action_status.set(Some("No downloaded songs selected.".to_string()));
-                return;
-            }
-
-            let removed = remove_downloaded_songs(&keys);
-            selected_song_keys.set(HashSet::new());
-            action_status.set(Some(format!("Removed {removed} selected download(s).")));
-            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
-        }
-    };
-
-    let on_play_top_result = {
-        let entries = entries.clone();
-        let servers_snapshot = servers_snapshot.clone();
-        let mut now_playing = now_playing.clone();
-        let mut queue = queue.clone();
-        let mut queue_index = queue_index.clone();
-        let mut is_playing = is_playing.clone();
-        move |_| {
-            let Some(first) = entries.first() else {
-                return;
-            };
-            let song = to_download_song(first, &servers_snapshot);
-            queue.set(vec![song.clone()]);
-            queue_index.set(0);
-            now_playing.set(Some(song));
-            is_playing.set(true);
-        }
-    };
-
-    let on_queue_visible_results = {
-        let visible_song_entries = visible_song_entries.clone();
-        let servers_snapshot = servers_snapshot.clone();
-        let mut queue = queue.clone();
-        let mut queue_index = queue_index.clone();
-        let mut now_playing = now_playing.clone();
-        move |_| {
-            if visible_song_entries.is_empty() {
-                return;
-            }
-
-            let mut appended: Vec<Song> = visible_song_entries
-                .iter()
-                .map(|entry| to_download_song(entry, &servers_snapshot))
-                .collect();
-            if appended.is_empty() {
-                return;
-            }
-
-            let mut current_queue = queue();
-            let was_empty = current_queue.is_empty();
-            current_queue.append(&mut appended);
-            queue.set(current_queue.clone());
-            if was_empty {
-                queue_index.set(0);
-                now_playing.set(current_queue.first().cloned());
-            }
         }
     };
 
@@ -596,47 +505,528 @@ pub fn DownloadsView() -> Element {
     };
 
     rsx! {
-        div { class: "space-y-8",
-            header { class: "page-header",
+        div { class: "space-y-6",
+            // Header
+            header { class: "page-header gap-2",
                 div {
                     h1 { class: "page-title", "Downloads" }
-                    p { class: "page-subtitle",
-                        "Manage offline audio, auto-download, and local playback."
-                    }
-                }
-                button {
-                    class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-sm",
-                    onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
-                    "Open Download Settings"
+                    p { class: "page-subtitle", "Browse your offline library" }
                 }
             }
 
             if !native_downloads_supported {
                 section { class: "bg-amber-500/10 border border-amber-500/40 rounded-xl p-4",
                     p { class: "text-sm text-amber-200",
-                        "Downloads are only available in native builds (desktop/mobile app). Web builds can stream but do not persist offline files."
+                        "Downloads are only available in native builds. Web builds can stream but do not persist offline files."
                     }
                 }
             }
 
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6 space-y-5",
-                h2 { class: "text-lg font-semibold text-white", "Overview" }
+            // Search bar
+            div { class: "flex gap-3",
+                div { class: "relative flex-1 max-w-md",
+                    Icon {
+                        name: "search".to_string(),
+                        class: "absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500".to_string(),
+                    }
+                    input {
+                        class: "w-full pl-10 pr-4 py-2.5 rounded-lg bg-zinc-800/50 border border-zinc-700/50 text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50",
+                        placeholder: "Search downloads...",
+                        value: search_query,
+                        oninput: move |evt| search_query.set(evt.value()),
+                    }
+                }
+            }
+
+            // Songs Section with horizontal scroll
+            section { class: "space-y-3",
+                div { class: "flex items-center justify-between gap-3",
+                    h2 { class: "text-lg font-semibold text-white flex items-center gap-2",
+                        Icon {
+                            name: "music".to_string(),
+                            class: "w-5 h-5".to_string(),
+                        }
+                        "Songs"
+                    }
+                    span { class: "text-sm text-zinc-500", "{entries.len()} songs" }
+                }
+
+                // Sort filter pills
+                div { class: "flex flex-wrap gap-2",
+                    for (sort_type , label) in [
+                        (DownloadSongSort::Newest, "Newest"),
+                        (DownloadSongSort::Title, "A-Z"),
+                        (DownloadSongSort::Artist, "Artist"),
+                        (DownloadSongSort::Album, "Album"),
+                        (DownloadSongSort::Size, "Size"),
+                    ]
+                        .iter()
+                    {
+                        button {
+                            class: if song_sort() == *sort_type { "px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium" } else { "px-3 py-1.5 rounded-full bg-zinc-800/50 text-zinc-400 text-xs font-medium hover:text-zinc-200" },
+                            onclick: move |_| song_sort.set(*sort_type),
+                            "{label}"
+                        }
+                    }
+                }
+
+                // Horizontal scroll carousel for songs
+                if entries.is_empty() {
+                    div { class: "text-center text-sm text-zinc-500 py-8", "No downloaded songs yet." }
+                } else {
+                    div { class: "page-carousel",
+                        div { class: "flex gap-3 min-w-min",
+                            for entry in visible_song_entries.iter().take(20) {
+                                {
+                                    let entry = entry.clone();
+                                    let selection_key = download_song_key(&entry.server_id, &entry.song_id);
+                                    let is_selected = selected_song_keys().contains(&selection_key);
+                                    let cover_id = entry
+                                        .cover_art_id
+                                        .as_ref()
+                                        .filter(|value| !value.trim().is_empty())
+                                        .cloned()
+                                        .or_else(|| {
+                                            entry.album_id
+                                                .as_ref()
+                                                .filter(|value| !value.trim().is_empty())
+                                                .cloned()
+                                        });
+                                    let cover_url = cover_id
+                                        .as_ref()
+                                        .and_then(|cover| {
+                                            servers_snapshot
+                                                .iter()
+                                                .find(|server| server.id == entry.server_id)
+                                                .map(|server| {
+                                                    NavidromeClient::new(server.clone())
+                                                        .get_cover_art_url(cover, 120)
+                                                })
+                                        });
+                                    rsx! {
+                                        div {
+                                            key: "{entry.server_id}:{entry.song_id}",
+                                            class: "w-28 flex-shrink-0 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-2 flex flex-col gap-2 hover:bg-zinc-900/60 transition-colors",
+                                            if let Some(url) = cover_url {
+                                                button {
+                                                    class: "w-full aspect-square rounded-lg overflow-hidden border border-zinc-800/80",
+                                                    onclick: {
+                                                        let entry = entry.clone();
+                                                        let servers_snapshot = servers_snapshot.clone();
+                                                        move |_| {
+                                                            let song = to_download_song(&entry, &servers_snapshot);
+                                                            queue.set(vec![song.clone()]);
+                                                            queue_index.set(0);
+                                                            now_playing.set(Some(song));
+                                                            is_playing.set(true);
+                                                        }
+                                                    },
+                                                    img {
+                                                        src: "{url}",
+                                                        alt: "{entry.title}",
+                                                        class: "w-full h-full object-cover",
+                                                        loading: "lazy",
+                                                    }
+                                                }
+                                            } else {
+                                                div { class: "w-full aspect-square rounded-lg bg-zinc-800 border border-zinc-800/80" }
+                                            }
+                                            div { class: "flex-1 min-w-0",
+                                                p { class: "text-xs font-medium text-white truncate", "{entry.title}" }
+                                                p { class: "text-[11px] text-zinc-400 truncate",
+                                                    "{entry.artist.clone().unwrap_or_else(|| \"Unknown\".to_string())}"
+                                                }
+                                            }
+                                            div { class: "flex gap-1",
+                                                button {
+                                                    class: "flex-1 px-2 py-1 rounded text-[10px] border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white transition-colors",
+                                                    onclick: {
+                                                        let entry = entry.clone();
+                                                        let servers_snapshot = servers_snapshot.clone();
+                                                        move |_| {
+                                                            let song = to_download_song(&entry, &servers_snapshot);
+                                                            queue.set(vec![song.clone()]);
+                                                            queue_index.set(0);
+                                                            now_playing.set(Some(song));
+                                                            is_playing.set(true);
+                                                        }
+                                                    },
+                                                    Icon {
+                                                        name: "play".to_string(),
+                                                        class: "w-3 h-3 mx-auto".to_string(),
+                                                    }
+                                                }
+                                                button {
+                                                    class: "flex-1 px-2 py-1 rounded text-[10px] border border-rose-500/50 text-rose-300 hover:bg-rose-500 hover:border-rose-500 hover:text-white transition-colors",
+                                                    onclick: {
+                                                        let entry = entry.clone();
+                                                        let mut action_status = action_status.clone();
+                                                        let mut refresh_nonce = refresh_nonce.clone();
+                                                        move |_| {
+                                                            let _ = remove_downloaded_song(&entry.server_id, &entry.song_id);
+                                                            action_status.set(Some(format!("Removed \"{}\".", entry.title)));
+                                                            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                                                        }
+                                                    },
+                                                    Icon {
+                                                        name: "trash".to_string(),
+                                                        class: "w-3 h-3 mx-auto".to_string(),
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Albums Section with horizontal scroll
+            section { class: "space-y-3",
+                div { class: "flex items-center justify-between gap-3",
+                    h2 { class: "text-lg font-semibold text-white flex items-center gap-2",
+                        Icon {
+                            name: "album".to_string(),
+                            class: "w-5 h-5".to_string(),
+                        }
+                        "Albums"
+                    }
+                    span { class: "text-sm text-zinc-500", "{filtered_albums.len()} albums" }
+                }
+
+                // Sort filter pills
+                div { class: "flex flex-wrap gap-2",
+                    for (sort_val, label) in [("title", "A-Z"), ("recent", "Recent"), ("oldest", "Oldest")].iter() {
+                        button {
+                            class: if album_sort() == *sort_val { "px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium" } else { "px-3 py-1.5 rounded-full bg-zinc-800/50 text-zinc-400 text-xs font-medium hover:text-zinc-200" },
+                            onclick: move |_| album_sort.set(*sort_val),
+                            "{label}"
+                        }
+                    }
+                }
+
+                // Horizontal scroll carousel for albums
+                if filtered_albums.is_empty() {
+                    div { class: "text-center text-sm text-zinc-500 py-8", "No downloaded albums yet." }
+                } else {
+                    div { class: "page-carousel",
+                        div { class: "flex gap-3 min-w-min",
+                            for album in visible_albums.iter() {
+                                {
+                                    let album = album.clone();
+                                    let cover_id = album_cover_ids
+                                        .get(&(album.server_id.clone(), album.collection_id.clone()))
+                                        .cloned()
+                                        .or_else(|| {
+                                            if album.collection_id.starts_with("name:") {
+                                                None
+                                            } else {
+                                                Some(album.collection_id.clone())
+                                            }
+                                        });
+                                    let cover_url = cover_id
+                                        .as_ref()
+                                        .and_then(|cover_id| {
+                                            servers_snapshot
+                                                .iter()
+                                                .find(|server| server.id == album.server_id)
+                                                .map(|server| {
+                                                    NavidromeClient::new(server.clone())
+                                                        .get_cover_art_url(cover_id, 140)
+                                                })
+                                        });
+                                    rsx! {
+                                        button {
+                                            key: "album:{album.server_id}:{album.collection_id}",
+                                            class: "w-28 flex-shrink-0 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-2 flex flex-col gap-2 hover:bg-zinc-900/60 transition-colors text-left disabled:opacity-50 disabled:cursor-not-allowed",
+                                            disabled: album.collection_id.starts_with("name:"),
+                                            onclick: {
+                                                let album = album.clone();
+                                                let mut selected_collection_modal = selected_collection_modal.clone();
+                                                move |_| {
+                                                    selected_collection_modal
+                                                        .set(
+                                                            Some((
+                                                                album.server_id.clone(),
+                                                                album.collection_id.clone(),
+                                                                album.name.clone(),
+                                                            )),
+                                                        );
+                                                }
+                                            },
+                                            if let Some(url) = cover_url {
+                                                img {
+                                                    src: "{url}",
+                                                    alt: "{album.name}",
+                                                    class: "w-full aspect-square rounded-lg object-cover border border-zinc-800/80",
+                                                    loading: "lazy",
+                                                }
+                                            } else {
+                                                div { class: "w-full aspect-square rounded-lg bg-zinc-800 border border-zinc-800/80" }
+                                            }
+                                            div { class: "flex-1 min-w-0",
+                                                p { class: "text-xs font-medium text-white truncate", "{album.name}" }
+                                                p { class: "text-[11px] text-zinc-400 truncate", "{album.song_count} songs" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Playlists Section with horizontal scroll
+            section { class: "space-y-3",
+                div { class: "flex items-center justify-between gap-3",
+                    h2 { class: "text-lg font-semibold text-white flex items-center gap-2",
+                        Icon {
+                            name: "playlist".to_string(),
+                            class: "w-5 h-5".to_string(),
+                        }
+                        "Playlists"
+                    }
+                    span { class: "text-sm text-zinc-500", "{filtered_playlists.len()} playlists" }
+                }
+
+                // Sort filter pills
+                div { class: "flex flex-wrap gap-2",
+                    for (sort_val, label) in [("title", "A-Z"), ("recent", "Recent"), ("oldest", "Oldest")].iter() {
+                        button {
+                            class: if playlist_sort() == *sort_val { "px-3 py-1.5 rounded-full bg-emerald-500/20 text-emerald-300 text-xs font-medium" } else { "px-3 py-1.5 rounded-full bg-zinc-800/50 text-zinc-400 text-xs font-medium hover:text-zinc-200" },
+                            onclick: move |_| playlist_sort.set(*sort_val),
+                            "{label}"
+                        }
+                    }
+                }
+
+                // Horizontal scroll carousel for playlists
+                if filtered_playlists.is_empty() {
+                    div { class: "text-center text-sm text-zinc-500 py-8",
+                        "No downloaded playlists yet."
+                    }
+                } else {
+                    div { class: "page-carousel",
+                        div { class: "flex gap-3 min-w-min",
+                            for playlist in visible_playlists.iter() {
+                                {
+                                    let playlist = playlist.clone();
+                                    rsx! {
+                                        button {
+                                            key: "playlist:{playlist.server_id}:{playlist.collection_id}",
+                                            class: "w-28 flex-shrink-0 rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-2 flex flex-col gap-2 hover:bg-zinc-900/60 transition-colors text-left",
+                                            onclick: {
+                                                let playlist = playlist.clone();
+                                                let mut selected_collection_modal = selected_collection_modal.clone();
+                                                move |_| {
+                                                    selected_collection_modal
+                                                        .set(
+                                                            Some((
+                                                                playlist.server_id.clone(),
+                                                                playlist.collection_id.clone(),
+                                                                playlist.name.clone(),
+                                                            )),
+                                                        );
+                                                }
+                                            },
+                                            div { class: "w-full aspect-square rounded-lg bg-gradient-to-br from-violet-500/20 to-cyan-500/20 border border-zinc-800/80 flex items-center justify-center",
+                                                Icon {
+                                                    name: "playlist".to_string(),
+                                                    class: "w-6 h-6 text-zinc-400".to_string(),
+                                                }
+                                            }
+                                            div { class: "flex-1 min-w-0",
+                                                p { class: "text-xs font-medium text-white truncate", "{playlist.name}" }
+                                                p { class: "text-[11px] text-zinc-400 truncate", "{playlist.song_count} songs" }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Modal overlay for album/playlist details
+            if let Some((modal_server_id, modal_collection_id, modal_name)) = selected_collection_modal() {
+                {
+                    let modal_entries: Vec<DownloadIndexEntry> = if modal_collection_id
+                        .starts_with("name:")
+                    {
+                        Vec::new()
+                    } else {
+                        all_entries
+                            .iter()
+                            .filter(|e| {
+                                e.server_id == modal_server_id
+                                    && e
+                                        .album_id
+                                        .as_ref()
+                                        .map_or(false, |id| id == &modal_collection_id)
+                            })
+                            .cloned()
+                            .collect()
+                    };
+                    let cover_id = album_cover_ids
+                        .get(&(modal_server_id.clone(), modal_collection_id.clone()))
+                        .cloned();
+                    let cover_url = cover_id
+                        .as_ref()
+                        .and_then(|cover_id| {
+                            servers_snapshot
+                                .iter()
+                                .find(|server| server.id == modal_server_id)
+                                .map(|server| {
+                                    NavidromeClient::new(server.clone())
+                                        .get_cover_art_url(cover_id, 200)
+                                })
+                        });
+                    rsx! {
+                        div {
+                            class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm overflow-y-auto px-4 py-8 flex items-center justify-center",
+                            onclick: {
+                                let mut selected_collection_modal = selected_collection_modal.clone();
+                                move |_| {
+                                    selected_collection_modal.set(None);
+                                }
+                            },
+                            div {
+                                class: "w-full max-w-2xl max-h-[80vh] bg-zinc-900/60 border border-zinc-700/50 rounded-2xl p-6 flex flex-col gap-4 overflow-y-auto",
+                                onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                                // Header & Close button
+                                div { class: "flex items-center justify-between mb-2",
+                                    h2 { class: "text-xl font-semibold text-white truncate", "{modal_name}" }
+                                    button {
+                                        class: "p-1 hover:bg-zinc-800/50 rounded-lg transition-colors",
+                                        onclick: {
+                                            let mut selected_collection_modal = selected_collection_modal.clone();
+                                            move |_| selected_collection_modal.set(None)
+                                        },
+                                        Icon {
+                                            name: "x".to_string(),
+                                            class: "w-5 h-5 text-zinc-400".to_string(),
+                                        }
+                                    }
+                                }
+
+                                // Cover image
+                                if let Some(url) = cover_url {
+                                    img {
+                                        src: "{url}",
+                                        alt: "{modal_name}",
+                                        class: "w-24 h-24 rounded-lg object-cover border border-zinc-800/80",
+                                        loading: "lazy",
+                                    }
+                                }
+
+                                // Songs list
+                                if modal_entries.is_empty() {
+                                    p { class: "text-sm text-zinc-400 text-center py-8", "No songs found" }
+                                } else {
+                                    div { class: "space-y-1 -mx-6 px-6 overflow-y-auto max-h-[50vh]",
+                                        for entry in modal_entries.iter() {
+                                            {
+                                                let entry = entry.clone();
+                                                rsx! {
+                                                    div {
+                                                        key: "{entry.server_id}:{entry.song_id}",
+                                                        class: "flex items-center justify-between gap-3 p-2 rounded-lg hover:bg-zinc-800/50 transition-colors group",
+                                                        div { class: "flex-1 min-w-0",
+                                                            p { class: "text-sm text-white truncate", "{entry.title}" }
+                                                            p { class: "text-xs text-zinc-500 truncate",
+                                                                "{entry.artist.clone().unwrap_or_else(|| \"Unknown\".to_string())}"
+                                                            }
+                                                        }
+                                                        div { class: "flex gap-1",
+                                                            button {
+                                                                class: "p-1.5 rounded text-emerald-300 hover:text-emerald-200 hover:bg-emerald-500/20 transition-colors opacity-0 group-hover:opacity-100",
+                                                                onclick: {
+                                                                    let entry = entry.clone();
+                                                                    let servers_snapshot = servers_snapshot.clone();
+                                                                    move |_| {
+                                                                        let song = to_download_song(&entry, &servers_snapshot);
+                                                                        queue.set(vec![song.clone()]);
+                                                                        queue_index.set(0);
+                                                                        now_playing.set(Some(song));
+                                                                        is_playing.set(true);
+                                                                    }
+                                                                },
+                                                                Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                                                            }
+                                                            button {
+                                                                class: "p-1.5 rounded text-rose-300 hover:text-rose-200 hover:bg-rose-500/20 transition-colors opacity-0 group-hover:opacity-100",
+                                                                onclick: {
+                                                                    let entry = entry.clone();
+                                                                    let mut action_status = action_status.clone();
+                                                                    let mut refresh_nonce = refresh_nonce.clone();
+                                                                    move |_| {
+                                                                        let _ = remove_downloaded_song(&entry.server_id, &entry.song_id);
+                                                                        action_status.set(Some(format!("Removed \"{}\".", entry.title)));
+                                                                        refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                                                                    }
+                                                                },
+                                                                Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Settings section moved to bottom
+            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6 space-y-5 mt-8",
+                h2 { class: "text-lg font-semibold text-white flex items-center gap-2",
+                    Icon {
+                        name: "settings".to_string(),
+                        class: "w-5 h-5".to_string(),
+                    }
+                    "Downloads Settings"
+                }
+                p { class: "text-sm text-zinc-400",
+                    "Use the settings page to edit download preferences."
+                }
+
                 div { class: "grid grid-cols-1 md:grid-cols-4 gap-4",
                     div { class: "bg-zinc-900/50 rounded-xl p-4",
-                        p { class: "text-xs uppercase tracking-wider text-zinc-500", "Downloaded Songs" }
+                        p { class: "text-xs uppercase tracking-wider text-zinc-500",
+                            "Downloaded Songs"
+                        }
                         p { class: "text-2xl font-semibold text-white mt-2", "{stats.song_count}" }
                     }
                     div { class: "bg-zinc-900/50 rounded-xl p-4",
-                        p { class: "text-xs uppercase tracking-wider text-zinc-500", "Downloaded Albums" }
-                        p { class: "text-2xl font-semibold text-white mt-2", "{downloaded_albums.len()}" }
+                        p { class: "text-xs uppercase tracking-wider text-zinc-500",
+                            "Downloaded Albums"
+                        }
+                        p { class: "text-2xl font-semibold text-white mt-2",
+                            "{downloaded_albums.len()}"
+                        }
                     }
                     div { class: "bg-zinc-900/50 rounded-xl p-4",
-                        p { class: "text-xs uppercase tracking-wider text-zinc-500", "Downloaded Playlists" }
-                        p { class: "text-2xl font-semibold text-white mt-2", "{downloaded_playlists.len()}" }
+                        p { class: "text-xs uppercase tracking-wider text-zinc-500",
+                            "Downloaded Playlists"
+                        }
+                        p { class: "text-2xl font-semibold text-white mt-2",
+                            "{downloaded_playlists.len()}"
+                        }
                     }
                     div { class: "bg-zinc-900/50 rounded-xl p-4",
-                        p { class: "text-xs uppercase tracking-wider text-zinc-500", "Storage Used" }
-                        p { class: "text-2xl font-semibold text-white mt-2", "{format_size(stats.total_size_bytes)}" }
+                        p { class: "text-xs uppercase tracking-wider text-zinc-500",
+                            "Storage Used"
+                        }
+                        p { class: "text-2xl font-semibold text-white mt-2",
+                            "{format_size(stats.total_size_bytes)}"
+                        }
                     }
                 }
 
@@ -666,8 +1056,12 @@ pub fn DownloadsView() -> Element {
                 if !active_downloads.is_empty() {
                     div { class: "space-y-2",
                         div { class: "flex items-center justify-between",
-                            p { class: "text-xs uppercase tracking-wider text-zinc-500", "Active Downloads" }
-                            p { class: "text-xs text-emerald-300", "{active_downloads.len()} in progress" }
+                            p { class: "text-xs uppercase tracking-wider text-zinc-500",
+                                "Active Downloads"
+                            }
+                            p { class: "text-xs text-emerald-300",
+                                "{active_downloads.len()} in progress"
+                            }
                         }
                         div { class: "max-h-40 overflow-y-auto rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-2 space-y-1",
                             for entry in active_downloads.iter().take(30) {
@@ -675,12 +1069,17 @@ pub fn DownloadsView() -> Element {
                                     key: "active:{entry.server_id}:{entry.song_id}",
                                     class: "flex items-center justify-between gap-3 px-2 py-1.5 rounded-lg bg-zinc-900/50",
                                     div { class: "min-w-0",
-                                        p { class: "text-sm text-zinc-200 truncate", "{entry.title}" }
+                                        p { class: "text-sm text-zinc-200 truncate",
+                                            "{entry.title}"
+                                        }
                                         p { class: "text-xs text-zinc-500 truncate",
                                             "{entry.artist.clone().unwrap_or_else(|| \"Unknown artist\".to_string())}"
                                         }
                                     }
-                                    Icon { name: "loader".to_string(), class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string() }
+                                    Icon {
+                                        name: "loader".to_string(),
+                                        class: "w-4 h-4 text-emerald-400 flex-shrink-0 animate-spin".to_string(),
+                                    }
                                 }
                             }
                         }
@@ -689,545 +1088,80 @@ pub fn DownloadsView() -> Element {
 
                 div { class: "grid grid-cols-2 gap-2 pt-2 sm:flex sm:flex-wrap sm:items-center sm:gap-3",
                     button {
-                        class: if settings.downloads_enabled {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 text-center"
-                        } else {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-center"
-                        },
+                        class: if settings.downloads_enabled { "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 text-center flex items-center justify-center gap-2 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white transition-colors" } else { "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-center flex items-center justify-center gap-2 hover:bg-zinc-700 hover:border-zinc-500 hover:text-white transition-colors" },
                         onclick: on_toggle_downloads,
+                        Icon {
+                            name: if settings.downloads_enabled { "check".to_string() } else { "x".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
                         if settings.downloads_enabled {
-                            "Downloads Enabled"
+                            "Downloads ON"
                         } else {
-                            "Downloads Disabled"
+                            "Downloads OFF"
                         }
                     }
                     button {
-                        class: if settings.auto_downloads_enabled {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 text-center"
-                        } else {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-center"
-                        },
+                        class: if settings.auto_downloads_enabled { "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 text-center flex items-center justify-center gap-2 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white transition-colors" } else { "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 text-center flex items-center justify-center gap-2 hover:bg-zinc-700 hover:border-zinc-500 hover:text-white transition-colors" },
                         onclick: on_toggle_auto_downloads,
+                        Icon {
+                            name: if settings.auto_downloads_enabled { "check".to_string() } else { "x".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
                         if settings.auto_downloads_enabled {
-                            "Auto Downloads On"
+                            "Auto-Download ON"
                         } else {
-                            "Auto Downloads Off"
+                            "Auto-Download OFF"
                         }
                     }
                     button {
-                        class: if action_busy() {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center"
-                        } else {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-center"
-                        },
+                        class: if action_busy() { "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center flex items-center justify-center gap-2" } else { "w-full sm:w-auto px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 hover:bg-emerald-500 hover:border-emerald-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2" },
                         disabled: action_busy(),
                         onclick: on_run_auto,
+                        Icon {
+                            name: "download".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
                         if action_busy() {
                             "Running..."
                         } else {
-                            "Run Auto-Download"
+                            "Run Now"
                         }
                     }
                     button {
-                        class: if action_busy() {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center"
-                        } else {
-                            "w-full sm:w-auto px-3 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:text-white hover:border-cyan-400 transition-colors text-center"
-                        },
+                        class: if action_busy() { "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center flex items-center justify-center gap-2" } else { "w-full sm:w-auto px-3 py-2 rounded-lg border border-cyan-500/50 text-cyan-300 hover:bg-cyan-500 hover:border-cyan-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2" },
                         disabled: action_busy(),
                         onclick: on_refresh_cached_assets,
+                        Icon {
+                            name: "refresh-cw".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
                         if action_busy() {
                             "Working..."
                         } else {
-                            "Refresh Cache"
+                            "Refresh"
                         }
                     }
                     button {
-                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-center",
+                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:border-zinc-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2",
                         onclick: on_refresh,
+                        Icon {
+                            name: "refresh-cw".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
                         "Refresh"
                     }
                     button {
-                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-center",
+                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:bg-rose-500 hover:border-rose-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2",
                         onclick: on_clear_downloads,
-                        "Clear Downloads"
+                        Icon {
+                            name: "trash".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Clear"
                     }
                 }
                 if let Some(status) = action_status() {
-                    p { class: "text-xs text-zinc-400", "{status}" }
-                }
-            }
-
-            section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6 space-y-4",
-                div { class: "flex items-center justify-between gap-3",
-                    h2 { class: "text-lg font-semibold text-white", "Downloaded Library" }
-                    span { class: "text-sm text-zinc-500",
-                        if active_tab() == DownloadsTab::Songs {
-                            "{entries.len()} songs"
-                        } else if active_tab() == DownloadsTab::Albums {
-                            "{filtered_albums.len()} albums"
-                        } else {
-                            "{filtered_playlists.len()} playlists"
-                        }
-                    }
-                }
-
-                div { class: "flex flex-wrap items-center gap-2",
-                    button {
-                        class: if active_tab() == DownloadsTab::Songs {
-                            "px-3 py-2 rounded-full bg-emerald-500/20 text-emerald-300 text-sm"
-                        } else {
-                            "px-3 py-2 rounded-full bg-zinc-900/60 border border-zinc-800 text-zinc-400 hover:text-white text-sm"
-                        },
-                        onclick: move |_| active_tab.set(DownloadsTab::Songs),
-                        "Songs"
-                    }
-                    button {
-                        class: if active_tab() == DownloadsTab::Albums {
-                            "px-3 py-2 rounded-full bg-emerald-500/20 text-emerald-300 text-sm"
-                        } else {
-                            "px-3 py-2 rounded-full bg-zinc-900/60 border border-zinc-800 text-zinc-400 hover:text-white text-sm"
-                        },
-                        onclick: move |_| active_tab.set(DownloadsTab::Albums),
-                        "Albums"
-                    }
-                    button {
-                        class: if active_tab() == DownloadsTab::Playlists {
-                            "px-3 py-2 rounded-full bg-emerald-500/20 text-emerald-300 text-sm"
-                        } else {
-                            "px-3 py-2 rounded-full bg-zinc-900/60 border border-zinc-800 text-zinc-400 hover:text-white text-sm"
-                        },
-                        onclick: move |_| active_tab.set(DownloadsTab::Playlists),
-                        "Playlists"
-                    }
-                }
-
-                input {
-                    class: "w-full max-w-md px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800 text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50",
-                    placeholder: if active_tab() == DownloadsTab::Songs {
-                        "Search downloaded songs"
-                    } else if active_tab() == DownloadsTab::Albums {
-                        "Search downloaded albums"
-                    } else {
-                        "Search downloaded playlists"
-                    },
-                    value: search_query,
-                    oninput: move |evt| search_query.set(evt.value()),
-                }
-
-                if active_tab() == DownloadsTab::Songs {
-                    div { class: "flex flex-wrap items-center gap-2",
-                        select {
-                            class: "px-3 py-2 rounded-lg bg-zinc-900/60 border border-zinc-800 text-sm text-zinc-200 focus:outline-none focus:border-emerald-500/50",
-                            value: download_song_sort_key(song_sort()),
-                            oninput: move |evt| {
-                                song_sort.set(parse_download_song_sort(&evt.value()));
-                            },
-                            option { value: "newest", "Sort: Recently downloaded" }
-                            option { value: "title", "Sort: Title" }
-                            option { value: "artist", "Sort: Artist" }
-                            option { value: "album", "Sort: Album" }
-                            option { value: "size", "Sort: Size" }
-                        }
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
-                            onclick: on_play_top_result,
-                            disabled: entries.is_empty(),
-                            "Play Top Result"
-                        }
-                        button {
-                            class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
-                            onclick: on_queue_visible_results,
-                            disabled: visible_song_entries.is_empty(),
-                            "Queue Visible"
-                        }
-                    }
-
-                    if !entries.is_empty() {
-                        div { class: "flex flex-wrap items-center gap-2",
-                            button {
-                                class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
-                                onclick: on_toggle_select_all_visible,
-                                if selected_visible_song_count == visible_song_entries.len() {
-                                    "Unselect Visible"
-                                } else {
-                                    "Select Visible"
-                                }
-                            }
-                            if selected_visible_song_count > 0 {
-                                button {
-                                    class: "px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
-                                    onclick: on_delete_selected,
-                                    "Delete Selected"
-                                }
-                                button {
-                                    class: "px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-xs",
-                                    onclick: on_clear_selection,
-                                    "Clear Selection"
-                                }
-                                span { class: "text-xs text-zinc-500", "{selected_visible_song_count} selected" }
-                            }
-                        }
-                    }
-                    if entries.is_empty() {
-                        div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded songs yet." }
-                    } else {
-                        p { class: "text-xs text-zinc-500",
-                            "Showing {visible_song_entries.len()} of {entries.len()} matching songs."
-                        }
-                        div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
-                            for entry in visible_song_entries.iter().cloned() {
-                                {
-                                    let selection_key =
-                                        download_song_key(&entry.server_id, &entry.song_id);
-                                    let is_selected = selected_song_keys().contains(&selection_key);
-                                    let cover_id = entry
-                                        .cover_art_id
-                                        .as_ref()
-                                        .filter(|value| !value.trim().is_empty())
-                                        .cloned()
-                                        .or_else(|| {
-                                            entry.album_id
-                                                .as_ref()
-                                                .filter(|value| !value.trim().is_empty())
-                                                .cloned()
-                                        });
-                                    let cover_url = cover_id.as_ref().and_then(|cover| {
-                                        servers_snapshot
-                                            .iter()
-                                            .find(|server| server.id == entry.server_id)
-                                            .map(|server| {
-                                                NavidromeClient::new(server.clone())
-                                                    .get_cover_art_url(cover, 100)
-                                            })
-                                    });
-                                    rsx! {
-                                        div {
-                                            key: "{entry.server_id}:{entry.song_id}",
-                                            class: "rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
-                                            div { class: "flex items-start gap-3 min-w-0",
-                                                input {
-                                                    r#type: "checkbox",
-                                                    class: "mt-1 accent-emerald-500 flex-shrink-0",
-                                                    checked: is_selected,
-                                                    onchange: {
-                                                        let entry = entry.clone();
-                                                        let mut selected_song_keys = selected_song_keys.clone();
-                                                        move |evt| {
-                                                            let mut selected = selected_song_keys();
-                                                            let key = download_song_key(&entry.server_id, &entry.song_id);
-                                                            if evt.checked() {
-                                                                selected.insert(key);
-                                                            } else {
-                                                                selected.remove(&key);
-                                                            }
-                                                            selected_song_keys.set(selected);
-                                                        }
-                                                    },
-                                                }
-                                                if let Some(url) = cover_url {
-                                                    if let Some(album_id) = entry.album_id.clone() {
-                                                        button {
-                                                            class: "w-12 h-12 rounded-lg overflow-hidden border border-zinc-800/80 flex-shrink-0",
-                                                            onclick: {
-                                                                let album_id = album_id.clone();
-                                                                let server_id = entry.server_id.clone();
-                                                                move |evt: MouseEvent| {
-                                                                    evt.stop_propagation();
-                                                                    navigation.navigate_to(AppView::AlbumDetailView {
-                                                                        album_id: album_id.clone(),
-                                                                        server_id: server_id.clone(),
-                                                                    });
-                                                                }
-                                                            },
-                                                            img {
-                                                                src: "{url}",
-                                                                alt: "{entry.title}",
-                                                                class: "w-full h-full object-cover",
-                                                                loading: "lazy",
-                                                            }
-                                                        }
-                                                    } else {
-                                                        img {
-                                                            src: "{url}",
-                                                            alt: "{entry.title}",
-                                                            class: "w-12 h-12 rounded-lg object-cover border border-zinc-800/80 flex-shrink-0",
-                                                            loading: "lazy",
-                                                        }
-                                                    }
-                                                } else {
-                                                    div { class: "w-12 h-12 rounded-lg bg-zinc-800 border border-zinc-800/80 flex-shrink-0" }
-                                                }
-                                                div { class: "min-w-0",
-                                                    p { class: "text-sm font-medium text-white truncate", "{entry.title}" }
-                                                    p { class: "text-xs text-zinc-400 truncate",
-                                                        "{entry.artist.clone().unwrap_or_else(|| \"Unknown artist\".to_string())}"
-                                                    }
-                                                    if let Some(album) = entry.album.clone() {
-                                                        p { class: "text-xs text-zinc-500 truncate", "{album}" }
-                                                    }
-                                                }
-                                            }
-                                            div { class: "flex-shrink-0 grid grid-cols-2 gap-2 w-32",
-                                                button {
-                                                    class: "w-full px-2 py-1 rounded-lg border border-emerald-500/50 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors text-xs",
-                                                    onclick: {
-                                                        let entry = entry.clone();
-                                                        let servers_snapshot = servers_snapshot.clone();
-                                                        move |_| {
-                                                            let song = to_download_song(&entry, &servers_snapshot);
-                                                            queue.set(vec![song.clone()]);
-                                                            queue_index.set(0);
-                                                            now_playing.set(Some(song));
-                                                            is_playing.set(true);
-                                                        }
-                                                    },
-                                                    "Play"
-                                                }
-                                                button {
-                                                    class: "w-full px-2 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
-                                                    onclick: {
-                                                        let entry = entry.clone();
-                                                        let servers_snapshot = servers_snapshot.clone();
-                                                        let mut queue = queue.clone();
-                                                        let mut queue_index = queue_index.clone();
-                                                        let mut now_playing = now_playing.clone();
-                                                        move |_| {
-                                                            let song = to_download_song(&entry, &servers_snapshot);
-                                                            let mut queue_entries = queue();
-                                                            let was_empty = queue_entries.is_empty();
-                                                            queue_entries.push(song.clone());
-                                                            queue.set(queue_entries);
-                                                            if was_empty {
-                                                                queue_index.set(0);
-                                                                now_playing.set(Some(song));
-                                                            }
-                                                        }
-                                                    },
-                                                    "Queue"
-                                                }
-                                                button {
-                                                    class: "col-span-2 w-full px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
-                                                    onclick: {
-                                                        let entry = entry.clone();
-                                                        let mut action_status = action_status.clone();
-                                                        let mut refresh_nonce = refresh_nonce.clone();
-                                                        let mut selected_song_keys = selected_song_keys.clone();
-                                                        move |_| {
-                                                            let removed = remove_downloaded_song(&entry.server_id, &entry.song_id);
-                                                            let mut selected = selected_song_keys();
-                                                            selected.remove(&download_song_key(&entry.server_id, &entry.song_id));
-                                                            selected_song_keys.set(selected);
-                                                            action_status.set(Some(format!(
-                                                                "Removed {removed} download(s) for \"{}\".",
-                                                                entry.title
-                                                            )));
-                                                            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
-                                                        }
-                                                    },
-                                                    "Delete"
-                                                }
-                                                p { class: "col-span-2 text-right text-xs text-zinc-300", "{format_size(entry.size_bytes)}" }
-                                                p { class: "col-span-2 text-right text-[11px] text-zinc-500", "{format_updated(entry.updated_at_ms)}" }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if has_more_song_entries {
-                            button {
-                                class: "mt-3 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
-                                onclick: move |_| {
-                                    song_visible_limit.with_mut(|count| {
-                                        *count = count.saturating_add(DOWNLOADS_SONG_PAGE_SIZE);
-                                    });
-                                },
-                                "Load {DOWNLOADS_SONG_PAGE_SIZE} More Songs"
-                            }
-                        } else {
-                            p { class: "mt-3 text-xs text-zinc-500",
-                                "Showing all {entries.len()} matching songs."
-                            }
-                        }
-                    }
-                } else if active_tab() == DownloadsTab::Albums {
-                    if filtered_albums.is_empty() {
-                        div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded albums yet." }
-                    } else {
-                        div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
-                            for album in visible_albums {
-                                {
-                                    let cover_id = album_cover_ids
-                                        .get(&(album.server_id.clone(), album.collection_id.clone()))
-                                        .cloned()
-                                        .or_else(|| {
-                                            if album.collection_id.starts_with("name:") {
-                                                None
-                                            } else {
-                                                Some(album.collection_id.clone())
-                                            }
-                                        });
-                                    let cover_url = cover_id.as_ref().and_then(|cover_id| {
-                                        servers_snapshot
-                                            .iter()
-                                            .find(|server| server.id == album.server_id)
-                                            .map(|server| {
-                                                NavidromeClient::new(server.clone())
-                                                    .get_cover_art_url(cover_id, 120)
-                                            })
-                                    });
-                                    rsx! {
-                                        div {
-                                            key: "album:{album.server_id}:{album.collection_id}",
-                                            class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
-                                            button {
-                                                class: "min-w-0 flex-1 text-left hover:text-emerald-300 transition-colors",
-                                                disabled: album.collection_id.starts_with("name:"),
-                                                onclick: {
-                                                    let album_id = album.collection_id.clone();
-                                                    let server_id = album.server_id.clone();
-                                                    move |_| {
-                                                        if album_id.starts_with("name:") {
-                                                            return;
-                                                        }
-                                                        navigation.navigate_to(AppView::AlbumDetailView {
-                                                            album_id: album_id.clone(),
-                                                            server_id: server_id.clone(),
-                                                        });
-                                                    }
-                                                },
-                                                div { class: "flex items-center gap-3 min-w-0",
-                                                    if let Some(url) = cover_url {
-                                                        img {
-                                                            src: "{url}",
-                                                            alt: "{album.name}",
-                                                            class: "w-12 h-12 rounded-lg object-cover border border-zinc-800/80 flex-shrink-0",
-                                                            loading: "lazy",
-                                                        }
-                                                    } else {
-                                                        div { class: "w-12 h-12 rounded-lg bg-zinc-800 border border-zinc-800/80 flex-shrink-0" }
-                                                    }
-                                                    div { class: "min-w-0",
-                                                        p { class: "text-sm font-medium text-white truncate", "{album.name}" }
-                                                        p { class: "text-xs text-zinc-500", "{album.song_count} songs" }
-                                                    }
-                                                }
-                                            }
-                                            div { class: "text-right flex-shrink-0 space-y-2 min-w-[6rem]",
-                                                p { class: "text-[11px] text-zinc-500", "{format_updated(album.updated_at_ms)}" }
-                                                button {
-                                                    class: "px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
-                                                    onclick: {
-                                                        let album = album.clone();
-                                                        let mut action_status = action_status.clone();
-                                                        let mut refresh_nonce = refresh_nonce.clone();
-                                                        move |_| {
-                                                            let removed = remove_downloaded_album(
-                                                                &album.server_id,
-                                                                &album.collection_id,
-                                                                &album.name,
-                                                            );
-                                                            action_status.set(Some(format!(
-                                                                "Removed {removed} song(s) from album \"{}\".",
-                                                                album.name
-                                                            )));
-                                                            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
-                                                        }
-                                                    },
-                                                    "Delete"
-                                                }
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if has_more_albums {
-                            button {
-                                class: "mt-3 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
-                                onclick: move |_| {
-                                    album_visible_limit.with_mut(|count| {
-                                        *count = count.saturating_add(DOWNLOADS_COLLECTION_PAGE_SIZE);
-                                    });
-                                },
-                                "Load {DOWNLOADS_COLLECTION_PAGE_SIZE} More Albums"
-                            }
-                        } else {
-                            p { class: "mt-3 text-xs text-zinc-500",
-                                "Showing all {filtered_albums.len()} matching albums."
-                            }
-                        }
-                    }
-                } else {
-                    if filtered_playlists.is_empty() {
-                        div { class: "text-sm text-zinc-500 py-10 text-center", "No downloaded playlists yet." }
-                    } else {
-                        div { class: "space-y-2 max-h-[60vh] overflow-y-auto pr-1",
-                            for playlist in visible_playlists {
-                                div {
-                                    key: "playlist:{playlist.server_id}:{playlist.collection_id}",
-                                    class: "w-full rounded-xl border border-zinc-800/80 bg-zinc-900/40 p-3 flex items-start justify-between gap-3",
-                                    button {
-                                        class: "min-w-0 flex-1 text-left hover:text-emerald-300 transition-colors",
-                                        onclick: {
-                                            let playlist_id = playlist.collection_id.clone();
-                                            let server_id = playlist.server_id.clone();
-                                            move |_| {
-                                                navigation.navigate_to(AppView::PlaylistDetailView {
-                                                    playlist_id: playlist_id.clone(),
-                                                    server_id: server_id.clone(),
-                                                });
-                                            }
-                                        },
-                                        div { class: "min-w-0",
-                                            p { class: "text-sm font-medium text-white truncate", "{playlist.name}" }
-                                            p { class: "text-xs text-zinc-500", "{playlist.song_count} songs" }
-                                        }
-                                    }
-                                    div { class: "text-right flex-shrink-0 space-y-2 min-w-[6rem]",
-                                        p { class: "text-[11px] text-zinc-500", "{format_updated(playlist.updated_at_ms)}" }
-                                        button {
-                                            class: "px-2 py-1 rounded-lg border border-rose-500/50 text-rose-300 hover:text-white hover:border-rose-400 transition-colors text-xs",
-                                            onclick: {
-                                                let playlist = playlist.clone();
-                                                let mut action_status = action_status.clone();
-                                                let mut refresh_nonce = refresh_nonce.clone();
-                                                move |_| {
-                                                    let removed = remove_downloaded_collection(
-                                                        "playlist",
-                                                        &playlist.server_id,
-                                                        &playlist.collection_id,
-                                                    );
-                                                    action_status.set(Some(format!(
-                                                        "Removed {removed} playlist download marker(s) for \"{}\".",
-                                                        playlist.name
-                                                    )));
-                                                    refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
-                                                }
-                                            },
-                                            "Delete"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        if has_more_playlists {
-                            button {
-                                class: "mt-3 px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs",
-                                onclick: move |_| {
-                                    playlist_visible_limit.with_mut(|count| {
-                                        *count = count.saturating_add(DOWNLOADS_COLLECTION_PAGE_SIZE);
-                                    });
-                                },
-                                "Load {DOWNLOADS_COLLECTION_PAGE_SIZE} More Playlists"
-                            }
-                        } else {
-                            p { class: "mt-3 text-xs text-zinc-500",
-                                "Showing all {filtered_playlists.len()} matching playlists."
-                            }
-                        }
-                    }
+                    p { class: "text-xs text-zinc-400 mt-3", "{status}" }
                 }
             }
         }

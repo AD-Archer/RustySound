@@ -221,6 +221,7 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                     queue_index.clone(),
                     now_playing.clone(),
                     is_playing.clone(),
+                    audio_state.clone(),
                     seed,
                     Some(was_playing),
                 );

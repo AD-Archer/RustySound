@@ -90,6 +90,24 @@
                     playback_position.set(current_time);
                     audio_state.write().current_time.set(current_time);
 
+                    let selected_song_id = now_playing.peek().as_ref().map(|song| song.id.clone());
+                    if *audio_state.peek().is_transport_loading.peek() {
+                        let desired_playing = *is_playing.peek();
+                        let song_aligned = selected_song_id.as_ref().map_or(true, |song_id| {
+                            match snapshot.song_id.as_deref() {
+                                Some(native_song_id) => native_song_id == song_id.as_str(),
+                                None => true,
+                            }
+                        });
+                        let transport_ready = !desired_playing
+                            || !snapshot.paused
+                            || current_time > 0.0
+                            || (snapshot.duration.is_finite() && snapshot.duration > 0.0);
+                        if selected_song_id.is_none() || (song_aligned && transport_ready) {
+                            set_transport_loading(audio_state.clone(), false, None);
+                        }
+                    }
+
                     let now_ms = ios_diag_now_ms();
                     if last_heartbeat_ms == 0 || now_ms.saturating_sub(last_heartbeat_ms) >= 5000 {
                         let current_song_id = now_playing.peek().as_ref().map(|song| song.id.clone());
@@ -208,6 +226,7 @@
                         if *is_playing.peek() {
                             is_playing.set(false);
                         }
+                        set_transport_loading(audio_state.clone(), false, None);
                     }
 
                     let currently_playing = *is_playing.peek();
@@ -284,6 +303,7 @@
                                         queue_index.clone(),
                                         now_playing.clone(),
                                         is_playing.clone(),
+                                        audio_state.clone(),
                                         now_playing.peek().clone(),
                                         Some(resume_after_skip),
                                     );
@@ -301,6 +321,7 @@
                                             queue_index.clone(),
                                             now_playing.clone(),
                                             is_playing.clone(),
+                                            audio_state.clone(),
                                             now_playing.peek().clone(),
                                             Some(resume_after_skip),
                                         );
@@ -324,6 +345,7 @@
                                         queue_index.clone(),
                                         now_playing.clone(),
                                         is_playing.clone(),
+                                        audio_state.clone(),
                                         now_playing.peek().clone(),
                                         Some(resume_after_skip),
                                     );
@@ -460,6 +482,7 @@
                                     queue_index.clone(),
                                     now_playing.clone(),
                                     is_playing.clone(),
+                                    audio_state.clone(),
                                     current_song,
                                     Some(true),
                                 );

@@ -164,8 +164,8 @@ pub fn Player() -> Element {
                 }
             }
         }
-        div { class: "player-shell fixed bottom-0 left-0 right-0 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 z-50 md:h-24",
-            div { class: "h-full flex flex-col md:flex-row md:items-center md:justify-between px-4 md:px-6 gap-3 md:gap-8 py-2 md:py-0",
+        div { class: "player-shell shrink-0 bg-zinc-950/90 backdrop-blur-xl border-t border-zinc-800/60 z-50 md:h-24",
+            div { class: "h-full flex flex-col md:flex-row md:items-center md:justify-between px-4 md:px-6 gap-2 md:gap-8 py-1 md:py-0",
                 // Now playing info
                 div { class: "flex items-center gap-3 md:gap-4 min-w-0 w-full md:w-1/4",
                     {

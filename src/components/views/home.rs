@@ -1,7 +1,7 @@
 use crate::api::*;
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController, AppView, HomeFeedState,
-    Icon, Navigation,
+    HomeRefreshSignal, Icon, Navigation,
 };
 use crate::db::AppSettings;
 use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
@@ -65,6 +65,7 @@ pub fn HomeView() -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<Signal<bool>>();
+    let home_refresh_generation = use_context::<HomeRefreshSignal>().0;
 
     let home_feed = use_context::<HomeFeedState>();
     let recent_albums = home_feed.recent_albums;
@@ -218,6 +219,17 @@ pub fn HomeView() -> Element {
         move |_| {
             home_loading_force_unblocked.set(true);
             ios_diag_log("home.view.load", "manual dismiss of album loading overlay");
+        }
+    };
+    let on_refresh_home_feed = {
+        let mut home_refresh_generation = home_refresh_generation.clone();
+        let mut home_loading_force_unblocked = home_loading_force_unblocked.clone();
+        move |_| {
+            home_loading_force_unblocked.set(false);
+            home_refresh_generation.with_mut(|generation| {
+                *generation = generation.saturating_add(1);
+            });
+            ios_diag_log("home.view.refresh", "manual Home feed refresh requested");
         }
     };
     rsx! {
@@ -755,6 +767,23 @@ pub fn HomeView() -> Element {
                         }
                     }
                 }
+
+                section { class: "pb-6 flex justify-center",
+                    button {
+                        class: if is_home_album_loading { "inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-300" } else { "inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-zinc-900/60 px-4 py-2 text-sm text-zinc-200 hover:text-white hover:border-zinc-400 hover:bg-zinc-800/70 transition-colors" },
+                        onclick: on_refresh_home_feed,
+                        disabled: is_home_album_loading,
+                        Icon {
+                            name: if is_home_album_loading { "loader".to_string() } else { "repeat".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
+                        if is_home_album_loading {
+                            "Refreshing Home feed..."
+                        } else {
+                            "Refresh Home Feed"
+                        }
+                    }
+                }
             }
         }
     }
@@ -798,8 +827,9 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
-    let rating = song.user_rating.unwrap_or(0).min(5);
+    let mut current_rating = use_signal(move || song.user_rating.unwrap_or(0).min(5));
     let is_favorited = use_signal(|| song.starred.is_some());
+    let mut show_context_menu = use_signal(|| false);
 
     let cover_url = servers()
         .iter()
@@ -832,12 +862,43 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let make_on_open_menu = {
         let add_menu = add_menu.clone();
         let song = song.clone();
+        let mut show_context_menu = show_context_menu.clone();
         move || {
             let mut add_menu = add_menu.clone();
             let song = song.clone();
+            let mut show_context_menu = show_context_menu.clone();
             move |evt: MouseEvent| {
                 evt.stop_propagation();
+                show_context_menu.set(false);
                 add_menu.open(AddIntent::from_song(song.clone()));
+            }
+        }
+    };
+
+    let make_on_set_rating = {
+        let servers = servers.clone();
+        let song_id = song.id.clone();
+        let server_id = song.server_id.clone();
+        let mut show_context_menu = show_context_menu.clone();
+        move |new_rating: u32| {
+            let servers = servers.clone();
+            let song_id = song_id.clone();
+            let server_id = server_id.clone();
+            let mut current_rating = current_rating.clone();
+            let mut show_context_menu = show_context_menu.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_context_menu.set(false);
+                current_rating.set(new_rating.min(5));
+                let servers = servers.clone();
+                let song_id = song_id.clone();
+                let server_id = server_id.clone();
+                spawn(async move {
+                    if let Some(server) = servers().iter().find(|s| s.id == server_id) {
+                        let client = NavidromeClient::new(server.clone());
+                        let _ = client.set_rating(&song_id, new_rating.min(5)).await;
+                    }
+                });
             }
         }
     };
@@ -849,8 +910,10 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
         let mut now_playing = now_playing.clone();
         let mut queue = queue.clone();
         let mut is_favorited = is_favorited.clone();
+        let mut show_context_menu = show_context_menu.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
+            show_context_menu.set(false);
             let should_star = !is_favorited();
             let servers = servers.clone();
             let song_id = song_id.clone();
@@ -896,8 +959,11 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
 
     rsx! {
         div {
-            class: "group text-left cursor-pointer flex-shrink-0 w-32",
-            onclick: move |e| onclick.call(e),
+            class: "relative group text-left cursor-pointer flex-shrink-0 w-32",
+            onclick: move |e| {
+                show_context_menu.set(false);
+                onclick.call(e);
+            },
             // Cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
                 {
@@ -912,22 +978,25 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                         },
                     }
                 }
-                button {
-                    class: "absolute top-2 right-2 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100",
-                    aria_label: "Add to queue",
-                    onclick: make_on_open_menu(),
-                    Icon {
-                        name: "plus".to_string(),
-                        class: "w-3 h-3".to_string(),
-                    }
-                }
-                // Play overlay
-                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
+                // Play overlay (pointer-events-none so the button above is always clickable)
+                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none",
                     div { class: "w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
                         Icon {
                             name: "play".to_string(),
                             class: "w-5 h-5 text-white ml-0.5".to_string(),
                         }
+                    }
+                }
+                button {
+                    class: "absolute top-2 right-2 p-2 rounded-full bg-zinc-950/70 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
+                    aria_label: "Song options",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        show_context_menu.set(!show_context_menu());
+                    },
+                    Icon {
+                        name: "more-horizontal".to_string(),
+                        class: "w-3 h-3".to_string(),
                     }
                 }
             }
@@ -946,33 +1015,57 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                     "{song.artist.clone().unwrap_or_default()}"
                 }
             }
-            if rating > 0 {
+            if current_rating() > 0 {
                 div { class: "mt-2 flex items-center gap-1 text-amber-400",
-                    for i in 1..=5 {
+                    for i in 1u32..=5u32 {
                         Icon {
-                            name: if i <= rating { "star-filled".to_string() } else { "star".to_string() },
+                            name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
                             class: "w-3.5 h-3.5".to_string(),
                         }
                     }
                 }
             }
-            div { class: "mt-2 flex items-center gap-3",
-                button {
-                    class: if is_favorited() { "p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-2 text-zinc-500 hover:text-emerald-400 transition-colors" },
-                    aria_label: "Favorite",
-                    onclick: on_toggle_favorite,
-                    Icon {
-                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                        class: "w-4 h-4".to_string(),
+            // Context menu
+            if show_context_menu() {
+                div {
+                    class: "absolute top-8 right-0 z-30 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                    onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                    button {
+                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        onclick: on_toggle_favorite,
+                        Icon {
+                            name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                            class: if is_favorited() { "w-4 h-4 text-emerald-400".to_string() } else { "w-4 h-4".to_string() },
+                        }
+                        if is_favorited() {
+                            "Unfavorite"
+                        } else {
+                            "Favorite"
+                        }
                     }
-                }
-                button {
-                    class: "p-2 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
-                    aria_label: "Add to queue",
-                    onclick: make_on_open_menu(),
-                    Icon {
-                        name: "plus".to_string(),
-                        class: "w-4 h-4".to_string(),
+                    div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                        "Rating"
+                    }
+                    div { class: "flex items-center gap-1 px-2 pb-1",
+                        for i in 1u32..=5u32 {
+                            button {
+                                class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                onclick: make_on_set_rating(i),
+                                Icon {
+                                    name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
+                                    class: "w-3.5 h-3.5".to_string(),
+                                }
+                            }
+                        }
+                    }
+                    button {
+                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        onclick: make_on_open_menu(),
+                        Icon {
+                            name: "plus".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Add to..."
                     }
                 }
             }
@@ -985,6 +1078,8 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
+    let is_favorited = use_signal(|| album.starred.is_some());
+    let mut show_context_menu = use_signal(|| false);
 
     let cover_url = servers()
         .iter()
@@ -997,12 +1092,44 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                 .map(|ca| client.get_cover_art_url(ca, 300))
         });
 
-    let on_open_menu = {
+    let on_open_menu_for_context = {
         let mut add_menu = add_menu.clone();
         let album = album.clone();
+        let mut show_context_menu = show_context_menu.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
+            show_context_menu.set(false);
             add_menu.open(AddIntent::from_album(&album));
+        }
+    };
+
+    let on_toggle_favorite = {
+        let servers = servers.clone();
+        let album_id = album.id.clone();
+        let server_id = album.server_id.clone();
+        let mut is_favorited = is_favorited.clone();
+        let mut show_context_menu = show_context_menu.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_context_menu.set(false);
+            let should_star = !is_favorited();
+            let servers = servers.clone();
+            let album_id = album_id.clone();
+            let server_id = server_id.clone();
+            spawn(async move {
+                let servers_snapshot = servers();
+                if let Some(server) = servers_snapshot.iter().find(|s| s.id == server_id) {
+                    let client = NavidromeClient::new(server.clone());
+                    let result = if should_star {
+                        client.star(&album_id, "album").await
+                    } else {
+                        client.unstar(&album_id, "album").await
+                    };
+                    if result.is_ok() {
+                        is_favorited.set(should_star);
+                    }
+                }
+            });
         }
     };
 
@@ -1023,8 +1150,11 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 
     rsx! {
         div {
-            class: "group text-left cursor-pointer w-full max-w-48 overflow-hidden relative",
-            onclick: move |e| onclick.call(e),
+            class: "relative group text-left cursor-pointer w-full max-w-48",
+            onclick: move |e| {
+                show_context_menu.set(false);
+                onclick.call(e);
+            },
             // Album cover
             div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
                 {
@@ -1042,22 +1172,25 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                         },
                     }
                 }
-                button {
-                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
-                    aria_label: "Add album to queue",
-                    onclick: on_open_menu,
-                    Icon {
-                        name: "plus".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                // Play overlay
-                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
+                // Play overlay (pointer-events-none so the button above is always clickable)
+                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none",
                     div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
                         Icon {
                             name: "play".to_string(),
                             class: "w-5 h-5 text-white ml-0.5".to_string(),
                         }
+                    }
+                }
+                button {
+                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
+                    aria_label: "Album options",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        show_context_menu.set(!show_context_menu());
+                    },
+                    Icon {
+                        name: "more-horizontal".to_string(),
+                        class: "w-4 h-4".to_string(),
                     }
                 }
             }
@@ -1079,6 +1212,35 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                     class: "text-xs text-zinc-400 truncate",
                     title: "{album.artist}",
                     "{album.artist}"
+                }
+            }
+            // Context menu
+            if show_context_menu() {
+                div {
+                    class: "absolute top-8 right-0 z-30 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                    onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                    button {
+                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        onclick: on_toggle_favorite,
+                        Icon {
+                            name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                            class: if is_favorited() { "w-4 h-4 text-emerald-400".to_string() } else { "w-4 h-4".to_string() },
+                        }
+                        if is_favorited() {
+                            "Unfavorite"
+                        } else {
+                            "Favorite"
+                        }
+                    }
+                    button {
+                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        onclick: on_open_menu_for_context,
+                        Icon {
+                            name: "plus".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Add to..."
+                    }
                 }
             }
         }

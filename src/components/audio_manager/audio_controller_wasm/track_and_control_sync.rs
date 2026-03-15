@@ -94,6 +94,7 @@
                 last_src.set(None);
                 is_playing.set(false);
                 audio_state.write().playback_error.set(None);
+                set_transport_loading(audio_state, false, None);
                 return;
             };
 
@@ -102,6 +103,12 @@
                 web_sync_media_session_metadata(Some(&song), &servers_snapshot);
                 if Some(url.clone()) != *last_src.peek() {
                     last_src.set(Some(url.clone()));
+                    let loading_label = if last_id.is_some() && last_id.as_deref() != Some(song.id.as_str()) {
+                        "Switching songs..."
+                    } else {
+                        "Loading song..."
+                    };
+                    set_transport_loading(audio_state.clone(), true, Some(loading_label));
                     audio_state.write().playback_error.set(None);
                     if let Some(audio) = get_or_create_audio_element() {
                         audio.set_src(&url);
@@ -126,6 +133,7 @@
                         } else {
                             let _ = audio.pause();
                             is_playing.set(false);
+                            set_transport_loading(audio_state.clone(), false, None);
                         }
                     }
                 }
@@ -138,6 +146,7 @@
                 audio.set_src("");
                 last_src.set(None);
                 is_playing.set(false);
+                set_transport_loading(audio_state.clone(), false, None);
                 let message = if song.server_name == "Radio" {
                     let station_name = song
                         .album
@@ -150,6 +159,8 @@
                     "Unable to load this audio source.".to_string()
                 };
                 audio_state.write().playback_error.set(Some(message));
+            } else {
+                set_transport_loading(audio_state, false, None);
             }
         });
     }

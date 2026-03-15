@@ -85,6 +85,8 @@ pub struct AudioState {
     pub current_time: Signal<f64>,
     pub duration: Signal<f64>,
     pub playback_error: Signal<Option<String>>,
+    pub is_transport_loading: Signal<bool>,
+    pub transport_loading_label: Signal<Option<String>>,
     #[allow(dead_code)]
     pub is_initialized: Signal<bool>,
 }
@@ -95,9 +97,27 @@ impl Default for AudioState {
             current_time: Signal::new(0.0),
             duration: Signal::new(0.0),
             playback_error: Signal::new(None),
+            is_transport_loading: Signal::new(false),
+            transport_loading_label: Signal::new(None),
             is_initialized: Signal::new(false),
         }
     }
+}
+
+fn set_transport_loading(mut audio_state: Signal<AudioState>, loading: bool, message: Option<&str>) {
+    let mut state = audio_state.write();
+    let next_label = if loading {
+        message.map(|value| value.to_string())
+    } else {
+        None
+    };
+    if *state.is_transport_loading.peek() == loading
+        && *state.transport_loading_label.peek() == next_label
+    {
+        return;
+    }
+    state.is_transport_loading.set(loading);
+    state.transport_loading_label.set(next_label);
 }
 
 /// Initialize the global audio element once.

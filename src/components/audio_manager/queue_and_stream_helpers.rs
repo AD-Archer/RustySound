@@ -6,6 +6,7 @@ pub(crate) fn spawn_shuffle_queue(
     mut queue_index: Signal<usize>,
     mut now_playing: Signal<Option<Song>>,
     mut is_playing: Signal<bool>,
+    audio_state: Signal<AudioState>,
     seed_song: Option<Song>,
     play_state: Option<bool>,
 ) {
@@ -14,6 +15,7 @@ pub(crate) fn spawn_shuffle_queue(
         return;
     }
 
+    set_transport_loading(audio_state, true, Some("Generating queue..."));
     spawn(async move {
         let mut songs = Vec::new();
         if let Some(seed) = seed_song {
@@ -39,6 +41,7 @@ pub(crate) fn spawn_shuffle_queue(
         }
 
         if songs.is_empty() {
+            set_transport_loading(audio_state, false, None);
             return;
         }
 
@@ -50,12 +53,18 @@ pub(crate) fn spawn_shuffle_queue(
         songs.truncate(50);
 
         let first = songs.get(0).cloned();
+        let continue_loading_for_song = first.is_some() && play_state.unwrap_or(false);
         defer_signal_update(move || {
             queue.set(songs);
             queue_index.set(0);
             now_playing.set(first);
             if let Some(play_state) = play_state {
                 is_playing.set(play_state);
+            }
+            if continue_loading_for_song {
+                set_transport_loading(audio_state, true, Some("Loading song..."));
+            } else {
+                set_transport_loading(audio_state, false, None);
             }
         });
     });
@@ -68,6 +77,7 @@ pub(crate) fn spawn_shuffle_queue(
     mut queue_index: Signal<usize>,
     mut now_playing: Signal<Option<Song>>,
     mut is_playing: Signal<bool>,
+    audio_state: Signal<AudioState>,
     seed_song: Option<Song>,
     play_state: Option<bool>,
 ) {
@@ -76,6 +86,7 @@ pub(crate) fn spawn_shuffle_queue(
         return;
     }
 
+    set_transport_loading(audio_state, true, Some("Generating queue..."));
     spawn(async move {
         let mut songs = Vec::new();
         if let Some(seed) = seed_song {
@@ -101,6 +112,7 @@ pub(crate) fn spawn_shuffle_queue(
         }
 
         if songs.is_empty() {
+            set_transport_loading(audio_state, false, None);
             return;
         }
 
@@ -109,11 +121,17 @@ pub(crate) fn spawn_shuffle_queue(
         songs.truncate(50);
 
         let first = songs.first().cloned();
+        let continue_loading_for_song = first.is_some() && play_state.unwrap_or(false);
         queue.set(songs);
         queue_index.set(0);
         now_playing.set(first);
         if let Some(play_state) = play_state {
             is_playing.set(play_state);
+        }
+        if continue_loading_for_song {
+            set_transport_loading(audio_state, true, Some("Loading song..."));
+        } else {
+            set_transport_loading(audio_state, false, None);
         }
     });
 }
@@ -199,4 +217,3 @@ fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
         });
     }
 }
-

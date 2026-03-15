@@ -17,6 +17,10 @@ static IOS_NOW_PLAYING_SESSION: Lazy<Mutex<usize>> = Lazy::new(|| Mutex::new(0))
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 static IOS_LAST_REMOTE_NAV_ACTION: Lazy<Mutex<(String, u128)>> =
     Lazy::new(|| Mutex::new((String::new(), 0)));
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+const IOS_REMOTE_NAV_DEBOUNCE_MS: u128 = 220;
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+const IOS_REMOTE_DIAGNOSTIC_REV: &str = "ios-remote-2026-03-14b";
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn with_ios_player<R>(f: impl FnOnce(&mut IosAudioPlayer) -> R) -> Option<R> {
@@ -182,7 +186,7 @@ fn should_ignore_duplicate_nav_action(action: &str) -> bool {
     let Ok(mut last) = IOS_LAST_REMOTE_NAV_ACTION.lock() else {
         return false;
     };
-    if last.0 == action && now.saturating_sub(last.1) < 650 {
+    if last.0 == action && now.saturating_sub(last.1) < IOS_REMOTE_NAV_DEBOUNCE_MS {
         ios_diag_log(
             "remote.command",
             &format!("ignored duplicate action={action} dt={}ms", now.saturating_sub(last.1)),
@@ -209,6 +213,8 @@ unsafe fn ios_log_remote_command_enabled_state(center: *mut Object, label: &str)
     let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
     let seekf_cmd: *mut Object = msg_send![center, seekForwardCommand];
     let seekb_cmd: *mut Object = msg_send![center, seekBackwardCommand];
+    let skipf_cmd: *mut Object = msg_send![center, skipForwardCommand];
+    let skipb_cmd: *mut Object = msg_send![center, skipBackwardCommand];
     let play_enabled: BOOL = msg_send![play_cmd, isEnabled];
     let pause_enabled: BOOL = msg_send![pause_cmd, isEnabled];
     let stop_enabled: BOOL = msg_send![stop_cmd, isEnabled];
@@ -218,10 +224,12 @@ unsafe fn ios_log_remote_command_enabled_state(center: *mut Object, label: &str)
     let seek_enabled: BOOL = msg_send![seek_cmd, isEnabled];
     let seekf_enabled: BOOL = msg_send![seekf_cmd, isEnabled];
     let seekb_enabled: BOOL = msg_send![seekb_cmd, isEnabled];
+    let skipf_enabled: BOOL = msg_send![skipf_cmd, isEnabled];
+    let skipb_enabled: BOOL = msg_send![skipb_cmd, isEnabled];
     ios_diag_log(
         "remote.state",
         &format!(
-            "{label}: play={} pause={} stop={} toggle={} next={} prev={} seek={} seekf={} seekb={}",
+            "{label}: play={} pause={} stop={} toggle={} next={} prev={} seek={} seekf={} seekb={} skipf={} skipb={}",
             play_enabled == YES,
             pause_enabled == YES,
             stop_enabled == YES,
@@ -230,7 +238,9 @@ unsafe fn ios_log_remote_command_enabled_state(center: *mut Object, label: &str)
             prev_enabled == YES,
             seek_enabled == YES,
             seekf_enabled == YES,
-            seekb_enabled == YES
+            seekb_enabled == YES,
+            skipf_enabled == YES,
+            skipb_enabled == YES
         ),
     );
 }
@@ -761,11 +771,58 @@ extern "C" fn ios_handle_did_enter_background(_: &Object, _: objc::runtime::Sel,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn refresh_ios_remote_command_bindings(reason: &str) {
+    unsafe {
+        let observer = get_ios_remote_observer();
+        if observer.is_null() {
+            ios_diag_log(
+                "remote.lifecycle",
+                &format!("reason={reason} skipped rebind: observer=null"),
+            );
+            return;
+        }
+
+        let center = get_ios_remote_center();
+        if !center.is_null() {
+            let primary_label = format!("lifecycle.{reason}.primary-center");
+            register_ios_remote_targets_on_center(center, observer, &primary_label);
+        }
+
+        let center_cls = class!(MPRemoteCommandCenter);
+        let shared_center: *mut Object = msg_send![center_cls, sharedCommandCenter];
+        if !shared_center.is_null() && shared_center != center {
+            let shared_label = format!("lifecycle.{reason}.shared-center");
+            register_ios_remote_targets_on_center(shared_center, observer, &shared_label);
+        }
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn sync_ios_remote_runtime(reason: &str) {
+    configure_ios_audio_session();
+    refresh_ios_remote_command_bindings(reason);
+    let is_playing = with_ios_player(|player| unsafe {
+        let rate: f32 = msg_send![player.player, rate];
+        rate > 0.0
+    })
+    .unwrap_or(false);
+    set_ios_remote_transport_state(is_playing);
+    ios_diag_log(
+        "remote.lifecycle",
+        &format!(
+            "reason={reason} playing={is_playing} queued_actions={}",
+            ios_remote_queue_len()
+        ),
+    );
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_will_enter_foreground(_: &Object, _: objc::runtime::Sel, _: *mut Object) {
     ios_diag_log(
         "app.lifecycle",
         &format!("will-enter-foreground queued_actions={}", ios_remote_queue_len()),
     );
+    sync_ios_remote_runtime("will-enter-foreground");
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -774,6 +831,7 @@ extern "C" fn ios_handle_did_become_active(_: &Object, _: objc::runtime::Sel, _:
         "app.lifecycle",
         &format!("did-become-active queued_actions={}", ios_remote_queue_len()),
     );
+    sync_ios_remote_runtime("did-become-active");
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -856,12 +914,10 @@ unsafe fn register_ios_remote_targets_on_center(center: *mut Object, observer: *
     let _: () = msg_send![seek_cmd, setEnabled: YES];
     let _: () = msg_send![seek_forward_cmd, setEnabled: YES];
     let _: () = msg_send![seek_backward_cmd, setEnabled: YES];
-
-    // Use discrete track controls instead of interval skip controls so lock-screen
-    // buttons map to previous/next track rather than +/- seconds.
-    let no: BOOL = YES ^ YES;
-    let _: () = msg_send![skip_forward_cmd, setEnabled: no];
-    let _: () = msg_send![skip_backward_cmd, setEnabled: no];
+    // Some iOS routes emit interval skip commands instead of discrete next/previous.
+    // Keep both enabled and map skip handlers back to track navigation.
+    let _: () = msg_send![skip_forward_cmd, setEnabled: YES];
+    let _: () = msg_send![skip_backward_cmd, setEnabled: YES];
 
     ios_diag_log("remote.init", &format!("{label}: targets registered"));
     ios_log_remote_command_enabled_state(center, &format!("{label}.post-register"));
@@ -870,6 +926,7 @@ unsafe fn register_ios_remote_targets_on_center(center: *mut Object, observer: *
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn configure_ios_remote_commands(player: *mut Object) {
     IOS_REMOTE_INIT.call_once(|| unsafe {
+        ios_diag_log("remote.init", &format!("revision={IOS_REMOTE_DIAGNOSTIC_REV}"));
         let cls = remote_handler_class();
         let observer: *mut Object = msg_send![cls, new];
         if observer.is_null() {
@@ -1006,22 +1063,24 @@ fn set_ios_remote_transport_state(is_playing: bool) {
         let seek_cmd: *mut Object = msg_send![center, changePlaybackPositionCommand];
         let seek_forward_cmd: *mut Object = msg_send![center, seekForwardCommand];
         let seek_backward_cmd: *mut Object = msg_send![center, seekBackwardCommand];
+        let skip_forward_cmd: *mut Object = msg_send![center, skipForwardCommand];
+        let skip_backward_cmd: *mut Object = msg_send![center, skipBackwardCommand];
 
         let yes: BOOL = YES;
-        let no: BOOL = YES ^ YES;
-        let play_enabled = if is_playing { no } else { yes };
-        let pause_enabled = if is_playing { yes } else { no };
-        // Match command availability to transport state; keep toggle enabled for
-        // headset routes that only emit a single media key action.
-        let _: () = msg_send![play_cmd, setEnabled: play_enabled];
-        let _: () = msg_send![pause_cmd, setEnabled: pause_enabled];
-        let _: () = msg_send![stop_cmd, setEnabled: pause_enabled];
+        // Keep play and pause both enabled. Some lock-screen routes emit the
+        // "wrong" transport command for the visible button state, and the
+        // handlers already normalize based on the player's actual pause state.
+        let _: () = msg_send![play_cmd, setEnabled: yes];
+        let _: () = msg_send![pause_cmd, setEnabled: yes];
+        let _: () = msg_send![stop_cmd, setEnabled: yes];
         let _: () = msg_send![toggle_play_pause_cmd, setEnabled: yes];
         let _: () = msg_send![next_cmd, setEnabled: yes];
         let _: () = msg_send![previous_cmd, setEnabled: yes];
         let _: () = msg_send![seek_cmd, setEnabled: yes];
         let _: () = msg_send![seek_forward_cmd, setEnabled: yes];
         let _: () = msg_send![seek_backward_cmd, setEnabled: yes];
+        let _: () = msg_send![skip_forward_cmd, setEnabled: yes];
+        let _: () = msg_send![skip_backward_cmd, setEnabled: yes];
         ios_log_remote_command_enabled_state(center, "transport-sync.post-set");
         activate_ios_now_playing_session(if is_playing {
             "transport-playing"
@@ -1041,10 +1100,7 @@ fn set_ios_remote_transport_state(is_playing: bool) {
         ios_diag_log(
             "remote.transport",
             &format!(
-                "state_sync playing={is_playing} play_enabled={} pause_enabled={} stop_enabled={} toggle+next+prev+seek+seekf+seekb=enabled session_present={session_present} session_active={session_active} can_become_active={session_can_become_active}",
-                play_enabled == yes,
-                pause_enabled == yes,
-                pause_enabled == yes
+                "state_sync playing={is_playing} play=true pause=true stop=true toggle=true next=true prev=true seek=true seekf=true seekb=true skipf=true skipb=true session_present={session_present} session_active={session_active} can_become_active={session_can_become_active}"
             ),
         );
     }

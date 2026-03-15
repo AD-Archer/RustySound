@@ -4,7 +4,7 @@ use crate::cache_service::{
 };
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, view_label, AddIntent, AddMenuController,
-    AddToMenuOverlay, AppView, AudioController, AudioState, Icon, Navigation,
+    AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon, Navigation,
     PlaybackPositionSignal, Player, PreviewPlaybackSignal, SeekRequestSignal, Sidebar,
     SidebarOpenSignal, SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
 };
@@ -773,6 +773,8 @@ pub fn AppShell() -> Element {
     let home_init_progress = use_signal(|| 0.0f32);
     let mut home_init_signature = use_signal(|| None::<String>);
     let mut home_init_generation = use_signal(|| 0u64);
+    let home_manual_refresh_generation = use_signal(|| 0u64);
+    let mut home_manual_refresh_applied = use_signal(|| 0u64);
     let mut startup_bootstrap_progress = use_signal(|| 0.0f32);
     let mut startup_bootstrap_status = use_signal(|| "Initializing database".to_string());
     let mut ios_loading_log_lines = use_signal(Vec::<String>::new);
@@ -809,6 +811,7 @@ pub fn AppShell() -> Element {
     use_context_provider(|| add_menu.clone());
     use_context_provider(|| song_details.clone());
     use_context_provider(|| home_feed.clone());
+    use_context_provider(|| HomeRefreshSignal(home_manual_refresh_generation));
 
     #[cfg(target_arch = "wasm32")]
     let nav_for_swipe = navigation.clone();
@@ -1130,6 +1133,16 @@ pub fn AppShell() -> Element {
 
             // Load playback state (but don't auto-play)
             if let Ok(state) = load_playback_state().await {
+                ios_diag_log(
+                    "app.playback.restore",
+                    &format!(
+                        "queue_idx={} queue_len={} position={:.3} song_id={:?}",
+                        state.queue_index,
+                        state.queue.len(),
+                        state.position,
+                        state.song_id
+                    ),
+                );
                 queue_index.set(state.queue_index);
                 playback_position.set(state.position);
                 // Note: We don't restore the full queue/song here since we'd need to re-fetch song details
@@ -1170,6 +1183,19 @@ pub fn AppShell() -> Element {
             set_empty_home_feed_snapshot(&home_feed);
             home_init_signature.set(None);
             return;
+        }
+
+        let manual_refresh_generation = home_manual_refresh_generation();
+        let manual_refresh_requested = manual_refresh_generation != home_manual_refresh_applied();
+        if manual_refresh_requested {
+            home_manual_refresh_applied.set(manual_refresh_generation);
+            home_init_signature.set(None);
+            ios_diag_log(
+                "home.init.gate",
+                &format!(
+                    "manual refresh requested generation={manual_refresh_generation}; bypassing warmup gate"
+                ),
+            );
         }
 
         let warmup_key = home_init_warmup_cache_key(&active_servers);
@@ -1267,13 +1293,14 @@ pub fn AppShell() -> Element {
         }
 
         let signature = home_init_server_signature(&active_servers);
-        if home_init_signature().as_deref() == Some(signature.as_str()) {
+        if !manual_refresh_requested && home_init_signature().as_deref() == Some(signature.as_str())
+        {
             ios_diag_log("home.init.gate", "skip warmup: signature unchanged");
             return;
         }
 
         home_init_signature.set(Some(signature));
-        if cache_enabled && home_init_is_warmed(&active_servers) {
+        if !manual_refresh_requested && cache_enabled && home_init_is_warmed(&active_servers) {
             ios_diag_log("home.init.gate", "skip warmup: cache already warmed");
             home_init_in_progress.set(false);
             home_feed.progress.set(1.0);
@@ -1285,7 +1312,9 @@ pub fn AppShell() -> Element {
 
         home_init_in_progress.set(true);
         home_feed.progress.set(0.04);
-        home_feed.status.set(Some(if cache_enabled {
+        home_feed.status.set(Some(if manual_refresh_requested {
+            "Refreshing Home feed".to_string()
+        } else if cache_enabled {
             "Starting Home cache warmup".to_string()
         } else {
             "Loading Home feed live".to_string()
@@ -1293,7 +1322,7 @@ pub fn AppShell() -> Element {
         ios_diag_log(
             "home.init.gate",
             &format!(
-                "starting warmup generation={} active_servers={}",
+                "starting warmup generation={} active_servers={} manual_refresh={manual_refresh_requested}",
                 generation,
                 active_servers.len()
             ),
@@ -1474,12 +1503,21 @@ pub fn AppShell() -> Element {
             }
 
             if let Some((song, position)) = resumed_song {
+                ios_diag_log(
+                    "app.resume_bookmark",
+                    &format!(
+                        "song_id={} position={position:.3} queue_reset=true autoplay=true",
+                        song.id
+                    ),
+                );
                 queue.set(vec![song.clone()]);
                 queue_index.set(0);
                 now_playing.set(Some(song.clone()));
                 playback_position.set(position);
                 seek_request.set(Some((song.id.clone(), position)));
                 is_playing.set(true);
+            } else {
+                ios_diag_log("app.resume_bookmark", "no bookmark candidate restored");
             }
 
             resume_bookmark_loaded.set(true);
@@ -1595,6 +1633,12 @@ pub fn AppShell() -> Element {
     let show_ios_loading_logs = cfg!(all(not(target_arch = "wasm32"), target_os = "ios"));
     let ios_loading_logs_preview = ios_loading_log_lines();
     let offline_mode_enabled = app_settings().offline_mode;
+    let transport_loading_state = audio_state();
+    let is_transport_loading = (transport_loading_state.is_transport_loading)();
+    let transport_loading_label = (transport_loading_state.transport_loading_label)()
+        .unwrap_or_else(|| "Loading playback...".to_string());
+    let show_transport_loading_overlay =
+        is_transport_loading && !is_startup_bootstrapping && !is_home_initializing;
     let app_container_class = if sidebar_open() {
         "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
     } else {
@@ -1617,8 +1661,8 @@ pub fn AppShell() -> Element {
             // Sidebar
             Sidebar { sidebar_open: sidebar_signal, overlay_mode: false }
 
-            // Main content area
-            div { class: "flex-1 flex flex-col overflow-hidden",
+            // Main content area + player
+            div { class: "flex-1 min-h-0 flex flex-col overflow-hidden",
                 header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
                     div { class: "flex items-center justify-between px-4 py-3",
                         div { class: "flex items-center gap-1",
@@ -1674,7 +1718,7 @@ pub fn AppShell() -> Element {
 
                 // Main scrollable content
                 main {
-                    class: "flex-1 overflow-y-auto main-scroll",
+                    class: "flex-1 min-h-0 overflow-y-auto main-scroll",
                     div {
                         class: "page-shell",
                         if offline_mode_enabled {
@@ -1708,10 +1752,8 @@ pub fn AppShell() -> Element {
                         Outlet::<AppView> {}
                     }
                 }
+                Player {}
             }
-
-            // Fixed bottom player
-            Player {}
         }
 
         if let Some((direction, progress)) = swipe_hint_state {
@@ -1763,6 +1805,21 @@ pub fn AppShell() -> Element {
                 }
             }
             Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
+        }
+
+        if show_transport_loading_overlay {
+            div { class: "fixed inset-0 z-[205] bg-zinc-950/70 backdrop-blur-sm flex items-center justify-center px-6 pointer-events-none",
+                div { class: "max-w-sm text-center space-y-3 rounded-2xl border border-zinc-700/70 bg-zinc-900/85 px-6 py-5 shadow-2xl",
+                    div { class: "flex items-center justify-center",
+                        Icon {
+                            name: "loader".to_string(),
+                            class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+                        }
+                    }
+                    h2 { class: "text-lg font-semibold text-white", "Loading Audio" }
+                    p { class: "text-sm text-zinc-300", "{transport_loading_label}" }
+                }
+            }
         }
 
         if is_startup_bootstrapping {

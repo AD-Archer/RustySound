@@ -2,6 +2,10 @@
 
 :root {
   --font-sans: "Space Grotesk", "Sora", "Noto Sans", sans-serif;
+  --safe-area-top: env(safe-area-inset-top, 0px);
+  --safe-area-right: env(safe-area-inset-right, 0px);
+  --safe-area-bottom: min(env(safe-area-inset-bottom, 0px), 2.5rem);
+  --safe-area-left: env(safe-area-inset-left, 0px);
 }
 
 * {
@@ -17,6 +21,8 @@ body {
   color: #fafafa;
   min-height: 100vh;
   overflow: hidden;
+  /* Prevent pinch-zoom and double-tap zoom on mobile */
+  touch-action: manipulation;
 }
 
 .app-container {
@@ -24,7 +30,6 @@ body {
   isolation: isolate;
   height: 100vh;
   height: 100dvh;
-  --player-height: 11.5rem;
   background:
     radial-gradient(
       900px circle at 8% -10%,
@@ -37,12 +42,6 @@ body {
       transparent 40%
     ),
     linear-gradient(135deg, #09090b 0%, #17181f 50%, #09090b 100%);
-}
-
-@media (min-width: 768px) {
-  .app-container {
-    --player-height: 6.25rem;
-  }
 }
 
 .app-container::before {
@@ -59,16 +58,14 @@ body {
   z-index: -1;
 }
 
-/* Drawer sidebar should clear the player on phones/tablets */
 @media (max-width: 1535px) {
-  aside {
-    bottom: calc(var(--player-height) + env(safe-area-inset-bottom));
-    padding-top: env(safe-area-inset-top);
-    padding-bottom: env(safe-area-inset-bottom);
+  .sidebar-shell {
+    bottom: 0;
+    padding-top: var(--safe-area-top);
+    padding-bottom: var(--safe-area-bottom);
   }
 
-  .app-container.sidebar-open-mobile aside {
-    bottom: 0;
+  .app-container.sidebar-open-mobile .sidebar-shell {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
@@ -78,24 +75,21 @@ body {
   }
 }
 
-/* Keep desktop sidebar footer (Settings) above the fixed player bar. */
-@media (min-width: 1536px) {
-  .sidebar-shell {
-    padding-bottom: calc(var(--player-height) + env(safe-area-inset-bottom));
-  }
+.sidebar-shell {
+  padding-bottom: var(--safe-area-bottom);
 }
 
 .mobile-safe-top {
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--safe-area-top);
 }
 
 .song-details-shell {
-  padding-top: env(safe-area-inset-top);
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-top: var(--safe-area-top);
+  padding-bottom: var(--safe-area-bottom);
 }
 
 .song-details-mobile-content {
-  padding-bottom: calc(env(safe-area-inset-bottom) + 1.25rem);
+  padding-bottom: calc(var(--safe-area-bottom) + 1.25rem);
 }
 
 .sidebar-scrollable {
@@ -124,24 +118,22 @@ body {
 }
 
 .swipe-hint--back {
-  left: calc(env(safe-area-inset-left) + 0.6rem);
+  left: calc(var(--safe-area-left) + 0.6rem);
 }
 
 .swipe-hint--forward {
-  right: calc(env(safe-area-inset-right) + 0.6rem);
+  right: calc(var(--safe-area-right) + 0.6rem);
 }
 
 .page-shell {
   width: min(100%, 1200px);
   margin: 0 auto;
-  padding: 1.5rem 1.25rem
-    calc(var(--player-height) + env(safe-area-inset-bottom) + 4rem);
+  padding: 1.5rem 1.25rem 1.75rem;
 }
 
 @media (min-width: 768px) {
   .page-shell {
-    padding: 2rem 2rem
-      calc(var(--player-height) + env(safe-area-inset-bottom) + 4.5rem);
+    padding: 2rem 2rem 2.25rem;
   }
 }
 
@@ -185,37 +177,34 @@ body {
 }
 
 .player-shell {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--safe-area-bottom);
 }
 
 .main-scroll {
-  padding-bottom: calc(
-    var(--player-height) + env(safe-area-inset-bottom) + 6rem
-  );
-  scroll-padding-bottom: calc(
-    var(--player-height) + env(safe-area-inset-bottom) + 6rem
-  );
+  -webkit-overflow-scrolling: touch; /* momentum scroll on iOS */
+  overflow-x: hidden;
+  overscroll-behavior-y: none; /* prevent rubber-band scroll and swipe-off */
+  touch-action: pan-y;
 }
 
-/* Extra bottom clearance on phones so long forms (Settings) stay above the player. */
 @media (max-width: 767px) {
-  .app-container {
-    --player-height: 13rem;
-  }
-
   .page-shell {
-    padding-bottom: calc(
-      var(--player-height) + env(safe-area-inset-bottom) + 8rem
-    );
+    padding-bottom: 1.5rem;
   }
+}
 
-  .main-scroll {
-    padding-bottom: calc(
-      var(--player-height) + env(safe-area-inset-bottom) + 8rem
-    );
-    scroll-padding-bottom: calc(
-      var(--player-height) + env(safe-area-inset-bottom) + 8rem
-    );
+.page-carousel {
+  overflow-x: auto;
+  margin-inline: -1.25rem;
+  padding: 0 1.25rem 0.5rem;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+
+@media (min-width: 768px) {
+  .page-carousel {
+    margin-inline: -2rem;
+    padding-inline: 2rem;
   }
 }
 

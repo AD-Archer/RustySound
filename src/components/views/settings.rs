@@ -89,7 +89,8 @@ fn format_connection_error(error: &str) -> String {
     // Connection refused - port unreachable or service not responding
     if lower.contains("connection refused")
         || lower.contains("econnrefused")
-        || lower.contains("reset by peer") {
+        || lower.contains("reset by peer")
+    {
         return "Server is not responding. Check the URL and port number.".to_string();
     }
 
@@ -99,7 +100,8 @@ fn format_connection_error(error: &str) -> String {
         || lower.contains("nodename nor servname")
         || lower.contains("failed to lookup address information")
         || lower.contains("nxdomain")
-        || lower.contains("getaddrinfo failed") {
+        || lower.contains("getaddrinfo failed")
+    {
         return "Invalid server address. Check your hostname/IP address.".to_string();
     }
 
@@ -109,28 +111,32 @@ fn format_connection_error(error: &str) -> String {
         || lower.contains("tls")
         || lower.contains("x509")
         || lower.contains("certificate verify failed")
-        || lower.contains("self signed") {
+        || lower.contains("self signed")
+    {
         return "SSL certificate issue. Try using HTTP instead of HTTPS, or contact your server admin.".to_string();
     }
 
     // Connection timeout
-    if lower.contains("timeout")
-        || lower.contains("timed out") {
-        return "Server took too long to respond. Check your network connection and server URL.".to_string();
+    if lower.contains("timeout") || lower.contains("timed out") {
+        return "Server took too long to respond. Check your network connection and server URL."
+            .to_string();
     }
 
     // Invalid URL
     if lower.contains("invalid url")
         || lower.contains("invalid scheme")
         || lower.contains("empty domain")
-        || lower.contains("relative url") {
-        return "Invalid server URL format. Use http://hostname:port or https://hostname:port".to_string();
+        || lower.contains("relative url")
+    {
+        return "Invalid server URL format. Use http://hostname:port or https://hostname:port"
+            .to_string();
     }
 
     // Connection reset/broken pipe
     if lower.contains("connection reset")
         || lower.contains("broken pipe")
-        || lower.contains("epipe") {
+        || lower.contains("epipe")
+    {
         return "Server connection was interrupted. Try again.".to_string();
     }
 
@@ -149,19 +155,20 @@ fn format_connection_error(error: &str) -> String {
     }
 
     // Network unreachable
-    if lower.contains("network unreachable")
-        || lower.contains("enetunreach") {
+    if lower.contains("network unreachable") || lower.contains("enetunreach") {
         return "Network is unreachable. Check your internet connection.".to_string();
     }
 
     // Permission denied (can happen with certain network configs)
-    if lower.contains("permission denied")
-        || lower.contains("eacces") {
+    if lower.contains("permission denied") || lower.contains("eacces") {
         return "Permission denied. Check firewall settings and port access.".to_string();
     }
 
     // Fallback for unknown errors
-    format!("Connection failed: {}. Check server URL and network connectivity.", error)
+    format!(
+        "Connection failed: {}. Check server URL and network connectivity.",
+        error
+    )
 }
 
 fn lyrics_provider_label(provider_key: &str) -> &'static str {
@@ -684,7 +691,7 @@ pub fn SettingsView() -> Element {
     let download_refresh_nonce = use_signal(|| 0u64);
     let ios_log_text = use_signal(String::new);
     let ios_log_status = use_signal(|| None::<String>);
-    let mut active_tab = use_signal(|| "playback".to_string());
+    let mut active_tab = use_signal(|| "servers".to_string());
 
     let can_add = use_memo(move || {
         !server_url().trim().is_empty()
@@ -1853,6 +1860,12 @@ pub fn SettingsView() -> Element {
                 // Tab navigation
                 nav { class: "flex overflow-x-auto border-b border-zinc-700/50 -mx-1",
                     button {
+                        class: if active_tab() == "servers" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "servers".to_string(),
+                        Icon { name: "server".to_string(), class: "w-4 h-4".to_string() }
+                        "Servers"
+                    }
+                    button {
                         class: if active_tab() == "playback" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
                         onclick: move |_| *active_tab.write() = "playback".to_string(),
                         Icon { name: "music".to_string(), class: "w-4 h-4".to_string() }
@@ -1875,12 +1888,6 @@ pub fn SettingsView() -> Element {
                         onclick: move |_| *active_tab.write() = "advanced".to_string(),
                         Icon { name: "settings".to_string(), class: "w-4 h-4".to_string() }
                         "Advanced"
-                    }
-                    button {
-                        class: if active_tab() == "servers" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
-                        onclick: move |_| *active_tab.write() = "servers".to_string(),
-                        Icon { name: "server".to_string(), class: "w-4 h-4".to_string() }
-                        "Servers"
                     }
                 }
 
@@ -2287,7 +2294,7 @@ pub fn SettingsView() -> Element {
 
                 } // end playback tab
 
-                if active_tab() == "playback" || active_tab() == "servers" {
+                if active_tab() == "playback" {
                 // Offline Mode
                 section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
                     h2 { class: "text-lg font-semibold text-white mb-3", "Offline Mode" }
@@ -2435,7 +2442,7 @@ pub fn SettingsView() -> Element {
                                 p { class: "text-xs text-zinc-500", "{smart_cache_percent}% complete" }
                             }
                         }
-                    
+
                     }
                 }
 

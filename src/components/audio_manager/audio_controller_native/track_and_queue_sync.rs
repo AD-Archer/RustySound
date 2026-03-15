@@ -122,6 +122,7 @@
                 last_src.set(None);
                 is_playing.set(false);
                 audio_state.write().playback_error.set(None);
+                set_transport_loading(audio_state, false, None);
                 return;
             };
 
@@ -157,6 +158,11 @@
                 let should_reload = Some(url.clone()) != current_src;
                 let same_song_as_before = previous_song_id.as_deref() == Some(song.id.as_str());
                 let metadata = song_metadata(&song, &servers_snapshot);
+                let source_kind = if url.starts_with("file://") {
+                    "cached"
+                } else {
+                    "stream"
+                };
                 let known_duration = if song.duration > 0 {
                     song.duration as f64
                 } else {
@@ -178,27 +184,34 @@
                     ios_diag_log(
                         "track.sync.command",
                         &format!(
-                            "retain-source song_id={} old_prefix={} new_prefix={}",
-                            song.id,
-                            current_src
-                                .as_ref()
-                                .map(|value| value.chars().take(56).collect::<String>())
-                                .unwrap_or_default(),
-                            url.chars().take(56).collect::<String>()
+                            "retain-source song_id={} source_kind={} (URL redacted)",
+                            song.id, source_kind
                         ),
                     );
                     native_audio_command(serde_json::json!({
                         "type": "metadata",
                         "meta": metadata,
                     }));
+                    set_transport_loading(audio_state.clone(), false, None);
                 } else if should_reload {
+                    let should_play_after_load = *is_playing.peek();
+                    let loading_label = if previous_song_id.is_some()
+                        && previous_song_id.as_deref() != Some(song.id.as_str())
+                    {
+                        "Switching songs..."
+                    } else {
+                        "Loading song..."
+                    };
+                    if should_play_after_load {
+                        set_transport_loading(audio_state.clone(), true, Some(loading_label));
+                    } else {
+                        set_transport_loading(audio_state.clone(), false, None);
+                    }
                     ios_diag_log(
                         "track.sync.command",
                         &format!(
-                            "load song_id={} play={} seek={target_start:.3} src_prefix={}",
-                            song.id,
-                            *is_playing.peek(),
-                            url.chars().take(80).collect::<String>()
+                            "load song_id={} play={} seek={target_start:.3} source_kind={} (URL redacted)",
+                            song.id, should_play_after_load, source_kind
                         ),
                     );
                     last_src.set(Some(url.clone()));
@@ -216,7 +229,7 @@
                         "song_id": song.id,
                         "position": target_start,
                         "volume": volume.peek().clamp(0.0, 1.0),
-                        "play": *is_playing.peek(),
+                        "play": should_play_after_load,
                         "meta": metadata,
                     }));
                 } else if let Some(target_pos) = requested_seek {
@@ -228,6 +241,7 @@
                         "type": "seek",
                         "position": target_pos,
                     }));
+                    set_transport_loading(audio_state.clone(), false, None);
                 } else {
                     ios_diag_log(
                         "track.sync.command",
@@ -237,6 +251,7 @@
                         "type": "metadata",
                         "meta": metadata,
                     }));
+                    set_transport_loading(audio_state.clone(), false, None);
                 }
 
                 if let Some(target_pos) = requested_seek {
@@ -287,6 +302,7 @@
                             now_playing.set(Some(next_song.clone()));
                             is_playing.set(true);
                             audio_state.write().playback_error.set(None);
+                            set_transport_loading(audio_state.clone(), false, None);
                             return;
                         }
                     }
@@ -299,6 +315,7 @@
                 native_audio_command(serde_json::json!({ "type": "clear" }));
                 last_src.set(None);
                 is_playing.set(false);
+                set_transport_loading(audio_state.clone(), false, None);
                 let message = if song.server_name == "Radio" {
                     "No station found: this station has no stream URL.".to_string()
                 } else {

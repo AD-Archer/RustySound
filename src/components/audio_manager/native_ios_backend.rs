@@ -152,14 +152,19 @@ impl IosAudioPlayer {
                     .get("meta")
                     .cloned()
                     .and_then(|value| serde_json::from_value::<NativeTrackMetadata>(value).ok());
+                let source_kind = if src.starts_with("file://") {
+                    "cached"
+                } else {
+                    "stream"
+                };
                 ios_diag_log(
                     "player.load",
                     &format!(
-                        "song_id={:?} play={} position={position:.3} volume={:.3} src_prefix={}",
+                        "song_id={:?} play={} position={position:.3} volume={:.3} source_kind={} (URL redacted)",
                         song_id,
                         should_play,
                         volume.clamp(0.0, 1.0),
-                        src.chars().take(80).collect::<String>()
+                        source_kind
                     ),
                 );
 
