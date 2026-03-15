@@ -245,7 +245,9 @@ pub fn SongsView() -> Element {
 
                         // Sort order
                         div { class: "flex items-center gap-1",
-                            span { class: "text-xs text-zinc-400 whitespace-nowrap", "Order:" }
+                            span { class: "text-xs text-zinc-400 whitespace-nowrap",
+                                "Order:"
+                            }
                             select {
                                 class: "px-2 py-1 bg-zinc-800/50 border border-zinc-700/50 rounded text-xs text-white focus:outline-none focus:border-emerald-500/50 min-w-0",
                                 value: sort_order,
@@ -319,19 +321,22 @@ pub fn SongsView() -> Element {
                         if rating_filter_active && min_rating > 0 {
                             filtered
                                 .retain(|song| {
-                                    effective_song_rating(song, &rating_snapshot) >= min_rating as u32
+                                    effective_song_rating(song, &rating_snapshot)
+                                        >= min_rating as u32
                                 });
                         }
                         match sort_option.as_str() {
                             "last_played" => {
-                                filtered.sort_by(|a, b| {
-                                    compare_song_last_played(a, b, sort_ascending)
-                                });
+                                filtered
+                                    .sort_by(|a, b| {
+                                        compare_song_last_played(a, b, sort_ascending)
+                                    });
                             }
                             "most_played" => {
-                                filtered.sort_by(|a, b| {
-                                    compare_song_most_played(a, b, sort_ascending)
-                                });
+                                filtered
+                                    .sort_by(|a, b| {
+                                        compare_song_most_played(a, b, sort_ascending)
+                                    });
                             }
                             "rating" => {
                                 filtered
@@ -343,54 +348,56 @@ pub fn SongsView() -> Element {
                                         } else {
                                             b_rating.cmp(&a_rating)
                                         }
-                                        .then_with(|| {
-                                            compare_song_title(a, b, sort_ascending)
-                                        })
+                                            .then_with(|| { compare_song_title(a, b, sort_ascending) })
                                     });
                             }
                             "duration" => {
-                                filtered.sort_by(|a, b| {
-                                    if sort_ascending {
-                                        a.duration.cmp(&b.duration)
-                                    } else {
-                                        b.duration.cmp(&a.duration)
-                                    }
-                                    .then_with(|| {
-                                        compare_song_title(a, b, sort_ascending)
-                                    })
-                                });
+                                filtered
+                                    .sort_by(|a, b| {
+                                        if sort_ascending {
+                                            a.duration.cmp(&b.duration)
+                                        } else {
+                                            b.duration.cmp(&a.duration)
+                                        }
+                                            .then_with(|| { compare_song_title(a, b, sort_ascending) })
+                                    });
                             }
                             _ => {
                                 filtered
                                     .sort_by(|a, b| compare_song_title(a, b, sort_ascending));
                             }
                         }
-                        let has_query = !query.is_empty() || (rating_filter_active && min_rating > 0);
-                        let has_more = filtered.len() > display_limit || source_song_count >= display_limit;
+                        let has_query = !query.is_empty()
+                            || (rating_filter_active && min_rating > 0);
+                        let has_more = filtered.len() > display_limit
+                            || source_song_count >= display_limit;
                         filtered.truncate(display_limit);
                         let on_rating_changed = {
                             let mut rating_overrides = rating_overrides.clone();
                             let mut queue = queue.clone();
                             move |(song_id, new_rating): (String, u32)| {
                                 let normalized = new_rating.min(5);
-                                rating_overrides.with_mut(|overrides| {
-                                    if normalized == 0 {
-                                        overrides.remove(&song_id);
-                                    } else {
-                                        overrides.insert(song_id.clone(), normalized);
-                                    }
-                                });
-                                queue.with_mut(|items| {
-                                    for song in items.iter_mut() {
-                                        if song.id == song_id {
-                                            song.user_rating = if normalized == 0 {
-                                                None
-                                            } else {
-                                                Some(normalized)
-                                            };
+                                rating_overrides
+                                    .with_mut(|overrides| {
+                                        if normalized == 0 {
+                                            overrides.remove(&song_id);
                                         }
-                                    }
-                                });
+                                        if has_more {
+                                            overrides.insert(song_id.clone(), normalized);
+                                        }
+                                    });
+                                queue
+                                    .with_mut(|items| {
+                                        for song in items.iter_mut() {
+                                            if song.id == song_id {
+                                                song.user_rating = if normalized == 0 {
+                                                    None
+                                                } else {
+                                                    Some(normalized)
+                                                };
+                                            }
+                                        }
+                                    });
                             }
                         };
                         rsx! {
@@ -740,7 +747,7 @@ fn SongRowWithRating(
 
     rsx! {
         div {
-            class: "w-full flex items-start gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
+            class: "w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer",
             onclick: move |e| {
                 show_mobile_actions.set(false);
                 onclick.call(e);
@@ -786,18 +793,37 @@ fn SongRowWithRating(
                 }
             }
             // Song info
-            div { class: "flex-1 min-w-0 text-left pt-0.5",
-                div { class: "flex items-start justify-between gap-2 min-w-0",
-                    p { class: "min-w-0 flex-1 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
-                        "{song.title}"
+            div { class: "flex-1 min-w-0 text-left",
+                div { class: "flex items-center justify-between gap-2 min-w-0",
+                    div { class: "flex flex-col min-w-0 flex-1",
+                        p { class: "min-w-0 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                            "{song.title}"
+                        }
+                        if artist_id.is_some() {
+                            div { class: "mt-1 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
+                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                                if downloaded() {
+                                    Icon {
+                                        name: "download".to_string(),
+                                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                                    }
+                                }
+                            }
+                        } else {
+                            div { class: "mt-1 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
+                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                                if downloaded() {
+                                    Icon {
+                                        name: "download".to_string(),
+                                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                                    }
+                                }
+                            }
+                        }
                     }
                     div { class: "relative flex items-center gap-1 flex-shrink-0 -mr-1",
                         button {
-                            class: if is_favorited() {
-                                "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-                            } else {
-                                "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                            },
+                            class: if is_favorited() { "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors" } else { "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" },
                             aria_label: if is_favorited() { "Unfavorite" } else { "Favorite" },
                             onclick: make_on_toggle_favorite(),
                             Icon {
@@ -824,21 +850,23 @@ fn SongRowWithRating(
                                 button {
                                     class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
                                     onclick: make_on_open_menu(),
-                                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                                    Icon {
+                                        name: "plus".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
                                     "Add To..."
                                 }
                                 if downloaded() {
                                     div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
-                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                        Icon {
+                                            name: "check".to_string(),
+                                            class: "w-4 h-4".to_string(),
+                                        }
                                         "Downloaded"
                                     }
                                 } else {
                                     button {
-                                        class: if download_busy() {
-                                            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed"
-                                        } else {
-                                            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
-                                        },
+                                        class: if download_busy() { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed" } else { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors" },
                                         disabled: download_busy(),
                                         onclick: make_on_download_song(),
                                         Icon {
@@ -865,7 +893,9 @@ fn SongRowWithRating(
                                         "Favorite"
                                     }
                                 }
-                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                                    "Rating"
+                                }
                                 div { class: "flex items-center gap-1 px-2 pb-1",
                                     for i in 1..=5 {
                                         button {
@@ -878,29 +908,12 @@ fn SongRowWithRating(
                                         }
                                     }
                                 }
-                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
-                                p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
-                            }
-                        }
-                    }
-                }
-                if artist_id.is_some() {
-                    div { class: "mt-1.5 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
-                        span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                        if downloaded() {
-                            Icon {
-                                name: "download".to_string(),
-                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                            }
-                        }
-                    }
-                } else {
-                    div { class: "mt-1.5 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
-                        span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                        if downloaded() {
-                            Icon {
-                                name: "download".to_string(),
-                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                                    "Length"
+                                }
+                                p { class: "px-2.5 pb-2 text-xs text-zinc-300",
+                                    "{format_duration(song.duration)}"
+                                }
                             }
                         }
                     }

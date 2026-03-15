@@ -63,6 +63,8 @@ fn PlaylistSongRow(
     let mut show_mobile_actions = use_signal(|| false);
     let initially_downloaded = is_song_downloaded(&song);
     let downloaded = use_signal(move || initially_downloaded);
+    let mut menu_x = use_signal(|| 0f64);
+    let mut menu_y = use_signal(|| 0f64);
     let is_current = now_playing()
         .as_ref()
         .map(|current| current.id == song.id)
@@ -266,23 +268,25 @@ fn PlaylistSongRow(
 
     rsx! {
         div {
-            class: if is_current {
-                "relative w-full flex items-start gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer"
-            } else {
-                "relative w-full flex items-start gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer"
-            },
+            class: if is_current { "relative w-full flex items-center gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer" } else { "relative w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer" },
             onclick: move |evt| {
                 show_mobile_actions.set(false);
                 on_click_row(evt);
             },
             if is_current {
                 span { class: "w-6 text-sm text-emerald-400",
-                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "play".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                 }
             } else {
                 span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{display_index}" }
                 span { class: "w-6 text-sm text-white hidden group-hover:block",
-                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "play".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                 }
             }
             button {
@@ -300,18 +304,25 @@ fn PlaylistSongRow(
                     },
                 }
             }
-            div { class: "flex-1 min-w-0 text-center md:text-left pt-0.5",
-                div { class: "flex items-start justify-between gap-2 min-w-0",
-                    p { class: if is_current { "min-w-0 flex-1 text-sm font-medium text-emerald-400 truncate transition-colors" } else { "min-w-0 flex-1 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors" },
-                        "{song.title}"
+            div { class: "flex-1 min-w-0 text-center md:text-left",
+                div { class: "flex items-center justify-between gap-2 min-w-0",
+                    div { class: "flex flex-col min-w-0 flex-1",
+                        p { class: if is_current { "min-w-0 text-sm font-medium text-emerald-400 truncate transition-colors" } else { "min-w-0 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors" },
+                            "{song.title}"
+                        }
+                        div { class: "mt-1 text-xs text-zinc-400 truncate inline-flex items-center gap-1 justify-center md:justify-start",
+                            span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                            if downloaded() {
+                                Icon {
+                                    name: "download".to_string(),
+                                    class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                                }
+                            }
+                        }
                     }
-                    div { class: "relative flex items-center gap-1 flex-shrink-0 -mr-1",
+                    div { class: "flex items-center gap-1 flex-shrink-0 -mr-1",
                         button {
-                            class: if is_favorited() {
-                                "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-                            } else {
-                                "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                            },
+                            class: if is_favorited() { "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors" } else { "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" },
                             aria_label: if is_favorited() { "Unfavorite" } else { "Favorite" },
                             onclick: make_on_toggle_favorite(),
                             Icon {
@@ -324,6 +335,9 @@ fn PlaylistSongRow(
                             aria_label: "Song actions",
                             onclick: move |evt: MouseEvent| {
                                 evt.stop_propagation();
+                                let coords = evt.client_coordinates();
+                                menu_x.set(coords.x);
+                                menu_y.set(coords.y);
                                 show_mobile_actions.set(!show_mobile_actions());
                             },
                             Icon {
@@ -331,83 +345,97 @@ fn PlaylistSongRow(
                                 class: "w-4 h-4".to_string(),
                             }
                         }
-                        if show_mobile_actions() {
-                            div {
-                                class: "absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                                onclick: move |evt: MouseEvent| evt.stop_propagation(),
-                                button {
-                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                                    onclick: make_on_open_menu(),
-                                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
-                                    "Add To..."
-                                }
-                                if downloaded() {
-                                    div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
-                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
-                                        "Downloaded"
-                                    }
-                                } else {
-                                    button {
-                                        class: if download_busy() { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed" } else { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors" },
-                                        disabled: download_busy(),
-                                        onclick: make_on_download_song(),
-                                        Icon {
-                                            name: if download_busy() { "loader".to_string() } else { "download".to_string() },
-                                            class: "w-4 h-4".to_string(),
-                                        }
-                                        if download_busy() {
-                                            "Downloading..."
-                                        } else {
-                                            "Download"
-                                        }
-                                    }
-                                }
-                                button {
-                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                                    onclick: make_on_toggle_favorite(),
-                                    Icon {
-                                        name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                                        class: "w-4 h-4".to_string(),
-                                    }
-                                    if is_favorited() {
-                                        "Unfavorite"
-                                    } else {
-                                        "Favorite"
-                                    }
-                                }
-                                if can_remove_from_playlist {
-                                    button {
-                                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
-                                        onclick: make_on_remove_from_playlist(),
-                                        Icon { name: "trash".to_string(), class: "w-4 h-4".to_string() }
-                                        "Remove"
-                                    }
-                                }
-                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
-                                div { class: "flex items-center gap-1 px-2 pb-1",
-                                    for i in 1..=5 {
-                                        button {
-                                            class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
-                                            onclick: make_on_set_rating(i as u32),
-                                            Icon {
-                                                name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
-                                                class: "w-3.5 h-3.5".to_string(),
-                                            }
-                                        }
-                                    }
-                                }
-                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
-                                p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
-                            }
-                        }
                     }
                 }
-                div { class: "mt-1.5 text-xs text-zinc-400 truncate inline-flex items-center gap-1 justify-center md:justify-start",
-                    span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                    if downloaded() {
-                        Icon {
-                            name: "download".to_string(),
-                            class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
+                if show_mobile_actions() {
+                    div {
+                        class: "fixed inset-0 z-[9998]",
+                        onclick: move |evt: MouseEvent| {
+                            evt.stop_propagation();
+                            show_mobile_actions.set(false);
+                        },
+                    }
+                    div {
+                        class: "fixed z-[9999] w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                        style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 176.0).max(4.0)),
+                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                        button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            onclick: make_on_open_menu(),
+                            Icon {
+                                name: "plus".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
+                            "Add To..."
+                        }
+                        if downloaded() {
+                            div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
+                                Icon {
+                                    name: "check".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "Downloaded"
+                            }
+                        } else {
+                            button {
+                                class: if download_busy() { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-500 cursor-not-allowed" } else { "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors" },
+                                disabled: download_busy(),
+                                onclick: make_on_download_song(),
+                                Icon {
+                                    name: if download_busy() { "loader".to_string() } else { "download".to_string() },
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                if download_busy() {
+                                    "Downloading..."
+                                } else {
+                                    "Download"
+                                }
+                            }
+                        }
+                        button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            onclick: make_on_toggle_favorite(),
+                            Icon {
+                                name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                class: "w-4 h-4".to_string(),
+                            }
+                            if is_favorited() {
+                                "Unfavorite"
+                            } else {
+                                "Favorite"
+                            }
+                        }
+                        if can_remove_from_playlist {
+                            button {
+                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
+                                onclick: make_on_remove_from_playlist(),
+                                Icon {
+                                    name: "trash".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "Remove"
+                            }
+                        }
+                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                            "Rating"
+                        }
+                        div { class: "flex items-center gap-1 px-2 pb-1",
+                            for i in 1..=5 {
+                                button {
+                                    class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                    onclick: make_on_set_rating(i as u32),
+                                    Icon {
+                                        name: if i <= current_rating() { "star-filled".to_string() } else { "star".to_string() },
+                                        class: "w-3.5 h-3.5".to_string(),
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                            "Length"
+                        }
+                        p { class: "px-2.5 pb-2 text-xs text-zinc-300",
+                            "{format_duration(song.duration)}"
                         }
                     }
                 }
@@ -447,6 +475,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let preview_song_key = use_signal(|| None::<String>);
     let download_busy = use_signal(|| false);
     let download_status = use_signal(|| None::<String>);
+    let mut show_playlist_menu = use_signal(|| false);
+    let mut playlist_menu_x = use_signal(|| 0f64);
+    let mut playlist_menu_y = use_signal(|| 0f64);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
     let server_for_playlist = server.clone();
@@ -624,12 +655,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     };
 
     let on_open_playlist_menu = {
-        let playlist_data_ref = playlist_data.clone();
-        let mut add_menu = add_menu.clone();
-        move |_: MouseEvent| {
-            if let Some(Some((playlist, _))) = playlist_data_ref() {
-                add_menu.open(AddIntent::from_playlist(&playlist));
-            }
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let coords = evt.client_coordinates();
+            playlist_menu_x.set(coords.x);
+            playlist_menu_y.set(coords.y);
+            show_playlist_menu.set(!show_playlist_menu());
         }
     };
 
@@ -900,7 +931,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         ))
     };
 
-    let on_toggle_edit_mode = {
+    let mut on_toggle_edit_mode = {
         let mut edit_mode = edit_mode.clone();
         let mut song_search = song_search.clone();
         let mut reorder_error = reorder_error.clone();
@@ -1019,23 +1050,17 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     let editing_allowed = !is_auto_imported;
                     let downloaded_song_count =
                         songs.iter().filter(|song| is_song_downloaded(song)).count();
-                    let playlist_fully_downloaded =
-                        !songs.is_empty() && downloaded_song_count >= songs.len();
-
+                    let playlist_fully_downloaded = !songs.is_empty()
+                        && downloaded_song_count >= songs.len();
                     rsx! {
                         div { class: "flex flex-col md:flex-row gap-8 mb-8 items-center md:items-end",
                             div { class: "w-64 h-64 rounded-2xl bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0",
                                 match cover_url {
                                     Some(url) => rsx! {
 
-
-
-
-
                                         img { class: "w-full h-full object-cover", src: "{url}" }
                                     },
                                     None => rsx! {
-
 
                                         div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
                                             Icon {
@@ -1086,30 +1111,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         span { class: "hidden md:inline", "Play" }
                                     }
                                     button {
-                                        class: if download_busy() {
-                                            "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center"
-                                        } else if playlist_fully_downloaded {
-                                            "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
-                                        } else {
-                                            "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center"
-                                        },
+                                        class: if download_busy() { "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center" } else if playlist_fully_downloaded { "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center" } else { "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center" },
                                         disabled: download_busy(),
                                         onclick: on_download_playlist,
-                                        title: if download_busy() {
-                                            "Downloading playlist"
-                                        } else if playlist_fully_downloaded {
-                                            "Playlist fully downloaded"
-                                        } else {
-                                            "Download playlist"
-                                        },
+                                        title: if download_busy() { "Downloading playlist" } else if playlist_fully_downloaded { "Playlist fully downloaded" } else { "Download playlist" },
                                         Icon {
-                                            name: if download_busy() {
-                                                "loader".to_string()
-                                            } else if playlist_fully_downloaded {
-                                                "check".to_string()
-                                            } else {
-                                                "download".to_string()
-                                            },
+                                            name: if download_busy() { "loader".to_string() } else if playlist_fully_downloaded { "check".to_string() } else { "download".to_string() },
                                             class: "w-5 h-5".to_string(),
                                         }
                                     }
@@ -1133,10 +1140,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                             songs.clone()
                                                         };
                                                         if playable.is_empty() {
-                                                            download_status.set(Some(
-                                                                "No downloaded songs in this playlist are available for offline playback."
-                                                                    .to_string(),
-                                                            ));
+                                                            download_status
+                                                                .set(
+                                                                    Some(
+                                                                        "No downloaded songs in this playlist are available for offline playback."
+                                                                            .to_string(),
+                                                                    ),
+                                                                );
                                                             return;
                                                         }
                                                         use rand::seq::SliceRandom;
@@ -1162,30 +1172,127 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     button {
                                         class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
                                         onclick: on_open_playlist_menu,
-                                        Icon { name: "more-horizontal".to_string(), class: "w-5 h-5".to_string() }
-                                    }
-                                    if editing_allowed {
-                                        div { class: "col-span-5 md:basis-auto flex gap-3 justify-center md:justify-start",
-                                        button {
-                                            class: "px-4 py-2 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-sm",
-                                            onclick: on_toggle_edit_mode,
-                                            if edit_mode() {
-                                                "Done editing"
-                                            } else {
-                                                "Edit playlist"
-                                            }
-                                        }
-                                        button {
-                                            class: "px-4 py-2 rounded-full border border-red-500/60 text-red-300 hover:text-white hover:bg-red-500/10 transition-colors text-sm",
-                                            onclick: on_delete_playlist,
-                                            disabled: deleting_playlist(),
-                                            if deleting_playlist() {
-                                                "Deleting..."
-                                            } else {
-                                                "Delete playlist"
-                                            }
+                                        Icon {
+                                            name: "more-horizontal".to_string(),
+                                            class: "w-5 h-5".to_string(),
                                         }
                                     }
+                                    if show_playlist_menu() {
+                                        div {
+                                            class: "fixed inset-0 z-[9998]",
+                                            onclick: move |evt: MouseEvent| {
+                                                evt.stop_propagation();
+                                                show_playlist_menu.set(false);
+                                            },
+                                        }
+                                        div {
+                                            class: "fixed z-[9999] w-52 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                                            style: format!(
+                                                "top: {}px; left: {}px;",
+                                                playlist_menu_y() + 8.0,
+                                                (playlist_menu_x() - 208.0).max(4.0),
+                                            ),
+                                            onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                                            button {
+                                                class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                                onclick: {
+                                                    let playlist_data_ref = playlist_data.clone();
+                                                    let app_settings = app_settings.clone();
+                                                    let mut download_status = download_status.clone();
+                                                    move |_: MouseEvent| {
+                                                        show_playlist_menu.set(false);
+                                                        if let Some(Some((_, songs))) = playlist_data_ref() {
+                                                            if !songs.is_empty() {
+                                                                let settings = app_settings();
+                                                                let mut playable = if settings.offline_mode {
+                                                                    songs
+                                                                        .iter()
+                                                                        .filter(|song| is_song_downloaded(song))
+                                                                        .cloned()
+                                                                        .collect::<Vec<_>>()
+                                                                } else {
+                                                                    songs.clone()
+                                                                };
+                                                                if playable.is_empty() {
+                                                                    download_status
+                                                                        .set(
+                                                                            Some(
+                                                                                "No downloaded songs available for offline playback."
+                                                                                    .to_string(),
+                                                                            ),
+                                                                        );
+                                                                    return;
+                                                                }
+                                                                use rand::seq::SliceRandom;
+                                                                playable.shuffle(&mut rand::thread_rng());
+                                                                queue.set(playable.clone());
+                                                                queue_index.set(0);
+                                                                now_playing.set(Some(playable[0].clone()));
+                                                                is_playing.set(true);
+                                                            }
+                                                        }
+                                                    }
+                                                },
+                                                Icon {
+                                                    name: "shuffle".to_string(),
+                                                    class: "w-4 h-4".to_string(),
+                                                }
+                                                "Shuffle & Play"
+                                            }
+                                            if editing_allowed {
+                                                button {
+                                                    class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                                    onclick: {
+                                                        let mut show_playlist_menu = show_playlist_menu.clone();
+                                                        move |_: MouseEvent| {
+                                                            show_playlist_menu.set(false);
+                                                            on_toggle_edit_mode(());
+                                                        }
+                                                    },
+                                                    Icon {
+                                                        name: "edit".to_string(),
+                                                        class: "w-4 h-4".to_string(),
+                                                    }
+                                                    if edit_mode() { "Done editing" } else { "Edit playlist" }
+                                                }
+                                                button {
+                                                    class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
+                                                    onclick: {
+                                                        let mut show_delete_confirm = show_delete_confirm.clone();
+                                                        let mut delete_error = delete_error.clone();
+                                                        move |_: MouseEvent| {
+                                                            show_playlist_menu.set(false);
+                                                            delete_error.set(None);
+                                                            show_delete_confirm.set(true);
+                                                        }
+                                                    },
+                                                    Icon {
+                                                        name: "trash".to_string(),
+                                                        class: "w-4 h-4".to_string(),
+                                                    }
+                                                    "Delete Playlist"
+                                                }
+                                            }
+                                            div { class: "border-t border-zinc-700/60 my-1" }
+                                            button {
+                                                class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                                onclick: {
+                                                    let playlist_data_ref = playlist_data.clone();
+                                                    let mut add_menu = add_menu.clone();
+                                                    move |_: MouseEvent| {
+                                                        show_playlist_menu.set(false);
+                                                        if let Some(Some((playlist, _))) = playlist_data_ref() {
+                                                            add_menu.open(AddIntent::from_playlist(&playlist));
+                                                        }
+                                                    }
+                                                },
+                                                Icon {
+                                                    name: "plus".to_string(),
+                                                    class: "w-4 h-4".to_string(),
+                                                }
+                                                "Add to..."
+                                            }
+                                        }
                                     }
                                 }
                                 if let Some(status) = download_status() {
@@ -1214,11 +1321,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                 div { class: "flex flex-col gap-1",
                                                     button {
                                                         r#type: "button",
-                                                        class: if can_move_up {
-                                                            "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
-                                                        } else {
-                                                            "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center"
-                                                        },
+                                                        class: if can_move_up { "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center" } else { "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center" },
                                                         title: "Move up",
                                                         disabled: !can_move_up,
                                                         onclick: {
@@ -1229,21 +1332,17 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                 if !editing_allowed || !can_move_up {
                                                                     return;
                                                                 }
-                                                                on_reorder_song.borrow_mut()(
-                                                                    source_index,
-                                                                    source_index.saturating_sub(1),
-                                                                );
+                                                                on_reorder_song.borrow_mut()(source_index, source_index.saturating_sub(1));
                                                             }
                                                         },
-                                                        Icon { name: "chevron-up".to_string(), class: "w-3.5 h-3.5".to_string() }
+                                                        Icon {
+                                                            name: "chevron-up".to_string(),
+                                                            class: "w-3.5 h-3.5".to_string(),
+                                                        }
                                                     }
                                                     button {
                                                         r#type: "button",
-                                                        class: if can_move_down {
-                                                            "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
-                                                        } else {
-                                                            "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center"
-                                                        },
+                                                        class: if can_move_down { "w-7 h-7 rounded-md border border-zinc-700/80 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center" } else { "w-7 h-7 rounded-md border border-zinc-800 text-zinc-600 cursor-not-allowed flex items-center justify-center" },
                                                         title: "Move down",
                                                         disabled: !can_move_down,
                                                         onclick: {
@@ -1254,13 +1353,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                 if !editing_allowed || !can_move_down {
                                                                     return;
                                                                 }
-                                                                on_reorder_song.borrow_mut()(
-                                                                    source_index,
-                                                                    source_index.saturating_add(1),
-                                                                );
+                                                                on_reorder_song.borrow_mut()(source_index, source_index.saturating_add(1));
                                                             }
                                                         },
-                                                        Icon { name: "chevron-down".to_string(), class: "w-3.5 h-3.5".to_string() }
+                                                        Icon {
+                                                            name: "chevron-down".to_string(),
+                                                            class: "w-3.5 h-3.5".to_string(),
+                                                        }
                                                     }
                                                 }
                                                 div { class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
@@ -1333,10 +1432,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     match auto_recommendations() {
                                         None => rsx! {
                                             div { class: "py-2 flex items-center gap-2 text-zinc-500 text-sm",
-                                                Icon {
-                                                    name: "loader".to_string(),
-                                                    class: "w-4 h-4 animate-spin".to_string(),
-                                                }
+                                                Icon { name: "loader".to_string(), class: "w-4 h-4 animate-spin".to_string() }
                                                 "Finding recommendations..."
                                             }
                                         },
@@ -1375,16 +1471,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                                         let navigation = navigation_for_cover.clone();
                                                                                         move |evt: MouseEvent| {
                                                                                             evt.stop_propagation();
-                                                                                            navigation.navigate_to(AppView::AlbumDetailView {
-                                                                                                album_id: album_id.clone(),
-                                                                                                server_id: server_id.clone(),
-                                                                                            });
+                                                                                            navigation
+                                                                                                .navigate_to(AppView::AlbumDetailView {
+                                                                                                    album_id: album_id.clone(),
+                                                                                                    server_id: server_id.clone(),
+                                                                                                });
                                                                                         }
                                                                                     },
-                                                                                    img {
-                                                                                        class: "w-full h-full object-cover",
-                                                                                        src: "{url}",
-                                                                                    }
+                                                                                    img { class: "w-full h-full object-cover", src: "{url}" }
                                                                                 }
                                                                             } else {
                                                                                 img {
@@ -1442,11 +1536,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                                 }
                                                                             }
                                                                             button {
-                                                                                class: if already_in_playlist {
-                                                                                    "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
-                                                                                } else {
-                                                                                    "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
-                                                                                },
+                                                                                class: if already_in_playlist { "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed" } else { "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs" },
                                                                                 disabled: already_in_playlist,
                                                                                 onclick: {
                                                                                     let song = res.clone();
@@ -1472,9 +1562,10 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                             let recommendation_key = song_identity_key(&res);
                                                                             move |evt: MouseEvent| {
                                                                                 evt.stop_propagation();
-                                                                                dismissed_recommendations.with_mut(|dismissed| {
-                                                                                    dismissed.insert(recommendation_key.clone());
-                                                                                });
+                                                                                dismissed_recommendations
+                                                                                    .with_mut(|dismissed| {
+                                                                                        dismissed.insert(recommendation_key.clone());
+                                                                                    });
                                                                             }
                                                                         },
                                                                         Icon { name: "x".to_string(), class: "w-3 h-3".to_string() }
@@ -1496,7 +1587,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     }
                                 }
                                 if song_search().trim().len() < 2 {
-                                    p { class: "text-sm text-zinc-500", "Type at least 2 characters to search for additional songs." }
+                                    p { class: "text-sm text-zinc-500",
+                                        "Type at least 2 characters to search for additional songs."
+                                    }
                                 } else if let Some(results) = search_results() {
                                     if results.is_empty() {
                                         p { class: "text-sm text-zinc-500", "No songs found." }
@@ -1530,16 +1623,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                             let navigation = navigation_for_cover.clone();
                                                                             move |evt: MouseEvent| {
                                                                                 evt.stop_propagation();
-                                                                                navigation.navigate_to(AppView::AlbumDetailView {
-                                                                                    album_id: album_id.clone(),
-                                                                                    server_id: server_id.clone(),
-                                                                                });
+                                                                                navigation
+                                                                                    .navigate_to(AppView::AlbumDetailView {
+                                                                                        album_id: album_id.clone(),
+                                                                                        server_id: server_id.clone(),
+                                                                                    });
                                                                             }
                                                                         },
-                                                                        img {
-                                                                            class: "w-full h-full object-cover",
-                                                                            src: "{url}",
-                                                                        }
+                                                                        img { class: "w-full h-full object-cover", src: "{url}" }
                                                                     }
                                                                 } else {
                                                                     img {
@@ -1579,7 +1670,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                     },
                                                                     title: "Play a short preview, then return to your current song",
                                                                     disabled: preview_song_key()
-                                                                        == Some(song_identity_key(&res)),
+                                                                                                                                            == Some(song_identity_key(&res)),
                                                                     onclick: {
                                                                         let song = res.clone();
                                                                         let on_preview_song = on_preview_song.clone();
@@ -1597,11 +1688,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                     }
                                                                 }
                                                                 button {
-                                                                    class: if already_in_playlist {
-                                                                        "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
-                                                                    } else {
-                                                                        "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs"
-                                                                    },
+                                                                    class: if already_in_playlist { "px-3 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed" } else { "px-3 py-1 rounded-lg border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/10 transition-colors text-xs" },
                                                                     disabled: already_in_playlist,
                                                                     onclick: {
                                                                         let song = res.clone();

@@ -191,11 +191,7 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
 
     rsx! {
         div {
-            class: if is_current {
-                "relative w-full flex items-start gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer"
-            } else {
-                "relative w-full flex items-start gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer"
-            },
+            class: if is_current { "relative w-full flex items-center gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer" } else { "relative w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer" },
             onclick: move |e| {
                 show_mobile_actions.set(false);
                 onclick.call(e);
@@ -203,12 +199,18 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
             // Index
             if is_current {
                 span { class: "w-6 text-sm text-emerald-400",
-                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "play".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                 }
             } else {
                 span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{index}" }
                 span { class: "w-6 text-sm text-white hidden group-hover:block",
-                    Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+                    Icon {
+                        name: "play".to_string(),
+                        class: "w-4 h-4".to_string(),
+                    }
                 }
             }
             // Cover
@@ -232,18 +234,14 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                 }
             }
             // Song info
-            div { class: "flex-1 min-w-0 text-center md:text-left pt-0.5",
-                div { class: "flex items-start justify-between gap-2 min-w-0",
+            div { class: "flex-1 min-w-0 text-center md:text-left",
+                div { class: "flex items-center justify-between gap-2 min-w-0",
                     p { class: if is_current { "min-w-0 flex-1 text-sm font-medium text-emerald-400 truncate transition-colors" } else { "min-w-0 flex-1 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors" },
                         "{song.title}"
                     }
                     div { class: "relative flex items-center gap-1 flex-shrink-0 -mr-1",
                         button {
-                            class: if is_favorited() {
-                                "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors"
-                            } else {
-                                "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors"
-                            },
+                            class: if is_favorited() { "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors" } else { "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" },
                             aria_label: if is_favorited() { "Unfavorite" } else { "Favorite" },
                             onclick: make_on_toggle_favorite(),
                             Icon {
@@ -270,12 +268,18 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                                 button {
                                     class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
                                     onclick: make_on_open_menu(),
-                                    Icon { name: "plus".to_string(), class: "w-4 h-4".to_string() }
+                                    Icon {
+                                        name: "plus".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
                                     "Add To..."
                                 }
                                 if downloaded() {
                                     div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
-                                        Icon { name: "check".to_string(), class: "w-4 h-4".to_string() }
+                                        Icon {
+                                            name: "check".to_string(),
+                                            class: "w-4 h-4".to_string(),
+                                        }
                                         "Downloaded"
                                     }
                                 } else {
@@ -307,7 +311,9 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                                         "Favorite"
                                     }
                                 }
-                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Rating" }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                                    "Rating"
+                                }
                                 div { class: "flex items-center gap-1 px-2 pb-1",
                                     for i in 1..=5 {
                                         button {
@@ -320,8 +326,12 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                                         }
                                     }
                                 }
-                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500", "Length" }
-                                p { class: "px-2.5 pb-2 text-xs text-zinc-300", "{format_duration(song.duration)}" }
+                                div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                                    "Length"
+                                }
+                                p { class: "px-2.5 pb-2 text-xs text-zinc-300",
+                                    "{format_duration(song.duration)}"
+                                }
                             }
                         }
                     }

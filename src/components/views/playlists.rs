@@ -1,6 +1,9 @@
 use crate::api::*;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::db::AppSettings;
+use crate::offline_audio::is_song_downloaded;
 use dioxus::prelude::*;
+use rand::seq::SliceRandom;
 
 const PLAYLIST_INITIAL_LIMIT: usize = 20;
 
@@ -10,7 +13,7 @@ pub fn PlaylistsView() -> Element {
     let navigation = use_context::<Navigation>();
     let mut search_query = use_signal(String::new);
     let limit = use_signal(|| PLAYLIST_INITIAL_LIMIT);
-    let refresh = use_signal(|| 0usize);
+    let mut refresh = use_signal(|| 0usize);
     let single_active_server = servers().iter().filter(|s| s.active).count() == 1;
     let mut hide_auto_imported = use_signal(|| true);
     let mut owner_filter = use_signal(|| "all".to_string());
@@ -62,10 +65,7 @@ pub fn PlaylistsView() -> Element {
                 }
                 button {
                     class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
-                    onclick: {
-                        let mut refresh = refresh.clone();
-                        move |_| refresh.set(refresh() + 1)
-                    },
+                    onclick: move |_| refresh.set(refresh() + 1),
                     "Refresh"
                 }
             }
@@ -102,23 +102,15 @@ pub fn PlaylistsView() -> Element {
             }
 
             {
-
                 match playlists() {
                     Some(playlists) => {
                         let raw_query = search_query().trim().to_string();
                         let query = raw_query.to_lowercase();
                         let mut filtered = playlists.clone();
 
-                        // Apply filters
                         if hide_auto_imported() {
                             filtered
-
                                 .retain(|p| {
-
-                                    // Apply search
-
-                                    // Apply sorting
-
                                     p.comment
                                         .as_ref()
                                         .map(|c| !c.to_lowercase().contains("auto-imported"))
@@ -194,6 +186,7 @@ pub fn PlaylistsView() -> Element {
                                                         })
                                                 }
                                             },
+                                            on_delete: move |_| refresh.set(refresh() + 1),
                                         }
                                     }
                                 }
@@ -227,18 +220,32 @@ pub fn PlaylistsView() -> Element {
 }
 
 #[component]
-fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Element {
+fn PlaylistCard(
+    playlist: Playlist,
+    onclick: EventHandler<MouseEvent>,
+    on_delete: EventHandler<()>,
+) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let add_menu = use_context::<AddMenuController>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
+    let mut now_playing = use_context::<Signal<Option<Song>>>();
+    let mut is_playing = use_context::<Signal<bool>>();
+    let app_settings = use_context::<Signal<AppSettings>>();
 
-    let on_open_menu = {
-        let mut add_menu = add_menu.clone();
-        let playlist = playlist.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            add_menu.open(AddIntent::from_playlist(&playlist));
-        }
-    };
+    let mut show_menu = use_signal(|| false);
+    let mut menu_x = use_signal(|| 0f64);
+    let mut menu_y = use_signal(|| 0f64);
+    let mut show_delete_confirm = use_signal(|| false);
+    let mut delete_error = use_signal(|| None::<String>);
+    let mut deleting = use_signal(|| false);
+
+    let is_auto_imported = playlist
+        .comment
+        .as_ref()
+        .map(|c| c.to_lowercase().contains("auto-imported"))
+        .unwrap_or(false);
+    let editing_allowed = !is_auto_imported;
 
     let cover_url = servers()
         .iter()
@@ -251,50 +258,223 @@ fn PlaylistCard(playlist: Playlist, onclick: EventHandler<MouseEvent>) -> Elemen
                 .map(|ca| client.get_cover_art_url(ca, 300))
         });
 
+    let on_shuffle = {
+        let servers = servers.clone();
+        let playlist_id = playlist.id.clone();
+        let playlist_server_id = playlist.server_id.clone();
+        let app_settings = app_settings.clone();
+        move |_: MouseEvent| {
+            show_menu.set(false);
+            let servers_snapshot = servers();
+            if let Some(server) = servers_snapshot
+                .into_iter()
+                .find(|s| s.id == playlist_server_id && s.active)
+            {
+                let client = NavidromeClient::new(server);
+                let playlist_id = playlist_id.clone();
+                let settings = app_settings();
+                spawn(async move {
+                    if let Ok((_, songs)) = client.get_playlist(&playlist_id).await {
+                        let mut playable: Vec<Song> = if settings.offline_mode {
+                            songs.into_iter().filter(|s| is_song_downloaded(s)).collect()
+                        } else {
+                            songs
+                        };
+                        if !playable.is_empty() {
+                            playable.shuffle(&mut rand::thread_rng());
+                            queue.set(playable.clone());
+                            queue_index.set(0);
+                            now_playing.set(Some(playable[0].clone()));
+                            is_playing.set(true);
+                        }
+                    }
+                });
+            }
+        }
+    };
+
+    let on_confirm_delete = {
+        let servers = servers.clone();
+        let playlist_id = playlist.id.clone();
+        let playlist_server_id = playlist.server_id.clone();
+        move |_: MouseEvent| {
+            let servers_snapshot = servers();
+            if let Some(server) = servers_snapshot
+                .into_iter()
+                .find(|s| s.id == playlist_server_id && s.active)
+            {
+                let client = NavidromeClient::new(server);
+                let playlist_id = playlist_id.clone();
+                deleting.set(true);
+                spawn(async move {
+                    match client.delete_playlist(&playlist_id).await {
+                        Ok(_) => {
+                            show_delete_confirm.set(false);
+                            on_delete.call(());
+                        }
+                        Err(err) => {
+                            delete_error.set(Some(err));
+                            deleting.set(false);
+                        }
+                    }
+                });
+            }
+        }
+    };
+
     rsx! {
-        button { class: "group text-left", onclick: move |e| onclick.call(e),
-            // Playlist cover
-            div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
-                {
-                    match cover_url {
-                        Some(url) => rsx! {
-                            img { class: "w-full h-full object-cover", src: "{url}" }
-                        },
-                        None => rsx! {
-                            div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
-                                Icon {
-                                    name: "playlist".to_string(),
-                                    class: "w-12 h-12 text-white/70".to_string(),
+        div { class: "relative",
+            button {
+                class: "group w-full text-left",
+                onclick: move |e| onclick.call(e),
+                // Playlist cover
+                div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
+                    {
+                        match cover_url {
+                            Some(url) => rsx! {
+                                img { class: "w-full h-full object-cover", src: "{url}" }
+                            },
+                            None => rsx! {
+                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-indigo-600 to-purple-700",
+                                    Icon {
+                                        name: "playlist".to_string(),
+                                        class: "w-12 h-12 text-white/70".to_string(),
+                                    }
                                 }
-                            }
+                            },
+                        }
+                    }
+                    button {
+                        class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
+                        aria_label: "Playlist options",
+                        onclick: move |evt: MouseEvent| {
+                            evt.stop_propagation();
+                            let coords = evt.client_coordinates();
+                            menu_x.set(coords.x);
+                            menu_y.set(coords.y);
+                            show_menu.set(!show_menu());
                         },
-                    }
-                }
-                button {
-                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
-                    aria_label: "Playlist options",
-                    onclick: on_open_menu,
-                    Icon {
-                        name: "more-horizontal".to_string(),
-                        class: "w-4 h-4".to_string(),
-                    }
-                }
-                // Play overlay
-                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
-                    div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
                         Icon {
-                            name: "play".to_string(),
-                            class: "w-5 h-5 text-white ml-0.5".to_string(),
+                            name: "more-horizontal".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                    }
+                    // Play overlay
+                    div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center",
+                        div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
+                            Icon {
+                                name: "play".to_string(),
+                                class: "w-5 h-5 text-white ml-0.5".to_string(),
+                            }
                         }
                     }
                 }
+                // Playlist info
+                p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
+                    "{playlist.name}"
+                }
+                p { class: "text-xs text-zinc-400",
+                    "{playlist.song_count} songs • {format_duration(playlist.duration / 1000)}"
+                }
             }
-            // Playlist info
-            p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors",
-                "{playlist.name}"
+
+            // Context menu
+            if show_menu() {
+                div {
+                    class: "fixed inset-0 z-[9998]",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        show_menu.set(false);
+                    },
+                }
+                div {
+                    class: "fixed z-[9999] w-52 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                    style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 208.0).max(4.0)),
+                    onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                    button {
+                        class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        onclick: on_shuffle,
+                        Icon {
+                            name: "shuffle".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Shuffle & Play"
+                    }
+                    if editing_allowed {
+                        button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
+                            onclick: move |_: MouseEvent| {
+                                show_menu.set(false);
+                                delete_error.set(None);
+                                show_delete_confirm.set(true);
+                            },
+                            Icon {
+                                name: "trash".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
+                            "Delete Playlist"
+                        }
+                    }
+                    div { class: "border-t border-zinc-700/60 my-1" }
+                    button {
+                        class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        onclick: {
+                            let mut add_menu = add_menu.clone();
+                            let playlist = playlist.clone();
+                            move |_: MouseEvent| {
+                                show_menu.set(false);
+                                add_menu.open(AddIntent::from_playlist(&playlist));
+                            }
+                        },
+                        Icon {
+                            name: "plus".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Add to..."
+                    }
+                }
             }
-            p { class: "text-xs text-zinc-400",
-                "{playlist.song_count} songs • {format_duration(playlist.duration / 1000)}"
+
+            // Delete confirm dialog
+            if show_delete_confirm() {
+                div {
+                    class: "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        if !deleting() {
+                            show_delete_confirm.set(false);
+                        }
+                    },
+                    div {
+                        class: "bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl",
+                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                        h3 { class: "text-lg font-semibold text-white mb-2", "Delete playlist?" }
+                        p { class: "text-sm text-zinc-400 mb-4",
+                            "Are you sure you want to delete \"{playlist.name}\"? This action cannot be undone."
+                        }
+                        if let Some(err) = delete_error() {
+                            p { class: "text-sm text-red-400 mb-3", "{err}" }
+                        }
+                        div { class: "flex gap-3 justify-end",
+                            button {
+                                class: "px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
+                                disabled: deleting(),
+                                onclick: move |_| show_delete_confirm.set(false),
+                                "Cancel"
+                            }
+                            button {
+                                class: "px-4 py-2 rounded-lg bg-red-500/20 border border-red-500/60 text-red-300 hover:text-white hover:bg-red-500/30 transition-colors text-sm",
+                                disabled: deleting(),
+                                onclick: on_confirm_delete,
+                                if deleting() {
+                                    "Deleting..."
+                                } else {
+                                    "Delete"
+                                }
+                            }
+                        }
+                    }
+                }
             }
         }
     }
