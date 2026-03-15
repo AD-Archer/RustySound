@@ -831,7 +831,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
-    let mut current_rating = use_signal(move || song.user_rating.unwrap_or(0).min(5));
+    let current_rating = use_signal(move || song.user_rating.unwrap_or(0).min(5));
     let is_favorited = use_signal(|| song.starred.is_some());
     let mut show_context_menu = use_signal(|| false);
     let download_busy = use_signal(|| false);
@@ -871,7 +871,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let make_on_open_menu = {
         let add_menu = add_menu.clone();
         let song = song.clone();
-        let mut show_context_menu = show_context_menu.clone();
+        let show_context_menu = show_context_menu.clone();
         move || {
             let mut add_menu = add_menu.clone();
             let song = song.clone();
@@ -888,7 +888,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
         let servers = servers.clone();
         let song_id = song.id.clone();
         let server_id = song.server_id.clone();
-        let mut show_context_menu = show_context_menu.clone();
+        let show_context_menu = show_context_menu.clone();
         move |new_rating: u32| {
             let servers = servers.clone();
             let song_id = song_id.clone();

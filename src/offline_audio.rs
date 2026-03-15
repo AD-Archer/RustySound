@@ -1174,28 +1174,6 @@ pub fn remove_downloaded_song(_server_id: &str, _song_id: &str) -> usize {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn remove_downloaded_songs(keys: &[(String, String)]) -> usize {
-    let key_set: HashSet<(String, String)> = keys
-        .iter()
-        .filter_map(|(server_id, song_id)| {
-            let server_id = server_id.trim();
-            let song_id = song_id.trim();
-            if server_id.is_empty() || song_id.is_empty() {
-                None
-            } else {
-                Some((server_id.to_string(), song_id.to_string()))
-            }
-        })
-        .collect();
-    remove_download_index_keys(&key_set)
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn remove_downloaded_songs(_keys: &[(String, String)]) -> usize {
-    0
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 pub fn remove_downloaded_collection(kind: &str, server_id: &str, collection_id: &str) -> usize {
     if kind.trim().is_empty() || server_id.trim().is_empty() || collection_id.trim().is_empty() {
         return 0;

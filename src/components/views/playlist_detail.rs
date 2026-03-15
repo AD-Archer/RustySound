@@ -989,7 +989,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
         }))
     };
-    let on_delete_playlist = {
+    let _on_delete_playlist = {
         let mut show_delete_confirm = show_delete_confirm.clone();
         let mut delete_error = delete_error.clone();
         move |_: MouseEvent| {
