@@ -276,7 +276,10 @@ fn PlaylistCard(
                 spawn(async move {
                     if let Ok((_, songs)) = client.get_playlist(&playlist_id).await {
                         let mut playable: Vec<Song> = if settings.offline_mode {
-                            songs.into_iter().filter(|s| is_song_downloaded(s)).collect()
+                            songs
+                                .into_iter()
+                                .filter(|s| is_song_downloaded(s))
+                                .collect()
                         } else {
                             songs
                         };

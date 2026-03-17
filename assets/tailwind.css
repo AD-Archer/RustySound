@@ -467,9 +467,6 @@
   .mt-1 {
     margin-top: calc(var(--spacing) * 1);
   }
-  .mt-1\.5 {
-    margin-top: calc(var(--spacing) * 1.5);
-  }
   .mt-2 {
     margin-top: calc(var(--spacing) * 2);
   }
@@ -852,6 +849,9 @@
   .grid-cols-12 {
     grid-template-columns: repeat(12, minmax(0, 1fr));
   }
+  .grid-cols-\[1\.75rem_2\.5rem_minmax\(0\,1fr\)_4\.5rem\] {
+    grid-template-columns: 1.75rem 2.5rem minmax(0,1fr) 4.5rem;
+  }
   .flex-col {
     flex-direction: column;
   }
@@ -978,6 +978,9 @@
         border-color: color-mix(in oklab, var(--color-zinc-800) 50%, transparent);
       }
     }
+  }
+  .justify-self-center {
+    justify-self: center;
   }
   .truncate {
     overflow: hidden;
@@ -2345,6 +2348,13 @@
       }
     }
   }
+  .group-hover\:flex {
+    &:is(:where(.group):hover *) {
+      @media (hover: hover) {
+        display: flex;
+      }
+    }
+  }
   .group-hover\:hidden {
     &:is(:where(.group):hover *) {
       @media (hover: hover) {
@@ -3289,6 +3299,11 @@
   .md\:items-end {
     @media (width >= 48rem) {
       align-items: flex-end;
+    }
+  }
+  .md\:items-start {
+    @media (width >= 48rem) {
+      align-items: flex-start;
     }
   }
   .md\:justify-between {

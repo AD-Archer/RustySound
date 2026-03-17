@@ -97,13 +97,32 @@ pub fn SearchView() -> Element {
             spawn(async move {
                 let mut combined = SearchResult::default();
 
-                // Keep result counts bounded so scoring doesn't block UI.
+                // Tokenized search strategy: search with the full query, plus
+                // individual significant tokens (3+ chars) to improve recall.
+                // e.g. "All falls down kanye" searches as:
+                //   full query, "all falls down kanye"
+                //   token "all"
+                //   token "falls"
+                //   token "down"
+                //   token "kanye"
+                // This lets multi-field queries like "song title + artist" work.
+                let tokens = tokenize(&query);
+                let mut queries: Vec<String> = vec![query.clone()];
+                for token in &tokens {
+                    if token.len() >= 3 && *token != normalize_text(&query) {
+                        queries.push(token.clone());
+                    }
+                }
+                queries.dedup();
+
                 for server in active_servers {
                     let client = NavidromeClient::new(server);
-                    if let Ok(result) = client.search(&query, 24, 48, 96).await {
-                        combined.artists.extend(result.artists);
-                        combined.albums.extend(result.albums);
-                        combined.songs.extend(result.songs);
+                    for q in &queries {
+                        if let Ok(result) = client.search(q, 24, 48, 96).await {
+                            combined.artists.extend(result.artists);
+                            combined.albums.extend(result.albums);
+                            combined.songs.extend(result.songs);
+                        }
                     }
                 }
 
@@ -181,14 +200,9 @@ pub fn SearchView() -> Element {
                                                 move |_| {
                                                     navigation
 
-                        // Albums
+                                                        // Albums
 
-                        // Songs
-
-
-
-
-
+                                                        // Songs
 
                                                         .navigate_to(AppView::ArtistDetailView {
                                                             artist_id: artist_id.clone(),
@@ -216,12 +230,10 @@ pub fn SearchView() -> Element {
                                                 let album_server_id = album.server_id.clone();
                                                 move |_| {
                                                     navigation
-                                                        .navigate_to(
-                                                            AppView::AlbumDetailView {
-                                                                album_id: album_id.clone(),
-                                                                server_id: album_server_id.clone(),
-                                                            },
-                                                        )
+                                                        .navigate_to(AppView::AlbumDetailView {
+                                                            album_id: album_id.clone(),
+                                                            server_id: album_server_id.clone(),
+                                                        })
                                                 }
                                             },
                                         }
@@ -302,7 +314,9 @@ pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element 
         .to_uppercase();
 
     rsx! {
-        button { class: "group w-full min-w-0 text-center", onclick: move |e| onclick.call(e),
+        button {
+            class: "group w-full min-w-0 text-center",
+            onclick: move |e| onclick.call(e),
             // Artist image
             div { class: "aspect-square rounded-full bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow mx-auto",
                 {
@@ -338,10 +352,20 @@ pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element 
     }
 }
 
-/// Tokenize and normalize search query
-fn tokenize(text: &str) -> Vec<String> {
+/// Strip punctuation (apostrophes, hyphens, etc.) from text for comparison.
+/// e.g. "Don't" -> "dont", "re-enter" -> "reenter"
+fn normalize_text(text: &str) -> String {
     text.to_lowercase()
-        .split(|c: char| !c.is_alphanumeric())
+        .chars()
+        .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+        .collect()
+}
+
+/// Tokenize a search query into meaningful words.
+/// Strips punctuation before splitting so "Don't" becomes "dont" (not "don" + "t").
+fn tokenize(text: &str) -> Vec<String> {
+    normalize_text(text)
+        .split_whitespace()
         .filter(|s| !s.is_empty())
         .map(String::from)
         .collect()
@@ -366,26 +390,35 @@ fn dedupe_search_results(mut results: SearchResult) -> SearchResult {
     results
 }
 
-/// Calculate fuzzy match score for a field against query tokens
+/// Calculate fuzzy match score for a field against query tokens.
+/// Normalizes the field (strips punctuation) so "Don't" matches "dont".
 fn calculate_score(field: &str, tokens: &[String]) -> i32 {
-    let field_lower = field.to_lowercase();
+    let field_normalized = normalize_text(field);
+    let field_words: Vec<&str> = field_normalized.split_whitespace().collect();
     let mut score = 0;
 
     for token in tokens {
         // Exact full match (highest score)
-        if field_lower == *token {
+        if field_normalized == *token {
             score += 100;
         }
         // Starts with token (high score)
-        else if field_lower.starts_with(token) {
+        else if field_normalized.starts_with(token.as_str()) {
             score += 80;
         }
-        // Contains token as word (medium-high score)
-        else if field_lower.split_whitespace().any(|word| word == token) {
+        // A word in the field matches the token exactly
+        else if field_words.iter().any(|word| *word == token) {
             score += 60;
         }
-        // Contains token anywhere (medium score)
-        else if field_lower.contains(token) {
+        // A word in the field starts with the token (prefix match)
+        else if field_words
+            .iter()
+            .any(|word| word.starts_with(token.as_str()))
+        {
+            score += 50;
+        }
+        // Contains token anywhere in the normalized field
+        else if field_normalized.contains(token.as_str()) {
             score += 40;
         }
     }
@@ -393,33 +426,80 @@ fn calculate_score(field: &str, tokens: &[String]) -> i32 {
     score
 }
 
-/// Score songs based on fuzzy matching across title, artist, and album
+/// Check if a single token matches a normalized field, returning true if found.
+fn token_matches_field(field_normalized: &str, token: &str) -> bool {
+    field_normalized == token || field_normalized.contains(token)
+}
+
+/// Score songs based on fuzzy matching across title, artist, and album.
+/// Requires ALL tokens to appear somewhere across the combined fields.
 fn score_song(song: &Song, tokens: &[String]) -> i32 {
-    let title_score = calculate_score(&song.title, tokens) * 3; // Title is most important
+    let title_norm = normalize_text(&song.title);
+    let artist_norm = song
+        .artist
+        .as_deref()
+        .map(normalize_text)
+        .unwrap_or_default();
+    let album_norm = song
+        .album
+        .as_deref()
+        .map(normalize_text)
+        .unwrap_or_default();
+
+    // Every token must appear in at least one field
+    for token in tokens {
+        if !token_matches_field(&title_norm, token)
+            && !token_matches_field(&artist_norm, token)
+            && !token_matches_field(&album_norm, token)
+        {
+            return 0;
+        }
+    }
+
+    let title_score = calculate_score(&song.title, tokens) * 3;
     let artist_score = song
         .artist
         .as_deref()
         .map_or(0, |artist| calculate_score(artist, tokens))
-        * 2; // Artist is second
+        * 2;
     let album_score = song
         .album
         .as_deref()
-        .map_or(0, |album| calculate_score(album, tokens)); // Album is third
+        .map_or(0, |album| calculate_score(album, tokens));
 
     title_score + artist_score + album_score
 }
 
-/// Score albums based on fuzzy matching across name and artist
+/// Score albums based on fuzzy matching across name and artist.
+/// Requires ALL tokens to appear somewhere across name or artist.
 fn score_album(album: &Album, tokens: &[String]) -> i32 {
+    let name_norm = normalize_text(&album.name);
+    let artist_norm = normalize_text(&album.artist);
+
+    for token in tokens {
+        if !token_matches_field(&name_norm, token) && !token_matches_field(&artist_norm, token) {
+            return 0;
+        }
+    }
+
     let name_score = calculate_score(&album.name, tokens) * 3;
     let artist_score = calculate_score(&album.artist, tokens) * 2;
 
     name_score + artist_score
 }
 
-/// Score artists based on fuzzy matching on name
+/// Score artists based on fuzzy matching on name.
+/// For single-field entities, at least half the tokens must match.
 fn score_artist(artist: &Artist, tokens: &[String]) -> i32 {
-    calculate_score(&artist.name, tokens) * 4 // Artists only have name, so weight it heavily
+    let name_norm = normalize_text(&artist.name);
+    let matched = tokens
+        .iter()
+        .filter(|t| token_matches_field(&name_norm, t))
+        .count();
+    if matched == 0 {
+        return 0;
+    }
+    calculate_score(&artist.name, tokens) * 4
 }
 
 /// Filter and score all search results with fuzzy matching
