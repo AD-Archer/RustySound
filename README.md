@@ -1,11 +1,11 @@
 # RustySound
 
-A cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus.
+A lightweight cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus, < 10mb 
 
 ![RustySound desktop screenshot](https://www.antonioarcher.com/images/projects/rustysound/desktop/sound_menu.webp)
 <img alt="album page art" src="https://github.com/user-attachments/assets/06267508-388f-456b-a2e3-ae45dc00f11c" />
+![RustySound lyrics demo](https://www.antonioarcher.com/images/projects/rustysound/desktop/shot.gif)
 <img alt="album" src="https://github.com/user-attachments/assets/bc93c22e-bcf1-4a41-9d3c-fdba82a36214" />
-
 
 # Features
 
@@ -25,8 +25,7 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 - **Browser**: WebAssembly-based web application
 - **Progressive Web App**: Installable PWA support
 
-
-## Desktop 
+## Desktop
 
 - **macOS**: DMG installer and Homebrew
 - **Windows**: NSIS installer and scoop.
@@ -34,30 +33,31 @@ A cross-platform music streaming client for Navidrome and Subsonic-compatible se
 
 ## Mobile
 
-- **iOS**: unsigned .ipa 
+- **iOS**: unsigned .ipa
 - **Android**: APK release artifact
 
 > Android status: Android builds are published and kept feature-aligned, but Android is not under active day-to-day development and may contain platform-specific bugs.
-
 
 # Installation
 
 ## Desktop
 
 ### IOS
+
 1. Add `https://ad-archer.github.io/packages/source.json` as a source in [AltStore/AltServer](https://altstore.io/) or [LiveContainer](https://github.com/LiveContainer/LiveContainer)
 2. Install RustySound from that source on your device
 3. Use the latest `.ipa` from [Releases](https://github.com/AD-Archer/RustySound/releases) only if you want to sideload manually instead of using the source feed
 
 ### Android
+
 1. Download the latest `.apk` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Enable installation from unknown sources on your device
 3. Install the APK and launch RustySound
 
-
 ### macOS
 
 #### Homebrew
+
 ```bash
 brew tap ad-archer/tap
 brew install --cask rustysound
@@ -68,7 +68,6 @@ To update:
 ```bash
 brew upgrade rustysound
 ```
-
 
 #### DMG
 
@@ -94,8 +93,8 @@ scoop bucket add ad-archer https://github.com/ad-archer/scoop
 scoop install ad-archer/rustysound
 ```
 
-
 #### Executable
+
 1. Download the latest `.exe` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Open the exe and install RustySound
 
