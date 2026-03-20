@@ -46,6 +46,26 @@ const HOME_INIT_RANDOM_FETCH_LIMIT: usize = HOME_INIT_SECTION_FETCH_LIMIT;
 const HOME_INIT_ALBUM_PREVIEW_LIMIT: u32 = HOME_INIT_SECTION_BASE_COUNT as u32;
 const HOME_INIT_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
 
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn focus_global_search_input() {
+    let _ = document::eval(
+        r#"
+(() => {
+  setTimeout(() => {
+    const input = document.getElementById("global-search-input");
+    if (input && typeof input.focus === "function") {
+      input.focus();
+      if (typeof input.select === "function") {
+        input.select();
+      }
+    }
+  }, 50);
+  return true;
+})();
+        "#,
+    );
+}
+
 fn loading_progress_percent(progress: f32) -> u32 {
     (progress.clamp(0.0, 1.0) * 100.0).round() as u32
 }
@@ -819,8 +839,36 @@ pub fn AppShell() -> Element {
     {
         let navigation = navigation.clone();
         use_muda_event_handler(move |event| {
-            if event.id() == "rustysound-open-settings" {
-                navigation.navigate_to(AppView::SettingsView {});
+            match event.id().as_ref() {
+                "rustysound-open-settings" => {
+                    navigation.navigate_to(AppView::SettingsView {});
+                }
+                "rustysound-go-home" => {
+                    navigation.navigate_to(AppView::HomeView {});
+                }
+                "rustysound-go-search" => {
+                    navigation.navigate_to(AppView::SearchView {});
+                    focus_global_search_input();
+                }
+                "rustysound-go-albums" => {
+                    navigation.navigate_to(AppView::Albums {});
+                }
+                "rustysound-go-artists" => {
+                    navigation.navigate_to(AppView::ArtistsView {});
+                }
+                "rustysound-go-playlists" => {
+                    navigation.navigate_to(AppView::PlaylistsView {});
+                }
+                "rustysound-go-songs" => {
+                    navigation.navigate_to(AppView::SongsView {});
+                }
+                "rustysound-go-queue" => {
+                    navigation.navigate_to(AppView::QueueView {});
+                }
+                "rustysound-go-downloads" => {
+                    navigation.navigate_to(AppView::DownloadsView {});
+                }
+                _ => {}
             }
         });
     }

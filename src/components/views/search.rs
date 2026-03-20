@@ -154,6 +154,7 @@ pub fn SearchView() -> Element {
                         class: "absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400".to_string(),
                     }
                     input {
+                        id: "global-search-input",
                         class: "w-full pl-12 pr-4 py-4 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                         placeholder: "Search songs, albums, artists...",
                         value: search_query,

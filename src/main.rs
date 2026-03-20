@@ -242,6 +242,60 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         ])
         .expect("failed to build macOS edit menu");
 
+    let go_menu = Submenu::new("Go", true);
+    go_menu
+        .append_items(&[
+            &MenuItem::with_id(
+                "rustysound-go-home",
+                "Home",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit1)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-search",
+                "Search",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyL)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-albums",
+                "Albums",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit2)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-artists",
+                "Artists",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit3)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-playlists",
+                "Playlists",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit4)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-songs",
+                "Songs",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit5)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-queue",
+                "Queue",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit6)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-go-downloads",
+                "Downloads",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit7)),
+            ),
+        ])
+        .expect("failed to build macOS Go menu");
+
     let window_menu = Submenu::new("Window", true);
     window_menu
         .append_items(&[
@@ -255,7 +309,7 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         .expect("failed to build macOS window menu");
     window_menu.set_as_windows_menu_for_nsapp();
 
-    menu.append_items(&[&app_menu, &edit_menu, &window_menu])
+    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &window_menu])
         .expect("failed to attach macOS menu items");
 
     menu
@@ -300,8 +354,10 @@ fn App() -> Element {
             href: APP_ICON_512,
         }
 
-        // Web app manifest
-        document::Link { rel: "manifest", href: WEB_MANIFEST }
+        // Web app manifest (web/mobile only)
+        if !cfg!(feature = "desktop") {
+            document::Link { rel: "manifest", href: WEB_MANIFEST }
+        }
 
         // Theme color for mobile browsers
         document::Meta {

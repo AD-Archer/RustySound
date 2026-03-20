@@ -75,7 +75,681 @@ fn screenshot_bar_label(bar: &ScreenshotLyricBar, include_timestamp: bool) -> St
     bar.text.clone()
 }
 
+fn build_screenshot_share_caption(
+    song_title: &str,
+    song_artist: Option<&str>,
+    lines: &[String],
+) -> String {
+    let title = song_title.trim();
+    let artist = song_artist
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .unwrap_or("");
+
+    let mut body = String::new();
+    if !title.is_empty() {
+        body.push_str(title);
+    }
+    if !artist.is_empty() {
+        if !body.is_empty() {
+            body.push_str(" - ");
+        }
+        body.push_str(artist);
+    }
+    if !body.is_empty() {
+        body.push_str("\n\n");
+    }
+
+    let mut first = true;
+    for line in lines.iter().map(String::as_str).map(str::trim) {
+        if line.is_empty() {
+            continue;
+        }
+        if !first {
+            body.push('\n');
+        }
+        first = false;
+        body.push_str(line);
+    }
+
+    if !body.is_empty() && !body.ends_with('\n') {
+        body.push('\n');
+    }
+    body
+}
+
+fn screenshot_share_file_name(song_title: &str) -> String {
+    let mut slug = String::new();
+    let mut last_was_dash = false;
+
+    for ch in song_title.trim().chars() {
+        if ch.is_ascii_alphanumeric() {
+            slug.push(ch.to_ascii_lowercase());
+            last_was_dash = false;
+        } else if !last_was_dash {
+            slug.push('-');
+            last_was_dash = true;
+        }
+
+        if slug.len() >= 36 {
+            break;
+        }
+    }
+
+    while slug.ends_with('-') {
+        let _ = slug.pop();
+    }
+
+    if slug.is_empty() {
+        "rustysound-lyrics-shot.png".to_string()
+    } else {
+        format!("rustysound-{slug}-lyrics-shot.png")
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn lyrics_share_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn lyrics_share_delay_ms(ms: u64) {
+    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
+async fn share_screenshot_lyrics_image(
+    capture_element_id: String,
+    file_name: String,
+    share_text: String,
+) -> String {
+    let html2canvas_source_escaped =
+        serde_json::to_string(HTML2CANVAS_BUNDLE).unwrap_or_else(|_| "\"\"".to_string());
+    let capture_id_escaped =
+        serde_json::to_string(&capture_element_id).unwrap_or_else(|_| "\"\"".to_string());
+    let file_name_escaped =
+        serde_json::to_string(&file_name).unwrap_or_else(|_| "\"rustysound-lyrics-shot.png\"".to_string());
+    let share_text_escaped =
+        serde_json::to_string(&share_text).unwrap_or_else(|_| "\"\"".to_string());
+    let script = format!(
+        r###"return (async function () {{
+            const html2canvasSource = {html2canvas_source_escaped};
+            const captureElementId = {capture_id_escaped};
+            const fileName = {file_name_escaped};
+            const shareText = {share_text_escaped};
+            const debugTag = "[rustysound-share-shot]";
+
+            function debugInfo(message, extra) {{
+                try {{
+                    console.info(debugTag + " " + message, extra || "");
+                }} catch (_err) {{}}
+            }}
+
+            function debugError(message, err) {{
+                try {{
+                    console.error(debugTag + " " + message, err || "");
+                }} catch (_err) {{}}
+            }}
+
+            function hasUnsupportedColorSyntax(value) {{
+                if (typeof value !== "string") {{
+                    return false;
+                }}
+                const lower = value.toLowerCase();
+                return (
+                    lower.includes("oklab(")
+                    || lower.includes("oklch(")
+                    || lower.includes("color-mix(")
+                );
+            }}
+
+            let colorCanvasCtx = null;
+            function normalizeCssColorValue(value) {{
+                if (typeof value !== "string" || value.trim().length === 0) {{
+                    return "";
+                }}
+                try {{
+                    if (!colorCanvasCtx) {{
+                        const canvas = document.createElement("canvas");
+                        canvas.width = 1;
+                        canvas.height = 1;
+                        colorCanvasCtx = canvas.getContext("2d");
+                    }}
+                    if (!colorCanvasCtx) {{
+                        return "";
+                    }}
+                    colorCanvasCtx.fillStyle = "#000";
+                    colorCanvasCtx.fillStyle = value;
+                    const normalized = String(colorCanvasCtx.fillStyle || "");
+                    if (normalized && !hasUnsupportedColorSyntax(normalized)) {{
+                        return normalized;
+                    }}
+                }} catch (_err) {{}}
+                return "";
+            }}
+
+            function replaceUnsupportedColorTokens(value) {{
+                if (typeof value !== "string" || !hasUnsupportedColorSyntax(value)) {{
+                    return value;
+                }}
+                let next = value;
+                const simpleColorFnRegex = /okl(?:ab|ch)\([^()]*\)/gi;
+                next = next.replace(simpleColorFnRegex, (match) => {{
+                    const normalized = normalizeCssColorValue(match);
+                    return normalized || "rgba(255,255,255,0.72)";
+                }});
+                const colorMixRegex = /color-mix\((?:[^)(]+|\([^)(]*\))*\)/gi;
+                next = next.replace(colorMixRegex, "rgba(255,255,255,0.24)");
+                return next;
+            }}
+
+            function fallbackStyleValue(prop) {{
+                const lower = String(prop || "").toLowerCase();
+                if (lower.includes("shadow")) {{
+                    return "none";
+                }}
+                if (lower.includes("background")) {{
+                    return "transparent";
+                }}
+                if (lower.includes("border")) {{
+                    return "rgba(255,255,255,0.2)";
+                }}
+                if (lower.includes("color")) {{
+                    return "rgb(255,255,255)";
+                }}
+                return "";
+            }}
+
+            let colorResolverEl = null;
+            function resolveStyleValue(prop, value) {{
+                if (!hasUnsupportedColorSyntax(value)) {{
+                    return value;
+                }}
+                if (typeof prop !== "string" || prop.startsWith("--")) {{
+                    return "";
+                }}
+                try {{
+                    if (!colorResolverEl) {{
+                        colorResolverEl = document.createElement("div");
+                        colorResolverEl.style.position = "fixed";
+                        colorResolverEl.style.left = "-100000px";
+                        colorResolverEl.style.top = "0";
+                        colorResolverEl.style.width = "1px";
+                        colorResolverEl.style.height = "1px";
+                        colorResolverEl.style.opacity = "0";
+                        colorResolverEl.style.pointerEvents = "none";
+                        colorResolverEl.setAttribute("aria-hidden", "true");
+                        document.body.appendChild(colorResolverEl);
+                    }}
+                    colorResolverEl.style.setProperty(prop, value);
+                    const resolved = window.getComputedStyle(colorResolverEl).getPropertyValue(prop);
+                    colorResolverEl.style.removeProperty(prop);
+                    if (
+                        typeof resolved === "string"
+                        && resolved.length > 0
+                        && !hasUnsupportedColorSyntax(resolved)
+                    ) {{
+                        return resolved;
+                    }}
+                }} catch (_err) {{}}
+                const tokenReplaced = replaceUnsupportedColorTokens(value);
+                if (!hasUnsupportedColorSyntax(tokenReplaced)) {{
+                    return tokenReplaced;
+                }}
+                return fallbackStyleValue(prop);
+            }}
+
+            function dataUrlToBlob(dataUrl) {{
+                if (typeof dataUrl !== "string") {{
+                    return null;
+                }}
+                const parts = dataUrl.split(",");
+                if (parts.length !== 2) {{
+                    return null;
+                }}
+                const header = parts[0];
+                const base64 = parts[1];
+                const match = /data:([^;]+);base64/.exec(header);
+                if (!match || !match[1]) {{
+                    return null;
+                }}
+                try {{
+                    const bytes = atob(base64);
+                    const len = bytes.length;
+                    const buffer = new Uint8Array(len);
+                    for (let i = 0; i < len; i += 1) {{
+                        buffer[i] = bytes.charCodeAt(i);
+                    }}
+                    return new Blob([buffer], {{ type: match[1] }});
+                }} catch (_err) {{
+                    return null;
+                }}
+            }}
+
+            async function ensureLocalHtml2Canvas() {{
+                if (typeof window === "undefined" || typeof document === "undefined") {{
+                    return null;
+                }}
+                if (typeof window.html2canvas === "function") {{
+                    return window.html2canvas;
+                }}
+                if (!window.__rustysoundHtml2CanvasPromise) {{
+                    window.__rustysoundHtml2CanvasPromise = new Promise((resolve) => {{
+                        try {{
+                            if (
+                                typeof html2canvasSource === "string"
+                                && html2canvasSource.length > 128
+                            ) {{
+                                (0, eval)(html2canvasSource);
+                                if (typeof window.html2canvas === "function") {{
+                                    debugInfo("Loaded bundled html2canvas source");
+                                    resolve(window.html2canvas);
+                                    return;
+                                }}
+                                debugError(
+                                    "Bundled html2canvas source loaded but window.html2canvas is missing"
+                                );
+                            }} else {{
+                                debugError("Bundled html2canvas source missing or empty");
+                            }}
+                        }} catch (_err) {{
+                            debugError("Evaluating bundled html2canvas failed", _err);
+                        }}
+                        resolve(window.html2canvas || null);
+                    }});
+                }}
+                const loaded = await window.__rustysoundHtml2CanvasPromise;
+                return loaded || window.html2canvas || null;
+            }}
+
+            function blobToDataUrl(blob) {{
+                return new Promise((resolve, reject) => {{
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(String(reader.result || ""));
+                    reader.onerror = () => reject(new Error("read-failed"));
+                    reader.readAsDataURL(blob);
+                }});
+            }}
+
+            async function inlineImages(sourceRoot, cloneRoot) {{
+                const sourceImages = Array.from(sourceRoot.querySelectorAll("img"));
+                const cloneImages = Array.from(cloneRoot.querySelectorAll("img"));
+                const count = Math.min(sourceImages.length, cloneImages.length);
+                for (let i = 0; i < count; i += 1) {{
+                    const source = sourceImages[i];
+                    const clone = cloneImages[i];
+                    const src = source.currentSrc || source.src || clone.getAttribute("src") || "";
+                    if (!src) {{
+                        continue;
+                    }}
+                    clone.setAttribute("src", src);
+                    clone.setAttribute("data-rustysound-inline-image", "external");
+                    if (src.startsWith("data:")) {{
+                        clone.setAttribute("data-rustysound-inline-image", "inlined");
+                        continue;
+                    }}
+                    try {{
+                        const response = await fetch(src, {{ mode: "cors", credentials: "include" }});
+                        if (!response.ok) {{
+                            continue;
+                        }}
+                        const blob = await response.blob();
+                        const dataUrl = await blobToDataUrl(blob);
+                        if (dataUrl) {{
+                            clone.setAttribute("src", dataUrl);
+                            clone.setAttribute("data-rustysound-inline-image", "inlined");
+                        }}
+                    }} catch (_err) {{}}
+                }}
+            }}
+
+            function copyComputedStyles(source, target) {{
+                const computed = window.getComputedStyle(source);
+                for (let i = 0; i < computed.length; i += 1) {{
+                    const prop = computed[i];
+                    const value = computed.getPropertyValue(prop);
+                    const resolvedValue = resolveStyleValue(prop, value);
+                    if (resolvedValue === "") {{
+                        continue;
+                    }}
+                    const priority = computed.getPropertyPriority(prop);
+                    target.style.setProperty(prop, resolvedValue, priority);
+                }}
+                target.style.setProperty("transform", "none");
+                target.style.setProperty("animation", "none");
+                target.style.setProperty("transition", "none");
+
+                const sourceChildren = source.children || [];
+                const targetChildren = target.children || [];
+                const len = Math.min(sourceChildren.length, targetChildren.length);
+                for (let i = 0; i < len; i += 1) {{
+                    copyComputedStyles(sourceChildren[i], targetChildren[i]);
+                }}
+            }}
+
+            function removeExternalImageSources(root) {{
+                const images = Array.from(
+                    root.querySelectorAll("img[data-rustysound-inline-image='external']")
+                );
+                for (const image of images) {{
+                    image.removeAttribute("src");
+                    image.style.setProperty("opacity", "0");
+                }}
+                return images.length > 0;
+            }}
+
+            function disableDocumentStylesheets() {{
+                const touched = [];
+                try {{
+                    const nodes = Array.from(
+                        document.querySelectorAll("style, link[rel='stylesheet']")
+                    );
+                    for (const node of nodes) {{
+                        try {{
+                            const previous = !!node.disabled;
+                            node.disabled = true;
+                            touched.push([node, previous]);
+                        }} catch (_err) {{}}
+                    }}
+                }} catch (_err) {{}}
+                return () => {{
+                    for (const entry of touched) {{
+                        const node = entry[0];
+                        const previous = entry[1];
+                        try {{
+                            node.disabled = previous;
+                        }} catch (_err) {{}}
+                    }}
+                }};
+            }}
+
+            async function captureViaHtml2CanvasClone(target, html2canvasFn, scale) {{
+                const rect = target.getBoundingClientRect();
+                const width = Math.max(1, Math.round(rect.width));
+                const height = Math.max(1, Math.round(rect.height));
+
+                const cloneHolder = document.createElement("div");
+                cloneHolder.style.position = "fixed";
+                cloneHolder.style.left = "-100000px";
+                cloneHolder.style.top = "0";
+                cloneHolder.style.width = width + "px";
+                cloneHolder.style.height = height + "px";
+                cloneHolder.style.overflow = "hidden";
+                cloneHolder.style.opacity = "0";
+                cloneHolder.style.pointerEvents = "none";
+                cloneHolder.style.zIndex = "-1";
+
+                const clone = target.cloneNode(true);
+                copyComputedStyles(target, clone);
+                clone.style.setProperty("margin", "0");
+                clone.style.setProperty("width", width + "px");
+                clone.style.setProperty("height", height + "px");
+                await inlineImages(target, clone);
+                cloneHolder.appendChild(clone);
+                document.body.appendChild(cloneHolder);
+
+                const restoreStylesheets = disableDocumentStylesheets();
+                try {{
+                    const renderedCanvas = await html2canvasFn(clone, {{
+                        backgroundColor: null,
+                        useCORS: true,
+                        allowTaint: false,
+                        scale,
+                        logging: false,
+                        imageTimeout: 9000,
+                        removeContainer: false,
+                    }});
+                    if (!renderedCanvas || typeof renderedCanvas.toDataURL !== "function") {{
+                        throw new Error("clone-html2canvas-returned-empty");
+                    }}
+                    return renderedCanvas.toDataURL("image/png");
+                }} finally {{
+                    restoreStylesheets();
+                    cloneHolder.remove();
+                }}
+            }}
+
+            async function renderCloneToDataUrl(clone, width, height, scale) {{
+                const wrapper = document.createElement("div");
+                wrapper.setAttribute("xmlns", "http://www.w3.org/1999/xhtml");
+                wrapper.style.width = width + "px";
+                wrapper.style.height = height + "px";
+                wrapper.style.overflow = "hidden";
+                wrapper.appendChild(clone);
+
+                const serialized = new XMLSerializer().serializeToString(wrapper);
+                const svg = [
+                    '<svg xmlns="http://www.w3.org/2000/svg" width="' + width + '" height="' + height + '" viewBox="0 0 ' + width + " " + height + '">',
+                    '<foreignObject x="0" y="0" width="100%" height="100%">',
+                    serialized,
+                    "</foreignObject>",
+                    "</svg>",
+                ].join("");
+                const svgBlob = new Blob([svg], {{ type: "image/svg+xml;charset=utf-8" }});
+                const svgUrl = URL.createObjectURL(svgBlob);
+
+                try {{
+                    const image = await new Promise((resolve, reject) => {{
+                        const img = new Image();
+                        img.onload = () => resolve(img);
+                        img.onerror = () => reject(new Error("svg-image-load-failed"));
+                        img.src = svgUrl;
+                    }});
+
+                    const canvas = document.createElement("canvas");
+                    canvas.width = Math.max(1, Math.round(width * scale));
+                    canvas.height = Math.max(1, Math.round(height * scale));
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) {{
+                        throw new Error("svg-canvas-context-missing");
+                    }}
+                    ctx.setTransform(scale, 0, 0, scale, 0, 0);
+                    ctx.drawImage(image, 0, 0, width, height);
+                    return canvas.toDataURL("image/png");
+                }} finally {{
+                    URL.revokeObjectURL(svgUrl);
+                }}
+            }}
+
+            async function captureViaSvgForeignObject(target, scale) {{
+                const rect = target.getBoundingClientRect();
+                const width = Math.max(1, Math.round(rect.width));
+                const height = Math.max(1, Math.round(rect.height));
+
+                const clone = target.cloneNode(true);
+                copyComputedStyles(target, clone);
+                clone.style.setProperty("margin", "0");
+                clone.style.setProperty("width", width + "px");
+                clone.style.setProperty("height", height + "px");
+
+                await inlineImages(target, clone);
+                try {{
+                    return await renderCloneToDataUrl(clone, width, height, scale);
+                }} catch (_initialRenderErr) {{
+                    const hadExternalImages = removeExternalImageSources(clone);
+                    if (!hadExternalImages) {{
+                        throw _initialRenderErr;
+                    }}
+                    return await renderCloneToDataUrl(clone, width, height, scale);
+                }}
+            }}
+
+            const target = document.getElementById(captureElementId);
+            if (!target) {{
+                debugError("Capture target element missing", captureElementId);
+                return "capture-target-missing";
+            }}
+
+            let pngBlob = null;
+            let captureError = "capture-failed";
+            try {{
+                const ratio =
+                    typeof window !== "undefined" ? Number(window.devicePixelRatio || 1) : 1;
+                const scale = Math.max(2, Math.min(3, ratio || 1));
+
+                const targetImages = Array.from(target.querySelectorAll("img"));
+                await Promise.all(
+                    targetImages.map((img) => {{
+                        if (img.complete) {{
+                            return Promise.resolve();
+                        }}
+                        return new Promise((resolve) => {{
+                            img.addEventListener("load", () => resolve(), {{ once: true }});
+                            img.addEventListener("error", () => resolve(), {{ once: true }});
+                            setTimeout(() => resolve(), 1200);
+                        }});
+                    }})
+                );
+
+                let html2canvasFn =
+                    typeof window !== "undefined" ? window.html2canvas : null;
+                if (typeof html2canvasFn !== "function") {{
+                    html2canvasFn = await ensureLocalHtml2Canvas();
+                }}
+                if (typeof html2canvasFn === "function") {{
+                    try {{
+                        const renderedCanvas = await html2canvasFn(target, {{
+                            backgroundColor: null,
+                            useCORS: true,
+                            allowTaint: false,
+                            scale,
+                            logging: false,
+                            imageTimeout: 9000,
+                            removeContainer: true,
+                        }});
+                        if (renderedCanvas && typeof renderedCanvas.toDataURL === "function") {{
+                            const pngDataUrl = renderedCanvas.toDataURL("image/png");
+                            pngBlob = dataUrlToBlob(pngDataUrl);
+                        }}
+                    }} catch (_html2canvasErr) {{
+                        debugError("html2canvas capture failed", _html2canvasErr);
+                        captureError = "capture-html2canvas-failed";
+                    }}
+                }}
+
+                if (!pngBlob && typeof html2canvasFn === "function") {{
+                    try {{
+                        const pngDataUrl = await captureViaHtml2CanvasClone(
+                            target,
+                            html2canvasFn,
+                            scale
+                        );
+                        pngBlob = dataUrlToBlob(pngDataUrl);
+                        if (pngBlob) {{
+                            debugInfo("Clone html2canvas capture succeeded");
+                        }}
+                    }} catch (_cloneHtml2canvasErr) {{
+                        debugError(
+                            "clone html2canvas capture failed",
+                            _cloneHtml2canvasErr
+                        );
+                        captureError = "capture-html2canvas-clone-failed";
+                    }}
+                }}
+
+                if (!pngBlob) {{
+                    try {{
+                        const pngDataUrl = await captureViaSvgForeignObject(target, scale);
+                        pngBlob = dataUrlToBlob(pngDataUrl);
+                    }} catch (_svgErr) {{
+                        debugError("SVG foreignObject capture failed", _svgErr);
+                        captureError = "capture-svg-failed";
+                    }}
+                }}
+            }} catch (_err) {{
+                debugError("Unexpected capture pipeline failure", _err);
+                captureError = "capture-failed";
+            }}
+
+            if (!pngBlob) {{
+                debugError("No PNG blob produced", {{
+                    captureError,
+                    captureElementId,
+                    hasHtml2Canvas: typeof window !== "undefined" && typeof window.html2canvas === "function",
+                }});
+                return captureError;
+            }}
+
+            const safeFileName =
+                (typeof fileName === "string" && fileName.trim().length > 0)
+                    ? fileName.trim()
+                    : "rustysound-lyrics-shot.png";
+            const imageFile = new File([pngBlob], safeFileName, {{ type: "image/png" }});
+
+            try {{
+                if (typeof navigator !== "undefined" && navigator.share) {{
+                    const imageShareData = {{
+                        title: "RustySound Lyrics",
+                        files: [imageFile],
+                    }};
+                    if (typeof shareText === "string" && shareText.trim().length > 0) {{
+                        imageShareData.text = shareText;
+                    }}
+
+                    if (!navigator.canShare || navigator.canShare({{ files: [imageFile] }})) {{
+                        await navigator.share(imageShareData);
+                        return "shared-image";
+                    }}
+                }}
+            }} catch (err) {{
+                if (err && err.name === "AbortError") {{
+                    return "cancelled";
+                }}
+                debugError("navigator.share image path failed", err);
+            }}
+
+            try {{
+                if (typeof navigator !== "undefined" && navigator.share) {{
+                    await navigator.share({{ title: "RustySound Lyrics", text: shareText }});
+                    return "shared-text";
+                }}
+            }} catch (err) {{
+                if (err && err.name === "AbortError") {{
+                    return "cancelled";
+                }}
+                debugError("navigator.share text fallback failed", err);
+            }}
+
+            try {{
+                const objectUrl = URL.createObjectURL(pngBlob);
+                const anchor = document.createElement("a");
+                anchor.href = objectUrl;
+                anchor.download = safeFileName;
+                anchor.rel = "noopener";
+                anchor.style.display = "none";
+                document.body.appendChild(anchor);
+                anchor.click();
+                anchor.remove();
+                setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+                return "saved-image";
+            }} catch (_err) {{
+                debugError("Local image download fallback failed", _err);
+            }}
+
+            try {{
+                if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {{
+                    await navigator.clipboard.writeText(shareText);
+                    return "copied";
+                }}
+            }} catch (_err) {{
+                debugError("Clipboard fallback failed", _err);
+            }}
+
+            return "unavailable";
+        }})();"###,
+        html2canvas_source_escaped = html2canvas_source_escaped,
+        capture_id_escaped = capture_id_escaped,
+        file_name_escaped = file_name_escaped,
+        share_text_escaped = share_text_escaped
+    );
+
+    document::eval(&script)
+        .join::<String>()
+        .await
+        .unwrap_or_else(|_| "unavailable".to_string())
+}
+
 const RUSTYSOUND_MARK: Asset = asset!("/assets/favicon-96x96.png");
+const HTML2CANVAS_BUNDLE: &str = include_str!("../../../assets/vendor/html2canvas.min.js");
 
 #[component]
 fn LyricsPanel(props: LyricsPanelProps) -> Element {
@@ -93,6 +767,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     let screenshot_shot_mode = use_signal(|| false);
     let screenshot_shot_customize_open = use_signal(|| false);
     let screenshot_shot_font_scale = use_signal(|| 100_i32);
+    let screenshot_share_feedback = use_signal(|| None::<String>);
+    let screenshot_share_feedback_generation = use_signal(|| 0_u64);
+    let screenshot_share_pending = use_signal(|| false);
     let screenshot_shot_theme = {
         let default_theme = app_settings().lyrics_default_theme.clone();
         use_signal(move || match default_theme.as_str() {
@@ -257,6 +934,10 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         "lyrics-screenshot-scroll-{}",
         sanitize_dom_id(&props.panel_dom_key)
     );
+    let screenshot_shot_card_id = format!(
+        "lyrics-screenshot-shot-card-{}",
+        sanitize_dom_id(&props.panel_dom_key)
+    );
     let screenshot_shot_mode_enabled = screenshot_shot_mode();
     let screenshot_shot_customize_opened = screenshot_shot_customize_open();
     let screenshot_shot_font_scale_percent = screenshot_shot_font_scale().clamp(80, 130);
@@ -379,6 +1060,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     );
     let toolbar_button_base_class =
         "h-10 w-10 rounded-full border flex items-center justify-center transition-colors";
+    let screenshot_share_feedback_message = screenshot_share_feedback();
     let playback_seconds_signal = playback_position();
     let playback_seconds = if (props.current_time - playback_seconds_signal).abs() > 1.0 {
         props.current_time
@@ -520,6 +1202,8 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         let mut screenshot_manual_selection = screenshot_manual_selection.clone();
         let mut screenshot_shot_mode = screenshot_shot_mode.clone();
         let mut screenshot_shot_customize_open = screenshot_shot_customize_open.clone();
+        let mut screenshot_share_feedback = screenshot_share_feedback.clone();
+        let mut screenshot_share_pending = screenshot_share_pending.clone();
         let active_synced_index = active_synced_index;
         let screenshot_bars = screenshot_bars.clone();
         move |_| {
@@ -531,6 +1215,8 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             screenshot_manual_selection.set(false);
             screenshot_shot_mode.set(false);
             screenshot_shot_customize_open.set(false);
+            screenshot_share_feedback.set(None);
+            screenshot_share_pending.set(false);
             screenshot_view_open.set(true);
         }
     };
@@ -540,6 +1226,108 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         move |evt: MouseEvent| {
             evt.stop_propagation();
             screenshot_view_open.set(false);
+        }
+    };
+
+    let on_share_screenshot_shot = {
+        let screenshot_song_title = screenshot_song_title.clone();
+        let screenshot_song_artist = screenshot_song_artist.clone();
+        let screenshot_shot_card_id = screenshot_shot_card_id.clone();
+        let screenshot_selected_bars = screenshot_selected_bars.clone();
+        let mut screenshot_share_feedback = screenshot_share_feedback.clone();
+        let mut screenshot_share_feedback_generation = screenshot_share_feedback_generation.clone();
+        let mut screenshot_share_pending = screenshot_share_pending.clone();
+
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+
+            if screenshot_share_pending() {
+                return;
+            }
+
+            if screenshot_selected_bars.is_empty() {
+                screenshot_share_feedback.set(Some(
+                    "Select one or more lyric lines to share.".to_string(),
+                ));
+                return;
+            }
+
+            let lines = screenshot_selected_bars
+                .iter()
+                .map(|bar| bar.text.trim().to_string())
+                .filter(|line| !line.is_empty())
+                .collect::<Vec<_>>();
+            if lines.is_empty() {
+                screenshot_share_feedback.set(Some(
+                    "Select one or more lyric lines to share.".to_string(),
+                ));
+                return;
+            }
+
+            let share_text = build_screenshot_share_caption(
+                &screenshot_song_title,
+                screenshot_song_artist.as_deref(),
+                &lines,
+            );
+            let share_file_name = screenshot_share_file_name(&screenshot_song_title);
+            let capture_id = screenshot_shot_card_id.clone();
+
+            screenshot_share_pending.set(true);
+            screenshot_share_feedback_generation.with_mut(|value| {
+                *value = value.saturating_add(1);
+            });
+            let generation = *screenshot_share_feedback_generation.peek();
+
+            let mut screenshot_share_feedback = screenshot_share_feedback.clone();
+            let screenshot_share_feedback_generation = screenshot_share_feedback_generation.clone();
+            let mut screenshot_share_pending = screenshot_share_pending.clone();
+            spawn(async move {
+                let debug_capture_id = capture_id.clone();
+                let debug_share_file_name = share_file_name.clone();
+                let status = share_screenshot_lyrics_image(capture_id, share_file_name, share_text)
+                    .await;
+                eprintln!(
+                    "[lyrics-share-shot] status={status} capture_id={} file={}",
+                    debug_capture_id, debug_share_file_name
+                );
+                let message = match status.as_str() {
+                    "shared-image" => "Opened native share sheet with the shot image.".to_string(),
+                    "saved-image" => {
+                        "Saved the shot image locally. Share it from Photos/Files.".to_string()
+                    }
+                    "shared-text" => {
+                        "Image share is unsupported here, so text was shared instead.".to_string()
+                    }
+                    "copied" => "Copied caption text to clipboard.".to_string(),
+                    "cancelled" => "Share cancelled.".to_string(),
+                    "capture-target-missing" => {
+                        "Could not find the shot preview to capture. Reopen shot mode and try again."
+                            .to_string()
+                    }
+                    "capture-html2canvas-failed" => {
+                        "Could not capture shot image (html2canvas engine failed).".to_string()
+                    }
+                    "capture-html2canvas-clone-failed" => {
+                        "Could not capture shot image (clone html2canvas fallback failed)."
+                            .to_string()
+                    }
+                    "capture-svg-failed" => {
+                        "Could not capture shot image (SVG fallback failed).".to_string()
+                    }
+                    "capture-failed" | "encode-failed" => {
+                        "Could not capture the current shot image on this device.".to_string()
+                    }
+                    _ => "Sharing is unavailable on this device.".to_string(),
+                };
+
+                screenshot_share_pending.set(false);
+                screenshot_share_feedback.set(Some(message));
+
+                lyrics_share_delay_ms(2600).await;
+                if *screenshot_share_feedback_generation.peek() == generation {
+                    screenshot_share_feedback.set(None);
+                }
+            });
         }
     };
 
@@ -799,6 +1587,25 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                         }
                     },
                     div { class: "absolute top-12 right-4 z-20 flex items-center gap-2 md:top-14 md:right-6",
+                        if screenshot_shot_mode_enabled {
+                            button {
+                                class: if screenshot_share_pending() { "rounded-full border border-white/30 bg-white/14 px-4 py-2 text-sm text-white transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-white/12 bg-black/30 px-4 py-2 text-sm text-white/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm text-white/80 hover:text-white hover:border-white/30 transition-colors" },
+                                title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share" } else if screenshot_share_pending() { "Preparing image for sharing..." } else { "Share shot image" },
+                                disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
+                                onclick: on_share_screenshot_shot,
+                                if screenshot_share_pending() {
+                                    span { class: "inline-flex items-center gap-2",
+                                        Icon {
+                                            name: "loader".to_string(),
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        "Preparing"
+                                    }
+                                } else {
+                                    "Share"
+                                }
+                            }
+                        }
                         button {
                             class: if theme_picker_open() { "rounded-full border border-white/30 bg-white/14 p-2 text-white transition-colors" } else { "rounded-full border border-white/15 bg-black/35 p-2 text-white/80 hover:text-white hover:border-white/30 transition-colors" },
                             title: "Choose background theme",
@@ -826,6 +1633,13 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                 name: "x".to_string(),
                                 class: "w-5 h-5".to_string(),
                             }
+                        }
+                    }
+                    if let Some(message) = screenshot_share_feedback_message.clone() {
+                        div {
+                            class: "absolute left-1/2 top-24 z-20 -translate-x-1/2 rounded-full border border-white/15 bg-black/55 px-4 py-2 text-xs text-white/85 shadow-[0_10px_40px_rgba(0,0,0,0.35)] backdrop-blur md:top-26",
+                            onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                            "{message}"
                         }
                     }
                     if theme_picker_open() {
@@ -1115,6 +1929,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                             if screenshot_shot_mode_enabled {
                                 div { class: "relative z-10 flex h-full min-h-0 w-full items-center justify-center px-4 pb-6 pt-16 md:px-8 md:pb-10 md:pt-20",
                                     div {
+                                        id: "{screenshot_shot_card_id}",
                                         class: "relative aspect-square overflow-hidden rounded-[2rem] border border-white/14 shadow-[0_28px_90px_rgba(0,0,0,0.35)]",
                                         style: "{screenshot_shot_card_style}",
                                         if screenshot_shot_theme_active == ScreenshotShotTheme::Cover {
