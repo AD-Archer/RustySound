@@ -131,8 +131,19 @@ fn main() {
             }
         }
 
-        let mut config = Config::new()
-            .with_menu(None)
+        let mut config = Config::new();
+
+        #[cfg(target_os = "macos")]
+        {
+            config = config.with_menu(macos_menu_bar());
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            config = config.with_menu(None);
+        }
+
+        config = config
             .with_window(window)
             // Set native WebView background before HTML/CSS load to avoid startup white flash.
             .with_background_color((9, 9, 11, 255))
@@ -183,6 +194,71 @@ fn main() {
 
     #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
+}
+
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
+    use dioxus::desktop::muda::{
+        accelerator::{Accelerator, Code, CMD_OR_CTRL},
+        Menu, MenuItem, PredefinedMenuItem, Submenu,
+    };
+
+    let menu = Menu::new();
+
+    let app_menu = Submenu::new("RustySound", true);
+    let settings_item = MenuItem::with_id(
+        "rustysound-open-settings",
+        "Settings...",
+        true,
+        Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Comma)),
+    );
+    app_menu
+        .append_items(&[
+            &PredefinedMenuItem::about(None, None),
+            &PredefinedMenuItem::separator(),
+            &settings_item,
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::services(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::hide(None),
+            &PredefinedMenuItem::hide_others(None),
+            &PredefinedMenuItem::show_all(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::quit(None),
+        ])
+        .expect("failed to build macOS app menu");
+
+    let edit_menu = Submenu::new("Edit", true);
+    edit_menu
+        .append_items(&[
+            &PredefinedMenuItem::undo(None),
+            &PredefinedMenuItem::redo(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::cut(None),
+            &PredefinedMenuItem::copy(None),
+            &PredefinedMenuItem::paste(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::select_all(None),
+        ])
+        .expect("failed to build macOS edit menu");
+
+    let window_menu = Submenu::new("Window", true);
+    window_menu
+        .append_items(&[
+            &PredefinedMenuItem::minimize(None),
+            &PredefinedMenuItem::maximize(None),
+            &PredefinedMenuItem::fullscreen(None),
+            &PredefinedMenuItem::separator(),
+            &PredefinedMenuItem::close_window(None),
+            &PredefinedMenuItem::bring_all_to_front(None),
+        ])
+        .expect("failed to build macOS window menu");
+    window_menu.set_as_windows_menu_for_nsapp();
+
+    menu.append_items(&[&app_menu, &edit_menu, &window_menu])
+        .expect("failed to attach macOS menu items");
+
+    menu
 }
 
 #[component]

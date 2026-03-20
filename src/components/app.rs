@@ -15,6 +15,8 @@ use crate::db::{
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::run_auto_download_pass;
 use chrono::{DateTime, NaiveDateTime};
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+use dioxus::desktop::use_muda_event_handler;
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
 use dioxus_router::components::Outlet;
@@ -812,6 +814,16 @@ pub fn AppShell() -> Element {
     use_context_provider(|| song_details.clone());
     use_context_provider(|| home_feed.clone());
     use_context_provider(|| HomeRefreshSignal(home_manual_refresh_generation));
+
+    #[cfg(all(feature = "desktop", target_os = "macos"))]
+    {
+        let navigation = navigation.clone();
+        use_muda_event_handler(move |event| {
+            if event.id() == "rustysound-open-settings" {
+                navigation.navigate_to(AppView::SettingsView {});
+            }
+        });
+    }
 
     #[cfg(target_arch = "wasm32")]
     let nav_for_swipe = navigation.clone();

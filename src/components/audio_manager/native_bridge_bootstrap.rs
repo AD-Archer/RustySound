@@ -317,13 +317,14 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
   audio.addEventListener("timeupdate", updatePositionState);
   audio.addEventListener("durationchange", updatePositionState);
   audio.addEventListener("ratechange", updatePositionState);
+  // Keep media session state updated, but do not mirror local transport events
+  // into remoteActions: app-initiated load/play/pause commands also fire these
+  // events and can create play/pause feedback loops in the native controller.
   audio.addEventListener("play", () => {
     setPlaybackState();
-    bridge.remoteActions.push("play");
   });
   audio.addEventListener("pause", () => {
     setPlaybackState();
-    bridge.remoteActions.push("pause");
   });
   audio.addEventListener("ended", () => bridge.remoteActions.push("ended"));
   document.addEventListener("keydown", handleShortcutKeyDown, true);
@@ -332,4 +333,3 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
   return true;
 })();
 "#;
-
