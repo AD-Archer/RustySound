@@ -43,6 +43,22 @@ enum ScreenshotShotTheme {
     Cover,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScreenshotTextPalette {
+    Auto,
+    Light,
+    Dark,
+    Gold,
+    Cyan,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ScreenshotShareIntent {
+    Share,
+    Save,
+    Instagram,
+}
+
 fn screenshot_lyrics_bars(lyrics: &LyricsResult, sync_lyrics: bool) -> Vec<ScreenshotLyricBar> {
     if sync_lyrics && !lyrics.synced_lines.is_empty() {
         lyrics
@@ -147,6 +163,145 @@ fn screenshot_share_file_name(song_title: &str) -> String {
     }
 }
 
+fn screenshot_share_intent_key(intent: ScreenshotShareIntent) -> &'static str {
+    match intent {
+        ScreenshotShareIntent::Share => "share",
+        ScreenshotShareIntent::Save => "save",
+        ScreenshotShareIntent::Instagram => "instagram",
+    }
+}
+
+#[derive(Clone, Copy)]
+struct ShotTextColors {
+    primary: &'static str,
+    secondary: &'static str,
+    footer_primary: &'static str,
+    footer_secondary: &'static str,
+    lyrics: &'static str,
+    fallback_cover_bg: &'static str,
+    fallback_cover_fg: &'static str,
+}
+
+fn screenshot_shot_text_colors(
+    palette: ScreenshotTextPalette,
+    auto_prefers_dark_text: bool,
+) -> ShotTextColors {
+    match palette {
+        ScreenshotTextPalette::Auto => {
+            if auto_prefers_dark_text {
+                ShotTextColors {
+                    primary: "#09090b",
+                    secondary: "rgba(9,9,11,0.68)",
+                    footer_primary: "rgba(9,9,11,0.82)",
+                    footer_secondary: "rgba(9,9,11,0.56)",
+                    lyrics: "#111827",
+                    fallback_cover_bg: "rgba(9,9,11,0.12)",
+                    fallback_cover_fg: "rgba(9,9,11,0.8)",
+                }
+            } else {
+                ShotTextColors {
+                    primary: "#ffffff",
+                    secondary: "rgba(255,255,255,0.72)",
+                    footer_primary: "rgba(255,255,255,0.9)",
+                    footer_secondary: "rgba(255,255,255,0.6)",
+                    lyrics: "#ffffff",
+                    fallback_cover_bg: "rgba(255,255,255,0.12)",
+                    fallback_cover_fg: "rgba(255,255,255,0.82)",
+                }
+            }
+        }
+        ScreenshotTextPalette::Light => ShotTextColors {
+            primary: "#ffffff",
+            secondary: "rgba(255,255,255,0.74)",
+            footer_primary: "rgba(255,255,255,0.9)",
+            footer_secondary: "rgba(255,255,255,0.6)",
+            lyrics: "#ffffff",
+            fallback_cover_bg: "rgba(255,255,255,0.12)",
+            fallback_cover_fg: "rgba(255,255,255,0.82)",
+        },
+        ScreenshotTextPalette::Dark => ShotTextColors {
+            primary: "#09090b",
+            secondary: "rgba(9,9,11,0.7)",
+            footer_primary: "rgba(9,9,11,0.84)",
+            footer_secondary: "rgba(9,9,11,0.58)",
+            lyrics: "#111827",
+            fallback_cover_bg: "rgba(9,9,11,0.12)",
+            fallback_cover_fg: "rgba(9,9,11,0.82)",
+        },
+        ScreenshotTextPalette::Gold => ShotTextColors {
+            primary: "#fef3c7",
+            secondary: "rgba(253,230,138,0.86)",
+            footer_primary: "rgba(253,230,138,0.96)",
+            footer_secondary: "rgba(253,230,138,0.72)",
+            lyrics: "#fff7d6",
+            fallback_cover_bg: "rgba(253,230,138,0.18)",
+            fallback_cover_fg: "rgba(253,230,138,0.92)",
+        },
+        ScreenshotTextPalette::Cyan => ShotTextColors {
+            primary: "#ecfeff",
+            secondary: "rgba(165,243,252,0.88)",
+            footer_primary: "rgba(165,243,252,0.95)",
+            footer_secondary: "rgba(165,243,252,0.7)",
+            lyrics: "#e0fbff",
+            fallback_cover_bg: "rgba(125,211,252,0.22)",
+            fallback_cover_fg: "rgba(224,251,255,0.94)",
+        },
+    }
+}
+
+fn screenshot_picker_pill_class(active: bool) -> &'static str {
+    if active {
+        "inline-flex items-center gap-2 rounded-full border border-white/35 bg-white/12 px-3 py-2 text-sm text-white"
+    } else {
+        "inline-flex items-center gap-2 rounded-full border border-white/15 bg-white/5 px-3 py-2 text-sm text-white/72 hover:text-white hover:border-white/25 transition-colors"
+    }
+}
+
+fn screenshot_share_status_message(status: &str, intent: ScreenshotShareIntent) -> String {
+    match status {
+        "shared-image" => match intent {
+            ScreenshotShareIntent::Share => {
+                "Opened native share sheet with the shot image.".to_string()
+            }
+            ScreenshotShareIntent::Save => {
+                "Opened share sheet. Choose \"Save Image\" to store it on your device."
+                    .to_string()
+            }
+            ScreenshotShareIntent::Instagram => {
+                "Opened share sheet with an Instagram-ready image.".to_string()
+            }
+        },
+        "saved-image" => "Saved the shot image locally. Share it from Photos/Files.".to_string(),
+        "shared-text" => match intent {
+            ScreenshotShareIntent::Instagram => {
+                "Image sharing was unavailable, so only text could be shared.".to_string()
+            }
+            _ => "Image share is unsupported here, so text was shared instead.".to_string(),
+        },
+        "copied" => "Copied caption text to clipboard.".to_string(),
+        "cancelled" => match intent {
+            ScreenshotShareIntent::Save => "Save cancelled.".to_string(),
+            ScreenshotShareIntent::Instagram => "Instagram share cancelled.".to_string(),
+            ScreenshotShareIntent::Share => "Share cancelled.".to_string(),
+        },
+        "capture-target-missing" => {
+            "Could not find the shot preview to capture. Reopen shot mode and try again."
+                .to_string()
+        }
+        "capture-html2canvas-failed" => {
+            "Could not capture shot image (html2canvas engine failed).".to_string()
+        }
+        "capture-html2canvas-clone-failed" => {
+            "Could not capture shot image (clone html2canvas fallback failed).".to_string()
+        }
+        "capture-svg-failed" => "Could not capture shot image (SVG fallback failed).".to_string(),
+        "capture-failed" | "encode-failed" => {
+            "Could not capture the current shot image on this device.".to_string()
+        }
+        _ => "Sharing is unavailable on this device.".to_string(),
+    }
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 async fn lyrics_share_delay_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
@@ -161,6 +316,7 @@ async fn share_screenshot_lyrics_image(
     capture_element_id: String,
     file_name: String,
     share_text: String,
+    share_intent: String,
 ) -> String {
     let html2canvas_source_escaped =
         serde_json::to_string(HTML2CANVAS_BUNDLE).unwrap_or_else(|_| "\"\"".to_string());
@@ -170,12 +326,15 @@ async fn share_screenshot_lyrics_image(
         serde_json::to_string(&file_name).unwrap_or_else(|_| "\"rustysound-lyrics-shot.png\"".to_string());
     let share_text_escaped =
         serde_json::to_string(&share_text).unwrap_or_else(|_| "\"\"".to_string());
+    let share_intent_escaped =
+        serde_json::to_string(&share_intent).unwrap_or_else(|_| "\"share\"".to_string());
     let script = format!(
         r###"return (async function () {{
             const html2canvasSource = {html2canvas_source_escaped};
             const captureElementId = {capture_id_escaped};
             const fileName = {file_name_escaped};
             const shareText = {share_text_escaped};
+            const shareIntent = {share_intent_escaped};
             const debugTag = "[rustysound-share-shot]";
 
             function debugInfo(message, extra) {{
@@ -669,26 +828,116 @@ async fn share_screenshot_lyrics_image(
                 return captureError;
             }}
 
-            const safeFileName =
+            function ensureFileExtension(name, extension) {{
+                const safeName = String(name || "").trim();
+                if (!safeName) {{
+                    return "rustysound-lyrics-shot" + extension;
+                }}
+                const normalized = extension.startsWith(".") ? extension : ("." + extension);
+                const lower = safeName.toLowerCase();
+                if (lower.endsWith(normalized.toLowerCase())) {{
+                    return safeName;
+                }}
+                const dotIndex = safeName.lastIndexOf(".");
+                if (dotIndex > 0) {{
+                    return safeName.slice(0, dotIndex) + normalized;
+                }}
+                return safeName + normalized;
+            }}
+
+            async function convertBlobToJpeg(blob) {{
+                const blobUrl = URL.createObjectURL(blob);
+                try {{
+                    const image = await new Promise((resolve, reject) => {{
+                        const img = new Image();
+                        img.onload = () => resolve(img);
+                        img.onerror = () => reject(new Error("jpeg-conversion-image-load-failed"));
+                        img.src = blobUrl;
+                    }});
+                    const width = Math.max(1, Math.round(image.width || 0));
+                    const height = Math.max(1, Math.round(image.height || 0));
+                    if (width <= 0 || height <= 0) {{
+                        throw new Error("jpeg-conversion-invalid-size");
+                    }}
+                    const canvas = document.createElement("canvas");
+                    canvas.width = width;
+                    canvas.height = height;
+                    const ctx = canvas.getContext("2d");
+                    if (!ctx) {{
+                        throw new Error("jpeg-conversion-context-missing");
+                    }}
+                    ctx.drawImage(image, 0, 0, width, height);
+                    return await new Promise((resolve, reject) => {{
+                        canvas.toBlob((nextBlob) => {{
+                            if (nextBlob) {{
+                                resolve(nextBlob);
+                            }} else {{
+                                reject(new Error("jpeg-conversion-blob-missing"));
+                            }}
+                        }}, "image/jpeg", 0.94);
+                    }});
+                }} finally {{
+                    URL.revokeObjectURL(blobUrl);
+                }}
+            }}
+
+            const normalizedShareIntent = String(shareIntent || "share")
+                .trim()
+                .toLowerCase();
+            const preferSaveIntent = normalizedShareIntent === "save";
+            const preferInstagramIntent = normalizedShareIntent === "instagram";
+
+            const rawFileName =
                 (typeof fileName === "string" && fileName.trim().length > 0)
                     ? fileName.trim()
                     : "rustysound-lyrics-shot.png";
-            const imageFile = new File([pngBlob], safeFileName, {{ type: "image/png" }});
+            let imageBlob = pngBlob;
+            let imageMimeType = "image/png";
+            let resolvedFileName = ensureFileExtension(rawFileName, ".png");
+
+            if (preferInstagramIntent) {{
+                try {{
+                    imageBlob = await convertBlobToJpeg(pngBlob);
+                    imageMimeType = "image/jpeg";
+                    resolvedFileName = ensureFileExtension(rawFileName, ".jpg");
+                }} catch (_jpegErr) {{
+                    debugError("Instagram JPEG conversion failed", _jpegErr);
+                }}
+            }}
+
+            const imageFile = new File([imageBlob], resolvedFileName, {{ type: imageMimeType }});
+            let canShareFiles = false;
+            if (
+                typeof navigator !== "undefined"
+                && typeof navigator.share === "function"
+            ) {{
+                try {{
+                    canShareFiles =
+                        !navigator.canShare
+                        || navigator.canShare({{ files: [imageFile] }});
+                }} catch (_canShareErr) {{
+                    debugError("navigator.canShare check failed", _canShareErr);
+                    canShareFiles = false;
+                }}
+            }}
 
             try {{
-                if (typeof navigator !== "undefined" && navigator.share) {{
+                if (canShareFiles) {{
                     const imageShareData = {{
                         title: "RustySound Lyrics",
                         files: [imageFile],
                     }};
-                    if (typeof shareText === "string" && shareText.trim().length > 0) {{
+                    if (
+                        !preferSaveIntent
+                        && !preferInstagramIntent
+                        && typeof shareText === "string"
+                        && shareText.trim().length > 0
+                    ) {{
                         imageShareData.text = shareText;
                     }}
 
-                    if (!navigator.canShare || navigator.canShare({{ files: [imageFile] }})) {{
-                        await navigator.share(imageShareData);
-                        return "shared-image";
-                    }}
+                    await navigator.share(imageShareData);
+                    return "shared-image";
                 }}
             }} catch (err) {{
                 if (err && err.name === "AbortError") {{
@@ -697,23 +946,25 @@ async fn share_screenshot_lyrics_image(
                 debugError("navigator.share image path failed", err);
             }}
 
-            try {{
-                if (typeof navigator !== "undefined" && navigator.share) {{
-                    await navigator.share({{ title: "RustySound Lyrics", text: shareText }});
-                    return "shared-text";
+            if (!preferSaveIntent && !preferInstagramIntent) {{
+                try {{
+                    if (typeof navigator !== "undefined" && navigator.share) {{
+                        await navigator.share({{ title: "RustySound Lyrics", text: shareText }});
+                        return "shared-text";
+                    }}
+                }} catch (err) {{
+                    if (err && err.name === "AbortError") {{
+                        return "cancelled";
+                    }}
+                    debugError("navigator.share text fallback failed", err);
                 }}
-            }} catch (err) {{
-                if (err && err.name === "AbortError") {{
-                    return "cancelled";
-                }}
-                debugError("navigator.share text fallback failed", err);
             }}
 
             try {{
-                const objectUrl = URL.createObjectURL(pngBlob);
+                const objectUrl = URL.createObjectURL(imageBlob);
                 const anchor = document.createElement("a");
                 anchor.href = objectUrl;
-                anchor.download = safeFileName;
+                anchor.download = resolvedFileName;
                 anchor.rel = "noopener";
                 anchor.style.display = "none";
                 document.body.appendChild(anchor);
@@ -739,7 +990,8 @@ async fn share_screenshot_lyrics_image(
         html2canvas_source_escaped = html2canvas_source_escaped,
         capture_id_escaped = capture_id_escaped,
         file_name_escaped = file_name_escaped,
-        share_text_escaped = share_text_escaped
+        share_text_escaped = share_text_escaped,
+        share_intent_escaped = share_intent_escaped
     );
 
     document::eval(&script)
@@ -767,6 +1019,8 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     let screenshot_shot_mode = use_signal(|| false);
     let screenshot_shot_customize_open = use_signal(|| false);
     let screenshot_shot_font_scale = use_signal(|| 100_i32);
+    let screenshot_shot_blur = use_signal(|| 28_i32);
+    let screenshot_shot_text_palette = use_signal(|| ScreenshotTextPalette::Auto);
     let screenshot_share_feedback = use_signal(|| None::<String>);
     let screenshot_share_feedback_generation = use_signal(|| 0_u64);
     let screenshot_share_pending = use_signal(|| false);
@@ -951,6 +1205,17 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         screenshot_shot_theme_active,
         ScreenshotShotTheme::Lagoon | ScreenshotShotTheme::Ember
     );
+    let screenshot_shot_blur_strength_px = screenshot_shot_blur().clamp(8, 48);
+    let screenshot_shot_card_blur_strength_px =
+        ((screenshot_shot_blur_strength_px as f64) * 0.72).round() as i32;
+    let screenshot_main_backdrop_cover_style = format!(
+        "filter: blur({}px); -webkit-filter: blur({}px);",
+        screenshot_shot_blur_strength_px, screenshot_shot_blur_strength_px
+    );
+    let screenshot_card_backdrop_cover_style = format!(
+        "filter: blur({}px); -webkit-filter: blur({}px);",
+        screenshot_shot_card_blur_strength_px, screenshot_shot_card_blur_strength_px
+    );
     let screenshot_shot_card_style = match screenshot_shot_theme_active {
         ScreenshotShotTheme::Lagoon => {
             "width:min(33rem, calc(100vw - 2.5rem), calc(100vh - 7rem)); background:linear-gradient(180deg,#79d0da 0%,#4d9fb6 100%);"
@@ -993,31 +1258,20 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             "absolute inset-0 bg-[linear-gradient(180deg,rgba(0,0,0,0.18)_0%,rgba(0,0,0,0.46)_42%,rgba(0,0,0,0.92)_100%)]"
         }
     };
-    let screenshot_shot_primary_text_class = if screenshot_shot_dark_text {
-        "text-zinc-950"
-    } else {
-        "text-white"
-    };
-    let screenshot_shot_secondary_text_class = if screenshot_shot_dark_text {
-        "text-zinc-950/65"
-    } else {
-        "text-white/70"
-    };
-    let screenshot_shot_footer_primary_text_class = if screenshot_shot_dark_text {
-        "text-zinc-950/80"
-    } else {
-        "text-white/88"
-    };
-    let screenshot_shot_footer_secondary_text_class = if screenshot_shot_dark_text {
-        "text-zinc-950/50"
-    } else {
-        "text-white/55"
-    };
-    let screenshot_shot_fallback_cover_class = if screenshot_shot_dark_text {
-        "flex h-14 w-14 items-center justify-center rounded-2xl bg-zinc-900/10 text-zinc-950/75 md:h-16 md:w-16"
-    } else {
-        "flex h-14 w-14 items-center justify-center rounded-2xl bg-white/10 text-white/78 md:h-16 md:w-16"
-    };
+    let screenshot_text_palette_active = screenshot_shot_text_palette();
+    let screenshot_text_colors =
+        screenshot_shot_text_colors(screenshot_text_palette_active, screenshot_shot_dark_text);
+    let screenshot_shot_primary_text_style = format!("color:{};", screenshot_text_colors.primary);
+    let screenshot_shot_secondary_text_style =
+        format!("color:{};", screenshot_text_colors.secondary);
+    let screenshot_shot_footer_primary_text_style =
+        format!("color:{};", screenshot_text_colors.footer_primary);
+    let screenshot_shot_footer_secondary_text_style =
+        format!("color:{};", screenshot_text_colors.footer_secondary);
+    let screenshot_shot_fallback_cover_style = format!(
+        "background:{}; color:{};",
+        screenshot_text_colors.fallback_cover_bg, screenshot_text_colors.fallback_cover_fg
+    );
     let screenshot_selected_line_class =
         "block w-full rounded-2xl px-1 py-1.5 text-left text-[1.85rem] md:text-[3.05rem] font-semibold leading-[1.08] text-white whitespace-pre-wrap break-words transition-colors";
     let screenshot_unselected_line_class =
@@ -1033,11 +1287,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
     } else {
         Vec::new()
     };
-    let screenshot_share_lyrics_class = if screenshot_shot_dark_text {
-        "font-semibold text-zinc-950"
-    } else {
-        "font-semibold text-white"
-    };
+    let screenshot_share_lyrics_class = "font-semibold";
     let screenshot_share_spacing_class = match screenshot_selected_count {
         0 | 1 => "space-y-6",
         2 => "space-y-5",
@@ -1054,9 +1304,10 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             _ => (1.02, 1.1),
         };
     let screenshot_share_lyrics_style = format!(
-        "font-size:{:.3}rem; line-height:{:.3};",
+        "font-size:{:.3}rem; line-height:{:.3}; color:{};",
         screenshot_share_font_size_rem * screenshot_shot_font_scale_ratio,
-        screenshot_share_line_height
+        screenshot_share_line_height,
+        screenshot_text_colors.lyrics
     );
     let toolbar_button_base_class =
         "h-10 w-10 rounded-full border flex items-center justify-center transition-colors";
@@ -1229,17 +1480,19 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         }
     };
 
-    let on_share_screenshot_shot = {
+    let start_screenshot_share: std::rc::Rc<dyn Fn(ScreenshotShareIntent)> = {
         let screenshot_song_title = screenshot_song_title.clone();
         let screenshot_song_artist = screenshot_song_artist.clone();
         let screenshot_shot_card_id = screenshot_shot_card_id.clone();
         let screenshot_selected_bars = screenshot_selected_bars.clone();
-        let mut screenshot_share_feedback = screenshot_share_feedback.clone();
-        let mut screenshot_share_feedback_generation = screenshot_share_feedback_generation.clone();
-        let mut screenshot_share_pending = screenshot_share_pending.clone();
+        let screenshot_share_feedback = screenshot_share_feedback.clone();
+        let screenshot_share_feedback_generation = screenshot_share_feedback_generation.clone();
+        let screenshot_share_pending = screenshot_share_pending.clone();
 
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
+        std::rc::Rc::new(move |share_intent: ScreenshotShareIntent| {
+            let mut screenshot_share_feedback = screenshot_share_feedback.clone();
+            let mut screenshot_share_feedback_generation = screenshot_share_feedback_generation.clone();
+            let mut screenshot_share_pending = screenshot_share_pending.clone();
 
             if screenshot_share_pending() {
                 return;
@@ -1271,6 +1524,7 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             );
             let share_file_name = screenshot_share_file_name(&screenshot_song_title);
             let capture_id = screenshot_shot_card_id.clone();
+            let share_intent_key = screenshot_share_intent_key(share_intent).to_string();
 
             screenshot_share_pending.set(true);
             screenshot_share_feedback_generation.with_mut(|value| {
@@ -1284,41 +1538,20 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
             spawn(async move {
                 let debug_capture_id = capture_id.clone();
                 let debug_share_file_name = share_file_name.clone();
-                let status = share_screenshot_lyrics_image(capture_id, share_file_name, share_text)
-                    .await;
+                let status = share_screenshot_lyrics_image(
+                    capture_id,
+                    share_file_name,
+                    share_text,
+                    share_intent_key,
+                )
+                .await;
                 eprintln!(
-                    "[lyrics-share-shot] status={status} capture_id={} file={}",
-                    debug_capture_id, debug_share_file_name
+                    "[lyrics-share-shot] status={status} intent={} capture_id={} file={}",
+                    screenshot_share_intent_key(share_intent),
+                    debug_capture_id,
+                    debug_share_file_name
                 );
-                let message = match status.as_str() {
-                    "shared-image" => "Opened native share sheet with the shot image.".to_string(),
-                    "saved-image" => {
-                        "Saved the shot image locally. Share it from Photos/Files.".to_string()
-                    }
-                    "shared-text" => {
-                        "Image share is unsupported here, so text was shared instead.".to_string()
-                    }
-                    "copied" => "Copied caption text to clipboard.".to_string(),
-                    "cancelled" => "Share cancelled.".to_string(),
-                    "capture-target-missing" => {
-                        "Could not find the shot preview to capture. Reopen shot mode and try again."
-                            .to_string()
-                    }
-                    "capture-html2canvas-failed" => {
-                        "Could not capture shot image (html2canvas engine failed).".to_string()
-                    }
-                    "capture-html2canvas-clone-failed" => {
-                        "Could not capture shot image (clone html2canvas fallback failed)."
-                            .to_string()
-                    }
-                    "capture-svg-failed" => {
-                        "Could not capture shot image (SVG fallback failed).".to_string()
-                    }
-                    "capture-failed" | "encode-failed" => {
-                        "Could not capture the current shot image on this device.".to_string()
-                    }
-                    _ => "Sharing is unavailable on this device.".to_string(),
-                };
+                let message = screenshot_share_status_message(&status, share_intent);
 
                 screenshot_share_pending.set(false);
                 screenshot_share_feedback.set(Some(message));
@@ -1328,6 +1561,30 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                     screenshot_share_feedback.set(None);
                 }
             });
+        })
+    };
+
+    let on_share_screenshot_shot = {
+        let start_screenshot_share = start_screenshot_share.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            start_screenshot_share(ScreenshotShareIntent::Share);
+        }
+    };
+
+    let on_save_screenshot_shot = {
+        let start_screenshot_share = start_screenshot_share.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            start_screenshot_share(ScreenshotShareIntent::Save);
+        }
+    };
+
+    let on_share_screenshot_to_instagram = {
+        let start_screenshot_share = start_screenshot_share.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            start_screenshot_share(ScreenshotShareIntent::Instagram);
         }
     };
 
@@ -1588,21 +1845,37 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                     },
                     div { class: "absolute top-12 right-4 z-20 flex items-center gap-2 md:top-14 md:right-6",
                         if screenshot_shot_mode_enabled {
-                            button {
-                                class: if screenshot_share_pending() { "rounded-full border border-white/30 bg-white/14 px-4 py-2 text-sm text-white transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-white/12 bg-black/30 px-4 py-2 text-sm text-white/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm text-white/80 hover:text-white hover:border-white/30 transition-colors" },
-                                title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share" } else if screenshot_share_pending() { "Preparing image for sharing..." } else { "Share shot image" },
-                                disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
-                                onclick: on_share_screenshot_shot,
-                                if screenshot_share_pending() {
-                                    span { class: "inline-flex items-center gap-2",
-                                        Icon {
-                                            name: "loader".to_string(),
-                                            class: "w-4 h-4".to_string(),
+                            div { class: "flex items-center gap-2",
+                                button {
+                                    class: if screenshot_share_pending() { "rounded-full border border-white/30 bg-white/14 px-4 py-2 text-sm text-white transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-white/12 bg-black/30 px-4 py-2 text-sm text-white/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm text-white/80 hover:text-white hover:border-white/30 transition-colors" },
+                                    title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share" } else if screenshot_share_pending() { "Preparing image for sharing..." } else { "Share shot image" },
+                                    disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
+                                    onclick: on_share_screenshot_shot,
+                                    if screenshot_share_pending() {
+                                        span { class: "inline-flex items-center gap-2",
+                                            Icon {
+                                                name: "loader".to_string(),
+                                                class: "w-4 h-4".to_string(),
+                                            }
+                                            "Preparing"
                                         }
-                                        "Preparing"
+                                    } else {
+                                        "Share"
                                     }
-                                } else {
-                                    "Share"
+                                }
+                                button {
+                                    class: if screenshot_share_pending() { "rounded-full border border-emerald-300/40 bg-emerald-200/20 px-3 py-2 text-sm text-emerald-100/85 transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-emerald-300/25 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-emerald-300/35 bg-emerald-900/30 px-3 py-2 text-sm text-emerald-100/85 hover:text-white hover:border-emerald-200/60 transition-colors" },
+                                    title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to save" } else if screenshot_share_pending() { "Preparing image for saving..." } else { "Save shot image to device" },
+                                    disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
+                                    onclick: on_save_screenshot_shot,
+                                    "Save"
+                                }
+                                button {
+                                    class: if screenshot_share_pending() { "rounded-full border border-fuchsia-300/35 bg-fuchsia-300/14 px-3 py-2 text-sm text-fuchsia-100/85 transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-fuchsia-300/25 bg-fuchsia-900/18 px-3 py-2 text-sm text-fuchsia-100/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-fuchsia-300/35 bg-fuchsia-900/24 px-3 py-2 text-sm text-fuchsia-100/85 hover:text-white hover:border-fuchsia-200/60 transition-colors" },
+                                    title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share on Instagram" } else if screenshot_share_pending() { "Preparing image for Instagram..." } else { "Share shot image for Instagram" },
+                                    disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
+                                    onclick: on_share_screenshot_to_instagram,
+                                    "Instagram"
                                 }
                             }
                         }
@@ -1779,10 +2052,14 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                     class: "rounded-full border border-white/15 px-3 py-1 text-[11px] uppercase tracking-[0.2em] text-white/70 hover:text-white hover:border-white/30 transition-colors",
                                     onclick: {
                                         let mut screenshot_shot_font_scale = screenshot_shot_font_scale.clone();
+                                        let mut screenshot_shot_blur = screenshot_shot_blur.clone();
+                                        let mut screenshot_shot_text_palette = screenshot_shot_text_palette.clone();
                                         let mut screenshot_shot_theme = screenshot_shot_theme.clone();
                                         let mut app_settings = app_settings.clone();
                                         move |_| {
                                             screenshot_shot_font_scale.set(100);
+                                            screenshot_shot_blur.set(28);
+                                            screenshot_shot_text_palette.set(ScreenshotTextPalette::Auto);
                                             screenshot_shot_theme.set(ScreenshotShotTheme::Cover);
                                             let mut settings = app_settings();
                                             settings.lyrics_default_theme = "cover".to_string();
@@ -1823,6 +2100,96 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                 }
                                 p { class: "text-[11px] text-white/45",
                                     "{screenshot_shot_font_scale_percent}%"
+                                }
+                            }
+                            div { class: "mt-4 space-y-2",
+                                p { class: "text-[11px] uppercase tracking-[0.22em] text-white/45",
+                                    "Album blur"
+                                }
+                                div { class: "flex items-center gap-3",
+                                    span { class: "text-xs text-white/55", "Soft" }
+                                    input {
+                                        r#type: "range",
+                                        min: "8",
+                                        max: "48",
+                                        step: "2",
+                                        value: "{screenshot_shot_blur_strength_px}",
+                                        class: "flex-1 h-1.5 cursor-pointer appearance-none rounded-full bg-white/15 accent-white",
+                                        oninput: {
+                                            let mut screenshot_shot_blur = screenshot_shot_blur.clone();
+                                            move |evt| {
+                                                if let Ok(value) = evt.value().parse::<i32>() {
+                                                    screenshot_shot_blur.set(value.clamp(8, 48));
+                                                }
+                                            }
+                                        },
+                                    }
+                                    span { class: "text-xs text-white/72", "Bold" }
+                                }
+                                p { class: "text-[11px] text-white/45",
+                                    "{screenshot_shot_blur_strength_px}px"
+                                }
+                            }
+                            div { class: "mt-4 space-y-2",
+                                p { class: "text-[11px] uppercase tracking-[0.22em] text-white/45",
+                                    "Text color"
+                                }
+                                div { class: "flex flex-wrap gap-2",
+                                    button {
+                                        class: screenshot_picker_pill_class(
+                                            screenshot_text_palette_active == ScreenshotTextPalette::Auto,
+                                        ),
+                                        onclick: {
+                                            let mut screenshot_shot_text_palette = screenshot_shot_text_palette.clone();
+                                            move |_| screenshot_shot_text_palette.set(ScreenshotTextPalette::Auto)
+                                        },
+                                        span { class: "h-3 w-3 rounded-full bg-gradient-to-br from-white to-zinc-800" }
+                                        "Auto"
+                                    }
+                                    button {
+                                        class: screenshot_picker_pill_class(
+                                            screenshot_text_palette_active == ScreenshotTextPalette::Light,
+                                        ),
+                                        onclick: {
+                                            let mut screenshot_shot_text_palette = screenshot_shot_text_palette.clone();
+                                            move |_| screenshot_shot_text_palette.set(ScreenshotTextPalette::Light)
+                                        },
+                                        span { class: "h-3 w-3 rounded-full bg-white" }
+                                        "Light"
+                                    }
+                                    button {
+                                        class: screenshot_picker_pill_class(
+                                            screenshot_text_palette_active == ScreenshotTextPalette::Dark,
+                                        ),
+                                        onclick: {
+                                            let mut screenshot_shot_text_palette = screenshot_shot_text_palette.clone();
+                                            move |_| screenshot_shot_text_palette.set(ScreenshotTextPalette::Dark)
+                                        },
+                                        span { class: "h-3 w-3 rounded-full bg-zinc-900" }
+                                        "Dark"
+                                    }
+                                    button {
+                                        class: screenshot_picker_pill_class(
+                                            screenshot_text_palette_active == ScreenshotTextPalette::Gold,
+                                        ),
+                                        onclick: {
+                                            let mut screenshot_shot_text_palette = screenshot_shot_text_palette.clone();
+                                            move |_| screenshot_shot_text_palette.set(ScreenshotTextPalette::Gold)
+                                        },
+                                        span { class: "h-3 w-3 rounded-full bg-amber-200" }
+                                        "Gold"
+                                    }
+                                    button {
+                                        class: screenshot_picker_pill_class(
+                                            screenshot_text_palette_active == ScreenshotTextPalette::Cyan,
+                                        ),
+                                        onclick: {
+                                            let mut screenshot_shot_text_palette = screenshot_shot_text_palette.clone();
+                                            move |_| screenshot_shot_text_palette.set(ScreenshotTextPalette::Cyan)
+                                        },
+                                        span { class: "h-3 w-3 rounded-full bg-cyan-200" }
+                                        "Cyan"
+                                    }
                                 }
                             }
                             div { class: "mt-4 space-y-2",
@@ -1920,7 +2287,8 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                         div { class: "relative flex-1 overflow-hidden bg-zinc-950 shadow-[0_40px_120px_rgba(0,0,0,0.65)]",
                             if let Some(url) = screenshot_cover_url.clone() {
                                 img {
-                                    class: "absolute inset-0 h-full w-full object-cover scale-110 blur-3xl opacity-35",
+                                    class: "absolute inset-0 h-full w-full object-cover scale-110 opacity-35",
+                                    style: "{screenshot_main_backdrop_cover_style}",
                                     src: "{url}",
                                     alt: "{screenshot_song_title}",
                                 }
@@ -1935,7 +2303,8 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                         if screenshot_shot_theme_active == ScreenshotShotTheme::Cover {
                                             if let Some(url) = screenshot_cover_url.clone() {
                                                 img {
-                                                    class: "absolute inset-0 h-full w-full object-cover scale-[1.18] blur-2xl opacity-65",
+                                                    class: "absolute inset-0 h-full w-full object-cover scale-[1.18] opacity-65",
+                                                    style: "{screenshot_card_backdrop_cover_style}",
                                                     src: "{url}",
                                                     alt: "{screenshot_song_title}",
                                                 }
@@ -1951,7 +2320,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                                         alt: "{screenshot_song_title}",
                                                     }
                                                 } else {
-                                                    div { class: "{screenshot_shot_fallback_cover_class}",
+                                                    div {
+                                                        class: "flex h-14 w-14 items-center justify-center rounded-2xl md:h-16 md:w-16",
+                                                        style: "{screenshot_shot_fallback_cover_style}",
                                                         Icon {
                                                             name: "music".to_string(),
                                                             class: "h-7 w-7".to_string(),
@@ -1959,11 +2330,15 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                                     }
                                                 }
                                                 div { class: "min-w-0 flex-1",
-                                                    p { class: "truncate text-2xl font-semibold leading-tight {screenshot_shot_primary_text_class} md:text-[2rem]",
+                                                    p {
+                                                        class: "truncate text-2xl font-semibold leading-tight md:text-[2rem]",
+                                                        style: "{screenshot_shot_primary_text_style}",
                                                         "{screenshot_song_title}"
                                                     }
                                                     if let Some(artist) = screenshot_song_artist.clone() {
-                                                        p { class: "truncate text-lg font-medium {screenshot_shot_secondary_text_class} md:text-[1.35rem]",
+                                                        p {
+                                                            class: "truncate text-lg font-medium md:text-[1.35rem]",
+                                                            style: "{screenshot_shot_secondary_text_style}",
                                                             "{artist}"
                                                         }
                                                     }
@@ -1971,7 +2346,9 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                             }
                                             div { class: "flex flex-1 items-center py-5 md:py-6",
                                                 if screenshot_selected_bars.is_empty() {
-                                                    p { class: "text-xl font-semibold {screenshot_shot_footer_primary_text_class}",
+                                                    p {
+                                                        class: "text-xl font-semibold",
+                                                        style: "{screenshot_shot_footer_primary_text_style}",
                                                         "Lyrics unavailable."
                                                     }
                                                 } else {
@@ -1994,10 +2371,14 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                                         alt: "RustySound",
                                                     }
                                                     div {
-                                                        p { class: "text-sm font-semibold uppercase tracking-[0.22em] {screenshot_shot_footer_primary_text_class}",
+                                                        p {
+                                                            class: "text-sm font-semibold uppercase tracking-[0.22em]",
+                                                            style: "{screenshot_shot_footer_primary_text_style}",
                                                             "RustySound"
                                                         }
-                                                        p { class: "text-xs {screenshot_shot_footer_secondary_text_class}",
+                                                        p {
+                                                            class: "text-xs",
+                                                            style: "{screenshot_shot_footer_secondary_text_style}",
                                                             "Shared lyrics"
                                                         }
                                                     }

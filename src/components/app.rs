@@ -15,10 +15,10 @@ use crate::db::{
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::run_auto_download_pass;
 use chrono::{DateTime, NaiveDateTime};
-#[cfg(all(feature = "desktop", target_os = "macos"))]
-use dioxus::desktop::use_muda_event_handler;
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+use dioxus::desktop::use_muda_event_handler;
 use dioxus_router::components::Outlet;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::closure::Closure;
@@ -838,38 +838,36 @@ pub fn AppShell() -> Element {
     #[cfg(all(feature = "desktop", target_os = "macos"))]
     {
         let navigation = navigation.clone();
-        use_muda_event_handler(move |event| {
-            match event.id().as_ref() {
-                "rustysound-open-settings" => {
-                    navigation.navigate_to(AppView::SettingsView {});
-                }
-                "rustysound-go-home" => {
-                    navigation.navigate_to(AppView::HomeView {});
-                }
-                "rustysound-go-search" => {
-                    navigation.navigate_to(AppView::SearchView {});
-                    focus_global_search_input();
-                }
-                "rustysound-go-albums" => {
-                    navigation.navigate_to(AppView::Albums {});
-                }
-                "rustysound-go-artists" => {
-                    navigation.navigate_to(AppView::ArtistsView {});
-                }
-                "rustysound-go-playlists" => {
-                    navigation.navigate_to(AppView::PlaylistsView {});
-                }
-                "rustysound-go-songs" => {
-                    navigation.navigate_to(AppView::SongsView {});
-                }
-                "rustysound-go-queue" => {
-                    navigation.navigate_to(AppView::QueueView {});
-                }
-                "rustysound-go-downloads" => {
-                    navigation.navigate_to(AppView::DownloadsView {});
-                }
-                _ => {}
+        use_muda_event_handler(move |event| match event.id().as_ref() {
+            "rustysound-open-settings" => {
+                navigation.navigate_to(AppView::SettingsView {});
             }
+            "rustysound-go-home" => {
+                navigation.navigate_to(AppView::HomeView {});
+            }
+            "rustysound-go-search" => {
+                navigation.navigate_to(AppView::SearchView {});
+                focus_global_search_input();
+            }
+            "rustysound-go-albums" => {
+                navigation.navigate_to(AppView::Albums {});
+            }
+            "rustysound-go-artists" => {
+                navigation.navigate_to(AppView::ArtistsView {});
+            }
+            "rustysound-go-playlists" => {
+                navigation.navigate_to(AppView::PlaylistsView {});
+            }
+            "rustysound-go-songs" => {
+                navigation.navigate_to(AppView::SongsView {});
+            }
+            "rustysound-go-queue" => {
+                navigation.navigate_to(AppView::QueueView {});
+            }
+            "rustysound-go-downloads" => {
+                navigation.navigate_to(AppView::DownloadsView {});
+            }
+            _ => {}
         });
     }
 

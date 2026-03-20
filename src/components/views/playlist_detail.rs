@@ -7,8 +7,9 @@ use crate::components::{
 use crate::db::AppSettings;
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{
-    download_songs_batch, is_song_downloaded, list_downloaded_collections,
-    mark_collection_downloaded, prefetch_song_audio, sync_downloaded_collection_members,
+    download_songs_batch, is_playlist_auto_download_tracked, is_song_downloaded,
+    mark_collection_downloaded, mark_playlist_auto_download_tracked, prefetch_song_audio,
+    sync_downloaded_collection_members,
 };
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -266,6 +267,52 @@ fn PlaylistSongRow(
         }
     };
 
+    let make_on_view_album = {
+        let navigation = navigation.clone();
+        let album_id = song.album_id.clone();
+        let server_id = song.server_id.clone();
+        let show_mobile_actions = show_mobile_actions.clone();
+        move || {
+            let navigation = navigation.clone();
+            let album_id = album_id.clone();
+            let server_id = server_id.clone();
+            let mut show_mobile_actions = show_mobile_actions.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_mobile_actions.set(false);
+                if let Some(album_id_val) = album_id.clone() {
+                    navigation.navigate_to(AppView::AlbumDetailView {
+                        album_id: album_id_val,
+                        server_id: server_id.clone(),
+                    });
+                }
+            }
+        }
+    };
+
+    let make_on_view_artist = {
+        let navigation = navigation.clone();
+        let artist_id = song.artist_id.clone();
+        let server_id = song.server_id.clone();
+        let show_mobile_actions = show_mobile_actions.clone();
+        move || {
+            let navigation = navigation.clone();
+            let artist_id = artist_id.clone();
+            let server_id = server_id.clone();
+            let mut show_mobile_actions = show_mobile_actions.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_mobile_actions.set(false);
+                if let Some(artist_id_val) = artist_id.clone() {
+                    navigation.navigate_to(AppView::ArtistDetailView {
+                        artist_id: artist_id_val,
+                        server_id: server_id.clone(),
+                    });
+                }
+            }
+        }
+    };
+
     rsx! {
         div {
             class: if is_current { "relative w-full flex items-center gap-4 p-3 rounded-xl bg-emerald-500/5 transition-colors group cursor-pointer" } else { "relative w-full flex items-center gap-4 p-3 rounded-xl hover:bg-zinc-800/50 transition-colors group cursor-pointer" },
@@ -290,7 +337,7 @@ fn PlaylistSongRow(
                 }
             }
             button {
-                class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
+                class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0 pointer-events-none md:pointer-events-auto",
                 aria_label: "Open album",
                 onclick: on_album_cover,
                 match cover_url {
@@ -367,6 +414,28 @@ fn PlaylistSongRow(
                                 class: "w-4 h-4".to_string(),
                             }
                             "Add To..."
+                        }
+                        if song.album_id.is_some() {
+                            button {
+                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                onclick: make_on_view_album(),
+                                Icon {
+                                    name: "album".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "View album"
+                            }
+                        }
+                        if song.artist_id.is_some() {
+                            button {
+                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                onclick: make_on_view_artist(),
+                                Icon {
+                                    name: "artist".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                "View artist"
+                            }
                         }
                         if downloaded() {
                             div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",
@@ -705,6 +774,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         &playlist_meta.name,
                         songs.len(),
                     );
+                    mark_playlist_auto_download_tracked(
+                        &playlist_meta.server_id,
+                        &playlist_meta.id,
+                        &playlist_meta.name,
+                        songs.len(),
+                    );
                     sync_downloaded_collection_members(
                         "playlist",
                         &playlist_meta.server_id,
@@ -810,11 +885,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         let mut recently_added_seed = recently_added_seed.clone();
         move |song: Song| {
             if let Some(Some((playlist, _))) = playlist_data_ref() {
-                let playlist_download_tracked = list_downloaded_collections().iter().any(|entry| {
-                    entry.kind == "playlist"
-                        && entry.server_id == playlist.server_id
-                        && entry.collection_id == playlist.id
-                });
+                let settings_snapshot = app_settings();
+                let playlist_download_tracked =
+                    is_playlist_auto_download_tracked(&playlist.server_id, &playlist.id);
+                let auto_download_new_songs = playlist_download_tracked
+                    && settings_snapshot.downloads_enabled
+                    && settings_snapshot.auto_downloads_enabled;
                 if let Some(server) = servers()
                     .iter()
                     .find(|s| s.id == playlist.server_id)
@@ -836,15 +912,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             .is_ok()
                         {
                             if playlist_download_tracked {
-                                let mut settings_snapshot = app_settings();
-                                settings_snapshot.downloads_enabled = true;
-                                let servers_snapshot = servers();
-                                let _ = prefetch_song_audio(
-                                    &song_for_seed,
-                                    &servers_snapshot,
-                                    &settings_snapshot,
-                                )
-                                .await;
                                 mark_collection_downloaded(
                                     "playlist",
                                     &playlist_server_id,
@@ -852,6 +919,23 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     &playlist_name,
                                     playlist_song_count,
                                 );
+                                mark_playlist_auto_download_tracked(
+                                    &playlist_server_id,
+                                    &playlist_id,
+                                    &playlist_name,
+                                    playlist_song_count,
+                                );
+                                if auto_download_new_songs {
+                                    let mut settings_snapshot = app_settings();
+                                    settings_snapshot.downloads_enabled = true;
+                                    let servers_snapshot = servers();
+                                    let _ = prefetch_song_audio(
+                                        &song_for_seed,
+                                        &servers_snapshot,
+                                        &settings_snapshot,
+                                    )
+                                    .await;
+                                }
                                 if let Ok((_, refreshed_songs)) =
                                     client.get_playlist(&playlist_id).await
                                 {
@@ -1463,7 +1547,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                         if let Some(url) = cover_url {
                                                                             if let Some(album_id) = cover_album_id {
                                                                                 button {
-                                                                                    class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                                    class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                                     aria_label: "Open album",
                                                                                     onclick: {
                                                                                         let album_id = album_id.clone();
@@ -1615,7 +1699,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                             if let Some(url) = cover_url {
                                                                 if let Some(album_id) = cover_album_id {
                                                                     button {
-                                                                        class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                        class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                         aria_label: "Open album",
                                                                         onclick: {
                                                                             let album_id = album_id.clone();

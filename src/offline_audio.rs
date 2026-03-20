@@ -105,6 +105,8 @@ pub struct DownloadCollectionEntry {
     pub collection_id: String,
     pub name: String,
     #[serde(default)]
+    pub auto_download_tracked: bool,
+    #[serde(default)]
     pub song_count: usize,
     #[serde(default)]
     pub total_song_count: usize,
@@ -655,6 +657,7 @@ pub fn mark_collection_downloaded(
             server_id: server_id.to_string(),
             collection_id: collection_id.to_string(),
             name: name.to_string(),
+            auto_download_tracked: false,
             song_count,
             total_song_count: song_count,
             downloaded_song_count: 0,
@@ -672,6 +675,85 @@ pub fn mark_collection_downloaded(
     _name: &str,
     _song_count: usize,
 ) {
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn mark_playlist_auto_download_tracked(
+    server_id: &str,
+    playlist_id: &str,
+    playlist_name: &str,
+    song_count: usize,
+) {
+    let server_key = server_id.trim();
+    let playlist_key = playlist_id.trim();
+    if server_key.is_empty() || playlist_key.is_empty() {
+        return;
+    }
+
+    let mut index = load_collection_index();
+    if let Some(entry) = index.iter_mut().find(|entry| {
+        entry.kind == "playlist"
+            && entry.server_id == server_key
+            && entry.collection_id == playlist_key
+    }) {
+        entry.auto_download_tracked = true;
+        if !playlist_name.trim().is_empty() {
+            entry.name = playlist_name.to_string();
+        }
+        if song_count > 0 {
+            entry.song_count = song_count;
+            entry.total_song_count = song_count;
+            entry.downloaded_song_count = entry.downloaded_song_count.min(song_count);
+        }
+        entry.updated_at_ms = now_timestamp_millis();
+    } else {
+        index.push(DownloadCollectionEntry {
+            kind: "playlist".to_string(),
+            server_id: server_key.to_string(),
+            collection_id: playlist_key.to_string(),
+            name: if playlist_name.trim().is_empty() {
+                "Playlist".to_string()
+            } else {
+                playlist_name.to_string()
+            },
+            auto_download_tracked: true,
+            song_count,
+            total_song_count: song_count,
+            downloaded_song_count: 0,
+            updated_at_ms: now_timestamp_millis(),
+        });
+    }
+    save_collection_index(&index);
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn mark_playlist_auto_download_tracked(
+    _server_id: &str,
+    _playlist_id: &str,
+    _playlist_name: &str,
+    _song_count: usize,
+) {
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn is_playlist_auto_download_tracked(server_id: &str, playlist_id: &str) -> bool {
+    let server_key = server_id.trim();
+    let playlist_key = playlist_id.trim();
+    if server_key.is_empty() || playlist_key.is_empty() {
+        return false;
+    }
+
+    load_collection_index().iter().any(|entry| {
+        entry.kind == "playlist"
+            && entry.server_id == server_key
+            && entry.collection_id == playlist_key
+            && entry.auto_download_tracked
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn is_playlist_auto_download_tracked(_server_id: &str, _playlist_id: &str) -> bool {
+    false
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1057,6 +1139,13 @@ fn sync_collection_download_counts_with_index(entries: &[DownloadIndexEntry]) {
             });
 
         if downloaded_song_count == 0 {
+            if collection.kind == "playlist" && collection.auto_download_tracked {
+                let total_song_count = collection.effective_total_song_count();
+                collection.song_count = total_song_count;
+                collection.total_song_count = total_song_count;
+                collection.downloaded_song_count = 0;
+                next.push(collection);
+            }
             continue;
         }
 
@@ -1533,6 +1622,21 @@ pub async fn run_auto_download_pass(
     let mut candidates = Vec::<Song>::new();
     let mut seen = HashSet::<String>::new();
     let favorite_limit = auto_download_favorite_limit(settings.auto_download_tier.clamp(1, 3));
+    let tracked_playlists_by_server = list_downloaded_collections().into_iter().fold(
+        HashMap::<String, HashSet<String>>::new(),
+        |mut map, entry| {
+            if entry.kind == "playlist"
+                && entry.auto_download_tracked
+                && !entry.server_id.trim().is_empty()
+                && !entry.collection_id.trim().is_empty()
+            {
+                map.entry(entry.server_id)
+                    .or_default()
+                    .insert(entry.collection_id.trim().to_string());
+            }
+            map
+        },
+    );
 
     for server in active_servers.iter().cloned() {
         let client = NavidromeClient::new(server.clone());
@@ -1565,11 +1669,55 @@ pub async fn run_auto_download_pass(
                     .then_with(|| right.created.cmp(&left.created))
             });
 
+            let tracked_playlist_ids = tracked_playlists_by_server
+                .get(&server.id)
+                .cloned()
+                .unwrap_or_default();
+            let mut checked_playlist_ids = HashSet::<String>::new();
+
+            for playlist in playlists
+                .iter()
+                .filter(|playlist| tracked_playlist_ids.contains(playlist.id.trim()))
+            {
+                let playlist_id = playlist.id.trim();
+                if playlist_id.is_empty() || !checked_playlist_ids.insert(playlist_id.to_string()) {
+                    continue;
+                }
+                if let Ok((playlist_meta, songs)) = client.get_playlist(playlist_id).await {
+                    mark_collection_downloaded(
+                        "playlist",
+                        &playlist_meta.server_id,
+                        &playlist_meta.id,
+                        &playlist_meta.name,
+                        songs.len(),
+                    );
+                    mark_playlist_auto_download_tracked(
+                        &playlist_meta.server_id,
+                        &playlist_meta.id,
+                        &playlist_meta.name,
+                        songs.len(),
+                    );
+                    sync_downloaded_collection_members(
+                        "playlist",
+                        &playlist_meta.server_id,
+                        &playlist_meta.id,
+                        &songs,
+                    );
+                    for song in songs {
+                        push_unique_song(&mut candidates, &mut seen, song);
+                    }
+                }
+            }
+
             for playlist in playlists
                 .into_iter()
                 .take(settings.auto_download_playlist_count.clamp(0, 25) as usize)
             {
-                if let Ok((_, songs)) = client.get_playlist(&playlist.id).await {
+                let playlist_id = playlist.id.trim();
+                if playlist_id.is_empty() || !checked_playlist_ids.insert(playlist_id.to_string()) {
+                    continue;
+                }
+                if let Ok((_, songs)) = client.get_playlist(playlist_id).await {
                     for song in songs {
                         push_unique_song(&mut candidates, &mut seen, song);
                     }

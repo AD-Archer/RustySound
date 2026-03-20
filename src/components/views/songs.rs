@@ -602,6 +602,52 @@ fn SongRowWithRating(
         }
     };
 
+    let make_on_view_album = {
+        let navigation = navigation.clone();
+        let album_id = song.album_id.clone();
+        let server_id = song.server_id.clone();
+        let show_mobile_actions = show_mobile_actions.clone();
+        move || {
+            let navigation = navigation.clone();
+            let album_id = album_id.clone();
+            let server_id = server_id.clone();
+            let mut show_mobile_actions = show_mobile_actions.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_mobile_actions.set(false);
+                if let Some(album_id_val) = album_id.clone() {
+                    navigation.navigate_to(AppView::AlbumDetailView {
+                        album_id: album_id_val,
+                        server_id: server_id.clone(),
+                    });
+                }
+            }
+        }
+    };
+
+    let make_on_view_artist = {
+        let navigation = navigation.clone();
+        let artist_id = song.artist_id.clone();
+        let server_id = song.server_id.clone();
+        let show_mobile_actions = show_mobile_actions.clone();
+        move || {
+            let navigation = navigation.clone();
+            let artist_id = artist_id.clone();
+            let server_id = server_id.clone();
+            let mut show_mobile_actions = show_mobile_actions.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_mobile_actions.set(false);
+                if let Some(artist_id_val) = artist_id.clone() {
+                    navigation.navigate_to(AppView::ArtistDetailView {
+                        artist_id: artist_id_val,
+                        server_id: server_id.clone(),
+                    });
+                }
+            }
+        }
+    };
+
     let on_open_menu = {
         let mut add_menu = add_menu.clone();
         let song = song.clone();
@@ -760,7 +806,7 @@ fn SongRowWithRating(
             // Cover
             if album_id.is_some() {
                 button {
-                    class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
+                    class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0 pointer-events-none md:pointer-events-auto",
                     aria_label: "Open album",
                     onclick: on_album_click_cover,
                     {
@@ -845,7 +891,14 @@ fn SongRowWithRating(
                         }
                         if show_mobile_actions() {
                             div {
-                                class: "absolute right-0 top-10 z-20 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                                class: "fixed inset-0 z-20",
+                                onclick: move |evt: MouseEvent| {
+                                    evt.stop_propagation();
+                                    show_mobile_actions.set(false);
+                                },
+                            }
+                            div {
+                                class: "absolute right-0 top-10 z-30 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
                                 onclick: move |evt: MouseEvent| evt.stop_propagation(),
                                 button {
                                     class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
@@ -855,6 +908,28 @@ fn SongRowWithRating(
                                         class: "w-4 h-4".to_string(),
                                     }
                                     "Add To..."
+                                }
+                                if album_id.is_some() {
+                                    button {
+                                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                        onclick: make_on_view_album(),
+                                        Icon {
+                                            name: "album".to_string(),
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        "View album"
+                                    }
+                                }
+                                if artist_id.is_some() {
+                                    button {
+                                        class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                        onclick: make_on_view_artist(),
+                                        Icon {
+                                            name: "artist".to_string(),
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        "View artist"
+                                    }
                                 }
                                 if downloaded() {
                                     div { class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10",

@@ -402,7 +402,7 @@ pub fn QueueView() -> Element {
                                                                     rsx! {
                                                                         if let Some(album_id) = cover_album_id {
                                                                             button {
-                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                                 aria_label: "Open album",
                                                                                 onclick: {
                                                                                     let album_id = album_id.clone();
@@ -585,7 +585,7 @@ pub fn QueueView() -> Element {
                                                                     rsx! {
                                                                         if let Some(album_id) = cover_album_id {
                                                                             button {
-                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0",
+                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                                 aria_label: "Open album",
                                                                                 onclick: {
                                                                                     let album_id = album_id.clone();

@@ -63,6 +63,7 @@ fn infer_downloaded_albums(entries: &[DownloadIndexEntry]) -> Vec<DownloadCollec
                 server_id: entry.server_id.clone(),
                 collection_id: album_key,
                 name: album_name,
+                auto_download_tracked: false,
                 song_count: 1,
                 total_song_count: 1,
                 downloaded_song_count: 1,
@@ -651,9 +652,28 @@ pub fn DownloadsView() -> Element {
     let count_usage_bar_width = format!("{count_usage_percent:.1}%");
 
     let on_refresh = {
+        let servers = servers.clone();
+        let mut action_busy = action_busy.clone();
+        let mut action_status = action_status.clone();
         let mut refresh_nonce = refresh_nonce.clone();
         move |_| {
-            refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+            if action_busy() {
+                return;
+            }
+
+            let servers_snapshot = servers();
+            action_busy.set(true);
+            action_status.set(Some("Refreshing downloaded collections...".to_string()));
+            spawn(async move {
+                let changed = sync_downloaded_collection_metadata(&servers_snapshot).await;
+                action_status.set(Some(if changed > 0 {
+                    format!("Refresh complete: {changed} collection(s) updated.")
+                } else {
+                    "Refresh complete: no collection changes found.".to_string()
+                }));
+                refresh_nonce.with_mut(|nonce| *nonce = nonce.saturating_add(1));
+                action_busy.set(false);
+            });
         }
     };
 
@@ -1723,13 +1743,18 @@ pub fn DownloadsView() -> Element {
                         }
                     }
                     button {
-                        class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:border-zinc-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2",
+                        class: if action_busy() { "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-500 cursor-not-allowed text-center flex items-center justify-center gap-2" } else { "w-full sm:w-auto px-3 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:bg-zinc-700 hover:border-zinc-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2" },
+                        disabled: action_busy(),
                         onclick: on_refresh,
                         Icon {
                             name: "refresh-cw".to_string(),
                             class: "w-4 h-4".to_string(),
                         }
-                        "Refresh"
+                        if action_busy() {
+                            "Refreshing..."
+                        } else {
+                            "Refresh"
+                        }
                     }
                     button {
                         class: "w-full sm:w-auto px-3 py-2 rounded-lg border border-rose-500/50 text-rose-300 hover:bg-rose-500 hover:border-rose-500 hover:text-white transition-colors text-center flex items-center justify-center gap-2",
