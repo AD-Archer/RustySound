@@ -165,6 +165,19 @@
                                     }
                                 }
                                 button {
+                                    class: if shuffle_enabled() {
+                                        "p-2 rounded-full border border-emerald-500/50 text-emerald-300 hover:text-emerald-200 transition-colors"
+                                    } else {
+                                        "p-2 rounded-full border border-zinc-700 text-zinc-400 hover:text-white transition-colors"
+                                    },
+                                    onclick: on_toggle_shuffle,
+                                    title: if shuffle_enabled() { "Shuffle (on)" } else { "Shuffle (off)" },
+                                    Icon {
+                                        name: "shuffle".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                }
+                                button {
                                     class: if current_repeat_mode == RepeatMode::One {
                                         "p-2 rounded-full border border-emerald-500/50 text-emerald-300 hover:text-emerald-200 transition-colors"
                                     } else {

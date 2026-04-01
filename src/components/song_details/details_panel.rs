@@ -312,6 +312,22 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
             repeat_mode.set(next);
         }
     };
+    let on_toggle_shuffle = {
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |_| {
+            let next = !shuffle_enabled();
+            shuffle_enabled.set(next);
+            let _ = apply_collection_shuffle_mode(
+                queue.clone(),
+                queue_index.clone(),
+                now_playing.clone(),
+                next,
+            );
+        }
+    };
     let on_set_now_playing_rating = {
         let servers = servers.clone();
         let now_playing = now_playing.clone();

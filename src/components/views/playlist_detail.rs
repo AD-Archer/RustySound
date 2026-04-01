@@ -330,6 +330,20 @@ fn PlaylistSongRow(
             }
         }
     };
+    let on_artist_click = {
+        let navigation = navigation.clone();
+        let artist_id = song.artist_id.clone();
+        let server_id = song.server_id.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(artist_id_val) = artist_id.clone() {
+                navigation.navigate_to(AppView::ArtistDetailView {
+                    artist_id: artist_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
+        }
+    };
 
     rsx! {
         div {
@@ -375,8 +389,16 @@ fn PlaylistSongRow(
                         p { class: if is_current { "min-w-0 text-sm font-medium text-emerald-400 truncate transition-colors" } else { "min-w-0 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors" },
                             "{song.title}"
                         }
-                        div { class: "mt-1 text-xs text-zinc-400 truncate inline-flex items-center gap-1 justify-center md:justify-start",
-                            span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                        div { class: "mt-1 text-xs text-zinc-400 inline-flex items-center gap-1 justify-center md:justify-start",
+                            if song.artist_id.is_some() {
+                                button {
+                                    class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors",
+                                    onclick: on_artist_click,
+                                    span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                                }
+                            } else {
+                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                            }
                             if downloaded() {
                                 Icon {
                                     name: "download".to_string(),

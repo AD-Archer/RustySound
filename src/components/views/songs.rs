@@ -426,15 +426,14 @@ pub fn SongsView() -> Element {
                                             effective_rating: effective_song_rating(song, &rating_snapshot),
                                             on_rating_changed: on_rating_changed.clone(),
                                             onclick: {
-                                                let songs = filtered.clone();
                                                 let mut now_playing = now_playing.clone();
                                                 let mut is_playing = is_playing.clone();
                                                 let mut queue = queue.clone();
                                                 let mut queue_index = queue_index.clone();
                                                 let song = song.clone();
                                                 move |_| {
-                                                    queue.set(songs.clone());
-                                                    queue_index.set(index);
+                                                    queue.set(vec![song.clone()]);
+                                                    queue_index.set(0);
                                                     now_playing.set(Some(song.clone()));
                                                     is_playing.set(true);
                                                 }
@@ -647,6 +646,20 @@ fn SongRowWithRating(
             }
         }
     };
+    let on_artist_click = {
+        let navigation = navigation.clone();
+        let artist_id = artist_id.clone();
+        let server_id = server_id.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            if let Some(artist_id_val) = artist_id.clone() {
+                navigation.navigate_to(AppView::ArtistDetailView {
+                    artist_id: artist_id_val,
+                    server_id: server_id.clone(),
+                });
+            }
+        }
+    };
 
     let on_open_menu = {
         let mut add_menu = add_menu.clone();
@@ -845,24 +858,20 @@ fn SongRowWithRating(
                         p { class: "min-w-0 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
                             "{song.title}"
                         }
-                        if artist_id.is_some() {
-                            div { class: "mt-1 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
-                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                                if downloaded() {
-                                    Icon {
-                                        name: "download".to_string(),
-                                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                                    }
+                        div { class: "mt-1 text-xs text-zinc-400 max-w-full inline-flex items-center gap-1",
+                            if artist_id.is_some() {
+                                button {
+                                    class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors",
+                                    onclick: on_artist_click,
+                                    span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
                                 }
-                            }
-                        } else {
-                            div { class: "mt-1 text-xs text-zinc-400 truncate max-w-full inline-flex items-center gap-1",
+                            } else {
                                 span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                                if downloaded() {
-                                    Icon {
-                                        name: "download".to_string(),
-                                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                                    }
+                            }
+                            if downloaded() {
+                                Icon {
+                                    name: "download".to_string(),
+                                    class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
                                 }
                             }
                         }

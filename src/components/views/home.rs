@@ -850,18 +850,18 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 .map(|ca| client.get_cover_art_url(ca, 120))
         });
 
-    let album_id = song.album_id.clone();
+    let artist_id = song.artist_id.clone();
     let server_id = song.server_id.clone();
 
-    let on_album_click_artist = {
-        let album_id = album_id.clone();
+    let on_artist_click = {
+        let artist_id = artist_id.clone();
         let server_id = server_id.clone();
         let navigation = navigation.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id: album_id_val,
+            if let Some(artist_id_val) = artist_id.clone() {
+                navigation.navigate_to(AppView::ArtistDetailView {
+                    artist_id: artist_id_val,
                     server_id: server_id.clone(),
                 });
             }
@@ -1066,26 +1066,20 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                     p { class: "font-medium text-white text-sm truncate group-hover:text-emerald-400 transition-colors min-w-0",
                         "{song.title}"
                     }
-                    if album_id.is_some() {
-                        button {
-                            class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate text-left hover:text-emerald-400 transition-colors",
-                            onclick: on_album_click_artist,
-                            span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                            if downloaded() {
-                                Icon {
-                                    name: "download".to_string(),
-                                    class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                                }
+                    div { class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400",
+                        if artist_id.is_some() {
+                            button {
+                                class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors",
+                                onclick: on_artist_click,
+                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
                             }
-                        }
-                    } else {
-                        div { class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate",
+                        } else {
                             span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                            if downloaded() {
-                                Icon {
-                                    name: "download".to_string(),
-                                    class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                                }
+                        }
+                        if downloaded() {
+                            Icon {
+                                name: "download".to_string(),
+                                class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
                             }
                         }
                     }
@@ -1525,6 +1519,7 @@ pub fn SongRow(
         });
 
     let album_id = song.album_id.clone();
+    let artist_id = song.artist_id.clone();
     let server_id = song.server_id.clone();
 
     let on_album_click_cover = {
@@ -1542,15 +1537,15 @@ pub fn SongRow(
         }
     };
 
-    let on_album_click_artist = {
-        let album_id = album_id.clone();
+    let on_artist_click = {
+        let artist_id = artist_id.clone();
         let server_id = server_id.clone();
         let navigation = navigation.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            if let Some(album_id_val) = album_id.clone() {
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id: album_id_val,
+            if let Some(artist_id_val) = artist_id.clone() {
+                navigation.navigate_to(AppView::ArtistDetailView {
+                    artist_id: artist_id_val,
                     server_id: server_id.clone(),
                 });
             }
@@ -1794,26 +1789,20 @@ pub fn SongRow(
                         p { class: "min-w-0 text-sm font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
                             "{song.title}"
                         }
-                        if album_id.is_some() {
-                            button {
-                                class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors text-left",
-                                onclick: on_album_click_artist,
-                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                                if show_download && downloaded() {
-                                    Icon {
-                                        name: "download".to_string(),
-                                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                                    }
+                        div { class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400",
+                            if artist_id.is_some() {
+                                button {
+                                    class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors",
+                                    onclick: on_artist_click,
+                                    span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
                                 }
-                            }
-                        } else {
-                            div { class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate",
+                            } else {
                                 span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                                if show_download && downloaded() {
-                                    Icon {
-                                        name: "download".to_string(),
-                                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                                    }
+                            }
+                            if show_download && downloaded() {
+                                Icon {
+                                    name: "download".to_string(),
+                                    class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
                                 }
                             }
                         }

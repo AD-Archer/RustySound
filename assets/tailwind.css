@@ -803,6 +803,9 @@
   .max-w-\[180px\] {
     max-width: 180px;
   }
+  .max-w-fit {
+    max-width: fit-content;
+  }
   .max-w-full {
     max-width: 100%;
   }
