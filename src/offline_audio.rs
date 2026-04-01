@@ -45,6 +45,17 @@ const DOWNLOAD_ARTWORK_SIZES: [u32; 7] = [80, 100, 120, 160, 300, 500, 512];
 #[cfg(not(target_arch = "wasm32"))]
 const CACHE_AUDIO_EXTENSIONS: [&str; 8] =
     ["audio", "mp3", "flac", "ogg", "m4a", "aac", "wav", "mp4"];
+#[cfg(not(target_arch = "wasm32"))]
+const TEMP_QUEUE_PREFETCH_LIMIT_WHEN_AUTO_OFF: usize = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum DownloadOrigin {
+    #[default]
+    Manual,
+    Auto,
+    QueuePrefetch,
+}
 
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct DownloadStats {
@@ -94,6 +105,8 @@ pub struct DownloadIndexEntry {
     pub album_id: Option<String>,
     #[serde(default)]
     pub cover_art_id: Option<String>,
+    #[serde(default)]
+    pub origin: DownloadOrigin,
     pub size_bytes: u64,
     pub updated_at_ms: u64,
 }
@@ -436,7 +449,16 @@ fn save_collection_membership_index(index: &[DownloadCollectionMembershipEntry])
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn upsert_download_index(song: &Song, size_bytes: u64) {
+fn merged_download_origin(existing: DownloadOrigin, incoming: DownloadOrigin) -> DownloadOrigin {
+    match (existing, incoming) {
+        (DownloadOrigin::Manual, _) | (_, DownloadOrigin::Manual) => DownloadOrigin::Manual,
+        (DownloadOrigin::Auto, _) | (_, DownloadOrigin::Auto) => DownloadOrigin::Auto,
+        _ => DownloadOrigin::QueuePrefetch,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn upsert_download_index(song: &Song, size_bytes: u64, origin: DownloadOrigin) {
     let mut index = load_download_index();
     if let Some(entry) = index
         .iter_mut()
@@ -452,6 +474,7 @@ fn upsert_download_index(song: &Song, size_bytes: u64) {
         entry.album = song.album.clone();
         entry.album_id = song.album_id.clone();
         entry.cover_art_id = song.cover_art.clone();
+        entry.origin = merged_download_origin(entry.origin, origin);
         entry.size_bytes = size_bytes;
         entry.updated_at_ms = now_timestamp_millis();
     } else {
@@ -468,6 +491,7 @@ fn upsert_download_index(song: &Song, size_bytes: u64) {
             album: song.album.clone(),
             album_id: song.album_id.clone(),
             cover_art_id: song.cover_art.clone(),
+            origin,
             size_bytes,
             updated_at_ms: now_timestamp_millis(),
         });
@@ -1247,6 +1271,34 @@ fn remove_download_index_keys(keys: &HashSet<(String, String)>) -> usize {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+pub fn prune_temporary_queue_prefetch_downloads(max_count: usize) -> usize {
+    let max_count = max_count.max(1);
+    let mut temporary_entries = load_download_index()
+        .into_iter()
+        .filter(|entry| entry.origin == DownloadOrigin::QueuePrefetch)
+        .collect::<Vec<_>>();
+
+    if temporary_entries.len() <= max_count {
+        return 0;
+    }
+
+    temporary_entries.sort_by(|left, right| left.updated_at_ms.cmp(&right.updated_at_ms));
+    let remove_total = temporary_entries.len().saturating_sub(max_count);
+    let keys = temporary_entries
+        .into_iter()
+        .take(remove_total)
+        .map(|entry| (entry.server_id, entry.song_id))
+        .collect::<HashSet<_>>();
+
+    remove_download_index_keys(&keys)
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn prune_temporary_queue_prefetch_downloads(_max_count: usize) -> usize {
+    0
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub fn remove_downloaded_song(server_id: &str, song_id: &str) -> usize {
     if server_id.trim().is_empty() || song_id.trim().is_empty() {
         return 0;
@@ -1738,7 +1790,8 @@ pub async fn run_auto_download_pass(
             continue;
         }
 
-        match prefetch_song_audio(&song, servers, settings).await {
+        match prefetch_song_audio_with_origin(&song, servers, settings, DownloadOrigin::Auto).await
+        {
             Ok(()) => report.downloaded += 1,
             Err(_) => report.failed += 1,
         }
@@ -1902,10 +1955,11 @@ pub async fn refresh_downloaded_cache(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn prefetch_song_audio(
+pub async fn prefetch_song_audio_with_origin(
     song: &Song,
     servers: &[ServerConfig],
     settings: &AppSettings,
+    origin: DownloadOrigin,
 ) -> Result<(), String> {
     if !settings.cache_enabled && !settings.downloads_enabled {
         return Ok(());
@@ -1919,7 +1973,12 @@ pub async fn prefetch_song_audio(
     };
     if path.exists() {
         if let Ok(meta) = fs::metadata(&path) {
-            upsert_download_index(song, meta.len());
+            upsert_download_index(song, meta.len(), origin);
+            if !settings.auto_downloads_enabled {
+                let _ = prune_temporary_queue_prefetch_downloads(
+                    TEMP_QUEUE_PREFETCH_LIMIT_WHEN_AUTO_OFF,
+                );
+            }
         }
         return Ok(());
     }
@@ -1962,7 +2021,7 @@ pub async fn prefetch_song_audio(
         .await
         .map_err(|err| err.to_string())?;
 
-    upsert_download_index(song, payload.len() as u64);
+    upsert_download_index(song, payload.len() as u64, origin);
 
     // Warm cover art alongside downloads so album/song artwork is available offline.
     let mut seen_cover_requests = HashSet::<String>::new();
@@ -1983,8 +2042,31 @@ pub async fn prefetch_song_audio(
     };
     prune_audio_cache(size_budget_mb);
     let _ = prune_download_cache(settings.download_limit_count, settings.download_limit_mb);
+    if !settings.auto_downloads_enabled {
+        let _ =
+            prune_temporary_queue_prefetch_downloads(TEMP_QUEUE_PREFETCH_LIMIT_WHEN_AUTO_OFF);
+    }
 
     Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn prefetch_song_audio_with_origin(
+    _song: &Song,
+    _servers: &[ServerConfig],
+    _settings: &AppSettings,
+    _origin: DownloadOrigin,
+) -> Result<(), String> {
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn prefetch_song_audio(
+    song: &Song,
+    servers: &[ServerConfig],
+    settings: &AppSettings,
+) -> Result<(), String> {
+    prefetch_song_audio_with_origin(song, servers, settings, DownloadOrigin::Manual).await
 }
 
 #[cfg(target_arch = "wasm32")]

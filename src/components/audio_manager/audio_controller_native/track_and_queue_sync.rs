@@ -367,7 +367,13 @@
             let settings_snapshot = app_settings();
             spawn(async move {
                 for song in seeds {
-                    let _ = prefetch_song_audio(&song, &servers_snapshot, &settings_snapshot).await;
+                    let _ = prefetch_song_audio_with_origin(
+                        &song,
+                        &servers_snapshot,
+                        &settings_snapshot,
+                        DownloadOrigin::QueuePrefetch,
+                    )
+                    .await;
                 }
             });
         });

@@ -54,7 +54,6 @@ enum ScreenshotTextPalette {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ScreenshotShareIntent {
-    Share,
     Save,
     Social,
 }
@@ -165,7 +164,6 @@ fn screenshot_share_file_name(song_title: &str) -> String {
 
 fn screenshot_share_intent_key(intent: ScreenshotShareIntent) -> &'static str {
     match intent {
-        ScreenshotShareIntent::Share => "share",
         ScreenshotShareIntent::Save => "save",
         ScreenshotShareIntent::Social => "Social",
     }
@@ -260,9 +258,6 @@ fn screenshot_picker_pill_class(active: bool) -> &'static str {
 fn screenshot_share_status_message(status: &str, intent: ScreenshotShareIntent) -> String {
     match status {
         "shared-image" => match intent {
-            ScreenshotShareIntent::Share => {
-                "Opened native share sheet with the shot image.".to_string()
-            }
             ScreenshotShareIntent::Save => {
                 "Opened share sheet. Choose \"Save Image\" to store it on your device."
                     .to_string()
@@ -282,7 +277,6 @@ fn screenshot_share_status_message(status: &str, intent: ScreenshotShareIntent) 
         "cancelled" => match intent {
             ScreenshotShareIntent::Save => "Save cancelled.".to_string(),
             ScreenshotShareIntent::Social => "Social share cancelled.".to_string(),
-            ScreenshotShareIntent::Share => "Share cancelled.".to_string(),
         },
         "capture-target-missing" => {
             "Could not find the shot preview to capture. Reopen shot mode and try again."

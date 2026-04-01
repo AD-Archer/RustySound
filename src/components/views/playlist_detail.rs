@@ -10,7 +10,7 @@ use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{
     download_songs_batch, is_playlist_auto_download_tracked, is_song_downloaded,
     mark_collection_downloaded, mark_playlist_auto_download_tracked, prefetch_song_audio,
-    sync_downloaded_collection_members,
+    prefetch_song_audio_with_origin, sync_downloaded_collection_members, DownloadOrigin,
 };
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -822,27 +822,25 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             spawn(async move {
                 let report =
                     download_songs_batch(&songs, &servers_snapshot, &settings_snapshot).await;
-                if report.downloaded > 0 || report.skipped > 0 {
-                    mark_collection_downloaded(
-                        "playlist",
-                        &playlist_meta.server_id,
-                        &playlist_meta.id,
-                        &playlist_meta.name,
-                        songs.len(),
-                    );
-                    mark_playlist_auto_download_tracked(
-                        &playlist_meta.server_id,
-                        &playlist_meta.id,
-                        &playlist_meta.name,
-                        songs.len(),
-                    );
-                    sync_downloaded_collection_members(
-                        "playlist",
-                        &playlist_meta.server_id,
-                        &playlist_meta.id,
-                        &songs,
-                    );
-                }
+                mark_collection_downloaded(
+                    "playlist",
+                    &playlist_meta.server_id,
+                    &playlist_meta.id,
+                    &playlist_meta.name,
+                    songs.len(),
+                );
+                mark_playlist_auto_download_tracked(
+                    &playlist_meta.server_id,
+                    &playlist_meta.id,
+                    &playlist_meta.name,
+                    songs.len(),
+                );
+                sync_downloaded_collection_members(
+                    "playlist",
+                    &playlist_meta.server_id,
+                    &playlist_meta.id,
+                    &songs,
+                );
                 download_status.set(Some(format!(
                     "Playlist download complete: {} new, {} skipped, {} failed, {} purged.",
                     report.downloaded, report.skipped, report.failed, report.purged
@@ -985,10 +983,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     let mut settings_snapshot = app_settings();
                                     settings_snapshot.downloads_enabled = true;
                                     let servers_snapshot = servers();
-                                    let _ = prefetch_song_audio(
+                                    let _ = prefetch_song_audio_with_origin(
                                         &song_for_seed,
                                         &servers_snapshot,
                                         &settings_snapshot,
+                                        DownloadOrigin::Auto,
                                     )
                                     .await;
                                 }

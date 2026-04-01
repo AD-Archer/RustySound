@@ -398,6 +398,7 @@ pub(super) fn NextButton() -> Element {
 #[component]
 pub(super) fn RepeatButton() -> Element {
     let mut repeat_mode = use_context::<Signal<RepeatMode>>();
+    let mut app_settings = use_context::<Signal<AppSettings>>();
     let mode = repeat_mode();
 
     rsx! {
@@ -417,6 +418,13 @@ pub(super) fn RepeatButton() -> Element {
                     RepeatMode::One => RepeatMode::Off,
                 };
                 repeat_mode.set(next);
+                app_settings.with_mut(|settings| {
+                    settings.repeat_mode = next;
+                });
+                let settings_snapshot = app_settings();
+                spawn(async move {
+                    let _ = crate::db::save_settings(settings_snapshot).await;
+                });
             },
             Icon {
                 name: match mode {
@@ -477,6 +485,7 @@ pub(super) fn AddToMenuButton() -> Element {
 #[component]
 pub(super) fn ShuffleButton() -> Element {
     let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
+    let mut app_settings = use_context::<Signal<AppSettings>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
@@ -504,6 +513,13 @@ pub(super) fn ShuffleButton() -> Element {
                     next,
                 );
                 eprintln!("[ui.shuffle] applied changed={changed}");
+                app_settings.with_mut(|settings| {
+                    settings.shuffle_enabled = next;
+                });
+                let settings_snapshot = app_settings();
+                spawn(async move {
+                    let _ = crate::db::save_settings(settings_snapshot).await;
+                });
             },
             Icon { name: "shuffle".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
         }

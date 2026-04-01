@@ -14,7 +14,7 @@ use crate::db::{
     save_servers, save_settings, AppSettings, PlaybackState, QueueItem,
 };
 use crate::diagnostics::{log_perf, PerfTimer};
-use crate::offline_audio::run_auto_download_pass;
+use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
 use chrono::{DateTime, NaiveDateTime};
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
@@ -46,6 +46,7 @@ const HOME_INIT_SECTION_FETCH_LIMIT: usize = 18;
 const HOME_INIT_RANDOM_FETCH_LIMIT: usize = HOME_INIT_SECTION_FETCH_LIMIT;
 const HOME_INIT_ALBUM_PREVIEW_LIMIT: u32 = HOME_INIT_SECTION_BASE_COUNT as u32;
 const HOME_INIT_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
+const AUTO_DOWNLOAD_POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
 
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 fn focus_global_search_input() {
@@ -527,6 +528,16 @@ async fn loading_log_poll_sleep() {
     gloo_timers::future::TimeoutFuture::new(350).await;
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+async fn auto_download_poll_sleep() {
+    tokio::time::sleep(std::time::Duration::from_millis(AUTO_DOWNLOAD_POLL_INTERVAL_MS)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn auto_download_poll_sleep() {
+    gloo_timers::future::TimeoutFuture::new(AUTO_DOWNLOAD_POLL_INTERVAL_MS as u32).await;
+}
+
 #[derive(Debug, Default, Clone, Copy)]
 struct HomeInitSummary {
     recent_albums: usize,
@@ -791,6 +802,7 @@ pub fn AppShell() -> Element {
     let mut shuffle_enabled = use_signal(|| false);
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let mut auto_download_bootstrap_done = use_signal(|| false);
+    let mut auto_download_poll_generation = use_signal(|| 0u64);
     let mut home_init_in_progress = use_signal(|| false);
     let home_init_status = use_signal(|| None::<String>);
     let home_init_progress = use_signal(|| 0.0f32);
@@ -1467,6 +1479,9 @@ pub fn AppShell() -> Element {
 
         let settings_snapshot = app_settings();
         if !settings_snapshot.downloads_enabled || !settings_snapshot.auto_downloads_enabled {
+            if !settings_snapshot.auto_downloads_enabled {
+                let _ = prune_temporary_queue_prefetch_downloads(5);
+            }
             auto_download_bootstrap_done.set(true);
             return;
         }
@@ -1482,6 +1497,46 @@ pub fn AppShell() -> Element {
         auto_download_bootstrap_done.set(true);
         spawn(async move {
             let _ = run_auto_download_pass(&active_servers, &settings_snapshot).await;
+        });
+    });
+
+    // Keep checking tracked playlists so newly added songs are picked up automatically.
+    use_effect(move || {
+        auto_download_poll_generation
+            .with_mut(|generation| *generation = generation.saturating_add(1));
+        let generation = *auto_download_poll_generation.peek();
+
+        if !db_initialized() || !settings_loaded() {
+            return;
+        }
+
+        let settings_snapshot = app_settings();
+        if !settings_snapshot.downloads_enabled || !settings_snapshot.auto_downloads_enabled {
+            return;
+        }
+
+        let active_servers: Vec<ServerConfig> = servers()
+            .into_iter()
+            .filter(|server| server.active)
+            .collect();
+        if active_servers.is_empty() {
+            return;
+        }
+
+        let auto_download_poll_generation = auto_download_poll_generation.clone();
+        spawn(async move {
+            loop {
+                auto_download_poll_sleep().await;
+                if *auto_download_poll_generation.peek() != generation {
+                    break;
+                }
+
+                let _ = run_auto_download_pass(&active_servers, &settings_snapshot).await;
+
+                if *auto_download_poll_generation.peek() != generation {
+                    break;
+                }
+            }
         });
     });
 

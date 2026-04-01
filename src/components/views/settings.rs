@@ -9,7 +9,8 @@ use crate::components::{
 };
 use crate::db::{save_servers_now, save_settings, AppSettings, ArtworkDownloadPreference};
 use crate::offline_audio::{
-    clear_downloads, download_stats, refresh_downloaded_cache, run_auto_download_pass,
+    clear_downloads, download_stats, prune_temporary_queue_prefetch_downloads,
+    refresh_downloaded_cache, run_auto_download_pass,
 };
 use dioxus::prelude::*;
 use std::collections::HashSet;
@@ -1351,9 +1352,11 @@ pub fn SettingsView() -> Element {
 
     let on_auto_downloads_enabled_toggle = {
         let mut app_settings = app_settings.clone();
+        let mut auto_download_status = auto_download_status.clone();
         move |_| {
             let mut settings = app_settings();
-            settings.auto_downloads_enabled = !settings.auto_downloads_enabled;
+            let auto_enabled = !settings.auto_downloads_enabled;
+            settings.auto_downloads_enabled = auto_enabled;
             let settings_clone = settings.clone();
             app_settings.set(settings);
             persist_settings_with_toast(
@@ -1361,6 +1364,14 @@ pub fn SettingsView() -> Element {
                 saved_toast.clone(),
                 saved_toast_nonce.clone(),
             );
+            if !auto_enabled {
+                let removed = prune_temporary_queue_prefetch_downloads(5);
+                if removed > 0 {
+                    auto_download_status.set(Some(format!(
+                        "Auto-download disabled: removed {removed} temporary queue downloads."
+                    )));
+                }
+            }
         }
     };
 

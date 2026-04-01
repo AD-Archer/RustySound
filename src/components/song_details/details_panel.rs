@@ -8,6 +8,7 @@ struct DetailsPanelProps {
 #[component]
 fn DetailsPanel(props: DetailsPanelProps) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let app_settings = use_context::<Signal<AppSettings>>();
     let add_menu = use_context::<AddMenuController>();
     let navigation = use_context::<Navigation>();
     let controller = use_context::<SongDetailsController>();
@@ -303,6 +304,7 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         }
     };
     let on_cycle_loop = {
+        let mut app_settings = app_settings.clone();
         let mut repeat_mode = repeat_mode.clone();
         move |_| {
             let next = match repeat_mode() {
@@ -310,9 +312,17 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                 RepeatMode::Off | RepeatMode::All => RepeatMode::One,
             };
             repeat_mode.set(next);
+            app_settings.with_mut(|settings| {
+                settings.repeat_mode = next;
+            });
+            let settings_snapshot = app_settings();
+            spawn(async move {
+                let _ = crate::db::save_settings(settings_snapshot).await;
+            });
         }
     };
     let on_toggle_shuffle = {
+        let mut app_settings = app_settings.clone();
         let mut shuffle_enabled = shuffle_enabled.clone();
         let queue = queue.clone();
         let queue_index = queue_index.clone();
@@ -326,6 +336,13 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                 now_playing.clone(),
                 next,
             );
+            app_settings.with_mut(|settings| {
+                settings.shuffle_enabled = next;
+            });
+            let settings_snapshot = app_settings();
+            spawn(async move {
+                let _ = crate::db::save_settings(settings_snapshot).await;
+            });
         }
     };
     let on_set_now_playing_rating = {

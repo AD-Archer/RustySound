@@ -18,7 +18,9 @@ use crate::db::{AppSettings, RepeatMode};
 #[cfg(not(target_arch = "wasm32"))]
 use crate::db::{AppSettings, RepeatMode};
 #[cfg(not(target_arch = "wasm32"))]
-use crate::offline_audio::{cached_audio_url, is_song_downloaded, prefetch_song_audio};
+use crate::offline_audio::{
+    cached_audio_url, is_song_downloaded, prefetch_song_audio_with_origin, DownloadOrigin,
+};
 
 #[cfg(target_arch = "wasm32")]
 use js_sys;
