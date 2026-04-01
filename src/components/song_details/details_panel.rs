@@ -14,8 +14,9 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
-    let is_playing = use_context::<Signal<bool>>();
+    let is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let repeat_mode = use_context::<Signal<RepeatMode>>();
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let volume = use_context::<VolumeSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
@@ -193,6 +194,7 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
         let repeat_mode = repeat_mode.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
         let seed_song = props.song.clone();
         let is_live_stream = is_live_stream;
         move |_| {
@@ -211,10 +213,16 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
             let idx = queue_index();
             let next_idx = idx.saturating_add(1);
             let queue_list = queue();
+            let shuffle = shuffle_enabled();
             if repeat == RepeatMode::Off
-                && (queue_list.is_empty() || idx >= queue_list.len().saturating_sub(1))
+                && idx >= queue_list.len().saturating_sub(1)
+                && queue_should_generate_similar_on_end(
+                    &queue_list,
+                    now_playing().as_ref(),
+                    shuffle,
+                )
             {
-                let seed = now_playing().or(Some(seed_song.clone()));
+                let seed = now_playing().or_else(|| Some(seed_song.clone()));
                 spawn_shuffle_queue(
                     servers(),
                     queue.clone(),
@@ -237,6 +245,8 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
                     now_playing.set(Some(song));
                     is_playing.set(true);
                 }
+            } else {
+                is_playing.set(false);
             }
         }
     };

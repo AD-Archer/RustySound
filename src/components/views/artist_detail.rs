@@ -1,4 +1,7 @@
 use crate::api::*;
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
+};
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
@@ -31,9 +34,11 @@ fn render_album_item(album: Album, navigation: Navigation) -> Element {
 pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
-    let queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let visible_album_count = use_signal(|| ARTIST_ALBUM_BATCH_SIZE);
 
     let artist_server = servers().into_iter().find(|s| s.id == server_id);
@@ -248,6 +253,9 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                     for (index, song) in top_songs.iter().enumerate() {
                                         {
                                             let song_for_queue = song.clone();
+                                            let albums_for_queue = albums.clone();
+                                            let servers = servers.clone();
+                                            let shuffle_enabled = shuffle_enabled.clone();
                                             rsx! {
                                                 SongRow {
                                                     song: song.clone(),
@@ -256,8 +264,86 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                                     show_duration: false,
                                                     show_duration_in_menu: true,
                                                     onclick: move |_| {
-                                                        now_playing.set(Some(song_for_queue.clone()));
-                                                        is_playing.set(true);
+                                                        if shuffle_enabled() {
+                                                            let seed_song = song_for_queue.clone();
+                                                            let servers_snapshot = servers();
+                                                            let albums_for_queue = albums_for_queue.clone();
+                                                            let mut queue = queue.clone();
+                                                            let mut queue_index = queue_index.clone();
+                                                            let mut now_playing = now_playing.clone();
+                                                            let mut is_playing = is_playing.clone();
+                                                            spawn(async move {
+                                                                let mut all_songs = Vec::<Song>::new();
+                                                                for album in albums_for_queue.iter() {
+                                                                    let Some(server) = servers_snapshot
+                                                                        .iter()
+                                                                        .find(|entry| entry.id == album.server_id)
+                                                                        .cloned()
+                                                                    else {
+                                                                        continue;
+                                                                    };
+                                                                    let client = NavidromeClient::new(server);
+                                                                    if let Ok((_, mut album_songs)) =
+                                                                        client.get_album(&album.id).await
+                                                                    {
+                                                                        all_songs.append(&mut album_songs);
+                                                                    }
+                                                                }
+
+                                                                if all_songs.is_empty() {
+                                                                    all_songs.push(seed_song.clone());
+                                                                }
+
+                                                                let mut seen = std::collections::HashSet::<String>::new();
+                                                                all_songs.retain(|entry| {
+                                                                    seen.insert(format!(
+                                                                        "{}::{}",
+                                                                        entry.server_id, entry.id
+                                                                    ))
+                                                                });
+
+                                                                let source_id = format!(
+                                                                    "{}::{}",
+                                                                    seed_song.server_id,
+                                                                    seed_song
+                                                                        .artist_id
+                                                                        .clone()
+                                                                        .unwrap_or_else(|| "artist".to_string())
+                                                                );
+                                                                let all_songs = assign_collection_queue_meta(
+                                                                    all_songs,
+                                                                    QueueSourceKind::Artist,
+                                                                    source_id,
+                                                                );
+                                                                let target_index = all_songs
+                                                                    .iter()
+                                                                    .position(|entry| {
+                                                                        entry.id == seed_song.id
+                                                                            && entry.server_id == seed_song.server_id
+                                                                    })
+                                                                    .unwrap_or(0);
+                                                                queue.set(all_songs.clone());
+                                                                queue_index.set(target_index);
+                                                                now_playing.set(
+                                                                    all_songs.get(target_index).cloned(),
+                                                                );
+                                                                is_playing.set(true);
+                                                                let _ = apply_collection_shuffle_mode(
+                                                                    queue.clone(),
+                                                                    queue_index.clone(),
+                                                                    now_playing.clone(),
+                                                                    true,
+                                                                );
+                                                            });
+                                                        } else {
+                                                            let single_queue = normalize_manual_queue_songs(vec![
+                                                                song_for_queue.clone(),
+                                                            ]);
+                                                            queue.set(single_queue.clone());
+                                                            queue_index.set(0);
+                                                            now_playing.set(single_queue.first().cloned());
+                                                            is_playing.set(true);
+                                                        }
                                                     },
                                                 }
                                             }

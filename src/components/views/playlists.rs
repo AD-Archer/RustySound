@@ -1,9 +1,9 @@
 use crate::api::*;
+use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use crate::offline_audio::is_song_downloaded;
 use dioxus::prelude::*;
-use rand::seq::SliceRandom;
 
 const PLAYLIST_INITIAL_LIMIT: usize = 20;
 
@@ -230,7 +230,8 @@ fn PlaylistCard(
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let app_settings = use_context::<Signal<AppSettings>>();
 
     let mut show_menu = use_signal(|| false);
@@ -272,10 +273,11 @@ fn PlaylistCard(
             {
                 let client = NavidromeClient::new(server);
                 let playlist_id = playlist_id.clone();
+                let source_server_id = playlist_server_id.clone();
                 let settings = app_settings();
                 spawn(async move {
                     if let Ok((_, songs)) = client.get_playlist(&playlist_id).await {
-                        let mut playable: Vec<Song> = if settings.offline_mode {
+                        let playable: Vec<Song> = if settings.offline_mode {
                             songs
                                 .into_iter()
                                 .filter(|s| is_song_downloaded(s))
@@ -284,11 +286,22 @@ fn PlaylistCard(
                             songs
                         };
                         if !playable.is_empty() {
-                            playable.shuffle(&mut rand::thread_rng());
+                            let playable = assign_collection_queue_meta(
+                                playable,
+                                QueueSourceKind::Playlist,
+                                format!("{}::{}", source_server_id, playlist_id),
+                            );
                             queue.set(playable.clone());
                             queue_index.set(0);
                             now_playing.set(Some(playable[0].clone()));
                             is_playing.set(true);
+                            shuffle_enabled.set(true);
+                            let _ = apply_collection_shuffle_mode(
+                                queue.clone(),
+                                queue_index.clone(),
+                                now_playing.clone(),
+                                true,
+                            );
                         }
                     }
                 });

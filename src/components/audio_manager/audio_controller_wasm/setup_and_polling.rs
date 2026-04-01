@@ -154,9 +154,16 @@
                         }
 
                         if *is_playing.peek() && paused_streak >= 2 && !audio.ended() {
+                            eprintln!(
+                                "[web.poll] forcing is_playing=false paused_streak={} time={time:.3}",
+                                paused_streak
+                            );
                             is_playing.set(false);
                         } else if !*is_playing.peek() && playing_streak >= 2 {
-                            is_playing.set(true);
+                            eprintln!(
+                                "[web.poll] observed playing while desired paused (streak={})",
+                                playing_streak
+                            );
                         }
 
                         if let Some(message) =
@@ -238,28 +245,6 @@
                             continue;
                         }
 
-                        let should_shuffle = repeat == RepeatMode::Off && shuffle;
-                        if should_shuffle {
-                            if idx < len.saturating_sub(1) {
-                                if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
-                                    queue_index.set(idx + 1);
-                                    now_playing.set(Some(song));
-                                }
-                            } else {
-                                spawn_shuffle_queue(
-                                    servers_snapshot,
-                                    queue.clone(),
-                                    queue_index.clone(),
-                                    now_playing.clone(),
-                                    is_playing.clone(),
-                                    audio_state.clone(),
-                                    current_song,
-                                    Some(true),
-                                );
-                            }
-                            continue;
-                        }
-
                         if idx < len.saturating_sub(1) {
                             if let Some(song) = queue_snapshot.get(idx + 1).cloned() {
                                 queue_index.set(idx + 1);
@@ -270,6 +255,21 @@
                                 queue_index.set(0);
                                 now_playing.set(Some(song));
                             }
+                        } else if queue_should_generate_similar_on_end(
+                            &queue_snapshot,
+                            current_song.as_ref(),
+                            shuffle,
+                        ) {
+                            spawn_shuffle_queue(
+                                servers_snapshot,
+                                queue.clone(),
+                                queue_index.clone(),
+                                now_playing.clone(),
+                                is_playing.clone(),
+                                audio_state.clone(),
+                                current_song,
+                                Some(true),
+                            );
                         } else {
                             is_playing.set(false);
                         }

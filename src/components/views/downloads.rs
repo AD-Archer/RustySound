@@ -313,7 +313,7 @@ pub fn DownloadsView() -> Element {
     let add_menu = use_context::<AddMenuController>();
     let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let app_settings = use_context::<Signal<AppSettings>>();

@@ -11,7 +11,7 @@ fn RelatedPanel(props: RelatedPanelProps) -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
-    let is_playing = use_context::<Signal<bool>>();
+    let is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let controller = use_context::<SongDetailsController>();
     let add_menu = use_context::<AddMenuController>();
 

@@ -4,12 +4,12 @@ pub fn AudioController() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let app_settings = use_context::<Signal<AppSettings>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let volume = use_context::<VolumeSignal>().0;
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
-    let shuffle_enabled = use_context::<Signal<bool>>();
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let mut seek_request = use_context::<SeekRequestSignal>().0;
     let mut audio_state = use_context::<Signal<AudioState>>();

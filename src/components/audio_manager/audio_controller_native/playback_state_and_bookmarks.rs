@@ -14,8 +14,10 @@
             last_native_transport_play_state.set(Some(playing));
 
             if playing {
+                eprintln!("[native.transport] command=play");
                 native_audio_command(serde_json::json!({ "type": "play" }));
             } else {
+                eprintln!("[native.transport] command=pause");
                 native_audio_command(serde_json::json!({ "type": "pause" }));
             }
         });

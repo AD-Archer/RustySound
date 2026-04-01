@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
@@ -19,7 +20,9 @@ pub fn SearchView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut queue_index = use_context::<Signal<usize>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
 
     let mut search_query = use_signal(String::new);
     let debounced_query = use_signal(String::new);
@@ -256,7 +259,13 @@ pub fn SearchView() -> Element {
                                             onclick: {
                                                 let song = song.clone();
                                                 move |_| {
-                                                    now_playing.set(Some(song.clone()));
+                                                    let single_queue =
+                                                        normalize_manual_queue_songs(vec![
+                                                            song.clone(),
+                                                        ]);
+                                                    queue.set(single_queue.clone());
+                                                    queue_index.set(0);
+                                                    now_playing.set(single_queue.first().cloned());
                                                     is_playing.set(true);
                                                 }
                                             },

@@ -1,6 +1,7 @@
 //! Add-to-menu overlay and queue/playlist insertion workflows.
 
 use crate::api::*;
+use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::{
     AppView, Icon, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
 };

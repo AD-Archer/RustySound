@@ -9,7 +9,7 @@
             let song = now_playing();
             let queue_list = queue();
             if let Some(song) = song {
-                if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+                if let Some(pos) = find_song_instance_index(&queue_list, &song) {
                     if pos != queue_index() {
                         queue_index.set(pos);
                     }

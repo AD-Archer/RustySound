@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
 use crate::components::views::album_song_row::AlbumSongRow;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
@@ -15,7 +16,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
     let download_busy = use_signal(|| false);
@@ -23,9 +25,10 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
     let server = servers().into_iter().find(|s| s.id == server_id);
 
+    let album_id_for_resource = album_id.clone();
     let album_data = use_resource(move || {
         let server = server.clone();
-        let album_id = album_id.clone();
+        let album_id = album_id_for_resource.clone();
         async move {
             if let Some(server) = server {
                 let client = NavidromeClient::new(server);
@@ -39,6 +42,8 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let mut is_favorited = use_signal(|| false);
 
     let on_play_all = {
+        let source_server_id = server_id.clone();
+        let source_album_id = album_id.clone();
         let album_data_ref = album_data.clone();
         let app_settings = app_settings.clone();
         let mut download_status = download_status.clone();
@@ -62,10 +67,24 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         ));
                         return;
                     }
+                    let playable = assign_collection_queue_meta(
+                        playable,
+                        QueueSourceKind::Album,
+                        format!("{}::{}", source_server_id, source_album_id),
+                    );
                     queue.set(playable.clone());
                     queue_index.set(0);
                     now_playing.set(Some(playable[0].clone()));
                     is_playing.set(true);
+                    let shuffle = shuffle_enabled();
+                    if shuffle {
+                        let _ = apply_collection_shuffle_mode(
+                            queue.clone(),
+                            queue_index.clone(),
+                            now_playing.clone(),
+                            true,
+                        );
+                    }
                 }
             }
         }
@@ -345,17 +364,22 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                 class: "w-5 h-5".to_string(),
                                             }
                                         }
-                                        button {
-                                            class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
-                                            onclick: {
-                                                let album_data_ref = album_data.clone();
-                                                let app_settings = app_settings.clone();
-                                                let mut download_status = download_status.clone();
+                                    button {
+                                        class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
+                                        onclick: {
+                                            let album_source_id = format!(
+                                                "{}::{}",
+                                                album.server_id.clone(),
+                                                album.id.clone()
+                                            );
+                                            let album_data_ref = album_data.clone();
+                                            let app_settings = app_settings.clone();
+                                            let mut download_status = download_status.clone();
                                                 move |_: MouseEvent| {
                                                     if let Some(Some((_, songs))) = album_data_ref() {
                                                         if !songs.is_empty() {
                                                             let settings = app_settings();
-                                                            let mut playable = if settings.offline_mode {
+                                                            let playable = if settings.offline_mode {
                                                                 songs
                                                                     .iter()
                                                                     .filter(|song| is_song_downloaded(song))
@@ -371,12 +395,22 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                                 ));
                                                                 return;
                                                             }
-                                                            use rand::seq::SliceRandom;
-                                                            playable.shuffle(&mut rand::thread_rng());
+                                                            let playable = assign_collection_queue_meta(
+                                                                playable,
+                                                                QueueSourceKind::Album,
+                                                                album_source_id.clone(),
+                                                            );
                                                             queue.set(playable.clone());
                                                             queue_index.set(0);
                                                             now_playing.set(Some(playable[0].clone()));
                                                             is_playing.set(true);
+                                                            shuffle_enabled.set(true);
+                                                            let _ = apply_collection_shuffle_mode(
+                                                                queue.clone(),
+                                                                queue_index.clone(),
+                                                                now_playing.clone(),
+                                                                true,
+                                                            );
                                                         }
                                                     }
                                                 }
@@ -407,6 +441,11 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                 for (index , song) in songs.iter().enumerate() {
                                     {
                                         let song_clone = song.clone();
+                                        let album_source_id = format!(
+                                            "{}::{}",
+                                            album.server_id.clone(),
+                                            album.id.clone()
+                                        );
                                         let songs_for_queue = songs.clone();
                                         let app_settings = app_settings.clone();
                                         let mut download_status = download_status.clone();
@@ -432,6 +471,11 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                         ));
                                                         return;
                                                     }
+                                                    let playable = assign_collection_queue_meta(
+                                                        playable,
+                                                        QueueSourceKind::Album,
+                                                        album_source_id.clone(),
+                                                    );
                                                     let target_index = playable
                                                         .iter()
                                                         .position(|entry| entry.id == song_clone.id)
@@ -440,6 +484,15 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                     queue_index.set(target_index);
                                                     now_playing.set(Some(playable[target_index].clone()));
                                                     is_playing.set(true);
+                                                    let shuffle = shuffle_enabled();
+                                                    if shuffle {
+                                                        let _ = apply_collection_shuffle_mode(
+                                                            queue.clone(),
+                                                            queue_index.clone(),
+                                                            now_playing.clone(),
+                                                            true,
+                                                        );
+                                                    }
                                                 },
                                             }
                                         }

@@ -25,7 +25,7 @@ pub fn RadioView() -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
 
     let form_mode = use_signal(|| RadioFormMode::Closed);
     let mut form_name = use_signal(String::new);
@@ -496,6 +496,7 @@ pub fn RadioView() -> Element {
                                                 genre: None,
                                                 server_id: station.server_id.clone(),
                                                 server_name: "Radio".to_string(),
+                                                queue_meta: None,
                                             };
                                             queue.set(vec![radio_song.clone()]);
                                             queue_index.set(0);

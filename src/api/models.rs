@@ -103,6 +103,25 @@ pub struct Song {
     pub server_id: String,
     #[serde(default)]
     pub server_name: String,
+    #[serde(skip)]
+    pub queue_meta: Option<QueueSongMeta>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueueSourceKind {
+    Album,
+    Playlist,
+    Favorites,
+    RandomMix,
+    Artist,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QueueSongMeta {
+    pub group_id: String,
+    pub source_kind: QueueSourceKind,
+    pub source_id: String,
+    pub source_position: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]

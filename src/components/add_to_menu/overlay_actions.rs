@@ -40,6 +40,7 @@
                     return;
                 }
 
+                let songs_to_add = normalize_manual_queue_songs(songs_to_add);
                 let first_seed = songs_to_add.first().cloned();
                 let recent_seed = songs_to_add.last().cloned();
                 enqueue_items(queue.clone(), queue_index, songs_to_add.clone(), mode);
@@ -423,7 +424,13 @@
             spawn(async move {
                 let quick_add_result: Result<(), String> = match destination.clone() {
                     SuggestionDestination::Queue => {
-                        queue.with_mut(|items| items.push(song_to_add.clone()));
+                        queue.with_mut(|items| {
+                            let normalized =
+                                normalize_manual_queue_songs(vec![song_to_add.clone()]);
+                            if let Some(song) = normalized.first().cloned() {
+                                items.push(song);
+                            }
+                        });
                         Ok(())
                     }
                     SuggestionDestination::Playlist {

@@ -1,5 +1,8 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
+};
 use crate::components::views::home::SongRow;
 use crate::components::Icon;
 use dioxus::prelude::*;
@@ -95,7 +98,8 @@ pub fn RandomView() -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
 
     let refresh_counter = use_signal(|| 0u64);
     let shuffled_songs = use_signal(Vec::<Song>::new);
@@ -149,13 +153,27 @@ pub fn RandomView() -> Element {
 
     let on_play_all = {
         let shuffled_songs = shuffled_songs.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
         move |_| {
             let songs = shuffled_songs();
             if !songs.is_empty() {
+                let songs = assign_collection_queue_meta(
+                    songs,
+                    QueueSourceKind::RandomMix,
+                    "random_mix::play_all".to_string(),
+                );
                 queue.set(songs.clone());
                 queue_index.set(0);
                 now_playing.set(Some(songs[0].clone()));
                 is_playing.set(true);
+                if shuffle_enabled() {
+                    let _ = apply_collection_shuffle_mode(
+                        queue.clone(),
+                        queue_index.clone(),
+                        now_playing.clone(),
+                        true,
+                    );
+                }
             }
         }
     };
@@ -261,12 +279,79 @@ pub fn RandomView() -> Element {
                             show_download: true,
                             onclick: {
                                 let song = song.clone();
-                                let songs_for_queue = songs.clone();
+                                let servers = servers.clone();
+                                let shuffle_enabled = shuffle_enabled.clone();
                                 move |_| {
-                                    queue.set(songs_for_queue.clone());
-                                    queue_index.set(index);
-                                    now_playing.set(Some(song.clone()));
+                                    let single_queue =
+                                        normalize_manual_queue_songs(vec![song.clone()]);
+                                    queue.set(single_queue.clone());
+                                    queue_index.set(0);
+                                    now_playing.set(single_queue.first().cloned());
                                     is_playing.set(true);
+                                    if shuffle_enabled() {
+                                        let seed_song = song.clone();
+                                        let servers_snapshot = servers();
+                                        let mut queue = queue.clone();
+                                        spawn(async move {
+                                            let mut similar = if let Some(server) = servers_snapshot
+                                                .iter()
+                                                .find(|entry| entry.id == seed_song.server_id)
+                                                .cloned()
+                                            {
+                                                let client = NavidromeClient::new(server);
+                                                let mut similar =
+                                                    client.get_similar_songs(&seed_song.id, 40)
+                                                        .await
+                                                        .unwrap_or_default();
+                                                if similar.is_empty() {
+                                                    similar = client
+                                                        .get_similar_songs2(&seed_song.id, 40)
+                                                        .await
+                                                        .unwrap_or_default();
+                                                }
+                                                if similar.is_empty() {
+                                                    similar =
+                                                        client.get_random_songs(40).await.unwrap_or_default();
+                                                }
+                                                similar
+                                            } else {
+                                                Vec::new()
+                                            };
+
+                                            if similar.is_empty() {
+                                                return;
+                                            }
+
+                                            let seed_key =
+                                                format!("{}::{}", seed_song.server_id, seed_song.id);
+                                            let mut seen = HashSet::<String>::new();
+                                            seen.insert(seed_key);
+                                            similar.retain(|candidate| {
+                                                seen.insert(format!(
+                                                    "{}::{}",
+                                                    candidate.server_id, candidate.id
+                                                ))
+                                            });
+                                            let similar =
+                                                normalize_manual_queue_songs(similar.into_iter().take(40).collect());
+
+                                            queue.with_mut(|items| {
+                                                let queue_is_seed_single = items.len() == 1
+                                                    && items
+                                                        .first()
+                                                        .map(|entry| {
+                                                            entry.id == seed_song.id
+                                                                && entry.server_id
+                                                                    == seed_song.server_id
+                                                        })
+                                                        .unwrap_or(false);
+                                                if !queue_is_seed_single {
+                                                    return;
+                                                }
+                                                items.extend(similar);
+                                            });
+                                        });
+                                    }
                                 }
                             },
                         }

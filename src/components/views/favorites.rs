@@ -1,5 +1,6 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
+use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::views::search::ArtistCard;
 use crate::components::{AppView, Icon, Navigation};
@@ -19,7 +20,8 @@ pub fn FavoritesView() -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
 
     let mut active_tab = use_signal(|| "songs".to_string());
     let mut display_limit = use_signal(|| FAVORITES_INITIAL_LIMIT);
@@ -167,13 +169,30 @@ pub fn FavoritesView() -> Element {
                                                             song: song.clone(),
                                                             index: index + 1,
                                                             onclick: {
-                                                                let song = song.clone();
                                                                 let songs_for_queue = songs.clone();
+                                                                let shuffle_enabled = shuffle_enabled.clone();
                                                                 move |_| {
+                                                                    let songs_for_queue = assign_collection_queue_meta(
+                                                                        songs_for_queue.clone(),
+                                                                        QueueSourceKind::Favorites,
+                                                                        "favorites::songs".to_string(),
+                                                                    );
                                                                     queue.set(songs_for_queue.clone());
                                                                     queue_index.set(index);
-                                                                    now_playing.set(Some(song.clone()));
+                                                                    now_playing.set(
+                                                                        songs_for_queue
+                                                                            .get(index)
+                                                                            .cloned(),
+                                                                    );
                                                                     is_playing.set(true);
+                                                                    if shuffle_enabled() {
+                                                                        let _ = apply_collection_shuffle_mode(
+                                                                            queue.clone(),
+                                                                            queue_index.clone(),
+                                                                            now_playing.clone(),
+                                                                            true,
+                                                                        );
+                                                                    }
                                                                 }
                                                             },
                                                         }

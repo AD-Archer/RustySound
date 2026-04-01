@@ -472,6 +472,6 @@ jobs:
             -d "${PAYLOAD}"
         }
 
-        dispatch_repo "AD-Archer/tap" "Homebrew tap"
+        dispatch_repo "AD-Archer/homebrew-tap" "Homebrew tap"
         dispatch_repo "AD-Archer/scoop" "Scoop bucket"
         dispatch_repo "${PACKAGES_REPO}" "Packages"

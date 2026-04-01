@@ -5,7 +5,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
-    let is_playing = use_context::<Signal<bool>>();
+    let is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let seek_request = use_context::<SeekRequestSignal>().0;
     let preview_playback = use_context::<PreviewPlaybackSignal>().0;
@@ -312,6 +312,7 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
 
     let enqueue_items =
         |mut queue: Signal<Vec<Song>>, queue_index: Signal<usize>, items: Vec<Song>, mode: &str| {
+            let items = normalize_manual_queue_songs(items);
             queue.with_mut(|q| match mode {
                 "next" => {
                     let insert_at = queue_index().saturating_add(1).min(q.len());

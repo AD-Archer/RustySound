@@ -4,9 +4,10 @@ use crate::cache_service::{
 };
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, view_label, AddIntent, AddMenuController,
-    AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon, Navigation,
-    PlaybackPositionSignal, Player, PreviewPlaybackSignal, SeekRequestSignal, Sidebar,
-    SidebarOpenSignal, SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon,
+    IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
+    SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal, SongDetailsController,
+    SongDetailsOverlay, SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -1127,14 +1128,14 @@ pub fn AppShell() -> Element {
     use_context_provider(|| now_playing);
     use_context_provider(|| queue);
     use_context_provider(|| queue_index);
-    use_context_provider(|| is_playing);
+    use_context_provider(|| IsPlayingSignal(is_playing));
     use_context_provider(|| VolumeSignal(volume));
     use_context_provider(|| app_settings);
     use_context_provider(|| PlaybackPositionSignal(playback_position));
     use_context_provider(|| SeekRequestSignal(seek_request));
     use_context_provider(|| SidebarOpenSignal(sidebar_open));
     use_context_provider(|| PreviewPlaybackSignal(preview_playback));
-    use_context_provider(|| shuffle_enabled);
+    use_context_provider(|| ShuffleEnabledSignal(shuffle_enabled));
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
 

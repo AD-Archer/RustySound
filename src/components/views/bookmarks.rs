@@ -158,7 +158,7 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
-    let is_playing = use_context::<Signal<bool>>();
+    let is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let mut seek_request = use_context::<SeekRequestSignal>().0;
     let cover_url = servers()

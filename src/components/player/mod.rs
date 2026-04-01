@@ -9,8 +9,8 @@ use dioxus::prelude::*;
 mod controls;
 
 use controls::{
-    AddToMenuButton, BookmarkButton, NextButton, PlayPauseButton, PrevButton, RatingButton,
-    RepeatButton,
+    AddToMenuButton, NextButton, PlayPauseButton, PrevButton, RatingButton, RepeatButton,
+    ShuffleButton,
 };
 
 #[component]
@@ -315,10 +315,10 @@ pub fn Player() -> Element {
                 div { class: "flex flex-col items-center gap-3 w-full md:flex-1 md:max-w-2xl",
                     // Control buttons
                     div { class: "flex items-center gap-1.5 sm:gap-2 md:gap-4 justify-center w-full",
-                        // Bookmark button
-                        BookmarkButton {}
                         // Rating button
                         RatingButton {}
+                        // Shuffle button
+                        ShuffleButton {}
                         // Previous button
                         PrevButton {}
                         // Play/Pause button

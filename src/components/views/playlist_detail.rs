@@ -1,5 +1,6 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
+use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
 use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
     PreviewPlaybackSignal, SeekRequestSignal,
@@ -47,6 +48,7 @@ fn PlaylistSongRow(
     song: Song,
     display_index: usize,
     songs: Vec<Song>,
+    playlist_source_id: String,
     queue: Signal<Vec<Song>>,
     queue_index: Signal<usize>,
     now_playing: Signal<Option<Song>>,
@@ -58,6 +60,7 @@ fn PlaylistSongRow(
 ) -> Element {
     let navigation = use_context::<Navigation>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let current_rating = use_signal(|| song.user_rating.unwrap_or(0).min(5));
     let is_favorited = use_signal(|| song.starred.is_some());
     let download_busy = use_signal(|| false);
@@ -226,6 +229,8 @@ fn PlaylistSongRow(
         let mut queue_index = queue_index.clone();
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
+        let playlist_source_id = playlist_source_id.clone();
         let app_settings = app_settings.clone();
         move |_| {
             let settings = app_settings();
@@ -245,10 +250,23 @@ fn PlaylistSongRow(
                 .iter()
                 .position(|entry| entry.id == song.id)
                 .unwrap_or(0);
+            let playable = assign_collection_queue_meta(
+                playable,
+                QueueSourceKind::Playlist,
+                playlist_source_id.clone(),
+            );
             queue.set(playable.clone());
             queue_index.set(target_index);
             now_playing.set(Some(playable[target_index].clone()));
             is_playing.set(true);
+            if shuffle_enabled() {
+                let _ = apply_collection_shuffle_mode(
+                    queue.clone(),
+                    queue_index.clone(),
+                    now_playing.clone(),
+                    true,
+                );
+            }
         }
     };
 
@@ -520,7 +538,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let seek_request = use_context::<SeekRequestSignal>().0;
     let preview_playback = use_context::<PreviewPlaybackSignal>().0;
@@ -549,6 +568,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut playlist_menu_y = use_signal(|| 0f64);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
+    let playlist_queue_source = format!("{}::{}", server_id.clone(), playlist_id.clone());
     let server_for_playlist = server.clone();
 
     {
@@ -691,6 +711,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     });
 
     let on_play_all = {
+        let playlist_queue_source = playlist_queue_source.clone();
         let playlist_data_ref = playlist_data.clone();
         let app_settings = app_settings.clone();
         let mut download_status = download_status.clone();
@@ -714,10 +735,23 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         ));
                         return;
                     }
+                    let playable = assign_collection_queue_meta(
+                        playable,
+                        QueueSourceKind::Playlist,
+                        playlist_queue_source.clone(),
+                    );
                     queue.set(playable.clone());
                     queue_index.set(0);
                     now_playing.set(Some(playable[0].clone()));
                     is_playing.set(true);
+                    if shuffle_enabled() {
+                        let _ = apply_collection_shuffle_mode(
+                            queue.clone(),
+                            queue_index.clone(),
+                            now_playing.clone(),
+                            true,
+                        );
+                    }
                 }
             }
         }
@@ -1207,6 +1241,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     button {
                                         class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
                                         onclick: {
+                                            let playlist_source_id = format!(
+                                                "{}::{}",
+                                                playlist.server_id.clone(),
+                                                playlist.id.clone()
+                                            );
                                             let playlist_data_ref = playlist_data.clone();
                                             let app_settings = app_settings.clone();
                                             let mut download_status = download_status.clone();
@@ -1214,7 +1253,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                 if let Some(Some((_, songs))) = playlist_data_ref() {
                                                     if !songs.is_empty() {
                                                         let settings = app_settings();
-                                                        let mut playable = if settings.offline_mode {
+                                                        let playable = if settings.offline_mode {
                                                             songs
                                                                 .iter()
                                                                 .filter(|song| is_song_downloaded(song))
@@ -1233,12 +1272,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                 );
                                                             return;
                                                         }
-                                                        use rand::seq::SliceRandom;
-                                                        playable.shuffle(&mut rand::thread_rng());
+                                                        let playable = assign_collection_queue_meta(
+                                                            playable,
+                                                            QueueSourceKind::Playlist,
+                                                            playlist_source_id.clone(),
+                                                        );
                                                         queue.set(playable.clone());
                                                         queue_index.set(0);
                                                         now_playing.set(Some(playable[0].clone()));
                                                         is_playing.set(true);
+                                                        shuffle_enabled.set(true);
+                                                        let _ = apply_collection_shuffle_mode(
+                                                            queue.clone(),
+                                                            queue_index.clone(),
+                                                            now_playing.clone(),
+                                                            true,
+                                                        );
                                                     }
                                                 }
                                             }
@@ -1280,6 +1329,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                             button {
                                                 class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
                                                 onclick: {
+                                                    let playlist_source_id = format!(
+                                                        "{}::{}",
+                                                        playlist.server_id.clone(),
+                                                        playlist.id.clone()
+                                                    );
                                                     let playlist_data_ref = playlist_data.clone();
                                                     let app_settings = app_settings.clone();
                                                     let mut download_status = download_status.clone();
@@ -1288,7 +1342,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                         if let Some(Some((_, songs))) = playlist_data_ref() {
                                                             if !songs.is_empty() {
                                                                 let settings = app_settings();
-                                                                let mut playable = if settings.offline_mode {
+                                                                let playable = if settings.offline_mode {
                                                                     songs
                                                                         .iter()
                                                                         .filter(|song| is_song_downloaded(song))
@@ -1307,12 +1361,23 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                         );
                                                                     return;
                                                                 }
-                                                                use rand::seq::SliceRandom;
-                                                                playable.shuffle(&mut rand::thread_rng());
+                                                                let playable =
+                                                                    assign_collection_queue_meta(
+                                                                        playable,
+                                                                        QueueSourceKind::Playlist,
+                                                                        playlist_source_id.clone(),
+                                                                    );
                                                                 queue.set(playable.clone());
                                                                 queue_index.set(0);
                                                                 now_playing.set(Some(playable[0].clone()));
                                                                 is_playing.set(true);
+                                                                shuffle_enabled.set(true);
+                                                                let _ = apply_collection_shuffle_mode(
+                                                                    queue.clone(),
+                                                                    queue_index.clone(),
+                                                                    now_playing.clone(),
+                                                                    true,
+                                                                );
                                                             }
                                                         }
                                                     }
@@ -1486,6 +1551,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         song: song.clone(),
                                         display_index: index + 1,
                                         songs: displayed_songs.clone(),
+                                        playlist_source_id: format!(
+                                            "{}::{}",
+                                            playlist.server_id,
+                                            playlist.id
+                                        ),
                                         queue: queue.clone(),
                                         queue_index: queue_index.clone(),
                                         now_playing: now_playing.clone(),

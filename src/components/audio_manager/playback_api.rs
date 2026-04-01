@@ -63,11 +63,11 @@ pub fn play_song(
     mut is_playing: Signal<bool>,
 ) {
     let queue_list = queue.read().clone();
-    if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+    if let Some(pos) = find_song_instance_index(&queue_list, &song) {
         queue_index.set(pos);
         now_playing.set(Some(song));
     } else {
-        queue.set(vec![song.clone()]);
+        queue.set(normalize_manual_queue_songs(vec![song.clone()]));
         queue_index.set(0);
         now_playing.set(Some(song));
     }
@@ -84,11 +84,11 @@ pub fn play_song(
     mut is_playing: Signal<bool>,
 ) {
     let queue_list = queue.read().clone();
-    if let Some(pos) = queue_list.iter().position(|s| s.id == song.id) {
+    if let Some(pos) = find_song_instance_index(&queue_list, &song) {
         queue_index.set(pos);
         now_playing.set(Some(song));
     } else {
-        queue.set(vec![song.clone()]);
+        queue.set(normalize_manual_queue_songs(vec![song.clone()]));
         queue_index.set(0);
         now_playing.set(Some(song));
     }

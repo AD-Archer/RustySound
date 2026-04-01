@@ -56,7 +56,7 @@ enum ScreenshotTextPalette {
 enum ScreenshotShareIntent {
     Share,
     Save,
-    Instagram,
+    Social,
 }
 
 fn screenshot_lyrics_bars(lyrics: &LyricsResult, sync_lyrics: bool) -> Vec<ScreenshotLyricBar> {
@@ -167,7 +167,7 @@ fn screenshot_share_intent_key(intent: ScreenshotShareIntent) -> &'static str {
     match intent {
         ScreenshotShareIntent::Share => "share",
         ScreenshotShareIntent::Save => "save",
-        ScreenshotShareIntent::Instagram => "instagram",
+        ScreenshotShareIntent::Social => "Social",
     }
 }
 
@@ -267,13 +267,13 @@ fn screenshot_share_status_message(status: &str, intent: ScreenshotShareIntent) 
                 "Opened share sheet. Choose \"Save Image\" to store it on your device."
                     .to_string()
             }
-            ScreenshotShareIntent::Instagram => {
-                "Opened share sheet with an Instagram-ready image.".to_string()
+            ScreenshotShareIntent::Social => {
+                "Opened share sheet with an Social-ready image.".to_string()
             }
         },
         "saved-image" => "Saved the shot image locally. Share it from Photos/Files.".to_string(),
         "shared-text" => match intent {
-            ScreenshotShareIntent::Instagram => {
+            ScreenshotShareIntent::Social => {
                 "Image sharing was unavailable, so only text could be shared.".to_string()
             }
             _ => "Image share is unsupported here, so text was shared instead.".to_string(),
@@ -281,7 +281,7 @@ fn screenshot_share_status_message(status: &str, intent: ScreenshotShareIntent) 
         "copied" => "Copied caption text to clipboard.".to_string(),
         "cancelled" => match intent {
             ScreenshotShareIntent::Save => "Save cancelled.".to_string(),
-            ScreenshotShareIntent::Instagram => "Instagram share cancelled.".to_string(),
+            ScreenshotShareIntent::Social => "Social share cancelled.".to_string(),
             ScreenshotShareIntent::Share => "Share cancelled.".to_string(),
         },
         "capture-target-missing" => {
@@ -885,7 +885,7 @@ async fn share_screenshot_lyrics_image(
                 .trim()
                 .toLowerCase();
             const preferSaveIntent = normalizedShareIntent === "save";
-            const preferInstagramIntent = normalizedShareIntent === "instagram";
+            const preferSocialIntent = normalizedShareIntent === "Social";
 
             const rawFileName =
                 (typeof fileName === "string" && fileName.trim().length > 0)
@@ -895,13 +895,13 @@ async fn share_screenshot_lyrics_image(
             let imageMimeType = "image/png";
             let resolvedFileName = ensureFileExtension(rawFileName, ".png");
 
-            if (preferInstagramIntent) {{
+            if (preferSocialIntent) {{
                 try {{
                     imageBlob = await convertBlobToJpeg(pngBlob);
                     imageMimeType = "image/jpeg";
                     resolvedFileName = ensureFileExtension(rawFileName, ".jpg");
                 }} catch (_jpegErr) {{
-                    debugError("Instagram JPEG conversion failed", _jpegErr);
+                    debugError("Social JPEG conversion failed", _jpegErr);
                 }}
             }}
 
@@ -929,7 +929,7 @@ async fn share_screenshot_lyrics_image(
                     }};
                     if (
                         !preferSaveIntent
-                        && !preferInstagramIntent
+                        && !preferSocialIntent
                         && typeof shareText === "string"
                         && shareText.trim().length > 0
                     ) {{
@@ -946,7 +946,7 @@ async fn share_screenshot_lyrics_image(
                 debugError("navigator.share image path failed", err);
             }}
 
-            if (!preferSaveIntent && !preferInstagramIntent) {{
+            if (!preferSaveIntent && !preferSocialIntent) {{
                 try {{
                     if (typeof navigator !== "undefined" && navigator.share) {{
                         await navigator.share({{ title: "RustySound Lyrics", text: shareText }});
@@ -1564,14 +1564,6 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         })
     };
 
-    let on_share_screenshot_shot = {
-        let start_screenshot_share = start_screenshot_share.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            start_screenshot_share(ScreenshotShareIntent::Share);
-        }
-    };
-
     let on_save_screenshot_shot = {
         let start_screenshot_share = start_screenshot_share.clone();
         move |evt: MouseEvent| {
@@ -1580,11 +1572,11 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
         }
     };
 
-    let on_share_screenshot_to_instagram = {
+    let on_share_screenshot_to_Social = {
         let start_screenshot_share = start_screenshot_share.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
-            start_screenshot_share(ScreenshotShareIntent::Instagram);
+            start_screenshot_share(ScreenshotShareIntent::Social);
         }
     };
 
@@ -1847,23 +1839,6 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                         if screenshot_shot_mode_enabled {
                             div { class: "flex items-center gap-2",
                                 button {
-                                    class: if screenshot_share_pending() { "rounded-full border border-white/30 bg-white/14 px-4 py-2 text-sm text-white transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-white/12 bg-black/30 px-4 py-2 text-sm text-white/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-white/15 bg-black/35 px-4 py-2 text-sm text-white/80 hover:text-white hover:border-white/30 transition-colors" },
-                                    title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share" } else if screenshot_share_pending() { "Preparing image for sharing..." } else { "Share shot image" },
-                                    disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
-                                    onclick: on_share_screenshot_shot,
-                                    if screenshot_share_pending() {
-                                        span { class: "inline-flex items-center gap-2",
-                                            Icon {
-                                                name: "loader".to_string(),
-                                                class: "w-4 h-4".to_string(),
-                                            }
-                                            "Preparing"
-                                        }
-                                    } else {
-                                        "Share"
-                                    }
-                                }
-                                button {
                                     class: if screenshot_share_pending() { "rounded-full border border-emerald-300/40 bg-emerald-200/20 px-3 py-2 text-sm text-emerald-100/85 transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-emerald-300/25 bg-emerald-900/20 px-3 py-2 text-sm text-emerald-100/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-emerald-300/35 bg-emerald-900/30 px-3 py-2 text-sm text-emerald-100/85 hover:text-white hover:border-emerald-200/60 transition-colors" },
                                     title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to save" } else if screenshot_share_pending() { "Preparing image for saving..." } else { "Save shot image to device" },
                                     disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
@@ -1872,10 +1847,10 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                                 }
                                 button {
                                     class: if screenshot_share_pending() { "rounded-full border border-fuchsia-300/35 bg-fuchsia-300/14 px-3 py-2 text-sm text-fuchsia-100/85 transition-colors cursor-wait" } else if screenshot_selected_bars.is_empty() { "rounded-full border border-fuchsia-300/25 bg-fuchsia-900/18 px-3 py-2 text-sm text-fuchsia-100/45 transition-colors cursor-not-allowed" } else { "rounded-full border border-fuchsia-300/35 bg-fuchsia-900/24 px-3 py-2 text-sm text-fuchsia-100/85 hover:text-white hover:border-fuchsia-200/60 transition-colors" },
-                                    title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share on Instagram" } else if screenshot_share_pending() { "Preparing image for Instagram..." } else { "Share shot image for Instagram" },
+                                    title: if screenshot_selected_bars.is_empty() { "Select one or more lyric lines to share on Social" } else if screenshot_share_pending() { "Preparing image for Social..." } else { "Share shot image for Social" },
                                     disabled: screenshot_selected_bars.is_empty() || screenshot_share_pending(),
-                                    onclick: on_share_screenshot_to_instagram,
-                                    "Instagram"
+                                    onclick: on_share_screenshot_to_Social,
+                                    "Social"
                                 }
                             }
                         }

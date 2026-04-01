@@ -8,6 +8,7 @@ use crate::api::{
 use crate::components::{
     seek_to, spawn_shuffle_queue, AddIntent, AddMenuController, AppView, AudioState, Icon,
     Navigation, PlaybackPositionSignal, SidebarOpenSignal, VolumeSignal,
+    queue_should_generate_similar_on_end,
 };
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;

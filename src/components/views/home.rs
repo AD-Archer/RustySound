@@ -67,7 +67,7 @@ pub fn HomeView() -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let home_refresh_generation = use_context::<HomeRefreshSignal>().0;
 
     let home_feed = use_context::<HomeFeedState>();

@@ -70,7 +70,7 @@ pub fn QueueView() -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let seek_request = use_context::<SeekRequestSignal>().0;
     let preview_playback = use_context::<PreviewPlaybackSignal>().0;

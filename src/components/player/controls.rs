@@ -1,5 +1,7 @@
 use crate::api::*;
-use crate::components::audio_manager::spawn_shuffle_queue;
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, queue_should_generate_similar_on_end, spawn_shuffle_queue,
+};
 use crate::components::{
     ios_diag_log, seek_to, AddIntent, AddMenuController, AudioState, Icon, PlaybackPositionSignal,
 };
@@ -187,7 +189,7 @@ pub(super) fn RatingButton() -> Element {
 /// Play/Pause button - completely isolated component
 #[component]
 pub(super) fn PlayPauseButton() -> Element {
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let playing = is_playing();
 
     rsx! {
@@ -197,6 +199,11 @@ pub(super) fn PlayPauseButton() -> Element {
             class: "w-10 h-10 rounded-full bg-white flex items-center justify-center hover:scale-105 transition-transform shadow-lg",
             onclick: move |_| {
                 let current = is_playing();
+                eprintln!(
+                    "[ui.play_pause] click current={} next={}",
+                    current,
+                    !current
+                );
                 ios_diag_log(
                     "ui.control",
                     &format!("source=player.play-pause current={current} next={}", !current),
@@ -224,7 +231,7 @@ pub(super) fn PrevButton() -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let current_song = now_playing();
     let is_radio = current_song
         .as_ref()
@@ -273,12 +280,12 @@ pub(super) fn PrevButton() -> Element {
 #[component]
 pub(super) fn NextButton() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let mut is_playing = use_context::<Signal<bool>>();
+    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let audio_state = use_context::<Signal<AudioState>>();
     let repeat_mode = use_context::<Signal<RepeatMode>>();
-    let shuffle_enabled = use_context::<Signal<bool>>();
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let current_song = now_playing();
     let is_radio = current_song
@@ -310,69 +317,14 @@ pub(super) fn NextButton() -> Element {
                     return;
                 }
                 let idx = *queue_index.peek();
-                let queue_list = queue.peek();
-                let can_shuffle = repeat == RepeatMode::Off;
-                if can_shuffle && *shuffle_enabled.peek() {
-                    if queue_list.is_empty() {
-                        ios_diag_log(
-                            "ui.control",
-                            &format!(
-                                "source=player.next shuffle=true queue_empty=true was_playing={was_playing}"
-                            ),
-                        );
-                        spawn_shuffle_queue(
-                            servers.peek().clone(),
-                            queue.clone(),
-                            queue_index.clone(),
-                            now_playing.clone(),
-                            is_playing.clone(),
-                            audio_state.clone(),
-                            now_playing.peek().clone(),
-                            Some(was_playing),
-                        );
-                    } else if idx < queue_list.len().saturating_sub(1) {
-                        if let Some(song) = queue_list.get(idx + 1).cloned() {
-                            ios_diag_log(
-                                "ui.control",
-                                &format!(
-                                    "source=player.next shuffle=true from_idx={idx} to_idx={} queue_len={} was_playing={} song_id={}",
-                                    idx + 1,
-                                    queue_list.len(),
-                                    was_playing,
-                                    song.id
-                                ),
-                            );
-                            queue_index.set(idx + 1);
-                            now_playing.set(Some(song));
-                            if was_playing {
-                                is_playing.set(true);
-                            }
-                        }
-                    } else {
-                        ios_diag_log(
-                            "ui.control",
-                            &format!(
-                                "source=player.next shuffle=true wrap=regenerate queue_len={} was_playing={was_playing}",
-                                queue_list.len()
-                            ),
-                        );
-                        spawn_shuffle_queue(
-                            servers.peek().clone(),
-                            queue.clone(),
-                            queue_index.clone(),
-                            now_playing.clone(),
-                            is_playing.clone(),
-                            audio_state.clone(),
-                            now_playing.peek().clone(),
-                            Some(was_playing),
-                        );
-                    }
-                } else if idx < queue_list.len().saturating_sub(1) {
+                let queue_list = queue.peek().clone();
+                let shuffle = *shuffle_enabled.peek();
+                if idx < queue_list.len().saturating_sub(1) {
                     if let Some(song) = queue_list.get(idx + 1).cloned() {
                         ios_diag_log(
                             "ui.control",
                             &format!(
-                                "source=player.next shuffle=false from_idx={idx} to_idx={} queue_len={} was_playing={} song_id={}",
+                                "source=player.next from_idx={idx} to_idx={} queue_len={} was_playing={} song_id={}",
                                 idx + 1,
                                 queue_list.len(),
                                 was_playing,
@@ -402,6 +354,39 @@ pub(super) fn NextButton() -> Element {
                             is_playing.set(true);
                         }
                     }
+                } else if repeat == RepeatMode::Off
+                    && queue_should_generate_similar_on_end(
+                        &queue_list,
+                        now_playing.peek().as_ref(),
+                        shuffle,
+                    )
+                {
+                    ios_diag_log(
+                        "ui.control",
+                        &format!(
+                            "source=player.next similar_queue_from_single shuffle={shuffle} queue_len={} was_playing={was_playing}",
+                            queue_list.len()
+                        ),
+                    );
+                    spawn_shuffle_queue(
+                        servers.peek().clone(),
+                        queue.clone(),
+                        queue_index.clone(),
+                        now_playing.clone(),
+                        is_playing.clone(),
+                        audio_state.clone(),
+                        now_playing.peek().clone(),
+                        Some(was_playing),
+                    );
+                } else {
+                    ios_diag_log(
+                        "ui.control",
+                        &format!(
+                            "source=player.next end_of_queue repeat={repeat:?} shuffle={shuffle} queue_len={} action=stop",
+                            queue_list.len()
+                        ),
+                    );
+                    is_playing.set(false);
                 }
             },
             Icon { name: "next".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
@@ -491,19 +476,36 @@ pub(super) fn AddToMenuButton() -> Element {
 /// Shuffle button - toggle shuffle mode
 #[component]
 pub(super) fn ShuffleButton() -> Element {
-    let mut shuffle_enabled = use_context::<Signal<bool>>();
+    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let queue_index = use_context::<Signal<usize>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
     let enabled = shuffle_enabled();
 
     rsx! {
         button {
             id: "shuffle-btn",
             r#type: "button",
-            class: if enabled { "p-3 md:p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-3 md:p-2 text-zinc-400 hover:text-white transition-colors" },
+            class: if enabled { "p-1.5 sm:p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors" },
             onclick: move |_| {
-                let current = shuffle_enabled();
-                shuffle_enabled.set(!current);
+                let next = !shuffle_enabled();
+                eprintln!(
+                    "[ui.shuffle] click current={} next={} queue_len={} queue_index={}",
+                    !next,
+                    next,
+                    queue().len(),
+                    queue_index()
+                );
+                shuffle_enabled.set(next);
+                let changed = apply_collection_shuffle_mode(
+                    queue.clone(),
+                    queue_index.clone(),
+                    now_playing.clone(),
+                    next,
+                );
+                eprintln!("[ui.shuffle] applied changed={changed}");
             },
-            Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
+            Icon { name: "shuffle".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
         }
     }
 }
