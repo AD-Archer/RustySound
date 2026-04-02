@@ -35,7 +35,7 @@ jobs:
         if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
           TAG="${GITHUB_REF_NAME}"
         else
-          TAG="v0.1.${{ github.run_number }}"
+          TAG="v3.1.${{ github.run_number }}"
         fi
         SEMVER="${TAG#v}"
         echo "tag=${TAG}" >> "$GITHUB_OUTPUT"

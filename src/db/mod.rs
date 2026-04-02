@@ -120,6 +120,10 @@ pub struct AppSettings {
     pub artwork_download_preference: ArtworkDownloadPreference,
     #[serde(default)]
     pub custom_css: String,
+    #[serde(default = "default_home_layout_json")]
+    pub home_layout_json: String,
+    #[serde(default = "default_home_feed_load_profile")]
+    pub home_feed_load_profile: String,
 }
 
 fn default_lyrics_request_timeout_secs() -> u32 {
@@ -174,6 +178,14 @@ fn default_artwork_download_preference() -> ArtworkDownloadPreference {
     ArtworkDownloadPreference::PreferServer
 }
 
+fn default_home_layout_json() -> String {
+    String::new()
+}
+
+fn default_home_feed_load_profile() -> String {
+    "standard".to_string()
+}
+
 fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     let normalized = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
     let legacy_default_v1 = vec![
@@ -219,6 +231,16 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     settings.auto_download_playlist_count = settings.auto_download_playlist_count.clamp(0, 25);
     settings.download_limit_count = settings.download_limit_count.clamp(25, 20000);
     settings.download_limit_mb = settings.download_limit_mb.clamp(256, 131072);
+    settings.home_feed_load_profile = match settings
+        .home_feed_load_profile
+        .trim()
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "conservative" => "conservative".to_string(),
+        "super" => "super".to_string(),
+        _ => "standard".to_string(),
+    };
 
     settings
 }
@@ -259,6 +281,8 @@ impl Default for AppSettings {
             download_limit_mb: default_download_limit_mb(),
             artwork_download_preference: default_artwork_download_preference(),
             custom_css: String::new(),
+            home_layout_json: default_home_layout_json(),
+            home_feed_load_profile: default_home_feed_load_profile(),
         }
     }
 }

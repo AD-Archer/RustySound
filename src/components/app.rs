@@ -3,6 +3,7 @@ use crate::cache_service::{
     apply_settings as apply_cache_settings, get_json as cache_get_json, put_json as cache_put_json,
     remove_by_prefix as cache_remove_prefix,
 };
+use crate::components::views::home_layout::HomeFeedLoadProfile;
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, view_label, AddIntent, AddMenuController,
     AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon,
@@ -38,16 +39,78 @@ const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
 const HISTORY_SWIPE_VERTICAL_SLOP: f64 = 72.0;
 #[cfg(target_arch = "wasm32")]
 const HISTORY_SWIPE_EDGE_ZONE: f64 = 28.0;
-const HOME_INIT_QUICK_PICK_LIMIT: usize = 8;
-const HOME_INIT_SECTION_BASE_COUNT: usize = 9;
-const HOME_INIT_SECTION_LOAD_STEP: usize = 6;
-const HOME_INIT_SECTION_CACHE_COUNT: usize =
-    HOME_INIT_SECTION_BASE_COUNT + HOME_INIT_SECTION_LOAD_STEP;
-const HOME_INIT_SECTION_FETCH_LIMIT: usize = 18;
-const HOME_INIT_RANDOM_FETCH_LIMIT: usize = HOME_INIT_SECTION_FETCH_LIMIT;
-const HOME_INIT_ALBUM_PREVIEW_LIMIT: u32 = HOME_INIT_SECTION_BASE_COUNT as u32;
+const HOME_INIT_QUICK_PICK_LIMIT_STANDARD: usize = 8;
+const HOME_INIT_SECTION_BASE_COUNT_STANDARD: usize = 9;
+const HOME_INIT_SECTION_LOAD_STEP_STANDARD: usize = 6;
+const HOME_INIT_SECTION_FETCH_LIMIT_STANDARD: usize = 18;
 const HOME_INIT_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
 const AUTO_DOWNLOAD_POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
+
+#[derive(Debug, Clone, Copy)]
+struct HomeInitFetchBudget {
+    quick_pick_limit: usize,
+    section_base_count: usize,
+    section_load_step: usize,
+    section_cache_count: usize,
+    section_fetch_limit: usize,
+    random_fetch_limit: usize,
+    album_preview_limit: u32,
+}
+
+fn home_init_fetch_budget(profile: HomeFeedLoadProfile) -> HomeInitFetchBudget {
+    match profile {
+        HomeFeedLoadProfile::Conservative => {
+            let section_base_count = 6usize;
+            let section_load_step = 4usize;
+            let section_fetch_limit = 12usize;
+            HomeInitFetchBudget {
+                quick_pick_limit: 6,
+                section_base_count,
+                section_load_step,
+                section_cache_count: section_base_count + section_load_step,
+                section_fetch_limit,
+                random_fetch_limit: section_fetch_limit,
+                album_preview_limit: section_base_count as u32,
+            }
+        }
+        HomeFeedLoadProfile::Standard => {
+            let section_base_count = HOME_INIT_SECTION_BASE_COUNT_STANDARD;
+            let section_load_step = HOME_INIT_SECTION_LOAD_STEP_STANDARD;
+            let section_fetch_limit = HOME_INIT_SECTION_FETCH_LIMIT_STANDARD;
+            HomeInitFetchBudget {
+                quick_pick_limit: HOME_INIT_QUICK_PICK_LIMIT_STANDARD,
+                section_base_count,
+                section_load_step,
+                section_cache_count: section_base_count + section_load_step,
+                section_fetch_limit,
+                random_fetch_limit: section_fetch_limit,
+                album_preview_limit: section_base_count as u32,
+            }
+        }
+        HomeFeedLoadProfile::Super => {
+            let section_base_count = 12usize;
+            let section_load_step = 8usize;
+            let section_fetch_limit = 36usize;
+            HomeInitFetchBudget {
+                quick_pick_limit: 16,
+                section_base_count,
+                section_load_step,
+                section_cache_count: section_base_count + section_load_step,
+                section_fetch_limit,
+                random_fetch_limit: section_fetch_limit,
+                album_preview_limit: section_base_count as u32,
+            }
+        }
+    }
+}
+
+fn home_init_profile_from_settings(settings: &AppSettings) -> HomeFeedLoadProfile {
+    HomeFeedLoadProfile::from_storage(&settings.home_feed_load_profile)
+}
+
+fn home_init_profile_cache_key(profile: HomeFeedLoadProfile) -> &'static str {
+    profile.as_storage()
+}
 
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 fn focus_global_search_input() {
@@ -104,22 +167,33 @@ fn normalize_volume(mut value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
-fn home_init_warmup_cache_key(active_servers: &[ServerConfig]) -> String {
+fn home_init_warmup_cache_key(
+    active_servers: &[ServerConfig],
+    profile: HomeFeedLoadProfile,
+) -> String {
     let mut ids: Vec<String> = active_servers
         .iter()
         .map(|server| server.id.clone())
         .collect();
     ids.sort();
-    format!("view:home:warmup:v2:{}", ids.join("|"))
+    format!(
+        "view:home:warmup:v3:{}:{}",
+        home_init_profile_cache_key(profile),
+        ids.join("|")
+    )
 }
 
-fn home_init_cache_prefix(active_servers: &[ServerConfig]) -> String {
+fn home_init_cache_prefix(active_servers: &[ServerConfig], profile: HomeFeedLoadProfile) -> String {
     let mut ids: Vec<String> = active_servers
         .iter()
         .map(|server| server.id.clone())
         .collect();
     ids.sort();
-    format!("view:home:v3:{}", ids.join("|"))
+    format!(
+        "view:home:v4:{}:{}",
+        home_init_profile_cache_key(profile),
+        ids.join("|")
+    )
 }
 
 #[derive(Clone)]
@@ -179,8 +253,11 @@ impl HomeFeedSnapshot {
     }
 }
 
-fn load_cached_home_feed_snapshot(active_servers: &[ServerConfig]) -> CachedHomeFeedSnapshot {
-    let cache_prefix = home_init_cache_prefix(active_servers);
+fn load_cached_home_feed_snapshot(
+    active_servers: &[ServerConfig],
+    profile: HomeFeedLoadProfile,
+) -> CachedHomeFeedSnapshot {
+    let cache_prefix = home_init_cache_prefix(active_servers, profile);
     CachedHomeFeedSnapshot {
         recent_albums: cache_get_json::<Vec<Album>>(&format!("{cache_prefix}:recent_albums")),
         most_played_albums: cache_get_json::<Vec<Album>>(&format!(
@@ -296,14 +373,17 @@ fn set_empty_home_feed_snapshot(home_feed: &HomeFeedState) {
     );
 }
 
-fn home_init_has_cached_payload(active_servers: &[ServerConfig]) -> bool {
-    load_cached_home_feed_snapshot(active_servers).has_full_snapshot()
+fn home_init_has_cached_payload(
+    active_servers: &[ServerConfig],
+    profile: HomeFeedLoadProfile,
+) -> bool {
+    load_cached_home_feed_snapshot(active_servers, profile).has_full_snapshot()
 }
 
-fn home_init_is_warmed(active_servers: &[ServerConfig]) -> bool {
-    let warmup_key = home_init_warmup_cache_key(active_servers);
+fn home_init_is_warmed(active_servers: &[ServerConfig], profile: HomeFeedLoadProfile) -> bool {
+    let warmup_key = home_init_warmup_cache_key(active_servers, profile);
     let has_warmup_flag = cache_get_json::<bool>(&warmup_key).unwrap_or(false);
-    let has_cached_payload = home_init_has_cached_payload(active_servers);
+    let has_cached_payload = home_init_has_cached_payload(active_servers, profile);
 
     if has_warmup_flag && !has_cached_payload {
         ios_diag_log(
@@ -315,13 +395,20 @@ fn home_init_is_warmed(active_servers: &[ServerConfig]) -> bool {
     has_warmup_flag && has_cached_payload
 }
 
-fn home_init_server_signature(active_servers: &[ServerConfig]) -> String {
+fn home_init_server_signature(
+    active_servers: &[ServerConfig],
+    profile: HomeFeedLoadProfile,
+) -> String {
     let mut signature_parts: Vec<String> = active_servers
         .iter()
         .map(|server| format!("{}|{}|{}", server.id, server.url, server.username))
         .collect();
     signature_parts.sort();
-    signature_parts.join("||")
+    format!(
+        "{}::{}",
+        home_init_profile_cache_key(profile),
+        signature_parts.join("||")
+    )
 }
 
 fn home_init_song_key(song: &Song) -> String {
@@ -555,13 +642,15 @@ struct HomeInitSummary {
 async fn initialize_home_cache(
     active_servers: &[ServerConfig],
     persist_cache: bool,
+    profile: HomeFeedLoadProfile,
     mut progress: Signal<f32>,
     mut status: Signal<Option<String>>,
 ) -> HomeFeedSnapshot {
     let init_start = PerfTimer::now();
-    let warmup_key = home_init_warmup_cache_key(active_servers);
+    let budget = home_init_fetch_budget(profile);
+    let warmup_key = home_init_warmup_cache_key(active_servers, profile);
 
-    let cache_prefix = home_init_cache_prefix(active_servers);
+    let cache_prefix = home_init_cache_prefix(active_servers, profile);
     let recent_cache_key = format!("{cache_prefix}:recent_albums");
     let most_played_album_cache_key = format!("{cache_prefix}:most_played_albums");
     let recent_song_cache_key = format!("{cache_prefix}:recent_songs");
@@ -570,8 +659,12 @@ async fn initialize_home_cache(
     let quick_pick_cache_key = format!("{cache_prefix}:quick_picks");
 
     eprintln!(
-        "[app-init] starting home cache warmup for {} server(s)",
-        active_servers.len()
+        "[app-init] starting home cache warmup for {} server(s) with profile={} (base={} step={} fetch={})",
+        active_servers.len(),
+        home_init_profile_cache_key(profile),
+        budget.section_base_count,
+        budget.section_load_step,
+        budget.section_fetch_limit
     );
     let mut set_stage = |progress_value: f32, message: &str| {
         progress.set(progress_value.clamp(0.0, 1.0));
@@ -583,18 +676,18 @@ async fn initialize_home_cache(
         &format!("start warmup servers={}", active_servers.len()),
     );
 
-    let pool_size = (HOME_INIT_SECTION_FETCH_LIMIT * 3).max(HOME_INIT_RANDOM_FETCH_LIMIT * 2);
+    let pool_size = (budget.section_fetch_limit * 3).max(budget.random_fetch_limit * 2);
     ios_diag_log(
         "home.init",
         &format!(
             "fetch native recent songs limit={}",
-            HOME_INIT_SECTION_FETCH_LIMIT
+            budget.section_fetch_limit
         ),
     );
     let mut recent_played = fetch_home_init_sorted_songs_for_servers(
         active_servers,
         NativeSongSortField::PlayDate,
-        HOME_INIT_SECTION_FETCH_LIMIT as u32,
+        budget.section_fetch_limit as u32,
     )
     .await;
 
@@ -603,13 +696,13 @@ async fn initialize_home_cache(
         "home.init",
         &format!(
             "fetch native most played songs limit={}",
-            HOME_INIT_SECTION_FETCH_LIMIT
+            budget.section_fetch_limit
         ),
     );
     let mut most_played_song_items = fetch_home_init_sorted_songs_for_servers(
         active_servers,
         NativeSongSortField::PlayCount,
-        HOME_INIT_SECTION_FETCH_LIMIT as u32,
+        budget.section_fetch_limit as u32,
     )
     .await;
 
@@ -620,36 +713,33 @@ async fn initialize_home_cache(
     );
     let song_pool =
         fetch_home_init_random_songs_for_servers(active_servers, pool_size as u32).await;
-    let random_song_items = dedupe_home_init_songs(song_pool.clone(), HOME_INIT_RANDOM_FETCH_LIMIT);
+    let random_song_items = dedupe_home_init_songs(song_pool.clone(), budget.random_fetch_limit);
 
-    if recent_played.len() < HOME_INIT_SECTION_FETCH_LIMIT {
+    if recent_played.len() < budget.section_fetch_limit {
         let mut fallback_recent = song_pool.clone();
         sort_home_init_songs(&mut fallback_recent, NativeSongSortField::PlayDate);
-        recent_played = merge_home_init_song_lists(
-            recent_played,
-            fallback_recent,
-            HOME_INIT_SECTION_FETCH_LIMIT,
-        );
+        recent_played =
+            merge_home_init_song_lists(recent_played, fallback_recent, budget.section_fetch_limit);
     }
 
-    if most_played_song_items.len() < HOME_INIT_SECTION_FETCH_LIMIT {
+    if most_played_song_items.len() < budget.section_fetch_limit {
         let mut fallback_most_played = song_pool;
         sort_home_init_songs(&mut fallback_most_played, NativeSongSortField::PlayCount);
         most_played_song_items = merge_home_init_song_lists(
             most_played_song_items,
             fallback_most_played,
-            HOME_INIT_SECTION_FETCH_LIMIT,
+            budget.section_fetch_limit,
         );
     }
 
     let recent_cached: Vec<Song> = recent_played
         .iter()
-        .take(HOME_INIT_SECTION_CACHE_COUNT)
+        .take(budget.section_cache_count)
         .cloned()
         .collect();
     let most_played_cached: Vec<Song> = most_played_song_items
         .iter()
-        .take(HOME_INIT_SECTION_CACHE_COUNT)
+        .take(budget.section_cache_count)
         .cloned()
         .collect();
     if persist_cache {
@@ -683,15 +773,14 @@ async fn initialize_home_cache(
 
     set_stage(0.58, "Building Home quick picks");
     ios_diag_log("home.init", "building quick picks");
-    let mut quick =
-        dedupe_home_init_songs(most_played_song_items.clone(), HOME_INIT_QUICK_PICK_LIMIT);
+    let mut quick = dedupe_home_init_songs(most_played_song_items.clone(), budget.quick_pick_limit);
     if quick.is_empty() {
-        quick = dedupe_home_init_songs(random_song_items.clone(), HOME_INIT_QUICK_PICK_LIMIT);
+        quick = dedupe_home_init_songs(random_song_items.clone(), budget.quick_pick_limit);
     }
     if quick.is_empty() {
         quick = fetch_home_init_random_songs_for_servers(
             active_servers,
-            HOME_INIT_QUICK_PICK_LIMIT as u32,
+            budget.quick_pick_limit as u32,
         )
         .await;
     }
@@ -708,7 +797,7 @@ async fn initialize_home_cache(
     set_stage(0.82, "Fetching recent albums");
     ios_diag_log("home.init", "fetching recent albums");
     let recent_albums =
-        fetch_home_init_albums_for_servers(active_servers, "newest", HOME_INIT_ALBUM_PREVIEW_LIMIT)
+        fetch_home_init_albums_for_servers(active_servers, "newest", budget.album_preview_limit)
             .await;
     if persist_cache {
         let _ = cache_put_json(recent_cache_key, &recent_albums, Some(6));
@@ -725,12 +814,12 @@ async fn initialize_home_cache(
     let most_played_albums = fetch_home_init_albums_for_servers(
         active_servers,
         "frequent",
-        HOME_INIT_SECTION_FETCH_LIMIT as u32,
+        budget.section_fetch_limit as u32,
     )
     .await;
     let most_played_cached: Vec<Album> = most_played_albums
         .iter()
-        .take(HOME_INIT_SECTION_CACHE_COUNT)
+        .take(budget.section_cache_count)
         .cloned()
         .collect();
     if persist_cache {
@@ -1250,6 +1339,7 @@ pub fn AppShell() -> Element {
 
         let settings_snapshot = app_settings();
         let cache_enabled = settings_snapshot.cache_enabled;
+        let home_profile = home_init_profile_from_settings(&settings_snapshot);
         if settings_snapshot.offline_mode {
             ios_diag_log("home.init.gate", "skip warmup: offline mode enabled");
             home_init_in_progress.set(false);
@@ -1282,35 +1372,44 @@ pub fn AppShell() -> Element {
             home_manual_refresh_applied.set(manual_refresh_generation);
             home_init_signature.set(None);
             if cache_enabled {
-                let cache_prefix = home_init_cache_prefix(&active_servers);
-                let warmup_cache_key = home_init_warmup_cache_key(&active_servers);
+                let cache_prefix = home_init_cache_prefix(&active_servers, home_profile);
+                let warmup_cache_key = home_init_warmup_cache_key(&active_servers, home_profile);
                 let mut removed_entries = cache_remove_prefix(&format!("{cache_prefix}:"));
                 removed_entries += cache_remove_prefix(&warmup_cache_key);
                 for server in &active_servers {
-                    removed_entries +=
-                        cache_remove_prefix(&format!("api:getAlbumList2:v1:{}:newest:", server.id));
-                    removed_entries += cache_remove_prefix(&format!(
-                        "api:getAlbumList2:v1:{}:frequent:",
-                        server.id
-                    ));
+                    for album_type in [
+                        "newest",
+                        "frequent",
+                        "recent",
+                        "alphabeticalByName",
+                        "highest",
+                        "random",
+                    ] {
+                        removed_entries += cache_remove_prefix(&format!(
+                            "api:getAlbumList2:v1:{}:{}:",
+                            server.id, album_type
+                        ));
+                    }
                 }
                 ios_diag_log(
                     "home.init.gate",
                     &format!(
-                        "manual refresh invalidated cache entries={removed_entries} active_servers={}",
-                        active_servers.len()
+                        "manual refresh invalidated cache entries={removed_entries} active_servers={} profile={}",
+                        active_servers.len(),
+                        home_init_profile_cache_key(home_profile)
                     ),
                 );
             }
             ios_diag_log(
                 "home.init.gate",
                 &format!(
-                    "manual refresh requested generation={manual_refresh_generation}; bypassing warmup gate"
+                    "manual refresh requested generation={manual_refresh_generation}; bypassing warmup gate profile={}",
+                    home_init_profile_cache_key(home_profile)
                 ),
             );
         }
 
-        let warmup_key = home_init_warmup_cache_key(&active_servers);
+        let warmup_key = home_init_warmup_cache_key(&active_servers, home_profile);
         let warmup_enabled = if cache_enabled {
             cache_get_json::<bool>(&warmup_key).unwrap_or(true)
         } else {
@@ -1319,12 +1418,13 @@ pub fn AppShell() -> Element {
         home_feed.warmup_enabled.set(warmup_enabled);
 
         if cache_enabled {
-            let cached_snapshot = load_cached_home_feed_snapshot(&active_servers);
+            let cached_snapshot = load_cached_home_feed_snapshot(&active_servers, home_profile);
             apply_cached_home_feed_snapshot(&home_feed, &cached_snapshot);
             ios_diag_log(
                 "home.feed.cache",
                 &format!(
-                    "recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={} full_cache_hit={}",
+                    "profile={} recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={} full_cache_hit={}",
+                    home_init_profile_cache_key(home_profile),
                     cached_snapshot
                         .recent_albums
                         .as_ref()
@@ -1404,7 +1504,7 @@ pub fn AppShell() -> Element {
             );
         }
 
-        let signature = home_init_server_signature(&active_servers);
+        let signature = home_init_server_signature(&active_servers, home_profile);
         if !manual_refresh_requested && home_init_signature().as_deref() == Some(signature.as_str())
         {
             ios_diag_log("home.init.gate", "skip warmup: signature unchanged");
@@ -1412,7 +1512,10 @@ pub fn AppShell() -> Element {
         }
 
         home_init_signature.set(Some(signature));
-        if !manual_refresh_requested && cache_enabled && home_init_is_warmed(&active_servers) {
+        if !manual_refresh_requested
+            && cache_enabled
+            && home_init_is_warmed(&active_servers, home_profile)
+        {
             ios_diag_log("home.init.gate", "skip warmup: cache already warmed");
             home_init_in_progress.set(false);
             home_feed.progress.set(1.0);
@@ -1427,16 +1530,23 @@ pub fn AppShell() -> Element {
         home_feed.status.set(Some(if manual_refresh_requested {
             "Refreshing Home feed".to_string()
         } else if cache_enabled {
-            "Starting Home cache warmup".to_string()
+            format!(
+                "Starting Home cache warmup ({})",
+                home_init_profile_cache_key(home_profile)
+            )
         } else {
-            "Loading Home feed live".to_string()
+            format!(
+                "Loading Home feed live ({})",
+                home_init_profile_cache_key(home_profile)
+            )
         }));
         ios_diag_log(
             "home.init.gate",
             &format!(
-                "starting warmup generation={} active_servers={} manual_refresh={manual_refresh_requested}",
+                "starting warmup generation={} active_servers={} manual_refresh={manual_refresh_requested} profile={}",
                 generation,
-                active_servers.len()
+                active_servers.len(),
+                home_init_profile_cache_key(home_profile)
             ),
         );
 
@@ -1449,6 +1559,7 @@ pub fn AppShell() -> Element {
             let snapshot = initialize_home_cache(
                 &active_servers,
                 cache_enabled,
+                home_profile,
                 home_init_progress.clone(),
                 home_init_status.clone(),
             )
@@ -1802,7 +1913,11 @@ pub fn AppShell() -> Element {
     let swipe_hint_state = swipe_hint();
     let active_theme = {
         let t = app_settings().theme;
-        if t.is_empty() || t == "dark" { "rusty".to_string() } else { t }
+        if t.is_empty() || t == "dark" {
+            "rusty".to_string()
+        } else {
+            t
+        }
     };
 
     rsx! {
