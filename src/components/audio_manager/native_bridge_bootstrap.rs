@@ -300,7 +300,8 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
       });
     } catch (_err) {}
     try {
-      // Map macOS +/- controls to track skip when present.
+      // Some macOS routes emit seekforward/seekbackward for media keys.
+      // Map those to track navigation so "skip" controls still advance tracks.
       session.setActionHandler("seekforward", () => {
         if (isLiveStream) return;
         bridge.remoteActions.push("next");

@@ -1,6 +1,6 @@
 # RustySound
 
-A lightweight cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus, < 10mb 
+A lightweight cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus, < 10mb
 
 ![RustySound desktop screenshot](https://www.antonioarcher.com/images/projects/rustysound/desktop/sound_menu.webp)
 <img alt="album page art" src="https://github.com/user-attachments/assets/06267508-388f-456b-a2e3-ae45dc00f11c" />
@@ -59,7 +59,7 @@ A lightweight cross-platform music streaming client for Navidrome and Subsonic-c
 #### Homebrew
 
 ```bash
-brew tap ad-archer/tap
+brew tap ad-archer/homebrew-tap
 brew install --cask rustysound
 ```
 
@@ -118,6 +118,31 @@ To remove:
 flatpak uninstall --user app.adarcher.rustysound
 flatpak remote-delete --user adarcher-rustysound
 ```
+
+#### Troubleshooting — missing GNOME runtime
+
+If you see an error like:
+
+```
+error: The application app.adarcher.rustysound/x86_64/master requires the runtime org.gnome.Platform/x86_64/49 which was not found
+```
+
+this usually means the remote you added doesn't provide the GNOME runtime. Install the runtime from Flathub and try again:
+
+```bash
+# Add Flathub (if not already present)
+flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+
+# Install the GNOME 49 runtime (user or system-wide)
+flatpak install --user flathub org.gnome.Platform//49
+# Optional: locale data
+flatpak install --user flathub org.gnome.Platform.Locale//49
+
+# Then reinstall the app from the adarcher remote
+flatpak install --user adarcher-rustysound app.adarcher.rustysound
+```
+
+If you prefer a system-wide install (no `--user`), omit `--user` from the commands. Also ensure the runtime architecture matches your system (x86_64 vs aarch64).
 
 ### Web
 

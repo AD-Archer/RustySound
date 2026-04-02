@@ -912,12 +912,13 @@ unsafe fn register_ios_remote_targets_on_center(center: *mut Object, observer: *
     let _: () = msg_send![next_cmd, setEnabled: YES];
     let _: () = msg_send![previous_cmd, setEnabled: YES];
     let _: () = msg_send![seek_cmd, setEnabled: YES];
-    let _: () = msg_send![seek_forward_cmd, setEnabled: YES];
-    let _: () = msg_send![seek_backward_cmd, setEnabled: YES];
-    // Some iOS routes emit interval skip commands instead of discrete next/previous.
-    // Keep both enabled and map skip handlers back to track navigation.
-    let _: () = msg_send![skip_forward_cmd, setEnabled: YES];
-    let _: () = msg_send![skip_backward_cmd, setEnabled: YES];
+    let no: BOOL = YES ^ YES;
+    // Keep song-style remote controls by disabling interval commands that surface
+    // podcast-like "skip N seconds" buttons.
+    let _: () = msg_send![seek_forward_cmd, setEnabled: no];
+    let _: () = msg_send![seek_backward_cmd, setEnabled: no];
+    let _: () = msg_send![skip_forward_cmd, setEnabled: no];
+    let _: () = msg_send![skip_backward_cmd, setEnabled: no];
 
     ios_diag_log("remote.init", &format!("{label}: targets registered"));
     ios_log_remote_command_enabled_state(center, &format!("{label}.post-register"));
@@ -1067,6 +1068,7 @@ fn set_ios_remote_transport_state(is_playing: bool) {
         let skip_backward_cmd: *mut Object = msg_send![center, skipBackwardCommand];
 
         let yes: BOOL = YES;
+        let no: BOOL = YES ^ YES;
         // Keep play and pause both enabled. Some lock-screen routes emit the
         // "wrong" transport command for the visible button state, and the
         // handlers already normalize based on the player's actual pause state.
@@ -1077,10 +1079,10 @@ fn set_ios_remote_transport_state(is_playing: bool) {
         let _: () = msg_send![next_cmd, setEnabled: yes];
         let _: () = msg_send![previous_cmd, setEnabled: yes];
         let _: () = msg_send![seek_cmd, setEnabled: yes];
-        let _: () = msg_send![seek_forward_cmd, setEnabled: yes];
-        let _: () = msg_send![seek_backward_cmd, setEnabled: yes];
-        let _: () = msg_send![skip_forward_cmd, setEnabled: yes];
-        let _: () = msg_send![skip_backward_cmd, setEnabled: yes];
+        let _: () = msg_send![seek_forward_cmd, setEnabled: no];
+        let _: () = msg_send![seek_backward_cmd, setEnabled: no];
+        let _: () = msg_send![skip_forward_cmd, setEnabled: no];
+        let _: () = msg_send![skip_backward_cmd, setEnabled: no];
         ios_log_remote_command_enabled_state(center, "transport-sync.post-set");
         activate_ios_now_playing_session(if is_playing {
             "transport-playing"
@@ -1100,7 +1102,7 @@ fn set_ios_remote_transport_state(is_playing: bool) {
         ios_diag_log(
             "remote.transport",
             &format!(
-                "state_sync playing={is_playing} play=true pause=true stop=true toggle=true next=true prev=true seek=true seekf=true seekb=true skipf=true skipb=true session_present={session_present} session_active={session_active} can_become_active={session_can_become_active}"
+                "state_sync playing={is_playing} play=true pause=true stop=true toggle=true next=true prev=true seek=true seekf=false seekb=false skipf=false skipb=false session_present={session_present} session_active={session_active} can_become_active={session_can_become_active}"
             ),
         );
     }
