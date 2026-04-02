@@ -1314,12 +1314,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     span { "{downloaded_song_count} downloaded" }
                                 }
                                 div { class: "mt-6 w-full max-w-sm grid grid-cols-5 gap-2 md:max-w-none md:flex md:flex-wrap md:gap-3 justify-center md:justify-start",
-                                    button {
-                                        class: "col-span-1 p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center justify-center gap-2 md:px-8",
-                                        onclick: on_play_all,
-                                        title: "Play playlist",
-                                        Icon { name: "play".to_string(), class: "w-5 h-5".to_string() }
-                                        span { class: "hidden md:inline", "Play" }
+                                    if editing_allowed && edit_mode() {
+                                        button {
+                                            class: "col-span-1 p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center justify-center gap-2 md:px-8",
+                                            onclick: move |_| on_toggle_edit_mode(()),
+                                            title: "Done editing playlist",
+                                            Icon { name: "check".to_string(), class: "w-5 h-5".to_string() }
+                                            span { class: "hidden md:inline", "Done Editing" }
+                                        }
+                                    } else {
+                                        button {
+                                            class: "col-span-1 p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center justify-center gap-2 md:px-8",
+                                            onclick: on_play_all,
+                                            title: "Play playlist",
+                                            Icon { name: "play".to_string(), class: "w-5 h-5".to_string() }
+                                            span { class: "hidden md:inline", "Play" }
+                                        }
                                     }
                                     button {
                                         class: if download_busy() { "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center" } else if playlist_fully_downloaded { "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center" } else { "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center" },

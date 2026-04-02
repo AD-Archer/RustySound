@@ -1618,9 +1618,9 @@ return (function () {
                     }
                 }
 
-                section { class: "pb-6 flex flex-wrap items-center justify-center gap-3",
+                section { class: "pb-6 w-full max-w-2xl mx-auto grid grid-cols-2 gap-3 items-stretch",
                     button {
-                        class: "inline-flex items-center gap-2 rounded-xl border border-emerald-600/60 bg-emerald-500/15 px-4 py-2 text-sm text-emerald-200 hover:text-white hover:border-emerald-400 transition-colors",
+                        class: "w-full inline-flex items-center justify-center gap-2 rounded-xl border border-emerald-600/60 bg-emerald-500/15 px-3 py-2 text-xs sm:text-sm text-emerald-200 hover:text-white hover:border-emerald-400 transition-colors",
                         onclick: on_open_home_editor,
                         Icon {
                             name: "settings".to_string(),
@@ -1629,7 +1629,7 @@ return (function () {
                         "Edit Home Screen"
                     }
                     button {
-                        class: if is_home_album_loading { "inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-300" } else { "inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-zinc-900/60 px-4 py-2 text-sm text-zinc-200 hover:text-white hover:border-zinc-400 hover:bg-zinc-800/70 transition-colors" },
+                        class: if is_home_album_loading { "w-full inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-800/60 px-3 py-2 text-xs sm:text-sm text-zinc-300" } else { "w-full inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-600 bg-zinc-900/60 px-3 py-2 text-xs sm:text-sm text-zinc-200 hover:text-white hover:border-zinc-400 hover:bg-zinc-800/70 transition-colors" },
                         onclick: on_refresh_home_feed,
                         disabled: is_home_album_loading,
                         Icon {
@@ -2539,12 +2539,12 @@ fn QuickPlayCard(
 ) -> Element {
     rsx! {
         button {
-            class: "flex items-center gap-3 p-4 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-left group",
+            class: "flex items-center gap-3 p-4 rounded-xl bg-zinc-800/50 hover:bg-zinc-800 transition-colors text-left group min-w-0",
             onclick: move |e| onclick.call(e),
-            div { class: "w-12 h-12 rounded-lg bg-gradient-to-br {gradient} flex items-center justify-center shadow-lg",
+            div { class: "w-12 h-12 rounded-lg bg-gradient-to-br {gradient} flex items-center justify-center shadow-lg flex-shrink-0",
                 Icon { name: icon, class: "w-5 h-5 text-white".to_string() }
             }
-            span { class: "font-medium text-white group-hover:text-emerald-400 transition-colors",
+            span { class: "min-w-0 flex-1 font-medium text-sm sm:text-base text-white truncate group-hover:text-emerald-400 transition-colors",
                 "{title}"
             }
         }
@@ -2589,10 +2589,10 @@ fn AlbumHighlightCard(album: Album, onclick: EventHandler<MouseEvent>) -> Elemen
                 }
             }
             div { class: "min-w-0 flex-1",
-                p { class: "font-medium text-white truncate group-hover:text-emerald-400 transition-colors",
+                p { class: "font-medium text-sm sm:text-base text-white truncate group-hover:text-emerald-400 transition-colors",
                     "{album_name}"
                 }
-                p { class: "text-xs text-zinc-400 truncate", "{album_artist}" }
+                p { class: "text-[11px] sm:text-xs text-zinc-400 truncate", "{album_artist}" }
             }
         }
     }

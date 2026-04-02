@@ -113,28 +113,19 @@
 
 /* Sidebar: medium translucency with pinstripe */
 [data-theme="aqua"] .sidebar-shell {
-  background: rgba(16, 26, 50, 0.88) !important;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      transparent,
+      transparent 1px,
+      rgba(255, 255, 255, 0.007) 1px,
+      rgba(255, 255, 255, 0.007) 2px
+    ),
+    rgba(16, 26, 50, 0.88) !important;
   backdrop-filter: blur(20px) !important;
   -webkit-backdrop-filter: blur(20px) !important;
   border-right: 1px solid rgba(80, 120, 200, 0.28) !important;
-  position: relative;
 }
-/* Pinstripe overlay */
-[data-theme="aqua"] .sidebar-shell::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    90deg,
-    transparent,
-    transparent 1px,
-    rgba(255, 255, 255, 0.007) 1px,
-    rgba(255, 255, 255, 0.007) 2px
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-[data-theme="aqua"] .sidebar-shell > * { position: relative; z-index: 1; }
 
 /* Section labels: macOS grouped sidebar style */
 [data-theme="aqua"] .sidebar-shell .uppercase.tracking-wider {
@@ -170,5 +161,3 @@
   font-weight: 600 !important;
   letter-spacing: -0.02em !important;
 }
-
-

@@ -196,6 +196,17 @@ select optgroup {
 .border-emerald-300\/40  { border-color: rgba(var(--rs-accent-light-rgb), 0.40)  !important; }
 .border-emerald-200\/60  { border-color: rgba(var(--rs-accent-light-rgb), 0.60)  !important; }
 
+/* ── Hover: border colours ───────────────────────────────────────────────── */
+.hover\:border-emerald-500:hover     { border-color: rgb(var(--rs-accent-rgb))            !important; }
+.hover\:border-emerald-500\/30:hover { border-color: rgba(var(--rs-accent-rgb), 0.30)     !important; }
+.hover\:border-emerald-500\/40:hover { border-color: rgba(var(--rs-accent-rgb), 0.40)     !important; }
+.hover\:border-emerald-500\/50:hover { border-color: rgba(var(--rs-accent-rgb), 0.50)     !important; }
+.hover\:border-emerald-500\/60:hover { border-color: rgba(var(--rs-accent-rgb), 0.60)     !important; }
+.hover\:border-emerald-500\/70:hover { border-color: rgba(var(--rs-accent-rgb), 0.70)     !important; }
+.hover\:border-emerald-400:hover     { border-color: rgb(var(--rs-accent-light-rgb))      !important; }
+.hover\:border-emerald-400\/70:hover { border-color: rgba(var(--rs-accent-light-rgb), 0.70) !important; }
+.hover\:border-emerald-200\/60:hover { border-color: rgba(var(--rs-accent-light-rgb), 0.60) !important; }
+
 /* ── Focus rings ─────────────────────────────────────────────────────────── */
 .ring-emerald-300\/70     { --tw-ring-color: rgba(var(--rs-accent-light-rgb), 0.70) !important; }
 .ring-emerald-500\/20     { --tw-ring-color: rgba(var(--rs-accent-rgb), 0.20)       !important; }

@@ -243,7 +243,8 @@ pub(super) fn PrevButton() -> Element {
             id: "prev-btn",
             r#type: "button",
             disabled: is_radio,
-            class: if is_radio { "p-1.5 sm:p-2 text-zinc-600 cursor-not-allowed" } else { "p-1.5 sm:p-2 text-zinc-300 hover:text-white transition-colors" },
+            class: if is_radio { "p-2 sm:p-2.5 text-zinc-600 cursor-not-allowed flex items-center justify-center" } else { "p-2 sm:p-2.5 text-zinc-300 hover:text-white transition-colors flex items-center justify-center" },
+            style: "min-width: 44px; min-height: 44px;",
             onclick: move |_| {
                 if is_radio {
                     return;
@@ -271,7 +272,7 @@ pub(super) fn PrevButton() -> Element {
                     }
                 }
             },
-            Icon { name: "prev".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
+            Icon { name: "prev".to_string(), class: "w-5 h-5 sm:w-6 sm:h-6".to_string() }
         }
     }
 }
@@ -298,7 +299,8 @@ pub(super) fn NextButton() -> Element {
             id: "next-btn",
             r#type: "button",
             disabled: is_radio,
-            class: if is_radio { "p-1.5 sm:p-2 text-zinc-600 cursor-not-allowed" } else { "p-1.5 sm:p-2 text-zinc-300 hover:text-white transition-colors" },
+            class: if is_radio { "p-2 sm:p-2.5 text-zinc-600 cursor-not-allowed flex items-center justify-center" } else { "p-2 sm:p-2.5 text-zinc-300 hover:text-white transition-colors flex items-center justify-center" },
+            style: "min-width: 44px; min-height: 44px;",
             onclick: move |_| {
                 if is_radio {
                     return;
@@ -389,7 +391,7 @@ pub(super) fn NextButton() -> Element {
                     is_playing.set(false);
                 }
             },
-            Icon { name: "next".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
+            Icon { name: "next".to_string(), class: "w-5 h-5 sm:w-6 sm:h-6".to_string() }
         }
     }
 }

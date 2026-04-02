@@ -134,28 +134,19 @@
 
 /* Sidebar: opaque dark with scanline overlay */
 [data-theme="y2k"] .sidebar-shell {
-  background: rgba(10, 8, 18, 0.99) !important;
+  background:
+    repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 3px,
+      rgba(255, 0, 204, 0.018) 3px,
+      rgba(255, 0, 204, 0.018) 4px
+    ),
+    rgba(10, 8, 18, 0.99) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
   border-right: 1px solid rgba(255, 0, 204, 0.30) !important;
-  position: relative;
 }
-/* Scanline overlay */
-[data-theme="y2k"] .sidebar-shell::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: repeating-linear-gradient(
-    0deg,
-    transparent,
-    transparent 3px,
-    rgba(255, 0, 204, 0.018) 3px,
-    rgba(255, 0, 204, 0.018) 4px
-  );
-  pointer-events: none;
-  z-index: 0;
-}
-[data-theme="y2k"] .sidebar-shell > * { position: relative; z-index: 1; }
 
 /* Section labels: neon monospace */
 [data-theme="y2k"] .sidebar-shell .uppercase.tracking-wider {
@@ -223,4 +214,3 @@
 [data-theme="y2k"] .page-shell {
   padding: 1.25rem 1rem !important;
 }
-

@@ -47,18 +47,18 @@ const WEB_MANIFEST: &str = "/assets/site.webmanifest";
 #[cfg(not(feature = "desktop"))]
 const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(not(any(feature = "desktop", target_os = "ios")))]
 const APP_CSS: Asset = asset!("/assets/styling/app.css");
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(not(any(feature = "desktop", target_os = "ios")))]
 const THEMES_CSS: Asset = asset!("/assets/styling/themes.css");
 
-#[cfg(not(feature = "desktop"))]
+#[cfg(not(any(feature = "desktop", target_os = "ios")))]
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
-#[cfg(feature = "desktop")]
+#[cfg(any(feature = "desktop", target_os = "ios"))]
 const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
-#[cfg(feature = "desktop")]
+#[cfg(any(feature = "desktop", target_os = "ios"))]
 const THEMES_CSS_INLINE: &str = concat!(
     include_str!("../assets/styling/themes/shared/base.css"),
     "\n",
@@ -82,7 +82,7 @@ const THEMES_CSS_INLINE: &str = concat!(
     "\n",
     include_str!("../assets/styling/themes/hig/theme.css")
 );
-#[cfg(feature = "desktop")]
+#[cfg(any(feature = "desktop", target_os = "ios"))]
 const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
 #[cfg(feature = "desktop")]
@@ -404,7 +404,7 @@ fn App() -> Element {
 
 #[component]
 fn GlobalStyles() -> Element {
-    #[cfg(feature = "desktop")]
+    #[cfg(any(feature = "desktop", target_os = "ios"))]
     {
         return rsx! {
             document::Style { {TAILWIND_CSS_INLINE} }
@@ -414,7 +414,7 @@ fn GlobalStyles() -> Element {
         };
     }
 
-    #[cfg(not(feature = "desktop"))]
+    #[cfg(not(any(feature = "desktop", target_os = "ios")))]
     {
         return rsx! {
             document::Stylesheet { href: TAILWIND_CSS }
