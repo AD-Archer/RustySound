@@ -531,7 +531,10 @@ async fn loading_log_poll_sleep() {
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn auto_download_poll_sleep() {
-    tokio::time::sleep(std::time::Duration::from_millis(AUTO_DOWNLOAD_POLL_INTERVAL_MS)).await;
+    tokio::time::sleep(std::time::Duration::from_millis(
+        AUTO_DOWNLOAD_POLL_INTERVAL_MS,
+    ))
+    .await;
 }
 
 #[cfg(target_arch = "wasm32")]

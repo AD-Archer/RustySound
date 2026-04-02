@@ -1,5 +1,7 @@
 use crate::api::*;
-use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, assign_collection_queue_meta,
+};
 use crate::components::views::album_song_row::AlbumSongRow;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
@@ -9,6 +11,20 @@ use crate::offline_audio::{
 };
 use dioxus::prelude::*;
 
+fn anchored_menu_style(
+    anchor_x: f64,
+    anchor_y: f64,
+    menu_width: f64,
+    menu_max_height: f64,
+) -> String {
+    let preferred_top = (anchor_y + 8.0).max(8.0);
+    let preferred_left = (anchor_x - menu_width).max(4.0);
+    format!(
+        "top: clamp(8px, {:.1}px, calc(100vh - {:.1}px - 8px)); left: clamp(4px, {:.1}px, calc(100vw - {:.1}px - 4px)); max-height: min({:.1}px, calc(100vh - 16px)); overflow-y: auto;",
+        preferred_top, menu_max_height, preferred_left, menu_width, menu_max_height
+    )
+}
+
 #[component]
 pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -17,11 +33,15 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
-    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
     let download_busy = use_signal(|| false);
     let download_status = use_signal(|| None::<String>);
+    let mut album_rating = use_signal(|| 0u32);
+    let mut show_album_menu = use_signal(|| false);
+    let mut album_menu_x = use_signal(|| 0f64);
+    let mut album_menu_y = use_signal(|| 0f64);
 
     let server = servers().into_iter().find(|s| s.id == server_id);
 
@@ -38,8 +58,6 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             }
         }
     });
-
-    let mut is_favorited = use_signal(|| false);
 
     let on_play_all = {
         let source_server_id = server_id.clone();
@@ -93,10 +111,31 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let on_open_album_menu = {
         let album_data_ref = album_data.clone();
         let mut add_menu = add_menu.clone();
-        move |_: MouseEvent| {
+        let mut show_album_menu = show_album_menu.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_album_menu.set(false);
             if let Some(Some((album, _))) = album_data_ref() {
                 add_menu.open(AddIntent::from_album(&album));
             }
+        }
+    };
+
+    let on_toggle_shuffle = {
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let next = !shuffle_enabled();
+            shuffle_enabled.set(next);
+            let _ = apply_collection_shuffle_mode(
+                queue.clone(),
+                queue_index.clone(),
+                now_playing.clone(),
+                next,
+            );
         }
     };
 
@@ -159,32 +198,50 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
     use_effect(move || {
         if let Some(Some((album, _))) = album_data() {
-            is_favorited.set(album.starred.is_some());
+            album_rating.set(album.user_rating.unwrap_or(0).min(5));
         }
     });
 
-    let on_favorite_toggle = move |_| {
-        if let Some(Some((album, _))) = album_data() {
-            let server_list = servers();
-            if let Some(server) = server_list
-                .iter()
-                .find(|s| s.id == album.server_id)
-                .cloned()
-            {
-                let album_id = album.id.clone();
-                let should_star = !is_favorited();
-                let mut is_favorited = is_favorited;
-                spawn(async move {
-                    let client = NavidromeClient::new(server);
-                    let result = if should_star {
-                        client.star(&album_id, "album").await
-                    } else {
-                        client.unstar(&album_id, "album").await
-                    };
-                    if result.is_ok() {
-                        is_favorited.set(should_star);
-                    }
-                });
+    let make_on_set_album_rating = {
+        let servers = servers.clone();
+        let album_data_ref = album_data.clone();
+        let album_rating = album_rating.clone();
+        move |new_rating: u32| {
+            let servers = servers.clone();
+            let album_data_ref = album_data_ref.clone();
+            let mut album_rating = album_rating.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                let normalized = new_rating.min(5);
+                album_rating.set(normalized);
+                if let Some(Some((album, _))) = album_data_ref() {
+                    let album_id = album.id.clone();
+                    let server_id = album.server_id.clone();
+                    let servers = servers.clone();
+                    spawn(async move {
+                        if let Some(server) = servers().iter().find(|s| s.id == server_id) {
+                            let client = NavidromeClient::new(server.clone());
+                            let _ = client.set_rating(&album_id, normalized).await;
+                        }
+                    });
+                }
+            }
+        }
+    };
+
+    let on_view_artist_from_menu = {
+        let navigation = navigation.clone();
+        let mut show_album_menu = show_album_menu.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_album_menu.set(false);
+            if let Some(Some((album, _))) = album_data() {
+                if let Some(artist_id) = album.artist_id.clone() {
+                    navigation.navigate_to(AppView::ArtistDetailView {
+                        artist_id,
+                        server_id: album.server_id.clone(),
+                    });
+                }
             }
         }
     };
@@ -328,7 +385,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                         span { "{format_duration(album.duration / 1000)}" }
                                         span { "{downloaded_song_count} downloaded" }
                                     }
-                                    div { class: "mt-6 w-full max-w-sm grid grid-cols-5 gap-2 md:max-w-none md:flex md:flex-wrap md:gap-3 justify-center md:justify-start",
+                                    div { class: "mt-6 w-full max-w-sm grid grid-cols-4 gap-2 md:max-w-none md:flex md:flex-wrap md:gap-3 justify-center md:justify-start",
                                         button {
                                             class: "col-span-1 p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center justify-center gap-2 md:px-8",
                                             onclick: on_play_all,
@@ -364,71 +421,88 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                                 class: "w-5 h-5".to_string(),
                                             }
                                         }
-                                    button {
-                                        class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
-                                        onclick: {
-                                            let album_source_id = format!(
-                                                "{}::{}",
-                                                album.server_id.clone(),
-                                                album.id.clone()
-                                            );
-                                            let album_data_ref = album_data.clone();
-                                            let app_settings = app_settings.clone();
-                                            let mut download_status = download_status.clone();
-                                                move |_: MouseEvent| {
-                                                    if let Some(Some((_, songs))) = album_data_ref() {
-                                                        if !songs.is_empty() {
-                                                            let settings = app_settings();
-                                                            let playable = if settings.offline_mode {
-                                                                songs
-                                                                    .iter()
-                                                                    .filter(|song| is_song_downloaded(song))
-                                                                    .cloned()
-                                                                    .collect::<Vec<_>>()
-                                                            } else {
-                                                                songs.clone()
-                                                            };
-                                                            if playable.is_empty() {
-                                                                download_status.set(Some(
-                                                                    "No downloaded songs in this album are available for offline playback."
-                                                                        .to_string(),
-                                                                ));
-                                                                return;
-                                                            }
-                                                            let playable = assign_collection_queue_meta(
-                                                                playable,
-                                                                QueueSourceKind::Album,
-                                                                album_source_id.clone(),
-                                                            );
-                                                            queue.set(playable.clone());
-                                                            queue_index.set(0);
-                                                            now_playing.set(Some(playable[0].clone()));
-                                                            is_playing.set(true);
-                                                            shuffle_enabled.set(true);
-                                                            let _ = apply_collection_shuffle_mode(
-                                                                queue.clone(),
-                                                                queue_index.clone(),
-                                                                now_playing.clone(),
-                                                                true,
-                                                            );
-                                                        }
-                                                    }
-                                                }
-                                            },
-                                            Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
-                                        }
                                         button {
-                                            class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors flex items-center justify-center",
-                                            onclick: on_favorite_toggle,
+                                            class: if shuffle_enabled() {
+                                                "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
+                                            } else {
+                                                "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                            },
+                                            onclick: on_toggle_shuffle,
+                                            title: if shuffle_enabled() {
+                                                "Shuffle is on"
+                                            } else {
+                                                "Shuffle is off"
+                                            },
                                             Icon {
-                                                name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                                name: "shuffle".to_string(),
                                                 class: "w-5 h-5".to_string(),
                                             }
                                         }
                                         button {
                                             class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
-                                            onclick: on_open_album_menu,
-                                            Icon { name: "plus".to_string(), class: "w-5 h-5".to_string() }
+                                            onclick: move |evt: MouseEvent| {
+                                                evt.stop_propagation();
+                                                let coords = evt.client_coordinates();
+                                                album_menu_x.set(coords.x);
+                                                album_menu_y.set(coords.y);
+                                                show_album_menu.set(!show_album_menu());
+                                            },
+                                            title: "More album actions",
+                                            Icon { name: "more-horizontal".to_string(), class: "w-5 h-5".to_string() }
+                                        }
+                                    }
+                                    if show_album_menu() {
+                                        div {
+                                            class: "fixed inset-0 z-[9998]",
+                                            onclick: move |evt: MouseEvent| {
+                                                evt.stop_propagation();
+                                                show_album_menu.set(false);
+                                            },
+                                        }
+                                        div {
+                                            class: "fixed z-[9999] w-52 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                                            style: anchored_menu_style(
+                                                album_menu_x(),
+                                                album_menu_y(),
+                                                208.0,
+                                                320.0,
+                                            ),
+                                            onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                                            if album.artist_id.is_some() {
+                                                button {
+                                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                                    onclick: on_view_artist_from_menu,
+                                                    Icon {
+                                                        name: "artist".to_string(),
+                                                        class: "w-4 h-4".to_string(),
+                                                    }
+                                                    "View artist"
+                                                }
+                                            }
+                                            button {
+                                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                                onclick: on_open_album_menu,
+                                                Icon {
+                                                    name: "plus".to_string(),
+                                                    class: "w-4 h-4".to_string(),
+                                                }
+                                                "Add to..."
+                                            }
+                                            div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                                                "Rating"
+                                            }
+                                            div { class: "flex items-center gap-1 px-2 pb-1",
+                                                for i in 1u32..=5u32 {
+                                                    button {
+                                                        class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                                        onclick: make_on_set_album_rating(i),
+                                                        Icon {
+                                                            name: if i <= album_rating() { "star-filled".to_string() } else { "star".to_string() },
+                                                            class: "w-3.5 h-3.5".to_string(),
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                     if let Some(status) = download_status() {

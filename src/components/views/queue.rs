@@ -2,9 +2,8 @@ use crate::api::models::format_duration;
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::{
-    AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
-    PreviewPlaybackSignal, SeekRequestSignal,
-    generate_queue_extension_from_seed,
+    generate_queue_extension_from_seed, AddIntent, AddMenuController, AppView, Icon, Navigation,
+    PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
 };
 use crate::db::AppSettings;
 use crate::diagnostics::{log_perf, PerfTimer};

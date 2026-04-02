@@ -2043,8 +2043,7 @@ pub async fn prefetch_song_audio_with_origin(
     prune_audio_cache(size_budget_mb);
     let _ = prune_download_cache(settings.download_limit_count, settings.download_limit_mb);
     if !settings.auto_downloads_enabled {
-        let _ =
-            prune_temporary_queue_prefetch_downloads(TEMP_QUEUE_PREFETCH_LIMIT_WHEN_AUTO_OFF);
+        let _ = prune_temporary_queue_prefetch_downloads(TEMP_QUEUE_PREFETCH_LIMIT_WHEN_AUTO_OFF);
     }
 
     Ok(())

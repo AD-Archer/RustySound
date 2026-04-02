@@ -1,11 +1,23 @@
 use crate::api::*;
-use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
+use crate::components::audio_manager::apply_collection_shuffle_mode;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
-use crate::db::AppSettings;
-use crate::offline_audio::is_song_downloaded;
 use dioxus::prelude::*;
 
 const PLAYLIST_INITIAL_LIMIT: usize = 20;
+
+fn anchored_menu_style(
+    anchor_x: f64,
+    anchor_y: f64,
+    menu_width: f64,
+    menu_max_height: f64,
+) -> String {
+    let preferred_top = (anchor_y + 8.0).max(8.0);
+    let preferred_left = (anchor_x - menu_width).max(4.0);
+    format!(
+        "top: clamp(8px, {:.1}px, calc(100vh - {:.1}px - 8px)); left: clamp(4px, {:.1}px, calc(100vw - {:.1}px - 4px)); max-height: min({:.1}px, calc(100vh - 16px)); overflow-y: auto;",
+        preferred_top, menu_max_height, preferred_left, menu_width, menu_max_height
+    )
+}
 
 #[component]
 pub fn PlaylistsView() -> Element {
@@ -227,12 +239,10 @@ fn PlaylistCard(
 ) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let add_menu = use_context::<AddMenuController>();
-    let mut queue = use_context::<Signal<Vec<Song>>>();
-    let mut queue_index = use_context::<Signal<usize>>();
-    let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
-    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
-    let app_settings = use_context::<Signal<AppSettings>>();
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let queue_index = use_context::<Signal<usize>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
 
     let mut show_menu = use_signal(|| false);
     let mut menu_x = use_signal(|| 0f64);
@@ -260,52 +270,21 @@ fn PlaylistCard(
         });
 
     let on_shuffle = {
-        let servers = servers.clone();
-        let playlist_id = playlist.id.clone();
-        let playlist_server_id = playlist.server_id.clone();
-        let app_settings = app_settings.clone();
-        move |_: MouseEvent| {
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
             show_menu.set(false);
-            let servers_snapshot = servers();
-            if let Some(server) = servers_snapshot
-                .into_iter()
-                .find(|s| s.id == playlist_server_id && s.active)
-            {
-                let client = NavidromeClient::new(server);
-                let playlist_id = playlist_id.clone();
-                let source_server_id = playlist_server_id.clone();
-                let settings = app_settings();
-                spawn(async move {
-                    if let Ok((_, songs)) = client.get_playlist(&playlist_id).await {
-                        let playable: Vec<Song> = if settings.offline_mode {
-                            songs
-                                .into_iter()
-                                .filter(|s| is_song_downloaded(s))
-                                .collect()
-                        } else {
-                            songs
-                        };
-                        if !playable.is_empty() {
-                            let playable = assign_collection_queue_meta(
-                                playable,
-                                QueueSourceKind::Playlist,
-                                format!("{}::{}", source_server_id, playlist_id),
-                            );
-                            queue.set(playable.clone());
-                            queue_index.set(0);
-                            now_playing.set(Some(playable[0].clone()));
-                            is_playing.set(true);
-                            shuffle_enabled.set(true);
-                            let _ = apply_collection_shuffle_mode(
-                                queue.clone(),
-                                queue_index.clone(),
-                                now_playing.clone(),
-                                true,
-                            );
-                        }
-                    }
-                });
-            }
+            let next = !shuffle_enabled();
+            shuffle_enabled.set(next);
+            let _ = apply_collection_shuffle_mode(
+                queue.clone(),
+                queue_index.clone(),
+                now_playing.clone(),
+                next,
+            );
         }
     };
 
@@ -405,16 +384,28 @@ fn PlaylistCard(
                 }
                 div {
                     class: "fixed z-[9999] w-52 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                    style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 208.0).max(4.0)),
+                    style: anchored_menu_style(menu_x(), menu_y(), 208.0, 320.0),
                     onclick: move |evt: MouseEvent| evt.stop_propagation(),
                     button {
-                        class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                        class: if shuffle_enabled() {
+                            "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                        } else {
+                            "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
+                        },
                         onclick: on_shuffle,
                         Icon {
                             name: "shuffle".to_string(),
-                            class: "w-4 h-4".to_string(),
+                            class: if shuffle_enabled() {
+                                "w-4 h-4 text-emerald-300".to_string()
+                            } else {
+                                "w-4 h-4".to_string()
+                            },
                         }
-                        "Shuffle & Play"
+                        if shuffle_enabled() {
+                            "Shuffle: On"
+                        } else {
+                            "Shuffle: Off"
+                        }
                     }
                     if editing_allowed {
                         button {

@@ -178,7 +178,7 @@ pub fn RandomView() -> Element {
         }
     };
 
-    let on_shuffle = {
+    let on_refresh = {
         let mut refresh_counter = refresh_counter.clone();
         move |_: MouseEvent| {
             refresh_counter.with_mut(|value| *value = value.saturating_add(1));
@@ -260,12 +260,12 @@ pub fn RandomView() -> Element {
                     }
                     button {
                         class: "px-6 py-2 rounded-xl bg-zinc-800 text-zinc-200 border border-zinc-700/60 hover:border-zinc-500 transition-colors flex items-center gap-2",
-                        onclick: on_shuffle,
+                        onclick: on_refresh,
                         Icon {
-                            name: "shuffle".to_string(),
+                            name: "refresh-cw".to_string(),
                             class: "w-4 h-4".to_string(),
                         }
-                        "Shuffle"
+                        "Refresh"
                     }
                 }
             }
@@ -396,7 +396,7 @@ pub fn RandomView() -> Element {
                         class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
                     }
                     h2 { class: "text-xl font-semibold text-white mb-2", "No songs available" }
-                    p { class: "text-zinc-400", "Try shuffling to refresh your random mix" }
+                    p { class: "text-zinc-400", "Try refreshing to load a new random mix" }
                 }
             }
         }

@@ -1,5 +1,7 @@
 use crate::api::*;
-use crate::components::audio_manager::normalize_manual_queue_songs;
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
+};
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController, AppView, HomeFeedState,
     HomeRefreshSignal, Icon, Navigation,
@@ -14,6 +16,20 @@ use dioxus::prelude::*;
 const HOME_SECTION_BASE_COUNT: usize = 9;
 const HOME_SECTION_LOAD_STEP: usize = 6;
 const HOME_LOADING_FORCE_UNBLOCK_MS: u64 = 12_000;
+
+fn anchored_menu_style(
+    anchor_x: f64,
+    anchor_y: f64,
+    menu_width: f64,
+    menu_max_height: f64,
+) -> String {
+    let preferred_top = (anchor_y + 8.0).max(8.0);
+    let preferred_left = (anchor_x - menu_width).max(4.0);
+    format!(
+        "top: clamp(8px, {:.1}px, calc(100vh - {:.1}px - 8px)); left: clamp(4px, {:.1}px, calc(100vw - {:.1}px - 4px)); max-height: min({:.1}px, calc(100vh - 16px)); overflow-y: auto;",
+        preferred_top, menu_max_height, preferred_left, menu_width, menu_max_height
+    )
+}
 
 fn loading_progress_percent(progress: f32) -> u32 {
     (progress.clamp(0.0, 1.0) * 100.0).round() as u32
@@ -1040,8 +1056,9 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 }
                 // Play overlay (pointer-events-none so the button above is always clickable)
                 button {
-                    class: "absolute top-2 right-2 p-1.5 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-0 group-hover:opacity-100 z-10",
+                    class: "absolute top-2 right-2 p-1.5 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 hover:scale-105 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300/60 transition-all opacity-0 group-hover:opacity-100 z-10",
                     aria_label: "Song options",
+                    title: "More options",
                     onclick: move |evt: MouseEvent| {
                         evt.stop_propagation();
                         let coords = evt.client_coordinates();
@@ -1054,8 +1071,10 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                         class: "w-3.5 h-3.5".to_string(),
                     }
                 }
-                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none",
-                    div { class: "w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
+                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" }
+                div { class: "absolute inset-0 flex items-center justify-center pointer-events-none",
+                    div {
+                        class: "w-10 h-10 rounded-full bg-emerald-500/95 text-white transition-all duration-200 ease-out opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10 shadow-xl pointer-events-none flex items-center justify-center group-hover:scale-105 group-hover:-translate-y-0.5",
                         Icon {
                             name: "play".to_string(),
                             class: "w-5 h-5 text-white ml-0.5".to_string(),
@@ -1110,7 +1129,7 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 }
                 div {
                     class: "fixed z-[9999] w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                    style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 176.0).max(4.0)),
+                    style: anchored_menu_style(menu_x(), menu_y(), 176.0, 320.0),
                     onclick: move |evt: MouseEvent| evt.stop_propagation(),
                     button {
                         class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
@@ -1191,7 +1210,13 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let now_playing = use_context::<Signal<Option<Song>>>();
+    let queue = use_context::<Signal<Vec<Song>>>();
+    let queue_index = use_context::<Signal<usize>>();
+    let is_playing = use_context::<crate::components::IsPlayingSignal>().0;
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let is_favorited = use_signal(|| album.starred.is_some());
+    let album_rating = use_signal(|| album.user_rating.unwrap_or(0).min(5));
     let mut show_context_menu = use_signal(|| false);
     let download_busy = use_signal(|| false);
     let downloaded = use_signal(|| is_album_downloaded(&album.server_id, &album.id));
@@ -1208,6 +1233,86 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                 .as_ref()
                 .map(|ca| client.get_cover_art_url(ca, 300))
         });
+
+    let on_play_album = {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let album = album.clone();
+        let mut show_context_menu = show_context_menu.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_context_menu.set(false);
+            let servers_snapshot = servers();
+            let Some(server) = servers_snapshot
+                .iter()
+                .find(|server| server.id == album.server_id)
+                .cloned()
+            else {
+                return;
+            };
+            let settings_snapshot = app_settings();
+            let album_meta = album.clone();
+            let source_id = format!("{}::{}", album_meta.server_id, album_meta.id);
+            let mut queue = queue.clone();
+            let mut queue_index = queue_index.clone();
+            let mut now_playing = now_playing.clone();
+            let mut is_playing = is_playing.clone();
+            let shuffle_enabled = shuffle_enabled.clone();
+            spawn(async move {
+                let client = NavidromeClient::new(server);
+                if let Ok((_, songs)) = client.get_album(&album_meta.id).await {
+                    let playable = if settings_snapshot.offline_mode {
+                        songs
+                            .into_iter()
+                            .filter(|song| is_song_downloaded(song))
+                            .collect::<Vec<_>>()
+                    } else {
+                        songs
+                    };
+                    if playable.is_empty() {
+                        return;
+                    }
+                    let playable =
+                        assign_collection_queue_meta(playable, QueueSourceKind::Album, source_id);
+                    queue.set(playable.clone());
+                    queue_index.set(0);
+                    now_playing.set(Some(playable[0].clone()));
+                    is_playing.set(true);
+                    if shuffle_enabled() {
+                        let _ = apply_collection_shuffle_mode(
+                            queue.clone(),
+                            queue_index.clone(),
+                            now_playing.clone(),
+                            true,
+                        );
+                    }
+                }
+            });
+        }
+    };
+
+    let on_toggle_shuffle = {
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let next = !shuffle_enabled();
+            shuffle_enabled.set(next);
+            let _ = apply_collection_shuffle_mode(
+                queue.clone(),
+                queue_index.clone(),
+                now_playing.clone(),
+                next,
+            );
+        }
+    };
 
     let on_open_menu_for_context = {
         let mut add_menu = add_menu.clone();
@@ -1257,18 +1362,62 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
         }
     };
 
-    let on_artist_click = {
+    let make_on_set_album_rating = {
+        let servers = servers.clone();
+        let album_id = album.id.clone();
+        let server_id = album.server_id.clone();
+        let album_rating = album_rating.clone();
+        move |new_rating: u32| {
+            let servers = servers.clone();
+            let album_id = album_id.clone();
+            let server_id = server_id.clone();
+            let mut album_rating = album_rating.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                let normalized = new_rating.min(5);
+                album_rating.set(normalized);
+                let servers = servers.clone();
+                let album_id = album_id.clone();
+                let server_id = server_id.clone();
+                spawn(async move {
+                    if let Some(server) = servers().iter().find(|s| s.id == server_id) {
+                        let client = NavidromeClient::new(server.clone());
+                        let _ = client.set_rating(&album_id, normalized).await;
+                    }
+                });
+            }
+        }
+    };
+
+    let on_view_artist_from_menu = {
         let artist_id = album.artist_id.clone();
         let server_id = album.server_id.clone();
         let navigation = navigation.clone();
+        let mut show_context_menu = show_context_menu.clone();
         move |evt: MouseEvent| {
             evt.stop_propagation();
+            show_context_menu.set(false);
             if let Some(artist_id) = artist_id.clone() {
                 navigation.navigate_to(AppView::ArtistDetailView {
                     artist_id,
                     server_id: server_id.clone(),
                 });
             }
+        }
+    };
+
+    let on_view_album_from_menu = {
+        let navigation = navigation.clone();
+        let album_id = album.id.clone();
+        let server_id = album.server_id.clone();
+        let mut show_context_menu = show_context_menu.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_context_menu.set(false);
+            navigation.navigate_to(AppView::AlbumDetailView {
+                album_id: album_id.clone(),
+                server_id: server_id.clone(),
+            });
         }
     };
 
@@ -1354,18 +1503,23 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                         },
                     }
                 }
-                // Play overlay (pointer-events-none so the button above is always clickable)
-                div { class: "absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center pointer-events-none",
-                    div { class: "w-12 h-12 rounded-full bg-emerald-500 flex items-center justify-center shadow-xl transform scale-90 group-hover:scale-100 transition-transform",
+                div { class: "absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none" }
+                div { class: "absolute inset-0 flex items-center justify-center pointer-events-none",
+                    button {
+                        class: "p-3 rounded-full bg-emerald-500/95 text-white hover:bg-emerald-400 hover:scale-105 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-300/70 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10 shadow-xl pointer-events-auto",
+                        aria_label: "Play album",
+                        title: "Play album",
+                        onclick: on_play_album,
                         Icon {
                             name: "play".to_string(),
-                            class: "w-5 h-5 text-white ml-0.5".to_string(),
+                            class: "w-5 h-5 ml-0.5".to_string(),
                         }
                     }
                 }
                 button {
-                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/80 text-zinc-200 hover:text-white hover:bg-emerald-500 transition-colors opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
+                    class: "absolute top-3 right-3 p-2 rounded-full bg-zinc-950/85 text-zinc-200 hover:text-white hover:bg-zinc-800 hover:scale-105 hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-zinc-300/60 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 z-10",
                     aria_label: "Album options",
+                    title: "More options",
                     onclick: move |evt: MouseEvent| {
                         evt.stop_propagation();
                         let coords = evt.client_coordinates();
@@ -1396,31 +1550,16 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                     }
                 }
             }
-            if album.artist_id.is_some() {
-                button {
-                    class: "max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate hover:text-emerald-400 transition-colors",
-                    title: "{album.artist}",
-                    onclick: on_artist_click,
-                    if downloaded() {
-                        Icon {
-                            name: "download".to_string(),
-                            class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                        }
+            div {
+                class: "max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate",
+                title: "{album.artist}",
+                if downloaded() {
+                    Icon {
+                        name: "download".to_string(),
+                        class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
                     }
-                    span { class: "truncate", "{album.artist}" }
                 }
-            } else {
-                div {
-                    class: "max-w-full inline-flex items-center gap-1 text-xs text-zinc-400 truncate",
-                    title: "{album.artist}",
-                    if downloaded() {
-                        Icon {
-                            name: "download".to_string(),
-                            class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
-                        }
-                    }
-                    span { class: "truncate", "{album.artist}" }
-                }
+                span { class: "truncate", "{album.artist}" }
             }
             // Context menu
             if show_context_menu() {
@@ -1432,20 +1571,37 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                     },
                 }
                 div {
-                    class: "fixed z-[9999] w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                    style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 176.0).max(4.0)),
+                    class: "fixed z-[9999] w-52 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                    style: anchored_menu_style(menu_x(), menu_y(), 208.0, 360.0),
                     onclick: move |evt: MouseEvent| evt.stop_propagation(),
                     button {
                         class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                        onclick: make_on_toggle_favorite(),
+                        onclick: on_view_album_from_menu,
                         Icon {
-                            name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                            class: if is_favorited() { "w-4 h-4 text-emerald-400".to_string() } else { "w-4 h-4".to_string() },
+                            name: "album".to_string(),
+                            class: "w-4 h-4".to_string(),
                         }
-                        if is_favorited() {
-                            "Unfavorite"
+                        "View album"
+                    }
+                    button {
+                        class: if shuffle_enabled() {
+                            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
                         } else {
-                            "Favorite"
+                            "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
+                        },
+                        onclick: on_toggle_shuffle,
+                        Icon {
+                            name: "shuffle".to_string(),
+                            class: if shuffle_enabled() {
+                                "w-4 h-4 text-emerald-300".to_string()
+                            } else {
+                                "w-4 h-4".to_string()
+                            },
+                        }
+                        if shuffle_enabled() {
+                            "Shuffle: On"
+                        } else {
+                            "Shuffle: Off"
                         }
                     }
                     if downloaded() {
@@ -1472,6 +1628,18 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                             }
                         }
                     }
+                    div { class: "border-t border-zinc-700/60 my-1" }
+                    if album.artist_id.is_some() {
+                        button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            onclick: on_view_artist_from_menu,
+                            Icon {
+                                name: "artist".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
+                            "View artist"
+                        }
+                    }
                     button {
                         class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
                         onclick: on_open_menu_for_context,
@@ -1480,6 +1648,21 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                             class: "w-4 h-4".to_string(),
                         }
                         "Add to..."
+                    }
+                    div { class: "px-2.5 pt-1 text-[11px] uppercase tracking-wide text-zinc-500",
+                        "Rating"
+                    }
+                    div { class: "flex items-center gap-1 px-2 pb-1",
+                        for i in 1u32..=5u32 {
+                            button {
+                                class: "p-1 rounded text-amber-400 hover:text-amber-300 transition-colors",
+                                onclick: make_on_set_album_rating(i),
+                                Icon {
+                                    name: if i <= album_rating() { "star-filled".to_string() } else { "star".to_string() },
+                                    class: "w-3.5 h-3.5".to_string(),
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1747,8 +1930,9 @@ pub fn SongRow(
             },
             // Index
             span { class: "w-6 text-sm text-zinc-500 group-hover:hidden", "{index}" }
-            span { class: "w-6 text-sm text-white hidden group-hover:block",
-                Icon { name: "play".to_string(), class: "w-4 h-4".to_string() }
+            span {
+                class: "w-6 h-6 hidden group-hover:inline-flex items-center justify-center rounded-full bg-emerald-500/95 text-white shadow-lg transition-all group-hover:scale-105 group-hover:-translate-y-0.5",
+                Icon { name: "play".to_string(), class: "w-3.5 h-3.5 ml-0.5".to_string() }
             }
             // Cover
             if album_id.is_some() {
@@ -1812,7 +1996,7 @@ pub fn SongRow(
                     }
                     div { class: "flex items-center gap-1 flex-shrink-0 -mr-1",
                         button {
-                            class: if is_favorited() { "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 transition-colors" } else { "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors" },
+                            class: if is_favorited() { "p-1.5 rounded-lg text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 hover:scale-105 hover:-translate-y-0.5 transition-all" } else { "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 hover:scale-105 hover:-translate-y-0.5 transition-all" },
                             aria_label: if is_favorited() { "Unfavorite" } else { "Favorite" },
                             title: if show_favorite_indicator { if is_favorited() { "Favorited" } else { "Not favorited" } } else if is_favorited() { "Unfavorite" } else { "Favorite" },
                             onclick: make_on_toggle_favorite(),
@@ -1822,8 +2006,9 @@ pub fn SongRow(
                             }
                         }
                         button {
-                            class: "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 transition-colors",
+                            class: "p-1.5 rounded-lg text-zinc-500 hover:text-emerald-400 hover:bg-emerald-500/10 hover:scale-105 hover:-translate-y-0.5 transition-all",
                             aria_label: "Song actions",
+                            title: "More options",
                             onclick: move |evt: MouseEvent| {
                                 evt.stop_propagation();
                                 let coords = evt.client_coordinates();
@@ -1848,7 +2033,7 @@ pub fn SongRow(
                     }
                     div {
                         class: "fixed z-[9999] w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                        style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 176.0).max(4.0)),
+                        style: anchored_menu_style(menu_x(), menu_y(), 176.0, 320.0),
                         onclick: move |evt: MouseEvent| evt.stop_propagation(),
                         button {
                             class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",

@@ -57,6 +57,8 @@ pub struct Album {
     pub genre: Option<String>,
     #[serde(default)]
     pub starred: Option<String>,
+    #[serde(default, alias = "userRating", alias = "rating")]
+    pub user_rating: Option<u32>,
     #[serde(default)]
     pub server_id: String,
 }

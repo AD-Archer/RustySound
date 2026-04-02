@@ -1,6 +1,8 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
-use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, assign_collection_queue_meta,
+};
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::views::search::ArtistCard;
 use crate::components::{AppView, Icon, Navigation};

@@ -1,6 +1,8 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
-use crate::components::audio_manager::{apply_collection_shuffle_mode, assign_collection_queue_meta};
+use crate::components::audio_manager::{
+    apply_collection_shuffle_mode, assign_collection_queue_meta,
+};
 use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
     PreviewPlaybackSignal, SeekRequestSignal,
@@ -22,6 +24,20 @@ const AUTO_RECOMMENDATION_LIMIT: usize = 25;
 const AUTO_RECOMMENDATION_FIRST_SEED_COUNT: usize = 4;
 const AUTO_RECOMMENDATION_LAST_SEED_COUNT: usize = 4;
 const AUTO_RECOMMENDATION_RECENT_SEED_COUNT: usize = 17;
+
+fn anchored_menu_style(
+    anchor_x: f64,
+    anchor_y: f64,
+    menu_width: f64,
+    menu_max_height: f64,
+) -> String {
+    let preferred_top = (anchor_y + 8.0).max(8.0);
+    let preferred_left = (anchor_x - menu_width).max(4.0);
+    format!(
+        "top: clamp(8px, {:.1}px, calc(100vh - {:.1}px - 8px)); left: clamp(4px, {:.1}px, calc(100vw - {:.1}px - 4px)); max-height: min({:.1}px, calc(100vh - 16px)); overflow-y: auto;",
+        preferred_top, menu_max_height, preferred_left, menu_width, menu_max_height
+    )
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 async fn quick_preview_delay_ms(ms: u64) {
@@ -444,7 +460,7 @@ fn PlaylistSongRow(
                     }
                     div {
                         class: "fixed z-[9999] w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                        style: format!("top: {}px; left: {}px;", menu_y() + 8.0, (menu_x() - 176.0).max(4.0)),
+                        style: anchored_menu_style(menu_x(), menu_y(), 176.0, 360.0),
                         onclick: move |evt: MouseEvent| evt.stop_propagation(),
                         button {
                             class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
@@ -561,7 +577,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
     let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
-    let mut shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
+    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let seek_request = use_context::<SeekRequestSignal>().0;
     let preview_playback = use_context::<PreviewPlaybackSignal>().0;
@@ -776,6 +792,44 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     }
                 }
             }
+        }
+    };
+
+    let on_toggle_shuffle = {
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            let next = !shuffle_enabled();
+            shuffle_enabled.set(next);
+            let _ = apply_collection_shuffle_mode(
+                queue.clone(),
+                queue_index.clone(),
+                now_playing.clone(),
+                next,
+            );
+        }
+    };
+
+    let on_toggle_shuffle_from_menu = {
+        let mut show_playlist_menu = show_playlist_menu.clone();
+        let mut shuffle_enabled = shuffle_enabled.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_playlist_menu.set(false);
+            let next = !shuffle_enabled();
+            shuffle_enabled.set(next);
+            let _ = apply_collection_shuffle_mode(
+                queue.clone(),
+                queue_index.clone(),
+                now_playing.clone(),
+                next,
+            );
         }
     };
 
@@ -1260,58 +1314,16 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         }
                                     }
                                     button {
-                                        class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
-                                        onclick: {
-                                            let playlist_source_id = format!(
-                                                "{}::{}",
-                                                playlist.server_id.clone(),
-                                                playlist.id.clone()
-                                            );
-                                            let playlist_data_ref = playlist_data.clone();
-                                            let app_settings = app_settings.clone();
-                                            let mut download_status = download_status.clone();
-                                            move |_: MouseEvent| {
-                                                if let Some(Some((_, songs))) = playlist_data_ref() {
-                                                    if !songs.is_empty() {
-                                                        let settings = app_settings();
-                                                        let playable = if settings.offline_mode {
-                                                            songs
-                                                                .iter()
-                                                                .filter(|song| is_song_downloaded(song))
-                                                                .cloned()
-                                                                .collect::<Vec<_>>()
-                                                        } else {
-                                                            songs.clone()
-                                                        };
-                                                        if playable.is_empty() {
-                                                            download_status
-                                                                .set(
-                                                                    Some(
-                                                                        "No downloaded songs in this playlist are available for offline playback."
-                                                                            .to_string(),
-                                                                    ),
-                                                                );
-                                                            return;
-                                                        }
-                                                        let playable = assign_collection_queue_meta(
-                                                            playable,
-                                                            QueueSourceKind::Playlist,
-                                                            playlist_source_id.clone(),
-                                                        );
-                                                        queue.set(playable.clone());
-                                                        queue_index.set(0);
-                                                        now_playing.set(Some(playable[0].clone()));
-                                                        is_playing.set(true);
-                                                        shuffle_enabled.set(true);
-                                                        let _ = apply_collection_shuffle_mode(
-                                                            queue.clone(),
-                                                            queue_index.clone(),
-                                                            now_playing.clone(),
-                                                            true,
-                                                        );
-                                                    }
-                                                }
-                                            }
+                                        class: if shuffle_enabled() {
+                                            "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
+                                        } else {
+                                            "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                        },
+                                        onclick: on_toggle_shuffle,
+                                        title: if shuffle_enabled() {
+                                            "Shuffle is on"
+                                        } else {
+                                            "Shuffle is off"
                                         },
                                         Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
                                     }
@@ -1341,73 +1353,33 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                         }
                                         div {
                                             class: "fixed z-[9999] w-52 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
-                                            style: format!(
-                                                "top: {}px; left: {}px;",
-                                                playlist_menu_y() + 8.0,
-                                                (playlist_menu_x() - 208.0).max(4.0),
+                                            style: anchored_menu_style(
+                                                playlist_menu_x(),
+                                                playlist_menu_y(),
+                                                208.0,
+                                                360.0,
                                             ),
                                             onclick: move |evt: MouseEvent| evt.stop_propagation(),
                                             button {
-                                                class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                                                onclick: {
-                                                    let playlist_source_id = format!(
-                                                        "{}::{}",
-                                                        playlist.server_id.clone(),
-                                                        playlist.id.clone()
-                                                    );
-                                                    let playlist_data_ref = playlist_data.clone();
-                                                    let app_settings = app_settings.clone();
-                                                    let mut download_status = download_status.clone();
-                                                    move |_: MouseEvent| {
-                                                        show_playlist_menu.set(false);
-                                                        if let Some(Some((_, songs))) = playlist_data_ref() {
-                                                            if !songs.is_empty() {
-                                                                let settings = app_settings();
-                                                                let playable = if settings.offline_mode {
-                                                                    songs
-                                                                        .iter()
-                                                                        .filter(|song| is_song_downloaded(song))
-                                                                        .cloned()
-                                                                        .collect::<Vec<_>>()
-                                                                } else {
-                                                                    songs.clone()
-                                                                };
-                                                                if playable.is_empty() {
-                                                                    download_status
-                                                                        .set(
-                                                                            Some(
-                                                                                "No downloaded songs available for offline playback."
-                                                                                    .to_string(),
-                                                                            ),
-                                                                        );
-                                                                    return;
-                                                                }
-                                                                let playable =
-                                                                    assign_collection_queue_meta(
-                                                                        playable,
-                                                                        QueueSourceKind::Playlist,
-                                                                        playlist_source_id.clone(),
-                                                                    );
-                                                                queue.set(playable.clone());
-                                                                queue_index.set(0);
-                                                                now_playing.set(Some(playable[0].clone()));
-                                                                is_playing.set(true);
-                                                                shuffle_enabled.set(true);
-                                                                let _ = apply_collection_shuffle_mode(
-                                                                    queue.clone(),
-                                                                    queue_index.clone(),
-                                                                    now_playing.clone(),
-                                                                    true,
-                                                                );
-                                                            }
-                                                        }
-                                                    }
+                                                class: if shuffle_enabled() {
+                                                    "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-emerald-300 bg-emerald-500/10 hover:bg-emerald-500/20 transition-colors"
+                                                } else {
+                                                    "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors"
                                                 },
+                                                onclick: on_toggle_shuffle_from_menu,
                                                 Icon {
                                                     name: "shuffle".to_string(),
-                                                    class: "w-4 h-4".to_string(),
+                                                    class: if shuffle_enabled() {
+                                                        "w-4 h-4 text-emerald-300".to_string()
+                                                    } else {
+                                                        "w-4 h-4".to_string()
+                                                    },
                                                 }
-                                                "Shuffle & Play"
+                                                if shuffle_enabled() {
+                                                    "Shuffle: On"
+                                                } else {
+                                                    "Shuffle: Off"
+                                                }
                                             }
                                             if editing_allowed {
                                                 button {
