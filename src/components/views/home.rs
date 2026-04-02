@@ -1017,13 +1017,13 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
 
     rsx! {
         div {
-            class: "relative group text-left cursor-pointer flex-shrink-0 w-32",
+            class: "rs-carousel-item relative group text-left cursor-pointer flex-shrink-0 w-32",
             onclick: move |e| {
                 show_context_menu.set(false);
                 onclick.call(e);
             },
             // Cover
-            div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
+            div { class: "rs-album-art aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
                 {
                     match cover_url {
                         Some(url) => rsx! {
@@ -1492,13 +1492,13 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
 
     rsx! {
         div {
-            class: "relative group text-left cursor-pointer w-full max-w-48",
+            class: "rs-album-card relative group text-left cursor-pointer w-full max-w-48",
             onclick: move |e| {
                 show_context_menu.set(false);
                 onclick.call(e);
             },
             // Album cover
-            div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
+            div { class: "rs-album-art aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
                 {
                     match cover_url {
                         Some(url) => rsx! {

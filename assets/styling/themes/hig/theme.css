@@ -1,0 +1,167 @@
+/* ── HIG ── ──────────────────────────────────────────────────────────────────
+   Apple Human Interface Guidelines — true OLED black, iOS blue, minimal noise
+   ─────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="hig"] {
+  --rs-bg-base:       #000000;
+  --rs-bg-elevated:   #1c1c1e;
+  --rs-bg-surface:    #2c2c2e;
+  --rs-bg-overlay:    #1c1c1e;
+  --rs-bg-highlight:  rgba(44, 44, 46, 0.70);
+  --rs-border:        rgba(84, 84, 88, 0.20);
+  --rs-border-strong: rgba(84, 84, 88, 0.50);
+  --rs-accent:        #007aff;
+  --rs-accent-hover:  #0066dd;
+  --rs-accent-dim:    rgba(0, 122, 255, 0.12);
+  --rs-accent-text:   #409cff;
+  --rs-text-primary:   #ffffff;
+  --rs-text-secondary: rgba(235, 235, 245, 0.60);
+  --rs-text-muted:     rgba(235, 235, 245, 0.30);
+  --rs-sidebar-width: 248px;
+  --rs-radius-sm:   0.625rem;
+  --rs-radius-md:   0.875rem;
+  --rs-radius-lg:   1rem;
+  --rs-radius-xl:   1.25rem;
+  --rs-radius-2xl:  1.75rem;
+  --rs-radius-card: 1rem;
+  --rs-radius-full: 9999px;
+  --rs-blur-glass: 28px;
+  --rs-glass-bg:   rgba(28, 28, 30, 0.75);
+  --rs-font-sans: -apple-system, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+  --rs-app-gradient: linear-gradient(180deg, #0a0a0a 0%, #000000 100%);
+  --rs-dot-pattern:  transparent;
+  --rs-dot-size:     0px;
+  --rs-dot-opacity:  0;
+  --rs-selection-bg:    rgba(0, 122, 255, 0.25);
+  --rs-scrollbar-thumb: rgba(120, 120, 128, 0.35);
+  --rs-scrollbar-hover: rgba(120, 120, 128, 0.60);
+  --rs-focus-ring:      rgba(0, 122, 255, 0.55);
+  --rs-accent-rgb:       0, 122, 255;
+  --rs-accent-light-rgb: 64, 156, 255;
+}
+
+/* ── HIG: Backgrounds */
+[data-theme="hig"] .bg-zinc-950                  { background-color: #000000 !important; }
+[data-theme="hig"] .bg-zinc-950\/80              { background-color: rgba(0, 0, 0, 0.80) !important; }
+[data-theme="hig"] .bg-zinc-900                  { background-color: #1c1c1e !important; }
+[data-theme="hig"] .bg-zinc-800                  { background-color: #2c2c2e !important; }
+[data-theme="hig"] .bg-zinc-800\/30              { background-color: rgba(44, 44, 46, 0.30) !important; }
+[data-theme="hig"] .bg-zinc-800\/50              { background-color: rgba(44, 44, 46, 0.50) !important; }
+[data-theme="hig"] .bg-zinc-800\/60              { background-color: rgba(44, 44, 46, 0.60) !important; }
+[data-theme="hig"] .bg-zinc-800\/80              { background-color: rgba(44, 44, 46, 0.80) !important; }
+[data-theme="hig"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(44, 44, 46, 0.60) !important; }
+[data-theme="hig"] .hover\:bg-zinc-800:hover     { background-color: #2c2c2e !important; }
+/* ── HIG: Accent */
+[data-theme="hig"] .bg-emerald-500               { background-color: #007aff !important; }
+[data-theme="hig"] .bg-emerald-500\/10           { background-color: rgba(0, 122, 255, 0.10) !important; }
+[data-theme="hig"] .bg-emerald-500\/15           { background-color: rgba(0, 122, 255, 0.15) !important; }
+[data-theme="hig"] .bg-emerald-500\/20           { background-color: rgba(0, 122, 255, 0.20) !important; }
+[data-theme="hig"] .from-emerald-500             { --tw-gradient-from: #007aff !important; }
+[data-theme="hig"] .via-emerald-400              { --tw-gradient-via:  #409cff !important; }
+[data-theme="hig"] .to-teal-300                  { --tw-gradient-to:   #64b5ff !important; }
+[data-theme="hig"] .from-emerald-500\/10         { --tw-gradient-from: rgba(0, 122, 255, 0.10) !important; }
+[data-theme="hig"] .to-teal-500\/10              { --tw-gradient-to:   rgba(0, 122, 255, 0.05) !important; }
+/* ── HIG: Text */
+[data-theme="hig"] .text-emerald-400             { color: #409cff !important; }
+[data-theme="hig"] .text-emerald-500             { color: #007aff !important; }
+[data-theme="hig"] .text-teal-300                { color: #64b5ff !important; }
+[data-theme="hig"] .text-zinc-400                { color: rgba(235, 235, 245, 0.60) !important; }
+[data-theme="hig"] .text-zinc-500                { color: rgba(235, 235, 245, 0.30) !important; }
+/* ── HIG: Borders */
+[data-theme="hig"] .border-zinc-800\/60          { border-color: rgba(84, 84, 88, 0.22) !important; }
+[data-theme="hig"] .border-zinc-700\/30          { border-color: rgba(84, 84, 88, 0.18) !important; }
+[data-theme="hig"] .border-zinc-700\/50          { border-color: rgba(84, 84, 88, 0.35) !important; }
+[data-theme="hig"] .border-emerald-500           { border-color: #007aff !important; }
+[data-theme="hig"] .border-emerald-500\/40       { border-color: rgba(0, 122, 255, 0.40) !important; }
+[data-theme="hig"] .border-emerald-500\/50       { border-color: rgba(0, 122, 255, 0.50) !important; }
+/* ── HIG: Radius */
+[data-theme="hig"] .rounded-lg   { border-radius: var(--rs-radius-lg)  !important; }
+[data-theme="hig"] .rounded-xl   { border-radius: var(--rs-radius-xl)  !important; }
+
+
+
+/* ── HIG: Apple Human Interface Guidelines — iOS-precise rounding ─────────── */
+[data-theme="hig"] .rs-album-art {
+  border-radius: 1rem !important;
+}
+[data-theme="hig"] .rs-player-art {
+  border-radius: 0.875rem !important;
+}
+[data-theme="hig"] .rs-album-card {
+  max-width: 12rem !important;
+}
+[data-theme="hig"] .rs-carousel-item {
+  width: 9rem !important;
+}
+[data-theme="hig"] .rs-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)) !important;
+  gap: 1rem !important;
+}
+[data-theme="hig"] .rounded-2xl  { border-radius: var(--rs-radius-2xl) !important; }
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   HIG — Apple HIG DNA: OLED black, ultra minimal, zero decoration
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: pure OLED black, minimal border */
+[data-theme="hig"] .sidebar-shell {
+  background: #000 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-right: 1px solid rgba(84, 84, 88, 0.20) !important;
+}
+
+/* Logo header: tight */
+[data-theme="hig"] .sidebar-shell > div:first-child {
+  border-bottom-color: rgba(84, 84, 88, 0.18) !important;
+}
+
+/* Section labels: barely visible, ultra minimal */
+[data-theme="hig"] .sidebar-shell .uppercase.tracking-wider {
+  color: rgba(235, 235, 245, 0.22) !important;
+  font-size: 0.65rem !important;
+  letter-spacing: 0.07em !important;
+  font-weight: 600 !important;
+  text-transform: none !important;
+}
+
+/* Nav items: iOS sidebar style — no background, just color */
+[data-theme="hig"] .sidebar-shell nav button {
+  border-radius: 0.5rem !important;
+  font-size: 0.9375rem !important;
+  font-weight: 400 !important;
+  padding: 0.5rem 0.75rem !important;
+}
+[data-theme="hig"] .sidebar-shell nav button:hover {
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #ffffff !important;
+}
+/* Active: very clean, iOS selection blue */
+[data-theme="hig"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(0, 122, 255, 0.12) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+/* Player: minimal black */
+[data-theme="hig"] .player-shell {
+  background: rgba(0, 0, 0, 0.94) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-top: 1px solid rgba(84, 84, 88, 0.20) !important;
+}
+[data-theme="hig"] .player-shell input[type=range] {
+  accent-color: #007aff !important;
+}
+
+/* Typography: SF Pro precision */
+[data-theme="hig"] .page-title {
+  font-size: 2.25rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.025em !important;
+}
+[data-theme="hig"] .page-subtitle {
+  font-size: 0.9375rem !important;
+  color: rgba(235, 235, 245, 0.55) !important;
+}

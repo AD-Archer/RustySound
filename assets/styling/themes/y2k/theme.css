@@ -1,0 +1,226 @@
+/* ── Y2K ── ─────────────────────────────────────────────────────────────────
+   Cyber millennium — jet-dark purple, hot magenta, neon cyber grid
+   ─────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="y2k"] {
+  --rs-bg-base:       #0a0812;
+  --rs-bg-elevated:   #12102a;
+  --rs-bg-surface:    #1e1a3e;
+  --rs-bg-overlay:    #161230;
+  --rs-bg-highlight:  rgba(30, 26, 62, 0.80);
+  --rs-border:        rgba(180, 0, 180, 0.28);
+  --rs-border-strong: rgba(220, 0, 220, 0.50);
+  --rs-accent:        #ff00cc;
+  --rs-accent-hover:  #dd00aa;
+  --rs-accent-dim:    rgba(255, 0, 204, 0.12);
+  --rs-accent-text:   #ff66dd;
+  --rs-text-primary:   #e0e0ff;
+  --rs-text-secondary: #9090c0;
+  --rs-text-muted:     #5050a0;
+  --rs-sidebar-width: 256px;
+  --rs-radius-sm:   0.125rem;
+  --rs-radius-md:   0.25rem;
+  --rs-radius-lg:   0.375rem;
+  --rs-radius-xl:   0.5rem;
+  --rs-radius-2xl:  0.625rem;
+  --rs-radius-card: 0.125rem;
+  --rs-radius-full: 9999px;
+  --rs-blur-glass: 8px;
+  --rs-glass-bg:   rgba(18, 16, 42, 0.92);
+  --rs-font-sans: "Courier New", "Courier", "Lucida Console", monospace;
+  --rs-app-gradient:
+    radial-gradient(ellipse at 0%   0%,   rgba(255, 0, 204, 0.18), transparent 40%),
+    radial-gradient(ellipse at 100% 0%,   rgba(0,   200, 255, 0.14), transparent 40%),
+    radial-gradient(ellipse at 50%  100%, rgba(100, 0,   255, 0.12), transparent 50%),
+    linear-gradient(160deg, #0a0812 0%, #12102a 100%);
+  --rs-dot-pattern:  rgba(255, 0, 204, 0.06);
+  --rs-dot-size:     16px;
+  --rs-dot-opacity:  0.7;
+  --rs-selection-bg:    rgba(255, 0, 204, 0.25);
+  --rs-scrollbar-thumb: rgba(255, 0, 204, 0.30);
+  --rs-scrollbar-hover: rgba(255, 0, 204, 0.55);
+  --rs-focus-ring:      rgba(255, 0, 204, 0.60);
+  --rs-accent-rgb:       255, 0, 204;
+  --rs-accent-light-rgb: 255, 102, 221;
+}
+
+/* ── Y2K: Backgrounds */
+[data-theme="y2k"] .bg-zinc-950                  { background-color: #0a0812 !important; }
+[data-theme="y2k"] .bg-zinc-950\/80              { background-color: rgba(10, 8, 18, 0.80) !important; }
+[data-theme="y2k"] .bg-zinc-900                  { background-color: #12102a !important; }
+[data-theme="y2k"] .bg-zinc-800                  { background-color: #1e1a3e !important; }
+[data-theme="y2k"] .bg-zinc-800\/30              { background-color: rgba(30, 26, 62, 0.30) !important; }
+[data-theme="y2k"] .bg-zinc-800\/50              { background-color: rgba(30, 26, 62, 0.50) !important; }
+[data-theme="y2k"] .bg-zinc-800\/60              { background-color: rgba(30, 26, 62, 0.60) !important; }
+[data-theme="y2k"] .bg-zinc-800\/80              { background-color: rgba(30, 26, 62, 0.80) !important; }
+[data-theme="y2k"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(30, 26, 62, 0.60) !important; }
+[data-theme="y2k"] .hover\:bg-zinc-800:hover     { background-color: #1e1a3e !important; }
+/* ── Y2K: Accent */
+[data-theme="y2k"] .bg-emerald-500               { background-color: #ff00cc !important; }
+[data-theme="y2k"] .bg-emerald-500\/10           { background-color: rgba(255, 0, 204, 0.10) !important; }
+[data-theme="y2k"] .bg-emerald-500\/15           { background-color: rgba(255, 0, 204, 0.15) !important; }
+[data-theme="y2k"] .bg-emerald-500\/20           { background-color: rgba(255, 0, 204, 0.20) !important; }
+[data-theme="y2k"] .from-emerald-500             { --tw-gradient-from: #ff00cc !important; }
+[data-theme="y2k"] .via-emerald-400              { --tw-gradient-via:  #ff44dd !important; }
+[data-theme="y2k"] .to-teal-300                  { --tw-gradient-to:   #00ccff !important; }
+[data-theme="y2k"] .from-emerald-500\/10         { --tw-gradient-from: rgba(255, 0, 204, 0.10) !important; }
+[data-theme="y2k"] .to-teal-500\/10              { --tw-gradient-to:   rgba(0, 204, 255, 0.10) !important; }
+/* ── Y2K: Text */
+[data-theme="y2k"] .text-emerald-400             { color: #ff66dd !important; }
+[data-theme="y2k"] .text-emerald-500             { color: #ff00cc !important; }
+[data-theme="y2k"] .text-teal-300                { color: #00ccff !important; }
+[data-theme="y2k"] .text-zinc-400                { color: #9090c0 !important; }
+[data-theme="y2k"] .text-zinc-500                { color: #5050a0 !important; }
+/* ── Y2K: Borders */
+[data-theme="y2k"] .border-zinc-800\/60          { border-color: rgba(180, 0, 180, 0.40) !important; }
+[data-theme="y2k"] .border-zinc-700\/30          { border-color: rgba(180, 0, 180, 0.20) !important; }
+[data-theme="y2k"] .border-zinc-700\/50          { border-color: rgba(180, 0, 180, 0.35) !important; }
+[data-theme="y2k"] .border-emerald-500           { border-color: #ff00cc !important; }
+[data-theme="y2k"] .border-emerald-500\/40       { border-color: rgba(255, 0, 204, 0.40) !important; }
+[data-theme="y2k"] .border-emerald-500\/50       { border-color: rgba(255, 0, 204, 0.50) !important; }
+/* ── Y2K: Radius — brutally square */
+[data-theme="y2k"] .rounded-2xl { border-radius: var(--rs-radius-lg)  !important; }
+[data-theme="y2k"] .rounded-xl  { border-radius: var(--rs-radius-md)  !important; }
+[data-theme="y2k"] .rounded-lg  { border-radius: var(--rs-radius-sm)  !important; }
+/* ── Y2K: Special structural chrome */
+[data-theme="y2k"] .page-title {
+  background: linear-gradient(90deg, #ff00cc, #00ccff, #ff00cc);
+  background-clip: text;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-size: 200% auto;
+  animation: y2k-shimmer 4s linear infinite;
+}
+@keyframes y2k-shimmer {
+  to { background-position: 200% center; }
+}
+[data-theme="y2k"] .sidebar-shell {
+  border-right: 1px solid rgba(255, 0, 204, 0.30) !important;
+}
+
+
+/* ── Y2K: Cyberpunk — perfectly square art with neon glow ───────────────── */
+[data-theme="y2k"] .rs-album-art {
+  border-radius: 0 !important;
+  box-shadow:
+    0 0 0 1px rgba(255, 0, 204, 0.5),
+    0 0 12px rgba(255, 0, 204, 0.25),
+    0 0 2px  rgba(0, 204, 255, 0.30) !important;
+}
+[data-theme="y2k"] .rs-player-art {
+  border-radius: 0 !important;
+  box-shadow: 0 0 10px rgba(255, 0, 204, 0.4) !important;
+}
+[data-theme="y2k"] .rs-album-card {
+  max-width: 10rem !important;
+}
+[data-theme="y2k"] .rs-carousel-item {
+  width: 8rem !important;
+}
+[data-theme="y2k"] .rs-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(8rem, 1fr)) !important;
+  gap: 0.75rem !important;
+}
+/* Y2K player: neon top border */
+[data-theme="y2k"] .player-shell {
+  border-top: 1px solid rgba(255, 0, 204, 0.6) !important;
+  box-shadow: 0 -4px 20px rgba(255, 0, 204, 0.08) !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   Y2K — Cyber DNA: scanlines, neon terminal, uppercase, zero radius
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: opaque dark with scanline overlay */
+[data-theme="y2k"] .sidebar-shell {
+  background: rgba(10, 8, 18, 0.99) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-right: 1px solid rgba(255, 0, 204, 0.30) !important;
+  position: relative;
+}
+/* Scanline overlay */
+[data-theme="y2k"] .sidebar-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 3px,
+    rgba(255, 0, 204, 0.018) 3px,
+    rgba(255, 0, 204, 0.018) 4px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="y2k"] .sidebar-shell > * { position: relative; z-index: 1; }
+
+/* Section labels: neon monospace */
+[data-theme="y2k"] .sidebar-shell .uppercase.tracking-wider {
+  color: rgba(255, 0, 204, 0.65) !important;
+  font-size: 0.6rem !important;
+  letter-spacing: 0.22em !important;
+  font-family: var(--rs-font-sans) !important;
+  text-shadow: 0 0 6px rgba(255, 0, 204, 0.5) !important;
+}
+
+/* Nav items: terminal rectangle, UPPERCASE text */
+[data-theme="y2k"] .sidebar-shell nav button {
+  border-radius: 0 !important;
+  font-weight: 400 !important;
+  font-size: 0.75rem !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.06em !important;
+  padding: 0.5rem 0.75rem !important;
+  border: 1px solid transparent !important;
+  transition: all 0.1s !important;
+}
+[data-theme="y2k"] .sidebar-shell nav button:hover {
+  border-color: rgba(255, 0, 204, 0.40) !important;
+  background: rgba(255, 0, 204, 0.07) !important;
+  color: #ff66dd !important;
+  box-shadow: 0 0 10px rgba(255, 0, 204, 0.12) inset !important;
+}
+/* Active: neon box glow */
+[data-theme="y2k"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(255, 0, 204, 0.10) !important;
+  background-image: none !important;
+  border: 1px solid rgba(255, 0, 204, 0.55) !important;
+  box-shadow: 0 0 14px rgba(255, 0, 204, 0.18), inset 0 0 8px rgba(255, 0, 204, 0.05) !important;
+  text-shadow: 0 0 8px rgba(255, 0, 204, 0.7) !important;
+  color: #ff66dd !important;
+}
+
+/* Player: retro device bar */
+[data-theme="y2k"] .player-shell {
+  background: rgba(10, 8, 18, 0.99) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-top: 2px solid rgba(255, 0, 204, 0.55) !important;
+  box-shadow: 0 -6px 28px rgba(255, 0, 204, 0.10), 0 -1px 0 rgba(0, 204, 255, 0.15) !important;
+}
+[data-theme="y2k"] .player-shell input[type=range] {
+  accent-color: #ff00cc !important;
+}
+
+/* Typography: cyber uppercase */
+[data-theme="y2k"] .page-title {
+  font-size: 1.75rem !important;
+  font-weight: 400 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.12em !important;
+}
+[data-theme="y2k"] .page-subtitle {
+  text-transform: uppercase !important;
+  font-size: 0.7rem !important;
+  letter-spacing: 0.1em !important;
+  color: rgba(144, 144, 192, 0.7) !important;
+}
+
+/* Page content: dense */
+[data-theme="y2k"] .page-shell {
+  padding: 1.25rem 1rem !important;
+}
+

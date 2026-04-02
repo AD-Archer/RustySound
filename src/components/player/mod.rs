@@ -168,7 +168,7 @@ pub fn Player() -> Element {
                                     }
                                     // Clickable album art
                                     button {
-                                        class: "w-14 h-14 md:w-16 md:h-16 rounded-lg bg-zinc-800 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
+                                        class: "rs-player-art w-14 h-14 md:w-16 md:h-16 rounded-lg bg-zinc-800 overflow-hidden shadow-lg hover:ring-2 hover:ring-emerald-500/50 transition-all cursor-pointer",
                                         onclick: {
                                             let song = current_song_for_album.clone();
                                             let mut song_details = song_details.clone();

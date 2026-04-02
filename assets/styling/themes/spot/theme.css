@@ -1,0 +1,212 @@
+/* ==========================================================================
+   SPOT THEME
+   Inspired by Spotify — jet-black canvas, bright green, tight radii,
+   no background texture, and a hint of the iconic "Now Playing" gradient
+   ========================================================================== */
+
+[data-theme="spot"] {
+  /* Backgrounds */
+  --rs-bg-base:       #121212;
+  --rs-bg-elevated:   #1e1e1e;
+  --rs-bg-surface:    #282828;
+  --rs-bg-overlay:    #242424;
+  --rs-bg-highlight:  rgba(40, 40, 40, 0.9);
+
+  /* Borders */
+  --rs-border:        rgba(40, 40, 40, 0.9);
+  --rs-border-strong: rgba(65, 65, 65, 0.8);
+
+  /* Accent — Spotify green */
+  --rs-accent:        #1ed760;
+  --rs-accent-hover:  #1bc954;
+  --rs-accent-dim:    rgba(30, 215, 96, 0.12);
+  --rs-accent-text:   #1ed760;
+
+  /* Text */
+  --rs-text-primary:   #ffffff;
+  --rs-text-secondary: #b3b3b3;
+  --rs-text-muted:     #6a6a6a;
+
+  /* Layout */
+  --rs-sidebar-width: 270px;
+
+  /* Radii — compact, modern */
+  --rs-radius-sm:   0.25rem;
+  --rs-radius-md:   0.375rem;
+  --rs-radius-lg:   0.5rem;
+  --rs-radius-xl:   0.625rem;
+  --rs-radius-2xl:  0.75rem;
+  --rs-radius-card: 0.375rem;
+  --rs-radius-full: 9999px;
+
+  /* Glass — minimal blur */
+  --rs-blur-glass: 6px;
+  --rs-glass-bg:   rgba(18, 18, 18, 0.97);
+
+  /* Typography */
+  --rs-font-sans: "Circular Std", "Helvetica Neue", Helvetica, Arial, sans-serif;
+
+  /* Background canvas — clean, gradient fades up from pure black */
+  --rs-app-gradient: linear-gradient(180deg, #242424 0%, #121212 35%);
+  --rs-dot-pattern:  transparent;
+  --rs-dot-size:     0px;
+  --rs-dot-opacity:  0;
+
+  /* Interactivity */
+  --rs-selection-bg:     rgba(30, 215, 96, 0.25);
+  --rs-scrollbar-thumb:  rgba(100, 100, 100, 0.4);
+  --rs-scrollbar-hover:  rgba(100, 100, 100, 0.7);
+  --rs-focus-ring:       rgba(30, 215, 96, 0.5);
+  --rs-accent-rgb:       30, 215, 96;
+  --rs-accent-light-rgb: 30, 215, 96;
+}
+
+
+/* ── SPOT: Background overrides ──────────────────────────────────────────── */
+[data-theme="spot"] .bg-zinc-950                  { background-color: #121212 !important; }
+[data-theme="spot"] .bg-zinc-950\/80              { background-color: rgba(18, 18, 18, 0.80) !important; }
+[data-theme="spot"] .bg-zinc-900                  { background-color: #1e1e1e !important; }
+[data-theme="spot"] .bg-zinc-800                  { background-color: #282828 !important; }
+[data-theme="spot"] .bg-zinc-800\/30              { background-color: rgba(40, 40, 40, 0.30) !important; }
+[data-theme="spot"] .bg-zinc-800\/50              { background-color: rgba(40, 40, 40, 0.50) !important; }
+[data-theme="spot"] .bg-zinc-800\/60              { background-color: rgba(40, 40, 40, 0.60) !important; }
+[data-theme="spot"] .bg-zinc-800\/80              { background-color: rgba(40, 40, 40, 0.80) !important; }
+[data-theme="spot"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(40, 40, 40, 0.60) !important; }
+[data-theme="spot"] .hover\:bg-zinc-800:hover     { background-color: #282828 !important; }
+
+/* ── SPOT: Accent colour overrides ──────────────────────────────────────── */
+[data-theme="spot"] .bg-emerald-500               { background-color: #1ed760 !important; }
+[data-theme="spot"] .bg-emerald-500\/10           { background-color: rgba(30, 215, 96, 0.10) !important; }
+[data-theme="spot"] .bg-emerald-500\/15           { background-color: rgba(30, 215, 96, 0.15) !important; }
+[data-theme="spot"] .bg-emerald-500\/20           { background-color: rgba(30, 215, 96, 0.20) !important; }
+[data-theme="spot"] .from-emerald-500             { --tw-gradient-from: #1ed760 !important; }
+[data-theme="spot"] .via-emerald-400              { --tw-gradient-via: #1ed760 !important; }
+[data-theme="spot"] .to-teal-300                  { --tw-gradient-to: #1bc954 !important; }
+[data-theme="spot"] .from-emerald-500\/10         { --tw-gradient-from: rgba(30, 215, 96, 0.10) !important; }
+[data-theme="spot"] .to-teal-500\/10              { --tw-gradient-to:   rgba(30, 215, 96, 0.05) !important; }
+
+/* ── SPOT: Text colour overrides ─────────────────────────────────────────── */
+[data-theme="spot"] .text-emerald-400             { color: #1ed760 !important; }
+[data-theme="spot"] .text-emerald-500             { color: #1ed760 !important; }
+[data-theme="spot"] .text-teal-300                { color: #1ed760 !important; }
+[data-theme="spot"] .text-zinc-400                { color: #b3b3b3 !important; }
+[data-theme="spot"] .text-zinc-500                { color: #6a6a6a !important; }
+
+/* ── SPOT: Border overrides ──────────────────────────────────────────────── */
+[data-theme="spot"] .border-zinc-800\/60          { border-color: rgba(65, 65, 65, 0.60) !important; }
+[data-theme="spot"] .border-zinc-700\/30          { border-color: rgba(65, 65, 65, 0.30) !important; }
+[data-theme="spot"] .border-zinc-700\/50          { border-color: rgba(65, 65, 65, 0.50) !important; }
+[data-theme="spot"] .border-emerald-500           { border-color: #1ed760 !important; }
+[data-theme="spot"] .border-emerald-500\/40       { border-color: rgba(30, 215, 96, 0.40) !important; }
+[data-theme="spot"] .border-emerald-500\/50       { border-color: rgba(30, 215, 96, 0.50) !important; }
+
+/* ── SPOT: Radius — compact ──────────────────────────────────────────────── */
+[data-theme="spot"] .rounded-2xl  { border-radius: var(--rs-radius-lg)  !important; }
+[data-theme="spot"] .rounded-xl   { border-radius: var(--rs-radius-md)  !important; }
+[data-theme="spot"] .rounded-lg   { border-radius: var(--rs-radius-sm)  !important; }
+
+
+/* SPOT ── clean flat surfaces, less translucency (mobile nav header only) */
+[data-theme="spot"] header.mobile-safe-top {
+  background: rgba(18, 18, 18, 0.97) !important;
+  border-bottom-color: rgba(65, 65, 65, 0.6) !important;
+}
+
+/* SPOT ── slightly larger album art to match Spotify's art-forward layout */
+[data-theme="spot"] .album-art,
+[data-theme="spot"] .cover-art {
+  border-radius: var(--rs-radius-card);
+}
+
+
+/* ── SPOT: Spotify-style — minimal radius, large art-forward cards ───────── */
+[data-theme="spot"] .rs-album-art {
+  border-radius: 4px !important;
+}
+[data-theme="spot"] .rs-player-art {
+  border-radius: 4px !important;
+}
+[data-theme="spot"] .rs-album-card {
+  max-width: 14rem !important;
+}
+[data-theme="spot"] .rs-carousel-item {
+  width: 10rem !important;
+}
+[data-theme="spot"] .rs-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(11rem, 1fr)) !important;
+  gap: 1.25rem !important;
+}
+/* Spot player: solid flat bar */
+[data-theme="spot"] .player-shell {
+  background: rgba(18, 18, 18, 1) !important;
+  border-top-color: rgba(65, 65, 65, 0.6) !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   SPOT — Spotify DNA: flat, solid black, zero blur, bold and compact
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: opaque black slab, no frosting */
+[data-theme="spot"] .sidebar-shell {
+  background: #000 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-right: 1px solid #1a1a1a !important;
+}
+
+/* Logo header: compact */
+[data-theme="spot"] .sidebar-shell > div:first-child {
+  padding: 1.25rem 1.25rem 1rem !important;
+  border-bottom-color: #1a1a1a !important;
+}
+
+/* Section labels: tiny, near-invisible, very condensed */
+[data-theme="spot"] .sidebar-shell .uppercase.tracking-wider {
+  font-size: 0.625rem !important;
+  letter-spacing: 0.18em !important;
+  color: #535353 !important;
+  margin-bottom: 0.25rem !important;
+}
+
+/* Nav items: bold, rectangular, packed tight */
+[data-theme="spot"] .sidebar-shell nav button {
+  border-radius: 4px !important;
+  font-weight: 700 !important;
+  font-size: 0.875rem !important;
+  padding: 0.5rem 0.875rem !important;
+  gap: 1rem !important;
+  letter-spacing: 0 !important;
+}
+
+/* Active item: solid tinted fill, no gradient */
+[data-theme="spot"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(30, 215, 96, 0.15) !important;
+  background-image: none !important;
+}
+
+/* Player: completely opaque, zero blur, flat */
+[data-theme="spot"] .player-shell {
+  background: #000 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-top: 1px solid #282828 !important;
+}
+
+/* Progress + volume sliders: Spotify green */
+[data-theme="spot"] .player-shell input[type=range] {
+  accent-color: #1ed760 !important;
+}
+
+/* Typography: tight, heavy */
+[data-theme="spot"] .page-title {
+  font-size: 2rem !important;
+  font-weight: 700 !important;
+  letter-spacing: -0.04em !important;
+}
+[data-theme="spot"] .page-subtitle {
+  font-size: 0.875rem !important;
+  color: #b3b3b3 !important;
+}
+
+

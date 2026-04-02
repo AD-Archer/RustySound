@@ -1248,6 +1248,9 @@
       border-color: color-mix(in oklab, var(--color-cyan-500) 50%, transparent);
     }
   }
+  .border-emerald-200 {
+    border-color: var(--color-emerald-200);
+  }
   .border-emerald-300 {
     border-color: var(--color-emerald-300);
   }
@@ -2628,6 +2631,12 @@
     @supports (color: color-mix(in lab, red, red)) {
       --tw-shadow-color: color-mix(in oklab, color-mix(in oklab, var(--color-emerald-500) 20%, transparent) var(--tw-shadow-alpha), transparent);
     }
+  }
+  .ring-emerald-300 {
+    --tw-ring-color: var(--color-emerald-300);
+  }
+  .ring-emerald-500 {
+    --tw-ring-color: var(--color-emerald-500);
   }
   .outline {
     outline-style: var(--tw-outline-style);

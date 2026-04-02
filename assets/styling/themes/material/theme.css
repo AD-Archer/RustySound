@@ -1,0 +1,174 @@
+/* ── MATERIAL ── ─────────────────────────────────────────────────────────────
+   Material You (M3 dark) — warm-purple tonal system, very rounded, elevated
+   ─────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="material"] {
+  --rs-bg-base:       #1c1b1f;
+  --rs-bg-elevated:   #211f26;
+  --rs-bg-surface:    #2b2930;
+  --rs-bg-overlay:    #252329;
+  --rs-bg-highlight:  rgba(43, 41, 48, 0.70);
+  --rs-border:        rgba(72, 67, 87, 0.35);
+  --rs-border-strong: rgba(97, 92, 112, 0.55);
+  --rs-accent:        #d0bcff;
+  --rs-accent-hover:  #b89ff0;
+  --rs-accent-dim:    rgba(208, 188, 255, 0.12);
+  --rs-accent-text:   #d0bcff;
+  --rs-text-primary:   #e6e1e5;
+  --rs-text-secondary: #cac4d0;
+  --rs-text-muted:     #938f99;
+  --rs-sidebar-width: 256px;
+  --rs-radius-sm:   0.75rem;
+  --rs-radius-md:   1rem;
+  --rs-radius-lg:   1.25rem;
+  --rs-radius-xl:   1.75rem;
+  --rs-radius-2xl:  2rem;
+  --rs-radius-card: 1.5rem;
+  --rs-radius-full: 9999px;
+  --rs-blur-glass: 10px;
+  --rs-glass-bg:   rgba(33, 31, 38, 0.88);
+  --rs-font-sans: "Google Sans", "Roboto", "Noto Sans", sans-serif;
+  --rs-app-gradient:
+    radial-gradient(ellipse at 80% 10%, rgba(208, 188, 255, 0.08), transparent 50%),
+    radial-gradient(ellipse at 20% 80%, rgba(103, 80,  164, 0.08), transparent 50%),
+    linear-gradient(135deg, #1c1b1f 0%, #201e25 100%);
+  --rs-dot-pattern:  rgba(208, 188, 255, 0.025);
+  --rs-dot-size:     22px;
+  --rs-dot-opacity:  0.5;
+  --rs-selection-bg:    rgba(208, 188, 255, 0.25);
+  --rs-scrollbar-thumb: rgba(147, 143, 153, 0.40);
+  --rs-scrollbar-hover: rgba(147, 143, 153, 0.65);
+  --rs-focus-ring:      rgba(208, 188, 255, 0.55);
+  --rs-accent-rgb:       103, 80, 164;
+  --rs-accent-light-rgb: 208, 188, 255;
+}
+
+/* ── MATERIAL: Backgrounds */
+[data-theme="material"] .bg-zinc-950                  { background-color: #1c1b1f !important; }
+[data-theme="material"] .bg-zinc-950\/80              { background-color: rgba(28, 27, 31, 0.80) !important; }
+[data-theme="material"] .bg-zinc-900                  { background-color: #211f26 !important; }
+[data-theme="material"] .bg-zinc-800                  { background-color: #2b2930 !important; }
+[data-theme="material"] .bg-zinc-800\/30              { background-color: rgba(43, 41, 48, 0.30) !important; }
+[data-theme="material"] .bg-zinc-800\/50              { background-color: rgba(43, 41, 48, 0.50) !important; }
+[data-theme="material"] .bg-zinc-800\/60              { background-color: rgba(43, 41, 48, 0.60) !important; }
+[data-theme="material"] .bg-zinc-800\/80              { background-color: rgba(43, 41, 48, 0.80) !important; }
+[data-theme="material"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(43, 41, 48, 0.60) !important; }
+[data-theme="material"] .hover\:bg-zinc-800:hover     { background-color: #2b2930 !important; }
+/* ── MATERIAL: Accent */
+[data-theme="material"] .bg-emerald-500               { background-color: #6750a4 !important; }
+[data-theme="material"] .bg-emerald-500\/10           { background-color: rgba(208, 188, 255, 0.10) !important; }
+[data-theme="material"] .bg-emerald-500\/15           { background-color: rgba(208, 188, 255, 0.15) !important; }
+[data-theme="material"] .bg-emerald-500\/20           { background-color: rgba(208, 188, 255, 0.20) !important; }
+[data-theme="material"] .from-emerald-500             { --tw-gradient-from: #6750a4 !important; }
+[data-theme="material"] .via-emerald-400              { --tw-gradient-via:  #9a82db !important; }
+[data-theme="material"] .to-teal-300                  { --tw-gradient-to:   #d0bcff !important; }
+[data-theme="material"] .from-emerald-500\/10         { --tw-gradient-from: rgba(208, 188, 255, 0.10) !important; }
+[data-theme="material"] .to-teal-500\/10              { --tw-gradient-to:   rgba(208, 188, 255, 0.05) !important; }
+/* ── MATERIAL: Text */
+[data-theme="material"] .text-emerald-400             { color: #d0bcff !important; }
+[data-theme="material"] .text-emerald-500             { color: #b89ff0 !important; }
+[data-theme="material"] .text-teal-300                { color: #d0bcff !important; }
+[data-theme="material"] .text-zinc-400                { color: #cac4d0 !important; }
+[data-theme="material"] .text-zinc-500                { color: #938f99 !important; }
+/* ── MATERIAL: Borders */
+[data-theme="material"] .border-zinc-800\/60          { border-color: rgba(72, 67, 87, 0.45) !important; }
+[data-theme="material"] .border-zinc-700\/30          { border-color: rgba(72, 67, 87, 0.25) !important; }
+[data-theme="material"] .border-zinc-700\/50          { border-color: rgba(72, 67, 87, 0.40) !important; }
+[data-theme="material"] .border-emerald-500           { border-color: #d0bcff !important; }
+[data-theme="material"] .border-emerald-500\/40       { border-color: rgba(208, 188, 255, 0.40) !important; }
+[data-theme="material"] .border-emerald-500\/50       { border-color: rgba(208, 188, 255, 0.50) !important; }
+/* ── MATERIAL: Radius — very rounded M3 style */
+[data-theme="material"] .rounded-lg   { border-radius: var(--rs-radius-lg)  !important; }
+[data-theme="material"] .rounded-xl   { border-radius: var(--rs-radius-xl)  !important; }
+[data-theme="material"] .rounded-2xl  { border-radius: var(--rs-radius-2xl) !important; }
+
+
+/* ── MATERIAL: Material You — large radius, expressive & spacious ─────────── */
+[data-theme="material"] .rs-album-art {
+  border-radius: 1.5rem !important;
+}
+[data-theme="material"] .rs-player-art {
+  border-radius: 1rem !important;
+}
+[data-theme="material"] .rs-album-card {
+  max-width: 13rem !important;
+}
+[data-theme="material"] .rs-carousel-item {
+  width: 9.5rem !important;
+}
+[data-theme="material"] .rs-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(10.5rem, 1fr)) !important;
+  gap: 1.25rem !important;
+}
+/* Material: tonal surface tint on cards */
+[data-theme="material"] .rs-album-art {
+  box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(103, 80, 164, 0.15) !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   MATERIAL — Material You DNA: expressive, pill nav, tonal surfaces
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: material surface with no blur */
+[data-theme="material"] .sidebar-shell {
+  background: #1a1425 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-right: none !important;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.3) !important;
+}
+
+/* Section labels: softer, supporting role */
+[data-theme="material"] .sidebar-shell .uppercase.tracking-wider {
+  font-size: 0.7rem !important;
+  letter-spacing: 0.06em !important;
+  color: rgba(204, 188, 232, 0.45) !important;
+  font-weight: 500 !important;
+  text-transform: none !important;
+}
+
+/* Nav items: full-pill Material navigation rail style */
+[data-theme="material"] .sidebar-shell nav button {
+  border-radius: 9999px !important;
+  padding: 0.625rem 1.25rem !important;
+  font-weight: 500 !important;
+  font-size: 0.9rem !important;
+}
+/* Active: strong tonal pill fill */
+[data-theme="material"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(103, 80, 164, 0.25) !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+/* Player: elevated surface, no blur, shadow-lifted */
+[data-theme="material"] .player-shell {
+  background: #1e1630 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border-top: none !important;
+  box-shadow: 0 -2px 12px rgba(0,0,0,0.35), 0 -1px 0 rgba(103, 80, 164, 0.18) !important;
+}
+@media (min-width: 768px) {
+  [data-theme="material"] .player-shell { height: 6.5rem !important; }
+}
+[data-theme="material"] .player-shell input[type=range] {
+  accent-color: #9c6de4 !important;
+}
+
+/* Typography: large expressive display */
+[data-theme="material"] .page-title {
+  font-size: 3rem !important;
+  font-weight: 400 !important;
+  letter-spacing: -0.01em !important;
+}
+[data-theme="material"] .page-subtitle {
+  font-size: 1rem !important;
+  font-weight: 400 !important;
+  letter-spacing: 0 !important;
+}
+[data-theme="material"] .page-shell {
+  padding: 2rem 2.5rem 2.5rem !important;
+}
+

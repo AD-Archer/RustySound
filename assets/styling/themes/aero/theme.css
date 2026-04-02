@@ -1,0 +1,159 @@
+/* ── AERO ── ─────────────────────────────────────────────────────────────────
+   Frutiger Aero — glossy ocean-blue, nature-meets-technology, 2006-era
+   ─────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="aero"] {
+  --rs-bg-base:       #0b1a26;
+  --rs-bg-elevated:   #112233;
+  --rs-bg-surface:    #1a3347;
+  --rs-bg-overlay:    #162d3f;
+  --rs-bg-highlight:  rgba(26, 51, 71, 0.70);
+  --rs-border:        rgba(0, 180, 216, 0.18);
+  --rs-border-strong: rgba(0, 180, 216, 0.35);
+  --rs-accent:        #00b4d8;
+  --rs-accent-hover:  #0096c7;
+  --rs-accent-dim:    rgba(0, 180, 216, 0.12);
+  --rs-accent-text:   #48cae4;
+  --rs-text-primary:   #e8f4f8;
+  --rs-text-secondary: #90c4d8;
+  --rs-text-muted:     #4a8aaa;
+  --rs-sidebar-width: 256px;
+  --rs-radius-sm:   0.5rem;
+  --rs-radius-md:   0.75rem;
+  --rs-radius-lg:   1rem;
+  --rs-radius-xl:   1.25rem;
+  --rs-radius-2xl:  1.75rem;
+  --rs-radius-card: 0.875rem;
+  --rs-radius-full: 9999px;
+  --rs-blur-glass: 18px;
+  --rs-glass-bg:   rgba(11, 26, 38, 0.80);
+  --rs-font-sans: "Segoe UI", "Tahoma", "Trebuchet MS", sans-serif;
+  --rs-app-gradient:
+    radial-gradient(ellipse at 30%  0%,  rgba(0, 180, 216, 0.18), transparent 45%),
+    radial-gradient(ellipse at 80%  35%, rgba(72, 202, 228, 0.10), transparent 40%),
+    radial-gradient(ellipse at 10%  90%, rgba(0, 119, 182, 0.14), transparent 50%),
+    linear-gradient(180deg, #0b1a26 0%, #0e2030 55%, #0b1a26 100%);
+  --rs-dot-pattern:  rgba(0, 180, 216, 0.035);
+  --rs-dot-size:     20px;
+  --rs-dot-opacity:  0.7;
+  --rs-selection-bg:    rgba(0, 180, 216, 0.25);
+  --rs-scrollbar-thumb: rgba(0, 180, 216, 0.25);
+  --rs-scrollbar-hover: rgba(0, 180, 216, 0.50);
+  --rs-focus-ring:      rgba(0, 180, 216, 0.50);
+  --rs-accent-rgb:       0, 180, 216;
+  --rs-accent-light-rgb: 72, 202, 228;
+}
+
+/* ── AERO: Backgrounds */
+[data-theme="aero"] .bg-zinc-950                  { background-color: #0b1a26 !important; }
+[data-theme="aero"] .bg-zinc-950\/80              { background-color: rgba(11, 26, 38, 0.80) !important; }
+[data-theme="aero"] .bg-zinc-900                  { background-color: #112233 !important; }
+[data-theme="aero"] .bg-zinc-800                  { background-color: #1a3347 !important; }
+[data-theme="aero"] .bg-zinc-800\/30              { background-color: rgba(26, 51, 71, 0.30) !important; }
+[data-theme="aero"] .bg-zinc-800\/50              { background-color: rgba(26, 51, 71, 0.50) !important; }
+[data-theme="aero"] .bg-zinc-800\/60              { background-color: rgba(26, 51, 71, 0.60) !important; }
+[data-theme="aero"] .bg-zinc-800\/80              { background-color: rgba(26, 51, 71, 0.80) !important; }
+[data-theme="aero"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(26, 51, 71, 0.60) !important; }
+[data-theme="aero"] .hover\:bg-zinc-800:hover     { background-color: #1a3347 !important; }
+/* ── AERO: Accent */
+[data-theme="aero"] .bg-emerald-500               { background-color: #00b4d8 !important; }
+[data-theme="aero"] .bg-emerald-500\/10           { background-color: rgba(0, 180, 216, 0.10) !important; }
+[data-theme="aero"] .bg-emerald-500\/15           { background-color: rgba(0, 180, 216, 0.15) !important; }
+[data-theme="aero"] .bg-emerald-500\/20           { background-color: rgba(0, 180, 216, 0.20) !important; }
+[data-theme="aero"] .from-emerald-500             { --tw-gradient-from: #00b4d8 !important; }
+[data-theme="aero"] .via-emerald-400              { --tw-gradient-via:  #48cae4 !important; }
+[data-theme="aero"] .to-teal-300                  { --tw-gradient-to:   #90e0ef !important; }
+[data-theme="aero"] .from-emerald-500\/10         { --tw-gradient-from: rgba(0, 180, 216, 0.10) !important; }
+[data-theme="aero"] .to-teal-500\/10              { --tw-gradient-to:   rgba(0, 180, 216, 0.05) !important; }
+/* ── AERO: Text */
+[data-theme="aero"] .text-emerald-400             { color: #48cae4 !important; }
+[data-theme="aero"] .text-emerald-500             { color: #00b4d8 !important; }
+[data-theme="aero"] .text-teal-300                { color: #90e0ef !important; }
+[data-theme="aero"] .text-zinc-400                { color: #90c4d8 !important; }
+[data-theme="aero"] .text-zinc-500                { color: #4a8aaa !important; }
+/* ── AERO: Borders */
+[data-theme="aero"] .border-zinc-800\/60          { border-color: rgba(0, 180, 216, 0.22) !important; }
+[data-theme="aero"] .border-zinc-700\/30          { border-color: rgba(0, 180, 216, 0.14) !important; }
+[data-theme="aero"] .border-zinc-700\/50          { border-color: rgba(0, 180, 216, 0.28) !important; }
+[data-theme="aero"] .border-emerald-500           { border-color: #00b4d8 !important; }
+[data-theme="aero"] .border-emerald-500\/40       { border-color: rgba(0, 180, 216, 0.40) !important; }
+[data-theme="aero"] .border-emerald-500\/50       { border-color: rgba(0, 180, 216, 0.50) !important; }
+
+
+/* ── AERO: Frutiger Aero — CIRCULAR art, organic glossy feel ────────────── */
+[data-theme="aero"] .rs-album-art {
+  border-radius: 50% !important;
+  box-shadow:
+    0 4px 18px rgba(0, 180, 216, 0.25),
+    inset 0 1px 0 rgba(255, 255, 255, 0.20),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.15) !important;
+}
+[data-theme="aero"] .rs-player-art {
+  border-radius: 50% !important;
+  box-shadow: 0 2px 12px rgba(0, 180, 216, 0.30) !important;
+}
+[data-theme="aero"] .rs-album-card {
+  max-width: 11rem !important;
+}
+[data-theme="aero"] .rs-carousel-item {
+  width: 8.5rem !important;
+}
+[data-theme="aero"] .rs-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)) !important;
+  gap: 1.5rem !important;
+}
+/* Aero: round art means we need padding so circles don't butt up tight */
+[data-theme="aero"] .rs-album-card .rs-album-art {
+  margin-bottom: 1rem !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AERO — Frutiger DNA: maximum glass, organic, liquid transparency
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: nearly transparent liquid glass */
+[data-theme="aero"] .sidebar-shell {
+  background: rgba(11, 26, 38, 0.40) !important;
+  backdrop-filter: blur(40px) saturate(2.0) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(2.0) brightness(1.08) !important;
+  border-right: 1px solid rgba(0, 180, 216, 0.14) !important;
+  box-shadow: inset -1px 0 0 rgba(255, 255, 255, 0.04) !important;
+}
+
+/* Section labels: ocean tint */
+[data-theme="aero"] .sidebar-shell .uppercase.tracking-wider {
+  color: rgba(72, 202, 228, 0.55) !important;
+  font-size: 0.65rem !important;
+  letter-spacing: 0.12em !important;
+}
+
+/* Nav items: pill-shaped bubble style */
+[data-theme="aero"] .sidebar-shell nav button {
+  border-radius: 9999px !important;
+  padding: 0.5rem 1rem !important;
+  font-weight: 500 !important;
+}
+/* Active: glossy tinted pill */
+[data-theme="aero"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(0, 180, 216, 0.18) !important;
+  background-image: none !important;
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.08) inset !important;
+}
+
+/* Player: floating glass panel */
+[data-theme="aero"] .player-shell {
+  background: rgba(11, 26, 38, 0.50) !important;
+  backdrop-filter: blur(40px) saturate(2.0) brightness(1.08) !important;
+  -webkit-backdrop-filter: blur(40px) saturate(2.0) brightness(1.08) !important;
+  border-top: 1px solid rgba(0, 180, 216, 0.18) !important;
+  box-shadow: 0 -4px 20px rgba(0, 180, 216, 0.06) !important;
+}
+
+/* Typography: clean with soft accent glow */
+[data-theme="aero"] .page-title {
+  font-size: 2.25rem !important;
+  font-weight: 600 !important;
+  text-shadow: 0 1px 3px rgba(0, 180, 216, 0.12) !important;
+}
+

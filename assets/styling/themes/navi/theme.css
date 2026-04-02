@@ -1,0 +1,147 @@
+/* ==========================================================================
+   NAVI THEME
+   Navidrome in spirit — deep navy, sky-blue accent, organised and calm
+   ========================================================================== */
+
+[data-theme="navi"] {
+  --rs-bg-base:       #0d1117;
+  --rs-bg-elevated:   #161b2e;
+  --rs-bg-surface:    #1e2440;
+  --rs-bg-overlay:    #1a2035;
+  --rs-bg-highlight:  rgba(30, 36, 64, 0.70);
+  --rs-border:        rgba(48, 58, 100, 0.50);
+  --rs-border-strong: rgba(68, 82, 140, 0.60);
+  --rs-accent:        #4d9de0;
+  --rs-accent-hover:  #3a8cd4;
+  --rs-accent-dim:    rgba(77, 157, 224, 0.12);
+  --rs-accent-text:   #7ab8f0;
+  --rs-text-primary:   #e2e8f0;
+  --rs-text-secondary: #94a3b8;
+  --rs-text-muted:     #64748b;
+  --rs-sidebar-width: 256px;
+  --rs-radius-sm:   0.375rem;
+  --rs-radius-md:   0.5rem;
+  --rs-radius-lg:   0.75rem;
+  --rs-radius-xl:   1rem;
+  --rs-radius-2xl:  1.5rem;
+  --rs-radius-card: 0.625rem;
+  --rs-radius-full: 9999px;
+  --rs-blur-glass: 14px;
+  --rs-glass-bg:   rgba(22, 27, 46, 0.85);
+  --rs-font-sans: "Space Grotesk", "Sora", "Noto Sans", sans-serif;
+  --rs-app-gradient:
+    radial-gradient(900px circle at 10% 0%,   rgba(77, 157, 224, 0.14), transparent 45%),
+    radial-gradient(600px circle at 90% 90%,  rgba(99, 102, 241, 0.10), transparent 40%),
+    linear-gradient(135deg, #0d1117 0%, #111827 50%, #0d1117 100%);
+  --rs-dot-pattern:  rgba(77, 157, 224, 0.04);
+  --rs-dot-size:     24px;
+  --rs-dot-opacity:  0.6;
+  --rs-selection-bg:    rgba(77, 157, 224, 0.25);
+  --rs-scrollbar-thumb: rgba(77, 157, 224, 0.25);
+  --rs-scrollbar-hover: rgba(77, 157, 224, 0.45);
+  --rs-focus-ring:      rgba(77, 157, 224, 0.50);
+  --rs-accent-rgb:       77, 157, 224;
+  --rs-accent-light-rgb: 122, 184, 240;
+}
+
+/* ── NAVI: Backgrounds */
+[data-theme="navi"] .bg-zinc-950                  { background-color: #0d1117 !important; }
+[data-theme="navi"] .bg-zinc-950\/80              { background-color: rgba(13, 17, 23, 0.80) !important; }
+[data-theme="navi"] .bg-zinc-900                  { background-color: #161b2e !important; }
+[data-theme="navi"] .bg-zinc-800                  { background-color: #1e2440 !important; }
+[data-theme="navi"] .bg-zinc-800\/30              { background-color: rgba(30, 36, 64, 0.30) !important; }
+[data-theme="navi"] .bg-zinc-800\/50              { background-color: rgba(30, 36, 64, 0.50) !important; }
+[data-theme="navi"] .bg-zinc-800\/60              { background-color: rgba(30, 36, 64, 0.60) !important; }
+[data-theme="navi"] .bg-zinc-800\/80              { background-color: rgba(30, 36, 64, 0.80) !important; }
+[data-theme="navi"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(30, 36, 64, 0.60) !important; }
+[data-theme="navi"] .hover\:bg-zinc-800:hover     { background-color: #1e2440 !important; }
+/* ── NAVI: Accent */
+[data-theme="navi"] .bg-emerald-500               { background-color: #4d9de0 !important; }
+[data-theme="navi"] .bg-emerald-500\/10           { background-color: rgba(77, 157, 224, 0.10) !important; }
+[data-theme="navi"] .bg-emerald-500\/15           { background-color: rgba(77, 157, 224, 0.15) !important; }
+[data-theme="navi"] .bg-emerald-500\/20           { background-color: rgba(77, 157, 224, 0.20) !important; }
+[data-theme="navi"] .from-emerald-500             { --tw-gradient-from: #4d9de0 !important; }
+[data-theme="navi"] .via-emerald-400              { --tw-gradient-via:  #6db0e8 !important; }
+[data-theme="navi"] .to-teal-300                  { --tw-gradient-to:   #7ab8f0 !important; }
+[data-theme="navi"] .from-emerald-500\/10         { --tw-gradient-from: rgba(77, 157, 224, 0.10) !important; }
+[data-theme="navi"] .to-teal-500\/10              { --tw-gradient-to:   rgba(77, 157, 224, 0.05) !important; }
+/* ── NAVI: Text */
+[data-theme="navi"] .text-emerald-400             { color: #7ab8f0 !important; }
+[data-theme="navi"] .text-emerald-500             { color: #4d9de0 !important; }
+[data-theme="navi"] .text-teal-300                { color: #7ab8f0 !important; }
+[data-theme="navi"] .text-zinc-400                { color: #94a3b8 !important; }
+[data-theme="navi"] .text-zinc-500                { color: #64748b !important; }
+/* ── NAVI: Borders */
+[data-theme="navi"] .border-zinc-800\/60          { border-color: rgba(48, 58, 100, 0.60) !important; }
+[data-theme="navi"] .border-zinc-700\/30          { border-color: rgba(48, 58, 100, 0.30) !important; }
+[data-theme="navi"] .border-zinc-700\/50          { border-color: rgba(48, 58, 100, 0.50) !important; }
+[data-theme="navi"] .border-emerald-500           { border-color: #4d9de0 !important; }
+[data-theme="navi"] .border-emerald-500\/40       { border-color: rgba(77, 157, 224, 0.40) !important; }
+[data-theme="navi"] .border-emerald-500\/50       { border-color: rgba(77, 157, 224, 0.50) !important; }
+
+
+/* ── NAVI: Organised and calm — medium radii, standard density ───────────── */
+[data-theme="navi"] .rs-album-art {
+  border-radius: 0.625rem !important;
+}
+[data-theme="navi"] .rs-player-art {
+  border-radius: 0.5rem !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   NAVI — Library DNA: organised, structured, left-border active indicator
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: opaque navy with clean border */
+[data-theme="navi"] .sidebar-shell {
+  background: rgba(13, 17, 23, 0.97) !important;
+  backdrop-filter: blur(8px) !important;
+  -webkit-backdrop-filter: blur(8px) !important;
+  border-right: 1px solid rgba(48, 58, 100, 0.60) !important;
+}
+
+/* Section labels: structured, info-dense */
+[data-theme="navi"] .sidebar-shell .uppercase.tracking-wider {
+  color: #4d9de0 !important;
+  font-size: 0.65rem !important;
+  letter-spacing: 0.14em !important;
+  font-weight: 700 !important;
+}
+
+/* Nav items: left-rail style — no pill background, just a left border indicator */
+[data-theme="navi"] .sidebar-shell nav button {
+  border-radius: 0 0.5rem 0.5rem 0 !important;
+  border-left: 3px solid transparent !important;
+  padding: 0.5rem 0.75rem 0.5rem calc(0.75rem - 3px) !important;
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+  transition: border-left-color 0.15s, background 0.15s !important;
+}
+[data-theme="navi"] .sidebar-shell nav button:hover {
+  background: rgba(77, 157, 224, 0.07) !important;
+  border-left-color: rgba(77, 157, 224, 0.35) !important;
+  color: #e2e8f0 !important;
+}
+/* Active: solid accent left border, no gradient background */
+[data-theme="navi"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(77, 157, 224, 0.10) !important;
+  background-image: none !important;
+  border-left: 3px solid #4d9de0 !important;
+  color: #7ab8f0 !important;
+}
+
+/* Player: structured, clean */
+[data-theme="navi"] .player-shell {
+  background: rgba(13, 17, 23, 0.98) !important;
+  border-top: 1px solid rgba(48, 58, 100, 0.60) !important;
+}
+
+/* Typography: data-forward, structured */
+[data-theme="navi"] .page-title {
+  font-size: 2rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+}
+
+

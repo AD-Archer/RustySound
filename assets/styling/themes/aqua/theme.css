@@ -1,0 +1,174 @@
+/* ── AQUA ── ─────────────────────────────────────────────────────────────────
+   macOS Aqua dark adaptation — deep ocean navy, gel-aqua blue, pinstripes
+   ─────────────────────────────────────────────────────────────────────────── */
+
+[data-theme="aqua"] {
+  --rs-bg-base:       #0f1c2e;
+  --rs-bg-elevated:   #162540;
+  --rs-bg-surface:    #1e3054;
+  --rs-bg-overlay:    #1a2b48;
+  --rs-bg-highlight:  rgba(30, 48, 84, 0.70);
+  --rs-border:        rgba(30, 126, 220, 0.22);
+  --rs-border-strong: rgba(30, 126, 220, 0.45);
+  --rs-accent:        #1e7edc;
+  --rs-accent-hover:  #1567c2;
+  --rs-accent-dim:    rgba(30, 126, 220, 0.14);
+  --rs-accent-text:   #57aff4;
+  --rs-text-primary:   #e4eeff;
+  --rs-text-secondary: #88aacc;
+  --rs-text-muted:     #4466aa;
+  --rs-sidebar-width: 256px;
+  --rs-radius-sm:   0.75rem;
+  --rs-radius-md:   1rem;
+  --rs-radius-lg:   1.25rem;
+  --rs-radius-xl:   1.5rem;
+  --rs-radius-2xl:  2rem;
+  --rs-radius-card: 1rem;
+  --rs-radius-full: 9999px;
+  --rs-blur-glass: 20px;
+  --rs-glass-bg:   rgba(15, 28, 46, 0.85);
+  --rs-font-sans: "Lucida Grande", "Geneva", "Trebuchet MS", sans-serif;
+  --rs-app-gradient:
+    radial-gradient(ellipse at 50% -20%, rgba(30, 126, 220, 0.22), transparent 50%),
+    radial-gradient(ellipse at 0%  50%,  rgba(87, 175, 244, 0.08), transparent 45%),
+    linear-gradient(180deg, #131f30 0%, #0f1c2e 45%, #0a1520 100%);
+  --rs-dot-pattern:  rgba(30, 126, 220, 0.04);
+  --rs-dot-size:     18px;
+  --rs-dot-opacity:  0.7;
+  --rs-selection-bg:    rgba(30, 126, 220, 0.30);
+  --rs-scrollbar-thumb: rgba(30, 126, 220, 0.30);
+  --rs-scrollbar-hover: rgba(30, 126, 220, 0.55);
+  --rs-focus-ring:      rgba(30, 126, 220, 0.55);
+  --rs-accent-rgb:       30, 126, 220;
+  --rs-accent-light-rgb: 87, 175, 244;
+}
+
+/* ── AQUA: Backgrounds */
+[data-theme="aqua"] .bg-zinc-950                  { background-color: #0f1c2e !important; }
+[data-theme="aqua"] .bg-zinc-950\/80              { background-color: rgba(15, 28, 46, 0.80) !important; }
+[data-theme="aqua"] .bg-zinc-900                  { background-color: #162540 !important; }
+[data-theme="aqua"] .bg-zinc-800                  { background-color: #1e3054 !important; }
+[data-theme="aqua"] .bg-zinc-800\/30              { background-color: rgba(30, 48, 84, 0.30) !important; }
+[data-theme="aqua"] .bg-zinc-800\/50              { background-color: rgba(30, 48, 84, 0.50) !important; }
+[data-theme="aqua"] .bg-zinc-800\/60              { background-color: rgba(30, 48, 84, 0.60) !important; }
+[data-theme="aqua"] .bg-zinc-800\/80              { background-color: rgba(30, 48, 84, 0.80) !important; }
+[data-theme="aqua"] .hover\:bg-zinc-800\/60:hover { background-color: rgba(30, 48, 84, 0.60) !important; }
+[data-theme="aqua"] .hover\:bg-zinc-800:hover     { background-color: #1e3054 !important; }
+/* ── AQUA: Accent */
+[data-theme="aqua"] .bg-emerald-500               { background-color: #1e7edc !important; }
+[data-theme="aqua"] .bg-emerald-500\/10           { background-color: rgba(30, 126, 220, 0.10) !important; }
+[data-theme="aqua"] .bg-emerald-500\/15           { background-color: rgba(30, 126, 220, 0.15) !important; }
+[data-theme="aqua"] .bg-emerald-500\/20           { background-color: rgba(30, 126, 220, 0.20) !important; }
+[data-theme="aqua"] .from-emerald-500             { --tw-gradient-from: #1e7edc !important; }
+[data-theme="aqua"] .via-emerald-400              { --tw-gradient-via:  #57aff4 !important; }
+[data-theme="aqua"] .to-teal-300                  { --tw-gradient-to:   #90c8ff !important; }
+[data-theme="aqua"] .from-emerald-500\/10         { --tw-gradient-from: rgba(30, 126, 220, 0.10) !important; }
+[data-theme="aqua"] .to-teal-500\/10              { --tw-gradient-to:   rgba(30, 126, 220, 0.05) !important; }
+/* ── AQUA: Text */
+[data-theme="aqua"] .text-emerald-400             { color: #57aff4 !important; }
+[data-theme="aqua"] .text-emerald-500             { color: #1e7edc !important; }
+[data-theme="aqua"] .text-teal-300                { color: #90c8ff !important; }
+[data-theme="aqua"] .text-zinc-400                { color: #88aacc !important; }
+[data-theme="aqua"] .text-zinc-500                { color: #4466aa !important; }
+/* ── AQUA: Borders */
+[data-theme="aqua"] .border-zinc-800\/60          { border-color: rgba(30, 126, 220, 0.28) !important; }
+[data-theme="aqua"] .border-zinc-700\/30          { border-color: rgba(30, 126, 220, 0.18) !important; }
+[data-theme="aqua"] .border-zinc-700\/50          { border-color: rgba(30, 126, 220, 0.35) !important; }
+[data-theme="aqua"] .border-emerald-500           { border-color: #1e7edc !important; }
+[data-theme="aqua"] .border-emerald-500\/40       { border-color: rgba(30, 126, 220, 0.40) !important; }
+[data-theme="aqua"] .border-emerald-500\/50       { border-color: rgba(30, 126, 220, 0.50) !important; }
+/* ── AQUA: Special structural chrome — pinstripe sidebar */
+[data-theme="aqua"] .sidebar-shell {
+  background-image: repeating-linear-gradient(
+    0deg,
+    transparent 0px, transparent 1px,
+    rgba(255, 255, 255, 0.012) 1px, rgba(255, 255, 255, 0.012) 2px
+  ) !important;
+}
+
+
+/* ── AQUA: macOS Aqua — very round, clean white-space ───────────────────── */
+[data-theme="aqua"] .rs-album-art {
+  border-radius: 1.25rem !important;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.30), inset 0 1px 0 rgba(255,255,255,0.10) !important;
+}
+[data-theme="aqua"] .rs-player-art {
+  border-radius: 1rem !important;
+}
+[data-theme="aqua"] .rs-album-card {
+  max-width: 12.5rem !important;
+}
+[data-theme="aqua"] .rs-carousel-item {
+  width: 9rem !important;
+}
+[data-theme="aqua"] .rs-album-grid {
+  grid-template-columns: repeat(auto-fill, minmax(10rem, 1fr)) !important;
+  gap: 1.5rem !important;
+}
+
+
+/* ══════════════════════════════════════════════════════════════════════════
+   AQUA — macOS Aqua DNA: pinstripe sidebar, translucent surfaces
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* Sidebar: medium translucency with pinstripe */
+[data-theme="aqua"] .sidebar-shell {
+  background: rgba(16, 26, 50, 0.88) !important;
+  backdrop-filter: blur(20px) !important;
+  -webkit-backdrop-filter: blur(20px) !important;
+  border-right: 1px solid rgba(80, 120, 200, 0.28) !important;
+  position: relative;
+}
+/* Pinstripe overlay */
+[data-theme="aqua"] .sidebar-shell::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(
+    90deg,
+    transparent,
+    transparent 1px,
+    rgba(255, 255, 255, 0.007) 1px,
+    rgba(255, 255, 255, 0.007) 2px
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="aqua"] .sidebar-shell > * { position: relative; z-index: 1; }
+
+/* Section labels: macOS grouped sidebar style */
+[data-theme="aqua"] .sidebar-shell .uppercase.tracking-wider {
+  font-size: 0.675rem !important;
+  letter-spacing: 0.08em !important;
+  color: rgba(160, 190, 240, 0.5) !important;
+  font-weight: 700 !important;
+}
+
+/* Nav items: rounded, Aqua-button feel */
+[data-theme="aqua"] .sidebar-shell nav button {
+  border-radius: 0.5rem !important;
+  padding: 0.5rem 0.75rem !important;
+  font-weight: 500 !important;
+  font-size: 0.875rem !important;
+}
+[data-theme="aqua"] .sidebar-shell button.bg-gradient-to-r {
+  background: rgba(80, 140, 220, 0.20) !important;
+  background-image: none !important;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06) inset, 0 0 0 1px rgba(80,120,200,0.25) !important;
+}
+
+/* Player: aqua glass */
+[data-theme="aqua"] .player-shell {
+  background: rgba(16, 26, 50, 0.90) !important;
+  backdrop-filter: blur(24px) !important;
+  -webkit-backdrop-filter: blur(24px) !important;
+  border-top: 1px solid rgba(80, 120, 200, 0.25) !important;
+}
+
+[data-theme="aqua"] .page-title {
+  font-size: 2.1rem !important;
+  font-weight: 600 !important;
+  letter-spacing: -0.02em !important;
+}
+
+

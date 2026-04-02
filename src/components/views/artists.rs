@@ -161,7 +161,7 @@ pub fn ArtistsView() -> Element {
                                     }
                                 }
                             } else {
-                                div { class: "grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6",
+                                div { class: "rs-album-grid grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-6",
                                     for artist in display {
                                         ArtistCard {
                                             artist: artist.clone(),

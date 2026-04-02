@@ -378,8 +378,9 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         let mut repeat_mode = repeat_mode.clone();
         move |_| {
             let next = match repeat_mode() {
+                RepeatMode::Off => RepeatMode::All,
+                RepeatMode::All => RepeatMode::One,
                 RepeatMode::One => RepeatMode::Off,
-                RepeatMode::Off | RepeatMode::All => RepeatMode::One,
             };
             repeat_mode.set(next);
             app_settings.with_mut(|settings| {

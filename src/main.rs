@@ -59,7 +59,29 @@ const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 #[cfg(feature = "desktop")]
 const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
 #[cfg(feature = "desktop")]
-const THEMES_CSS_INLINE: &str = include_str!("../assets/styling/themes.css");
+const THEMES_CSS_INLINE: &str = concat!(
+    include_str!("../assets/styling/themes/shared/base.css"),
+    "\n",
+    include_str!("../assets/styling/themes/rusty/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/spot/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/fruit/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/navi/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/y2k/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/aero/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/aqua/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/material/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/fluent/theme.css"),
+    "\n",
+    include_str!("../assets/styling/themes/hig/theme.css")
+);
 #[cfg(feature = "desktop")]
 const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
@@ -386,7 +408,7 @@ fn GlobalStyles() -> Element {
     {
         return rsx! {
             document::Style { {TAILWIND_CSS_INLINE} }
-            // themes.css must come before app.css so its variables are defined first
+            // Theme variables/overrides must come before app.css so tokens are defined first.
             document::Style { {THEMES_CSS_INLINE} }
             document::Style { {APP_CSS_INLINE} }
         };

@@ -186,13 +186,17 @@
                                     }
                                 }
                                 button {
-                                    class: if current_repeat_mode == RepeatMode::One {
+                                    class: if matches!(current_repeat_mode, RepeatMode::All | RepeatMode::One) {
                                         "p-2 rounded-full border border-emerald-500/50 text-emerald-300 hover:text-emerald-200 transition-colors"
                                     } else {
                                         "p-2 rounded-full border border-zinc-700 text-zinc-400 hover:text-white transition-colors"
                                     },
                                     onclick: on_cycle_loop,
-                                    title: if current_repeat_mode == RepeatMode::One { "Loop one (on)" } else { "Loop one (off)" },
+                                    title: match current_repeat_mode {
+                                        RepeatMode::Off => "Repeat (off)",
+                                        RepeatMode::All => "Repeat all (on)",
+                                        RepeatMode::One => "Repeat one (on)",
+                                    },
                                     Icon {
                                         name: if current_repeat_mode == RepeatMode::One { "repeat-1".to_string() } else { "repeat".to_string() },
                                         class: "w-4 h-4".to_string(),

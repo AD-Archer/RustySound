@@ -10,7 +10,7 @@ RustySound is a cross-platform Navidrome/Subsonic music client written in Rust u
 
 **Platforms:** Web (WASM), Desktop (macOS/Windows/Linux via WebView), iOS/Android.
 
-**CSS loading:** Desktop inlines CSS via `include_str!()` in `src/main.rs`; web loads via `asset!()` stylesheet links. Both go through `GlobalStyles` component. Load order: tailwind.css → themes.css → app.css.
+**CSS loading:** Desktop inlines CSS via `include_str!()` in `src/main.rs`; web loads via `asset!()` stylesheet links. Both go through `GlobalStyles` component. Load order: tailwind.css → themes.css (which imports per-theme files in `assets/styling/themes/`) → app.css.
 
 **State:** Dioxus signals + context providers (`AppSettings`, `now_playing`, `queue`, `servers`, etc.) initialized in `AppShell` (`src/components/app.rs`).
 

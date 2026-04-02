@@ -1807,239 +1807,241 @@ pub fn AppShell() -> Element {
 
     rsx! {
         div {
-            class: "{app_container_class}",
             "data-theme": "{active_theme}",
-            if sidebar_open() && !song_details_open {
-                div {
-                    class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
-                    onclick: {
-                        let mut sidebar_open = sidebar_open.clone();
-                        move |_| sidebar_open.set(false)
-                    },
+            div {
+                class: "{app_container_class}",
+                if sidebar_open() && !song_details_open {
+                    div {
+                        class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
+                        onclick: {
+                            let mut sidebar_open = sidebar_open.clone();
+                            move |_| sidebar_open.set(false)
+                        },
+                    }
                 }
-            }
 
-            // Sidebar
-            Sidebar { sidebar_open: sidebar_signal, overlay_mode: false }
+                // Sidebar
+                Sidebar { sidebar_open: sidebar_signal, overlay_mode: false }
 
-            // Main content area + player
-            div { class: "flex-1 min-h-0 flex flex-col overflow-hidden",
-                header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
-                    div { class: "flex items-center justify-between px-4 py-3",
-                        div { class: "flex items-center gap-1",
-                            button {
-                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                aria_label: "Open menu",
-                                onclick: {
-                                    let mut sidebar_open = sidebar_open.clone();
-                                    move |_| sidebar_open.set(true)
-                                },
-                                Icon {
-                                    name: "menu".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
-                            }
-                            if can_go_back {
+                // Main content area + player
+                div { class: "flex-1 min-h-0 flex flex-col overflow-hidden",
+                    header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
+                        div { class: "flex items-center justify-between px-4 py-3",
+                            div { class: "flex items-center gap-1",
                                 button {
                                     class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                    aria_label: "Go back",
+                                    aria_label: "Open menu",
                                     onclick: {
-                                        let navigation = navigation.clone();
-                                        move |_| {
-                                            let _ = navigation.go_back();
-                                        }
+                                        let mut sidebar_open = sidebar_open.clone();
+                                        move |_| sidebar_open.set(true)
                                     },
                                     Icon {
-                                        name: "arrow-left".to_string(),
+                                        name: "menu".to_string(),
                                         class: "w-5 h-5".to_string(),
                                     }
                                 }
-                            }
-                        }
-                        div { class: "flex flex-col items-center text-center",
-                            span { class: "text-xs uppercase tracking-widest text-zinc-500",
-                                "RustySound"
-                            }
-                            span { class: "text-sm font-semibold text-white", "{view_label(&view)}" }
-                        }
-                        button {
-                            class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                            aria_label: "Open queue",
-                            onclick: {
-                                let nav = navigation.clone();
-                                move |_| nav.navigate_to(AppView::QueueView {})
-                            },
-                            Icon {
-                                name: "bars".to_string(),
-                                class: "w-5 h-5".to_string(),
-                            }
-                        }
-                    }
-                }
-
-                // Main scrollable content
-                main {
-                    class: "flex-1 min-h-0 overflow-y-auto main-scroll",
-                    div {
-                        class: "page-shell",
-                        if offline_mode_enabled {
-                            div { class: "mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3",
-                                div {
-                                    p { class: "text-sm font-medium text-amber-200", "Offline mode is currently enabled." }
-                                    p { class: "text-xs text-amber-100/80", "Only downloaded and cached content is available." }
-                                }
-                                button {
-                                    class: "px-3 py-2 rounded-lg border border-amber-400/60 text-amber-100 hover:text-white hover:border-amber-300 transition-colors text-sm",
-                                    onclick: {
-                                        let mut app_settings = app_settings.clone();
-                                        move |_| {
-                                            let mut settings = app_settings();
-                                            if !settings.offline_mode {
-                                                return;
+                                if can_go_back {
+                                    button {
+                                        class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                                        aria_label: "Go back",
+                                        onclick: {
+                                            let navigation = navigation.clone();
+                                            move |_| {
+                                                let _ = navigation.go_back();
                                             }
-                                            settings.offline_mode = false;
-                                            apply_cache_settings(&settings);
-                                            let settings_clone = settings.clone();
-                                            app_settings.set(settings);
-                                            spawn(async move {
-                                                let _ = save_settings(settings_clone).await;
-                                            });
+                                        },
+                                        Icon {
+                                            name: "arrow-left".to_string(),
+                                            class: "w-5 h-5".to_string(),
                                         }
-                                    },
-                                    "Disable Offline Mode"
+                                    }
+                                }
+                            }
+                            div { class: "flex flex-col items-center text-center",
+                                span { class: "text-xs uppercase tracking-widest text-zinc-500",
+                                    "RustySound"
+                                }
+                                span { class: "text-sm font-semibold text-white", "{view_label(&view)}" }
+                            }
+                            button {
+                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
+                                aria_label: "Open queue",
+                                onclick: {
+                                    let nav = navigation.clone();
+                                    move |_| nav.navigate_to(AppView::QueueView {})
+                                },
+                                Icon {
+                                    name: "bars".to_string(),
+                                    class: "w-5 h-5".to_string(),
                                 }
                             }
                         }
-                        Outlet::<AppView> {}
                     }
-                }
-                Player {}
-            }
-        }
 
-        if let Some((direction, progress)) = swipe_hint_state {
-            if progress > 0.0 {
-                div {
-                    class: if direction > 0 {
-                        "swipe-hint swipe-hint--back 2xl:hidden"
-                    } else {
-                        "swipe-hint swipe-hint--forward 2xl:hidden"
-                    },
-                    style: if direction > 0 {
-                        format!(
-                            "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
-                            0.2 + progress.min(1.0) * 0.8,
-                            -12.0 + progress.min(1.0) * 12.0,
-                            0.86 + progress.min(1.0) * 0.18
-                        )
-                    } else {
-                        format!(
-                            "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
-                            0.2 + progress.min(1.0) * 0.8,
-                            12.0 - progress.min(1.0) * 12.0,
-                            0.86 + progress.min(1.0) * 0.18
-                        )
-                    },
+                    // Main scrollable content
+                    main {
+                        class: "flex-1 min-h-0 overflow-y-auto main-scroll",
+                        div {
+                            class: "page-shell",
+                            if offline_mode_enabled {
+                                div { class: "mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3",
+                                    div {
+                                        p { class: "text-sm font-medium text-amber-200", "Offline mode is currently enabled." }
+                                        p { class: "text-xs text-amber-100/80", "Only downloaded and cached content is available." }
+                                    }
+                                    button {
+                                        class: "px-3 py-2 rounded-lg border border-amber-400/60 text-amber-100 hover:text-white hover:border-amber-300 transition-colors text-sm",
+                                        onclick: {
+                                            let mut app_settings = app_settings.clone();
+                                            move |_| {
+                                                let mut settings = app_settings();
+                                                if !settings.offline_mode {
+                                                    return;
+                                                }
+                                                settings.offline_mode = false;
+                                                apply_cache_settings(&settings);
+                                                let settings_clone = settings.clone();
+                                                app_settings.set(settings);
+                                                spawn(async move {
+                                                    let _ = save_settings(settings_clone).await;
+                                                });
+                                            }
+                                        },
+                                        "Disable Offline Mode"
+                                    }
+                                }
+                            }
+                            Outlet::<AppView> {}
+                        }
+                    }
+                    Player {}
+                }
+            }
+
+            if let Some((direction, progress)) = swipe_hint_state {
+                if progress > 0.0 {
                     div {
-                        class: "w-10 h-10 rounded-full border border-emerald-400/50 bg-zinc-950/80 text-emerald-300 shadow-lg backdrop-blur flex items-center justify-center",
-                        Icon {
-                            name: "arrow-left".to_string(),
-                            class: if direction > 0 { "w-5 h-5".to_string() } else { "w-5 h-5 rotate-180".to_string() },
-                        }
-                    }
-                }
-            }
-        }
-
-        AddToMenuOverlay { controller: add_menu.clone() }
-
-        SongDetailsOverlay { controller: song_details.clone() }
-
-        if song_details_open {
-            if sidebar_open() {
-                div {
-                    class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[115]",
-                    onclick: {
-                        let mut sidebar_open = sidebar_open.clone();
-                        move |_| sidebar_open.set(false)
-                    },
-                }
-            }
-            Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
-        }
-
-        if show_transport_loading_overlay {
-            div { class: "fixed inset-0 z-[205] bg-zinc-950/70 backdrop-blur-sm flex items-center justify-center px-6 pointer-events-none",
-                div { class: "max-w-sm text-center space-y-3 rounded-2xl border border-zinc-700/70 bg-zinc-900/85 px-6 py-5 shadow-2xl",
-                    div { class: "flex items-center justify-center",
-                        Icon {
-                            name: "loader".to_string(),
-                            class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                        }
-                    }
-                    h2 { class: "text-lg font-semibold text-white", "Loading Audio" }
-                    p { class: "text-sm text-zinc-300", "{transport_loading_label}" }
-                }
-            }
-        }
-
-        if is_startup_bootstrapping {
-            div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
-                div { class: "max-w-md text-center space-y-3",
-                    div { class: "flex items-center justify-center",
-                        Icon {
-                            name: "loader".to_string(),
-                            class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                        }
-                    }
-                    h2 { class: "text-lg font-semibold text-white", "Preparing RustySound" }
-                    p { class: "text-sm text-zinc-400",
-                        "Loading servers and settings, then warming local cache for faster navigation."
-                    }
-                    LoadingProgressBar {
-                        progress: startup_bootstrap_progress_value,
-                        stage: startup_bootstrap_status_text,
-                    }
-                    if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
-                        div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
-                            p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
-                            for line in ios_loading_logs_preview.iter() {
-                                p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
+                        class: if direction > 0 {
+                            "swipe-hint swipe-hint--back 2xl:hidden"
+                        } else {
+                            "swipe-hint swipe-hint--forward 2xl:hidden"
+                        },
+                        style: if direction > 0 {
+                            format!(
+                                "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
+                                0.2 + progress.min(1.0) * 0.8,
+                                -12.0 + progress.min(1.0) * 12.0,
+                                0.86 + progress.min(1.0) * 0.18
+                            )
+                        } else {
+                            format!(
+                                "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
+                                0.2 + progress.min(1.0) * 0.8,
+                                12.0 - progress.min(1.0) * 12.0,
+                                0.86 + progress.min(1.0) * 0.18
+                            )
+                        },
+                        div {
+                            class: "w-10 h-10 rounded-full border border-emerald-400/50 bg-zinc-950/80 text-emerald-300 shadow-lg backdrop-blur flex items-center justify-center",
+                            Icon {
+                                name: "arrow-left".to_string(),
+                                class: if direction > 0 { "w-5 h-5".to_string() } else { "w-5 h-5 rotate-180".to_string() },
                             }
                         }
                     }
                 }
             }
-        }
 
-        if is_home_initializing {
-            div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
-                div { class: "max-w-md text-center space-y-3",
-                    div { class: "flex items-center justify-center",
-                        Icon {
-                            name: "loader".to_string(),
-                            class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+            AddToMenuOverlay { controller: add_menu.clone() }
+
+            SongDetailsOverlay { controller: song_details.clone() }
+
+            if song_details_open {
+                if sidebar_open() {
+                    div {
+                        class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[115]",
+                        onclick: {
+                            let mut sidebar_open = sidebar_open.clone();
+                            move |_| sidebar_open.set(false)
+                        },
+                    }
+                }
+                Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
+            }
+
+            if show_transport_loading_overlay {
+                div { class: "fixed inset-0 z-[205] bg-zinc-950/70 backdrop-blur-sm flex items-center justify-center px-6 pointer-events-none",
+                    div { class: "max-w-sm text-center space-y-3 rounded-2xl border border-zinc-700/70 bg-zinc-900/85 px-6 py-5 shadow-2xl",
+                        div { class: "flex items-center justify-center",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+                            }
                         }
+                        h2 { class: "text-lg font-semibold text-white", "Loading Audio" }
+                        p { class: "text-sm text-zinc-300", "{transport_loading_label}" }
                     }
-                    h2 { class: "text-lg font-semibold text-white", "App initializing, please wait" }
-                    p { class: "text-sm text-zinc-400", "{home_init_status_text}" }
-                    LoadingProgressBar {
-                        progress: home_init_progress_value,
-                        stage: home_init_status_text.clone(),
-                    }
-                    if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
-                        div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
-                            p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
-                            for line in ios_loading_logs_preview.iter() {
-                                p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
+                }
+            }
+
+            if is_startup_bootstrapping {
+                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
+                    div { class: "max-w-md text-center space-y-3",
+                        div { class: "flex items-center justify-center",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+                            }
+                        }
+                        h2 { class: "text-lg font-semibold text-white", "Preparing RustySound" }
+                        p { class: "text-sm text-zinc-400",
+                            "Loading servers and settings, then warming local cache for faster navigation."
+                        }
+                        LoadingProgressBar {
+                            progress: startup_bootstrap_progress_value,
+                            stage: startup_bootstrap_status_text,
+                        }
+                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
+                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
+                                for line in ios_loading_logs_preview.iter() {
+                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
+                                }
                             }
                         }
                     }
                 }
             }
-        }
 
-        // Audio controller - manages playback separately from UI
-        AudioController {}
+            if is_home_initializing {
+                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
+                    div { class: "max-w-md text-center space-y-3",
+                        div { class: "flex items-center justify-center",
+                            Icon {
+                                name: "loader".to_string(),
+                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
+                            }
+                        }
+                        h2 { class: "text-lg font-semibold text-white", "App initializing, please wait" }
+                        p { class: "text-sm text-zinc-400", "{home_init_status_text}" }
+                        LoadingProgressBar {
+                            progress: home_init_progress_value,
+                            stage: home_init_status_text.clone(),
+                        }
+                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
+                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
+                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
+                                for line in ios_loading_logs_preview.iter() {
+                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Audio controller - manages playback separately from UI
+            AudioController {}
+        }
     }
 }
