@@ -3,6 +3,7 @@ name = "rustysound"
 version = "3.0.0"
 authors = ["ad-archer <antonioarcher.dev@gmail.com>"]
 edition = "2021"
+license = "GPL-3.0-or-later"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 

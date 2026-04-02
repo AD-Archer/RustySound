@@ -90,49 +90,6 @@ fn screenshot_bar_label(bar: &ScreenshotLyricBar, include_timestamp: bool) -> St
     bar.text.clone()
 }
 
-fn build_screenshot_share_caption(
-    song_title: &str,
-    song_artist: Option<&str>,
-    lines: &[String],
-) -> String {
-    let title = song_title.trim();
-    let artist = song_artist
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or("");
-
-    let mut body = String::new();
-    if !title.is_empty() {
-        body.push_str(title);
-    }
-    if !artist.is_empty() {
-        if !body.is_empty() {
-            body.push_str(" - ");
-        }
-        body.push_str(artist);
-    }
-    if !body.is_empty() {
-        body.push_str("\n\n");
-    }
-
-    let mut first = true;
-    for line in lines.iter().map(String::as_str).map(str::trim) {
-        if line.is_empty() {
-            continue;
-        }
-        if !first {
-            body.push('\n');
-        }
-        first = false;
-        body.push_str(line);
-    }
-
-    if !body.is_empty() && !body.ends_with('\n') {
-        body.push('\n');
-    }
-    body
-}
-
 fn screenshot_share_file_name(song_title: &str) -> String {
     let mut slug = String::new();
     let mut last_was_dash = false;
@@ -165,7 +122,7 @@ fn screenshot_share_file_name(song_title: &str) -> String {
 fn screenshot_share_intent_key(intent: ScreenshotShareIntent) -> &'static str {
     match intent {
         ScreenshotShareIntent::Save => "save",
-        ScreenshotShareIntent::Social => "Social",
+        ScreenshotShareIntent::Social => "social",
     }
 }
 
@@ -309,7 +266,6 @@ async fn lyrics_share_delay_ms(ms: u64) {
 async fn share_screenshot_lyrics_image(
     capture_element_id: String,
     file_name: String,
-    share_text: String,
     share_intent: String,
 ) -> String {
     let html2canvas_source_escaped =
@@ -318,8 +274,6 @@ async fn share_screenshot_lyrics_image(
         serde_json::to_string(&capture_element_id).unwrap_or_else(|_| "\"\"".to_string());
     let file_name_escaped =
         serde_json::to_string(&file_name).unwrap_or_else(|_| "\"rustysound-lyrics-shot.png\"".to_string());
-    let share_text_escaped =
-        serde_json::to_string(&share_text).unwrap_or_else(|_| "\"\"".to_string());
     let share_intent_escaped =
         serde_json::to_string(&share_intent).unwrap_or_else(|_| "\"share\"".to_string());
     let script = format!(
@@ -327,7 +281,6 @@ async fn share_screenshot_lyrics_image(
             const html2canvasSource = {html2canvas_source_escaped};
             const captureElementId = {capture_id_escaped};
             const fileName = {file_name_escaped};
-            const shareText = {share_text_escaped};
             const shareIntent = {share_intent_escaped};
             const debugTag = "[rustysound-share-shot]";
 
@@ -879,7 +832,7 @@ async fn share_screenshot_lyrics_image(
                 .trim()
                 .toLowerCase();
             const preferSaveIntent = normalizedShareIntent === "save";
-            const preferSocialIntent = normalizedShareIntent === "Social";
+            const preferSocialIntent = normalizedShareIntent === "social";
 
             const rawFileName =
                 (typeof fileName === "string" && fileName.trim().length > 0)
@@ -918,18 +871,8 @@ async fn share_screenshot_lyrics_image(
             try {{
                 if (canShareFiles) {{
                     const imageShareData = {{
-                        title: "RustySound Lyrics",
                         files: [imageFile],
                     }};
-                    if (
-                        !preferSaveIntent
-                        && !preferSocialIntent
-                        && typeof shareText === "string"
-                        && shareText.trim().length > 0
-                    ) {{
-                        imageShareData.text = shareText;
-                    }}
-
                     await navigator.share(imageShareData);
                     return "shared-image";
                 }}
@@ -938,20 +881,6 @@ async fn share_screenshot_lyrics_image(
                     return "cancelled";
                 }}
                 debugError("navigator.share image path failed", err);
-            }}
-
-            if (!preferSaveIntent && !preferSocialIntent) {{
-                try {{
-                    if (typeof navigator !== "undefined" && navigator.share) {{
-                        await navigator.share({{ title: "RustySound Lyrics", text: shareText }});
-                        return "shared-text";
-                    }}
-                }} catch (err) {{
-                    if (err && err.name === "AbortError") {{
-                        return "cancelled";
-                    }}
-                    debugError("navigator.share text fallback failed", err);
-                }}
             }}
 
             try {{
@@ -970,21 +899,11 @@ async fn share_screenshot_lyrics_image(
                 debugError("Local image download fallback failed", _err);
             }}
 
-            try {{
-                if (typeof navigator !== "undefined" && navigator.clipboard && navigator.clipboard.writeText) {{
-                    await navigator.clipboard.writeText(shareText);
-                    return "copied";
-                }}
-            }} catch (_err) {{
-                debugError("Clipboard fallback failed", _err);
-            }}
-
             return "unavailable";
         }})();"###,
         html2canvas_source_escaped = html2canvas_source_escaped,
         capture_id_escaped = capture_id_escaped,
         file_name_escaped = file_name_escaped,
-        share_text_escaped = share_text_escaped,
         share_intent_escaped = share_intent_escaped
     );
 
@@ -1476,7 +1395,6 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
 
     let start_screenshot_share: std::rc::Rc<dyn Fn(ScreenshotShareIntent)> = {
         let screenshot_song_title = screenshot_song_title.clone();
-        let screenshot_song_artist = screenshot_song_artist.clone();
         let screenshot_shot_card_id = screenshot_shot_card_id.clone();
         let screenshot_selected_bars = screenshot_selected_bars.clone();
         let screenshot_share_feedback = screenshot_share_feedback.clone();
@@ -1499,23 +1417,15 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                 return;
             }
 
-            let lines = screenshot_selected_bars
+            let has_shareable_line = screenshot_selected_bars
                 .iter()
-                .map(|bar| bar.text.trim().to_string())
-                .filter(|line| !line.is_empty())
-                .collect::<Vec<_>>();
-            if lines.is_empty() {
+                .any(|bar| !bar.text.trim().is_empty());
+            if !has_shareable_line {
                 screenshot_share_feedback.set(Some(
                     "Select one or more lyric lines to share.".to_string(),
                 ));
                 return;
             }
-
-            let share_text = build_screenshot_share_caption(
-                &screenshot_song_title,
-                screenshot_song_artist.as_deref(),
-                &lines,
-            );
             let share_file_name = screenshot_share_file_name(&screenshot_song_title);
             let capture_id = screenshot_shot_card_id.clone();
             let share_intent_key = screenshot_share_intent_key(share_intent).to_string();
@@ -1535,7 +1445,6 @@ fn LyricsPanel(props: LyricsPanelProps) -> Element {
                 let status = share_screenshot_lyrics_image(
                     capture_id,
                     share_file_name,
-                    share_text,
                     share_intent_key,
                 )
                 .await;

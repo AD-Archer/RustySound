@@ -3,9 +3,11 @@
 A lightweight cross-platform music streaming client for Navidrome and Subsonic-compatible servers, built with Rust and Dioxus, < 10mb
 
 ![RustySound desktop screenshot](https://www.antonioarcher.com/images/projects/rustysound/desktop/sound_menu.webp)
-<img alt="album page art" src="https://github.com/user-attachments/assets/06267508-388f-456b-a2e3-ae45dc00f11c" />
 ![RustySound lyrics demo](https://www.antonioarcher.com/images/projects/rustysound/desktop/shot.gif)
 <img alt="album" src="https://github.com/user-attachments/assets/bc93c22e-bcf1-4a41-9d3c-fdba82a36214" />
+![RustySound desktop theme 1](https://www.antonioarcher.com/images/projects/rustysound/desktop/desktoptheme1.webp)
+![RustySound desktop theme 2](https://www.antonioarcher.com/images/projects/rustysound/desktop/desktoptheme2.webp)
+![RustySound mobile theme](https://www.antonioarcher.com/images/projects/rustysound/mobile/mobiletheme1.webp)
 
 # Features
 
@@ -17,6 +19,14 @@ A lightweight cross-platform music streaming client for Navidrome and Subsonic-c
 - 🔍 **Search & Browse**: Browse your music library by artists, albums, and tracks
 - 🎚️ **Audio Controls**: Play, pause, skip, shuffle, and repeat functionality
 - 🌙 **Modern UI**: Clean, responsive interface built with Tailwind CSS
+- 🎨 **Themes**: Multiple built-in themes with custom theme/CSS support
+
+# Themes
+
+RustySound now supports multiple built-in themes and custom themes.
+
+- Switch between bundled themes in **Settings**
+- Apply your own custom CSS overrides
 
 # Supported Platforms
 
@@ -364,7 +374,8 @@ rustysound/
 
 ## License
 
-Copyright © 2026 AD-Archer. All rights reserved.
+Licensed under the GNU General Public License v3.0 (GPL-3.0-or-later).  
+See [LICENSE](./LICENSE) for full terms.
 
 ## Acknowledgments
 
