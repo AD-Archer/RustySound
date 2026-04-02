@@ -21,10 +21,7 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
         let seed_song = props.seed_song.clone();
         let mut create_queue_busy = props.create_queue_busy.clone();
         let servers = servers.clone();
-        let mut queue = queue.clone();
-        let mut queue_index = queue_index.clone();
-        let mut now_playing = now_playing.clone();
-        let mut is_playing = is_playing.clone();
+        let queue = queue.clone();
         move |_| {
             if create_queue_busy() {
                 return;
@@ -32,18 +29,31 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
             create_queue_busy.set(true);
             let seed_song = seed_song.clone();
             let servers_snapshot = servers();
+            let queue_snapshot = queue();
+            let mut create_queue_busy = create_queue_busy.clone();
+            let mut queue = queue.clone();
             spawn(async move {
-                let generated = build_queue_from_seed(seed_song.clone(), servers_snapshot).await;
-                if generated.is_empty() {
-                    queue.set(vec![seed_song.clone()]);
-                    queue_index.set(0);
-                    now_playing.set(Some(seed_song));
-                } else {
-                    queue.set(generated.clone());
-                    queue_index.set(0);
-                    now_playing.set(generated.first().cloned());
-                }
-                is_playing.set(true);
+                let mut additions = generate_queue_extension_from_seed(
+                    servers_snapshot,
+                    seed_song.clone(),
+                    queue_snapshot,
+                    45,
+                )
+                .await;
+
+                queue.with_mut(|items| {
+                    if items.is_empty() {
+                        items.push(seed_song.clone());
+                    }
+                    for candidate in additions.drain(..) {
+                        if items.iter().any(|entry| {
+                            entry.id == candidate.id && entry.server_id == candidate.server_id
+                        }) {
+                            continue;
+                        }
+                        items.push(candidate);
+                    }
+                });
                 create_queue_busy.set(false);
             });
         }
@@ -225,4 +235,3 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
         }
     }
 }
-

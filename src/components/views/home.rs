@@ -1,4 +1,5 @@
 use crate::api::*;
+use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController, AppView, HomeFeedState,
     HomeRefreshSignal, Icon, Navigation,
@@ -747,11 +748,13 @@ pub fn HomeView() -> Element {
                                             index: index + 1,
                                             onclick: {
                                                 let song = song.clone();
-                                                let songs_for_queue = songs.clone();
                                                 move |_| {
-                                                    queue.set(songs_for_queue.clone());
-                                                    queue_index.set(index);
-                                                    now_playing.set(Some(song.clone()));
+                                                    let single_queue = normalize_manual_queue_songs(vec![
+                                                        song.clone(),
+                                                    ]);
+                                                    queue.set(single_queue.clone());
+                                                    queue_index.set(0);
+                                                    now_playing.set(single_queue.first().cloned());
                                                     is_playing.set(true);
                                                 }
                                             },

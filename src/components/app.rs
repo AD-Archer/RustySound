@@ -1,6 +1,7 @@
 use crate::api::*;
 use crate::cache_service::{
     apply_settings as apply_cache_settings, get_json as cache_get_json, put_json as cache_put_json,
+    remove_by_prefix as cache_remove_prefix,
 };
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, view_label, AddIntent, AddMenuController,
@@ -1261,6 +1262,27 @@ pub fn AppShell() -> Element {
         if manual_refresh_requested {
             home_manual_refresh_applied.set(manual_refresh_generation);
             home_init_signature.set(None);
+            if cache_enabled {
+                let cache_prefix = home_init_cache_prefix(&active_servers);
+                let warmup_cache_key = home_init_warmup_cache_key(&active_servers);
+                let mut removed_entries = cache_remove_prefix(&format!("{cache_prefix}:"));
+                removed_entries += cache_remove_prefix(&warmup_cache_key);
+                for server in &active_servers {
+                    removed_entries +=
+                        cache_remove_prefix(&format!("api:getAlbumList2:v1:{}:newest:", server.id));
+                    removed_entries += cache_remove_prefix(&format!(
+                        "api:getAlbumList2:v1:{}:frequent:",
+                        server.id
+                    ));
+                }
+                ios_diag_log(
+                    "home.init.gate",
+                    &format!(
+                        "manual refresh invalidated cache entries={removed_entries} active_servers={}",
+                        active_servers.len()
+                    ),
+                );
+            }
             ios_diag_log(
                 "home.init.gate",
                 &format!(

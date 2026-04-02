@@ -4,6 +4,7 @@ use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_jso
 use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
     PreviewPlaybackSignal, SeekRequestSignal, SongDetailsController,
+    generate_queue_extension_from_seed,
 };
 use crate::diagnostics::{log_perf, PerfTimer};
 use dioxus::prelude::*;
@@ -84,11 +85,17 @@ pub fn QueueView() -> Element {
     let preview_session = use_signal(|| 0u64);
     let preview_song_key = use_signal(|| None::<String>);
     let lyrics_prefetch_signature = use_signal(String::new);
+    let quick_create_queue_busy = use_signal(|| false);
 
     let current_index = queue_index();
     let songs: Vec<Song> = queue().into_iter().collect();
     let queue_len = songs.len();
     let current_song = now_playing();
+    let can_quick_create_more = current_song
+        .clone()
+        .or_else(|| songs.get(current_index).cloned())
+        .or_else(|| songs.last().cloned())
+        .is_some();
 
     {
         let queue = queue.clone();
@@ -290,6 +297,57 @@ pub fn QueueView() -> Element {
         move |evt: MouseEvent| {
             evt.stop_propagation();
             recommendation_refresh_nonce.set(recommendation_refresh_nonce().saturating_add(1));
+        }
+    };
+
+    let on_quick_create_more = {
+        let mut quick_create_queue_busy = quick_create_queue_busy.clone();
+        let servers = servers.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        move |_| {
+            if quick_create_queue_busy() {
+                return;
+            }
+
+            let queue_snapshot = queue();
+            let seed_song = now_playing()
+                .or_else(|| queue_snapshot.get(queue_index()).cloned())
+                .or_else(|| queue_snapshot.last().cloned());
+            let Some(seed_song) = seed_song else {
+                return;
+            };
+
+            quick_create_queue_busy.set(true);
+            let servers_snapshot = servers();
+            let mut queue = queue.clone();
+            let mut quick_create_queue_busy = quick_create_queue_busy.clone();
+            spawn(async move {
+                let mut additions = generate_queue_extension_from_seed(
+                    servers_snapshot,
+                    seed_song.clone(),
+                    queue_snapshot,
+                    45,
+                )
+                .await;
+
+                queue.with_mut(|items| {
+                    if items.is_empty() {
+                        items.push(seed_song.clone());
+                    }
+                    for candidate in additions.drain(..) {
+                        if items
+                            .iter()
+                            .any(|entry| same_song_identity(entry, &candidate))
+                        {
+                            continue;
+                        }
+                        items.push(candidate);
+                    }
+                });
+                quick_create_queue_busy.set(false);
+            });
         }
     };
 
@@ -713,6 +771,24 @@ pub fn QueueView() -> Element {
                     p { class: "text-zinc-500 text-sm mt-2",
                         "Use Add Songs above to build a queue."
                     }
+                    button {
+                        class: if quick_create_queue_busy() || !can_quick_create_more {
+                            "mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
+                        } else {
+                            "mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
+                        },
+                        disabled: quick_create_queue_busy() || !can_quick_create_more,
+                        onclick: on_quick_create_more,
+                        Icon {
+                            name: if quick_create_queue_busy() { "loader".to_string() } else { "plus".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
+                        if quick_create_queue_busy() {
+                            "Adding songs..."
+                        } else {
+                            "Quick Create Queue"
+                        }
+                    }
                 }
             } else {
                 div { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 overflow-hidden",
@@ -1064,6 +1140,26 @@ pub fn QueueView() -> Element {
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+                div { class: "flex justify-center pt-4",
+                    button {
+                        class: if quick_create_queue_busy() || !can_quick_create_more {
+                            "inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
+                        } else {
+                            "inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
+                        },
+                        disabled: quick_create_queue_busy() || !can_quick_create_more,
+                        onclick: on_quick_create_more,
+                        Icon {
+                            name: if quick_create_queue_busy() { "loader".to_string() } else { "plus".to_string() },
+                            class: "w-4 h-4".to_string(),
+                        }
+                        if quick_create_queue_busy() {
+                            "Adding songs..."
+                        } else {
+                            "Quick Create Queue"
                         }
                     }
                 }

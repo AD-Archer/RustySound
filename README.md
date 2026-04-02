@@ -340,14 +340,10 @@ rustysound/
 
 1. Launch RustySound
 2. Go to Settings
-3. Add your Navidrome/Subsonic server details:
-   - Server URL
-   - Username
-   - Password (optional, depending on server setup)
 
 ### Supported Servers
 
-- **Navidrome**: Full feature support
+- **[Navidrome](https://www.navidrome.org/)**: Full feature support
 - **Subsonic**: Compatible with Subsonic API v1.16.1+
 - **Airsonic**: Compatible servers
 - **Gonic**: Compatible servers

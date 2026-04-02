@@ -11,6 +11,95 @@ pub(crate) fn normalize_manual_queue_songs(songs: Vec<Song>) -> Vec<Song> {
         .collect()
 }
 
+fn queue_extension_song_key(song: &Song) -> String {
+    format!("{}::{}", song.server_id, song.id)
+}
+
+fn extend_unique_queue_candidates(
+    candidates: Vec<Song>,
+    excluded: &mut std::collections::HashSet<String>,
+    additions: &mut Vec<Song>,
+    limit: usize,
+) {
+    for candidate in candidates {
+        let key = queue_extension_song_key(&candidate);
+        if !excluded.insert(key) {
+            continue;
+        }
+        additions.push(candidate);
+        if additions.len() >= limit {
+            break;
+        }
+    }
+}
+
+pub(crate) async fn generate_queue_extension_from_seed(
+    servers: Vec<ServerConfig>,
+    seed_song: Song,
+    existing_queue: Vec<Song>,
+    desired_additions: usize,
+) -> Vec<Song> {
+    let limit = desired_additions.clamp(1, 80);
+    let mut active_servers: Vec<ServerConfig> =
+        servers.iter().filter(|server| server.active).cloned().collect();
+    if active_servers.is_empty() {
+        active_servers = servers;
+    }
+    if active_servers.is_empty() {
+        return Vec::new();
+    }
+
+    let mut excluded = std::collections::HashSet::<String>::new();
+    for song in &existing_queue {
+        excluded.insert(queue_extension_song_key(song));
+    }
+    excluded.insert(queue_extension_song_key(&seed_song));
+
+    let mut additions = Vec::<Song>::new();
+    let lookup_count = ((limit as u32).saturating_mul(4)).clamp(24, 120);
+    if let Some(seed_server) = active_servers
+        .iter()
+        .find(|server| server.id == seed_song.server_id)
+        .cloned()
+    {
+        let client = NavidromeClient::new(seed_server);
+        if let Ok(similar) = client.get_similar_songs2(&seed_song.id, lookup_count).await {
+            extend_unique_queue_candidates(similar, &mut excluded, &mut additions, limit);
+        }
+        if additions.len() < limit {
+            if let Ok(similar) = client.get_similar_songs(&seed_song.id, lookup_count).await {
+                extend_unique_queue_candidates(similar, &mut excluded, &mut additions, limit);
+            }
+        }
+    }
+
+    if additions.len() < limit {
+        let random_batch = ((limit as u32).saturating_mul(2)).clamp(30, 120);
+        for _pass in 0..2 {
+            for server in active_servers.iter().cloned() {
+                let client = NavidromeClient::new(server);
+                if let Ok(random_songs) = client.get_random_songs(random_batch).await {
+                    extend_unique_queue_candidates(
+                        random_songs,
+                        &mut excluded,
+                        &mut additions,
+                        limit,
+                    );
+                }
+                if additions.len() >= limit {
+                    break;
+                }
+            }
+            if additions.len() >= limit {
+                break;
+            }
+        }
+    }
+
+    additions.truncate(limit);
+    normalize_manual_queue_songs(additions)
+}
+
 pub(crate) fn assign_collection_queue_meta(
     songs: Vec<Song>,
     source_kind: QueueSourceKind,
