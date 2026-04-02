@@ -2980,6 +2980,16 @@
       }
     }
   }
+  .hover\:bg-zinc-700\/60 {
+    &:hover {
+      @media (hover: hover) {
+        background-color: color-mix(in srgb, oklch(37% 0.013 285.805) 60%, transparent);
+        @supports (color: color-mix(in lab, red, red)) {
+          background-color: color-mix(in oklab, var(--color-zinc-700) 60%, transparent);
+        }
+      }
+    }
+  }
   .hover\:bg-zinc-800 {
     &:hover {
       @media (hover: hover) {
