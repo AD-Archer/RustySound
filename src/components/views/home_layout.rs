@@ -178,6 +178,41 @@ impl HomeQuickPicksLayout {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
+pub enum HomeQuickPicksSize {
+    Small,
+    #[default]
+    Medium,
+    Large,
+}
+
+impl HomeQuickPicksSize {
+    pub fn as_value(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+
+    pub fn from_value(value: &str) -> Self {
+        match value {
+            "small" => Self::Small,
+            "large" => Self::Large,
+            _ => Self::Medium,
+        }
+    }
+
+    pub fn target_columns(self) -> usize {
+        match self {
+            Self::Small => 6,
+            Self::Medium => 5,
+            Self::Large => 4,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
 pub enum HomeQuickPlayAction {
     #[default]
     AllSongs,
@@ -276,6 +311,8 @@ pub struct HomeQuickPicksSettings {
     pub enabled: bool,
     #[serde(default)]
     pub layout: HomeQuickPicksLayout,
+    #[serde(default)]
+    pub size: HomeQuickPicksSize,
     #[serde(default = "default_quick_picks_columns")]
     pub columns: u8,
     #[serde(default = "default_quick_picks_rows")]
@@ -289,6 +326,7 @@ impl Default for HomeQuickPicksSettings {
         Self {
             enabled: true,
             layout: HomeQuickPicksLayout::default(),
+            size: HomeQuickPicksSize::default(),
             columns: default_quick_picks_columns(),
             rows: default_quick_picks_rows(),
             visible_count: default_quick_picks_visible_count(),
@@ -466,9 +504,16 @@ impl HomeLayoutSettings {
         self.top_album_visible = self.top_album_visible.clamp(3, 24);
         self.quick_play.rows = self.quick_play.rows.clamp(1, 4);
         self.quick_play.columns = self.quick_play.columns.clamp(1, 5);
-        self.quick_picks.columns = self.quick_picks.columns.clamp(1, 4);
-        self.quick_picks.rows = self.quick_picks.rows.clamp(1, 6);
-        self.quick_picks.visible_count = self.quick_picks.visible_count.clamp(1, 48);
+        self.quick_picks.columns = self.quick_picks.columns.clamp(1, 6);
+        self.quick_picks.rows = self.quick_picks.rows.clamp(1, 8);
+        self.quick_picks.visible_count = self.quick_picks.visible_count.clamp(2, 48);
+        if self.quick_picks.visible_count % 2 != 0 {
+            self.quick_picks.visible_count = if self.quick_picks.visible_count < 48 {
+                self.quick_picks.visible_count.saturating_add(1)
+            } else {
+                self.quick_picks.visible_count.saturating_sub(1)
+            };
+        }
 
         if self.quick_play.actions.is_empty() {
             self.quick_play.actions = default_quick_play_actions();

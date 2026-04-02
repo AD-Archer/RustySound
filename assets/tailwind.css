@@ -383,6 +383,9 @@
   .bottom-12 {
     bottom: calc(var(--spacing) * 12);
   }
+  .bottom-24 {
+    bottom: calc(var(--spacing) * 24);
+  }
   .bottom-28 {
     bottom: calc(var(--spacing) * 28);
   }
@@ -439,6 +442,9 @@
   }
   .z-\[120\] {
     z-index: 120;
+  }
+  .z-\[180\] {
+    z-index: 180;
   }
   .z-\[205\] {
     z-index: 205;
@@ -833,6 +839,9 @@
   .w-32 {
     width: calc(var(--spacing) * 32);
   }
+  .w-36 {
+    width: calc(var(--spacing) * 36);
+  }
   .w-44 {
     width: calc(var(--spacing) * 44);
   }
@@ -1226,6 +1235,12 @@
   }
   .border-amber-400 {
     border-color: var(--color-amber-400);
+  }
+  .border-amber-400\/50 {
+    border-color: color-mix(in srgb, oklch(82.8% 0.189 84.429) 50%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      border-color: color-mix(in oklab, var(--color-amber-400) 50%, transparent);
+    }
   }
   .border-amber-400\/60 {
     border-color: color-mix(in srgb, oklch(82.8% 0.189 84.429) 60%, transparent);
@@ -2591,6 +2606,12 @@
   .text-emerald-300 {
     color: var(--color-emerald-300);
   }
+  .text-emerald-300\/80 {
+    color: color-mix(in srgb, oklch(84.5% 0.143 164.978) 80%, transparent);
+    @supports (color: color-mix(in lab, red, red)) {
+      color: color-mix(in oklab, var(--color-emerald-300) 80%, transparent);
+    }
+  }
   .text-emerald-400 {
     color: var(--color-emerald-400);
   }
@@ -3868,6 +3889,11 @@
   .sm\:w-5 {
     @media (width >= 40rem) {
       width: calc(var(--spacing) * 5);
+    }
+  }
+  .sm\:w-28 {
+    @media (width >= 40rem) {
+      width: calc(var(--spacing) * 28);
     }
   }
   .sm\:w-auto {

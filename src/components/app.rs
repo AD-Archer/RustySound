@@ -39,10 +39,10 @@ const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
 const HISTORY_SWIPE_VERTICAL_SLOP: f64 = 72.0;
 #[cfg(target_arch = "wasm32")]
 const HISTORY_SWIPE_EDGE_ZONE: f64 = 28.0;
-const HOME_INIT_QUICK_PICK_LIMIT_STANDARD: usize = 8;
+const HOME_INIT_QUICK_PICK_LIMIT_STANDARD: usize = 72;
 const HOME_INIT_SECTION_BASE_COUNT_STANDARD: usize = 9;
 const HOME_INIT_SECTION_LOAD_STEP_STANDARD: usize = 6;
-const HOME_INIT_SECTION_FETCH_LIMIT_STANDARD: usize = 18;
+const HOME_INIT_SECTION_FETCH_LIMIT_STANDARD: usize = 180;
 const HOME_INIT_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
 const AUTO_DOWNLOAD_POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
 
@@ -62,12 +62,12 @@ fn home_init_fetch_budget(profile: HomeFeedLoadProfile) -> HomeInitFetchBudget {
         HomeFeedLoadProfile::Conservative => {
             let section_base_count = 6usize;
             let section_load_step = 4usize;
-            let section_fetch_limit = 12usize;
+            let section_fetch_limit = 60usize;
             HomeInitFetchBudget {
-                quick_pick_limit: 6,
+                quick_pick_limit: 24,
                 section_base_count,
                 section_load_step,
-                section_cache_count: section_base_count + section_load_step,
+                section_cache_count: section_fetch_limit,
                 section_fetch_limit,
                 random_fetch_limit: section_fetch_limit,
                 album_preview_limit: section_base_count as u32,
@@ -81,7 +81,7 @@ fn home_init_fetch_budget(profile: HomeFeedLoadProfile) -> HomeInitFetchBudget {
                 quick_pick_limit: HOME_INIT_QUICK_PICK_LIMIT_STANDARD,
                 section_base_count,
                 section_load_step,
-                section_cache_count: section_base_count + section_load_step,
+                section_cache_count: section_fetch_limit,
                 section_fetch_limit,
                 random_fetch_limit: section_fetch_limit,
                 album_preview_limit: section_base_count as u32,
@@ -90,12 +90,12 @@ fn home_init_fetch_budget(profile: HomeFeedLoadProfile) -> HomeInitFetchBudget {
         HomeFeedLoadProfile::Super => {
             let section_base_count = 12usize;
             let section_load_step = 8usize;
-            let section_fetch_limit = 36usize;
+            let section_fetch_limit = 360usize;
             HomeInitFetchBudget {
-                quick_pick_limit: 16,
+                quick_pick_limit: 144,
                 section_base_count,
                 section_load_step,
-                section_cache_count: section_base_count + section_load_step,
+                section_cache_count: section_fetch_limit,
                 section_fetch_limit,
                 random_fetch_limit: section_fetch_limit,
                 album_preview_limit: section_base_count as u32,

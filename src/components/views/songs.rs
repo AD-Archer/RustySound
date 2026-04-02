@@ -114,7 +114,7 @@ pub fn SongsView() -> Element {
             let mut songs = Vec::new();
             let active_servers: Vec<ServerConfig> =
                 servers.into_iter().filter(|s| s.active).collect();
-            let candidate_limit = limit.saturating_mul(3).clamp(45, 240);
+            let candidate_limit = limit.saturating_mul(3).clamp(45, 5000);
 
             if query_snapshot.trim().is_empty() {
                 match sort_option_snapshot.as_str() {

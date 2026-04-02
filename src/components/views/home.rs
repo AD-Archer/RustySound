@@ -2,8 +2,8 @@ use super::artist_links::{parse_artist_names, resolve_artist_id_for_name, Artist
 use super::home_layout::{
     parse_home_layout_settings, serialize_home_layout_settings, HomeAlbumSectionConfig,
     HomeAlbumSource, HomeFeedLoadProfile, HomeLayoutSettings, HomeQuickPicksLayout,
-    HomeQuickPlayAction, HomeSongSectionConfig, HomeSongSource, HomeSortDirection,
-    HomeTopStripMode,
+    HomeQuickPicksSize, HomeQuickPlayAction, HomeSongSectionConfig, HomeSongSource,
+    HomeSortDirection, HomeTopStripMode,
 };
 use crate::api::*;
 use crate::components::audio_manager::{
@@ -73,6 +73,16 @@ async fn home_loading_log_poll_sleep() {
 #[cfg(target_arch = "wasm32")]
 async fn home_loading_log_poll_sleep() {
     gloo_timers::future::TimeoutFuture::new(350).await;
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+async fn home_quick_picks_grid_poll_sleep() {
+    tokio::time::sleep(std::time::Duration::from_millis(700)).await;
+}
+
+#[cfg(target_arch = "wasm32")]
+async fn home_quick_picks_grid_poll_sleep() {
+    gloo_timers::future::TimeoutFuture::new(700).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -403,6 +413,135 @@ fn should_autoname_section_title(current_title: &str, previous_default: &str) ->
     title.is_empty() || title.eq_ignore_ascii_case(previous_default)
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum QuickPicksVisibleAmount {
+    Small,
+    Medium,
+    Large,
+}
+
+impl QuickPicksVisibleAmount {
+    fn as_value(self) -> &'static str {
+        match self {
+            Self::Small => "small",
+            Self::Medium => "medium",
+            Self::Large => "large",
+        }
+    }
+
+    fn from_value(value: &str) -> Self {
+        match value {
+            "small" => Self::Small,
+            "large" => Self::Large,
+            _ => Self::Medium,
+        }
+    }
+}
+
+fn quick_picks_visible_count_for_amount(amount: QuickPicksVisibleAmount) -> usize {
+    match amount {
+        QuickPicksVisibleAmount::Small => 14,
+        QuickPicksVisibleAmount::Medium => 25,
+        QuickPicksVisibleAmount::Large => 40,
+    }
+}
+
+fn quick_picks_visible_amount_from_count(count: usize) -> QuickPicksVisibleAmount {
+    let small_delta = count.abs_diff(14);
+    let medium_delta = count.abs_diff(25);
+    let large_delta = count.abs_diff(40);
+
+    if small_delta <= medium_delta && small_delta <= large_delta {
+        QuickPicksVisibleAmount::Small
+    } else if large_delta < medium_delta {
+        QuickPicksVisibleAmount::Large
+    } else {
+        QuickPicksVisibleAmount::Medium
+    }
+}
+
+fn normalize_quick_picks_requested_count(count: usize) -> usize {
+    let mut normalized = count.clamp(2, 48);
+    if normalized % 2 != 0 {
+        normalized = if normalized < 48 {
+            normalized.saturating_add(1)
+        } else {
+            normalized.saturating_sub(1)
+        };
+    }
+    normalized.clamp(2, 48)
+}
+
+fn snap_quick_picks_requested_to_grid(requested_visible: usize, columns: usize) -> usize {
+    let cols = columns.max(1);
+    let target = normalize_quick_picks_requested_count(requested_visible)
+        .max(cols)
+        .min(48);
+    let lower_rows = (target / cols).max(1);
+    let lower = lower_rows.saturating_mul(cols).min(48);
+    let upper_rows = ((target + cols - 1) / cols).max(1);
+    let upper = upper_rows.saturating_mul(cols).min(48);
+    if target.abs_diff(lower) <= target.abs_diff(upper) {
+        lower
+    } else {
+        upper
+    }
+}
+
+fn quick_picks_grid_visible_limit_for_loaded(
+    requested_visible: usize,
+    columns: usize,
+    total_items: usize,
+) -> usize {
+    if total_items == 0 {
+        return 0;
+    }
+
+    let cols = columns.max(1);
+    let cap = requested_visible.min(total_items);
+    let rows = cap / cols;
+    if rows > 0 {
+        return rows.saturating_mul(cols).min(total_items);
+    }
+
+    cap.clamp(1, total_items)
+}
+
+fn quick_picks_list_visible_limit_for_loaded(
+    requested_visible: usize,
+    total_items: usize,
+) -> usize {
+    if total_items == 0 {
+        return 0;
+    }
+
+    let mut visible = normalize_quick_picks_requested_count(requested_visible).min(total_items);
+    if visible == 0 {
+        visible = total_items.min(2);
+    }
+    visible.clamp(1, total_items)
+}
+
+fn quick_picks_target_columns(size: HomeQuickPicksSize) -> usize {
+    size.target_columns()
+}
+
+fn quick_picks_card_min_px(size: HomeQuickPicksSize) -> usize {
+    match size {
+        HomeQuickPicksSize::Small => 112,
+        HomeQuickPicksSize::Medium => 136,
+        HomeQuickPicksSize::Large => 164,
+    }
+}
+
+fn quick_picks_list_batch_size(size: HomeQuickPicksSize) -> usize {
+    match size {
+        HomeQuickPicksSize::Small => 14,
+        HomeQuickPicksSize::Medium => 10,
+        HomeQuickPicksSize::Large => 8,
+    }
+}
+
 fn new_album_section() -> HomeAlbumSectionConfig {
     let source = HomeAlbumSource::MostPlayed;
     HomeAlbumSectionConfig {
@@ -478,6 +617,8 @@ pub fn HomeView() -> Element {
     let home_loading_status = home_feed.status;
     let mut ios_loading_log_lines = use_signal(Vec::<String>::new);
     let mut ios_loading_log_poll_generation = use_signal(|| 0u64);
+    let mut quick_picks_grid_poll_generation = use_signal(|| 0u64);
+    let mut quick_picks_runtime_columns = use_signal(|| 0usize);
     let mut home_loading_started_at_ms = use_signal(|| None::<u64>);
     let mut home_loading_elapsed_ms = use_signal(|| 0u64);
     let mut home_loading_force_unblocked = use_signal(|| false);
@@ -504,6 +645,22 @@ pub fn HomeView() -> Element {
     use_effect(move || {
         let _ = home_layout();
         section_visible_overrides.set(HashMap::new());
+    });
+
+    use_effect(move || {
+        if !show_home_editor() {
+            return;
+        }
+        let _ = document::eval(
+            r#"
+(() => {
+  const editor = document.getElementById("home-layout-editor");
+  if (!editor) return false;
+  editor.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
+})();
+"#,
+        );
     });
 
     let has_servers = servers().iter().any(|s| s.active);
@@ -706,7 +863,13 @@ pub fn HomeView() -> Element {
         }
     };
 
-    let layout_snapshot = home_layout();
+    let editor_open = show_home_editor();
+    let layout_draft_snapshot = home_layout_draft();
+    let layout_snapshot = if editor_open {
+        layout_draft_snapshot.clone().normalized()
+    } else {
+        home_layout()
+    };
     let recent_album_items = recent_albums().unwrap_or_default();
     let most_played_album_items = most_played_albums().unwrap_or_default();
     let recent_song_items = recently_played_songs().unwrap_or_default();
@@ -714,6 +877,61 @@ pub fn HomeView() -> Element {
     let random_song_items = random_songs().unwrap_or_default();
     let quick_pick_items = quick_picks().unwrap_or_default();
     let visible_overrides_snapshot = section_visible_overrides();
+
+    use_effect(move || {
+        let editor_open = show_home_editor();
+        let layout_for_measure = if editor_open {
+            home_layout_draft().normalized()
+        } else {
+            home_layout()
+        };
+        let quick_picks_grid_measure_enabled = layout_for_measure.quick_picks.enabled
+            && matches!(
+                layout_for_measure.quick_picks.layout,
+                HomeQuickPicksLayout::Grid
+            );
+
+        quick_picks_grid_poll_generation
+            .with_mut(|generation| *generation = generation.saturating_add(1));
+        let generation = *quick_picks_grid_poll_generation.peek();
+
+        if !quick_picks_grid_measure_enabled {
+            quick_picks_runtime_columns.set(0);
+            return;
+        }
+
+        let mut quick_picks_runtime_columns = quick_picks_runtime_columns.clone();
+        let quick_picks_grid_poll_generation = quick_picks_grid_poll_generation.clone();
+        spawn(async move {
+            loop {
+                let eval = document::eval(
+                    r#"
+return (function () {
+  const grid = document.getElementById("home-quick-picks-grid");
+  if (!grid) return 0;
+  const template = (window.getComputedStyle(grid).gridTemplateColumns || "").trim();
+  if (!template) return 0;
+  const cols = template.split(/\s+/).filter(Boolean).length;
+  return Number.isFinite(cols) ? cols : 0;
+})();
+"#,
+                );
+
+                if let Ok(columns) = eval.join::<usize>().await {
+                    if columns > 0 {
+                        if *quick_picks_runtime_columns.peek() != columns {
+                            quick_picks_runtime_columns.set(columns);
+                        }
+                    }
+                }
+
+                home_quick_picks_grid_poll_sleep().await;
+                if *quick_picks_grid_poll_generation.peek() != generation {
+                    break;
+                }
+            }
+        });
+    });
 
     let top_album_items = build_album_section_items(
         layout_snapshot.top_album_source,
@@ -809,25 +1027,78 @@ pub fn HomeView() -> Element {
             })
             .collect();
 
-    let quick_picks_visible_limit = if matches!(
+    let quick_picks_section_key = "quick_picks::main".to_string();
+    let quick_picks_size = layout_snapshot.quick_picks.size;
+    let quick_picks_target_cols = quick_picks_target_columns(quick_picks_size);
+    let quick_picks_layout_is_grid = matches!(
         layout_snapshot.quick_picks.layout,
         HomeQuickPicksLayout::Grid
-    ) {
-        let grid_slots = (layout_snapshot.quick_picks.columns as usize)
-            * (layout_snapshot.quick_picks.rows as usize);
-        grid_slots.min(layout_snapshot.quick_picks.visible_count as usize)
+    );
+    let measured_quick_picks_cols = quick_picks_runtime_columns();
+    let quick_picks_grid_cols = if measured_quick_picks_cols > 0 {
+        measured_quick_picks_cols
     } else {
-        layout_snapshot.quick_picks.visible_count as usize
+        quick_picks_target_cols
     }
-    .min(quick_pick_items.len());
+    .max(1);
+    let quick_picks_requested_visible_from_layout = if quick_picks_layout_is_grid {
+        snap_quick_picks_requested_to_grid(
+            layout_snapshot.quick_picks.visible_count as usize,
+            quick_picks_grid_cols,
+        )
+    } else {
+        normalize_quick_picks_requested_count(layout_snapshot.quick_picks.visible_count as usize)
+    };
+    let quick_picks_default_visible_limit = quick_picks_requested_visible_from_layout;
+    let quick_picks_requested_visible_raw = if editor_open {
+        quick_picks_default_visible_limit
+    } else {
+        visible_overrides_snapshot
+            .get(&quick_picks_section_key)
+            .copied()
+            .unwrap_or(quick_picks_default_visible_limit)
+    };
+    let quick_picks_requested_visible = if quick_picks_layout_is_grid {
+        snap_quick_picks_requested_to_grid(quick_picks_requested_visible_raw, quick_picks_grid_cols)
+    } else {
+        normalize_quick_picks_requested_count(quick_picks_requested_visible_raw)
+    };
+    let quick_picks_visible_limit = if quick_picks_layout_is_grid {
+        quick_picks_grid_visible_limit_for_loaded(
+            quick_picks_requested_visible,
+            quick_picks_grid_cols,
+            quick_pick_items.len(),
+        )
+    } else {
+        quick_picks_list_visible_limit_for_loaded(
+            quick_picks_requested_visible,
+            quick_pick_items.len(),
+        )
+    };
+    let quick_picks_load_step = if quick_picks_layout_is_grid {
+        quick_picks_grid_cols
+    } else {
+        let (_, step) = profile_section_defaults(layout_snapshot.fetch_profile);
+        step.max(quick_picks_list_batch_size(quick_picks_size))
+    };
+    let quick_picks_refresh_target = if quick_picks_layout_is_grid {
+        quick_picks_requested_visible.max(quick_picks_requested_visible_from_layout)
+    } else {
+        normalize_quick_picks_requested_count(
+            quick_picks_requested_visible
+                .max(quick_picks_requested_visible_from_layout)
+                .max(2),
+        )
+    };
+    let quick_picks_needs_refresh = quick_pick_items.len() < quick_picks_refresh_target;
 
     let quick_picks_display: Vec<Song> = quick_pick_items
         .iter()
         .take(quick_picks_visible_limit)
         .cloned()
         .collect();
+    let quick_picks_grid_min_px = quick_picks_card_min_px(quick_picks_size);
 
-    let layout_draft_snapshot = home_layout_draft();
     rsx! {
         div { class: "space-y-8 max-w-none",
             if show_home_album_overlay {
@@ -1106,7 +1377,7 @@ pub fn HomeView() -> Element {
                                 div { class: "overflow-x-auto",
                                     div { class: "flex gap-4 pb-2 min-w-min",
                                         for album in items.iter().take(visible) {
-                                            div { class: "w-32 flex-shrink-0",
+                                            div { class: "w-36 flex-shrink-0",
                                                 AlbumCard {
                                                     album: album.clone(),
                                                     onclick: {
@@ -1125,24 +1396,26 @@ pub fn HomeView() -> Element {
                                             }
                                         }
                                         if items.len() > visible {
-                                            LoadMoreStripCard {
-                                                label: format!("Load {} more", load_step.min(items.len().saturating_sub(visible)).max(1)),
-                                                onclick: {
-                                                    let mut section_visible_overrides = section_visible_overrides.clone();
-                                                    let section_key = section_key.clone();
-                                                    let initial_visible = visible;
-                                                    let load_step = load_step.max(1);
-                                                    move |_| {
-                                                        section_visible_overrides
-                                                            .with_mut(|map| {
-                                                                let current = map
-                                                                    .get(&section_key)
-                                                                    .copied()
-                                                                    .unwrap_or(initial_visible);
-                                                                map.insert(section_key.clone(), current.saturating_add(load_step));
-                                                            });
-                                                    }
-                                                },
+                                            div { class: "w-36 flex-shrink-0",
+                                                LoadMoreStripCard {
+                                                    label: format!("Load {} more", load_step.min(items.len().saturating_sub(visible)).max(1)),
+                                                    onclick: {
+                                                        let mut section_visible_overrides = section_visible_overrides.clone();
+                                                        let section_key = section_key.clone();
+                                                        let initial_visible = visible;
+                                                        let load_step = load_step.max(1);
+                                                        move |_| {
+                                                            section_visible_overrides
+                                                                .with_mut(|map| {
+                                                                    let current = map
+                                                                        .get(&section_key)
+                                                                        .copied()
+                                                                        .unwrap_or(initial_visible);
+                                                                    map.insert(section_key.clone(), current.saturating_add(load_step));
+                                                                });
+                                                        }
+                                                    },
+                                                }
                                             }
                                         }
                                     }
@@ -1195,24 +1468,26 @@ pub fn HomeView() -> Element {
                                             }
                                         }
                                         if items.len() > visible {
-                                            LoadMoreStripCard {
-                                                label: format!("Load {} more", load_step.min(items.len().saturating_sub(visible)).max(1)),
-                                                onclick: {
-                                                    let mut section_visible_overrides = section_visible_overrides.clone();
-                                                    let section_key = section_key.clone();
-                                                    let initial_visible = visible;
-                                                    let load_step = load_step.max(1);
-                                                    move |_| {
-                                                        section_visible_overrides
-                                                            .with_mut(|map| {
-                                                                let current = map
-                                                                    .get(&section_key)
-                                                                    .copied()
-                                                                    .unwrap_or(initial_visible);
-                                                                map.insert(section_key.clone(), current.saturating_add(load_step));
-                                                            });
-                                                    }
-                                                },
+                                            div { class: "w-32 flex-shrink-0",
+                                                LoadMoreStripCard {
+                                                    label: format!("Load {} more", load_step.min(items.len().saturating_sub(visible)).max(1)),
+                                                    onclick: {
+                                                        let mut section_visible_overrides = section_visible_overrides.clone();
+                                                        let section_key = section_key.clone();
+                                                        let initial_visible = visible;
+                                                        let load_step = load_step.max(1);
+                                                        move |_| {
+                                                            section_visible_overrides
+                                                                .with_mut(|map| {
+                                                                    let current = map
+                                                                        .get(&section_key)
+                                                                        .copied()
+                                                                        .unwrap_or(initial_visible);
+                                                                    map.insert(section_key.clone(), current.saturating_add(load_step));
+                                                                });
+                                                        }
+                                                    },
+                                                }
                                             }
                                         }
                                     }
@@ -1239,27 +1514,51 @@ pub fn HomeView() -> Element {
                             div { class: "rounded-xl border border-zinc-800 bg-zinc-900/50 px-4 py-4 text-sm text-zinc-400",
                                 "No quick picks available."
                             }
-                        } else if matches!(layout_snapshot.quick_picks.layout, HomeQuickPicksLayout::Grid) {
-                            div { class: "flex justify-center",
+                        } else {
+                            if matches!(layout_snapshot.quick_picks.layout, HomeQuickPicksLayout::Grid) {
                                 div {
-                                    class: "grid gap-3 w-full max-w-7xl",
+                                    id: "home-quick-picks-grid",
+                                    class: "grid gap-3 w-full",
                                     style: format!(
-                                        "grid-template-columns: repeat({}, minmax(0, 1fr));",
-                                        layout_snapshot
-                                            .quick_picks
-                                            .columns
-                                            .clamp(1, 6)
-                                            .min((quick_picks_display.len() as u8).min(6)),
+                                        "grid-template-columns: repeat(auto-fit, minmax({}px, 1fr));",
+                                        quick_picks_grid_min_px,
                                     ),
                                     for (index , song) in quick_picks_display.iter().enumerate() {
-                                        SongCard {
+                                        div { class: "w-full min-w-0",
+                                            SongCard {
+                                                song: song.clone(),
+                                                onclick: {
+                                                    let song = song.clone();
+                                                    let queue_items = quick_picks_display.clone();
+                                                    move |_| {
+                                                        queue.set(queue_items.clone());
+                                                        queue_index.set(index);
+                                                        now_playing.set(Some(song.clone()));
+                                                        is_playing.set(true);
+                                                    }
+                                                },
+                                            }
+                                        }
+                                    }
+                                }
+                            } else {
+                                div { class: format!(
+                                        "space-y-{}",
+                                        match quick_picks_size {
+                                            HomeQuickPicksSize::Small => 1,
+                                            HomeQuickPicksSize::Medium => 2,
+                                            HomeQuickPicksSize::Large => 3,
+                                        },
+                                    ),
+                                    for (index , song) in quick_picks_display.iter().enumerate() {
+                                        SongRow {
                                             song: song.clone(),
+                                            index: index + 1,
                                             onclick: {
                                                 let song = song.clone();
-                                                let queue_items = quick_picks_display.clone();
                                                 move |_| {
-                                                    queue.set(queue_items.clone());
-                                                    queue_index.set(index);
+                                                    queue.set(vec![song.clone()]);
+                                                    queue_index.set(0);
                                                     now_playing.set(Some(song.clone()));
                                                     is_playing.set(true);
                                                 }
@@ -1268,21 +1567,50 @@ pub fn HomeView() -> Element {
                                     }
                                 }
                             }
-                        } else {
-                            div { class: "space-y-1",
-                                for (index , song) in quick_picks_display.iter().enumerate() {
-                                    SongRow {
-                                        song: song.clone(),
-                                        index: index + 1,
+                            if quick_picks_needs_refresh {
+                                div { class: "mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200 flex flex-wrap items-center justify-between gap-2",
+                                    span {
+                                        "Showing {quick_pick_items.len()} loaded quick picks. Refresh Home Feed to load more for this layout."
+                                    }
+                                    button {
+                                        class: "inline-flex items-center gap-1 rounded-lg border border-amber-400/50 bg-zinc-900/70 px-2.5 py-1.5 text-xs text-amber-100 hover:text-white hover:border-amber-300 transition-colors",
+                                        onclick: on_refresh_home_feed,
+                                        Icon {
+                                            name: "repeat".to_string(),
+                                            class: "w-3.5 h-3.5".to_string(),
+                                        }
+                                        "Refresh"
+                                    }
+                                }
+                            }
+                            if quick_pick_items.len() > quick_picks_visible_limit {
+                                div { class: "mt-4 flex justify-center",
+                                    button {
+                                        class: "inline-flex items-center gap-2 rounded-xl border border-zinc-600 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-200 hover:text-white hover:border-zinc-400 hover:bg-zinc-800/80 transition-colors",
                                         onclick: {
-                                            let song = song.clone();
+                                            let mut section_visible_overrides = section_visible_overrides.clone();
+                                            let quick_picks_section_key = quick_picks_section_key.clone();
+                                            let quick_picks_load_step = quick_picks_load_step.max(1);
+                                            let initial_visible = quick_picks_visible_limit;
                                             move |_| {
-                                                queue.set(vec![song.clone()]);
-                                                queue_index.set(0);
-                                                now_playing.set(Some(song.clone()));
-                                                is_playing.set(true);
+                                                section_visible_overrides
+                                                    .with_mut(|map| {
+                                                        let current = map
+                                                            .get(&quick_picks_section_key)
+                                                            .copied()
+                                                            .unwrap_or(initial_visible);
+                                                        map.insert(
+                                                            quick_picks_section_key.clone(),
+                                                            current.saturating_add(quick_picks_load_step),
+                                                        );
+                                                    });
                                             }
                                         },
+                                        Icon {
+                                            name: "next".to_string(),
+                                            class: "w-4 h-4".to_string(),
+                                        }
+                                        "View More Quick Picks"
                                     }
                                 }
                             }
@@ -1317,7 +1645,34 @@ pub fn HomeView() -> Element {
                 }
 
                 if show_home_editor() {
-                    section { class: "mb-8 rounded-2xl border border-zinc-700/50 bg-gradient-to-br from-zinc-900/80 via-zinc-900/70 to-zinc-950/80 p-6 md:p-8 space-y-8",
+                    div { class: "fixed bottom-24 left-1/2 -translate-x-1/2 z-[180]",
+                        button {
+                            class: "inline-flex items-center gap-2 rounded-xl border border-emerald-500/50 bg-zinc-900/95 px-4 py-2 text-xs text-emerald-200 shadow-xl hover:text-white hover:border-emerald-400 transition-colors",
+                            onclick: move |_| {
+                                let _ = document::eval(
+                                    r#"
+(() => {
+  const editor = document.getElementById("home-layout-editor");
+  if (!editor) return false;
+  editor.scrollIntoView({ behavior: "smooth", block: "start" });
+  return true;
+})();
+"#,
+                                );
+                            },
+                            Icon {
+                                name: "arrow-down".to_string(),
+                                class: "w-3.5 h-3.5".to_string(),
+                            }
+                            "Editor Open Below — Scroll Down"
+                        }
+                    }
+                }
+
+                if show_home_editor() {
+                    section {
+                        id: "home-layout-editor",
+                        class: "mb-8 rounded-2xl border border-zinc-700/50 bg-gradient-to-br from-zinc-900/80 via-zinc-900/70 to-zinc-950/80 p-6 md:p-8 space-y-8",
                         // Header
                         div { class: "flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4 pb-6 border-b border-zinc-700/30",
                             div { class: "space-y-2",
@@ -1330,6 +1685,9 @@ pub fn HomeView() -> Element {
                                 }
                                 p { class: "text-sm text-zinc-400 leading-relaxed",
                                     "Customize your feed's appearance, load behavior, and content sections."
+                                }
+                                p { class: "text-xs text-emerald-300/80",
+                                    "Live preview is on while this editor is open."
                                 }
                             }
                             div { class: "flex items-center gap-3",
@@ -2083,6 +2441,12 @@ pub fn HomeView() -> Element {
                                                 home_layout_draft
                                                     .with_mut(|layout| {
                                                         layout.quick_picks.layout = HomeQuickPicksLayout::from_value(&value);
+                                                        layout.quick_picks.visible_count =
+                                                            normalize_quick_picks_requested_count(
+                                                                layout.quick_picks.visible_count
+                                                                    as usize,
+                                                            )
+                                                            as u8;
                                                     });
                                             }
                                         },
@@ -2092,71 +2456,53 @@ pub fn HomeView() -> Element {
                                 }
                                 label { class: "space-y-2 block",
                                     p { class: "text-xs text-zinc-300 font-medium",
-                                        "Visible Items"
+                                        "Card Size"
                                     }
-                                    input {
+                                    select {
                                         class: "w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700/60 rounded text-sm text-white focus:outline-none focus:border-orange-500/50 transition-colors",
-                                        r#type: "number",
-                                        min: "1",
-                                        max: "48",
-                                        value: format!("{}", layout_draft_snapshot.quick_picks.visible_count),
+                                        value: layout_draft_snapshot.quick_picks.size.as_value(),
                                         oninput: {
                                             let mut home_layout_draft = home_layout_draft.clone();
                                             move |evt| {
-                                                if let Ok(value) = evt.value().parse::<u8>() {
-                                                    home_layout_draft
-                                                        .with_mut(|layout| {
-                                                            layout.quick_picks.visible_count = value.clamp(1, 48);
-                                                        });
-                                                }
+                                                let value = evt.value();
+                                                home_layout_draft
+                                                    .with_mut(|layout| {
+                                                        layout.quick_picks.size = HomeQuickPicksSize::from_value(&value);
+                                                    });
                                             }
                                         },
+                                        option { value: "small", "Small" }
+                                        option { value: "medium", "Medium" }
+                                        option { value: "large", "Large" }
                                     }
                                 }
                                 label { class: "space-y-2 block",
                                     p { class: "text-xs text-zinc-300 font-medium",
-                                        "Columns"
+                                        "Visible Amount"
                                     }
-                                    input {
+                                    select {
                                         class: "w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700/60 rounded text-sm text-white focus:outline-none focus:border-orange-500/50 transition-colors",
-                                        r#type: "number",
-                                        min: "1",
-                                        max: "4",
-                                        value: format!("{}", layout_draft_snapshot.quick_picks.columns),
+                                        value: quick_picks_visible_amount_from_count(
+                                            layout_draft_snapshot.quick_picks.visible_count as usize,
+                                        )
+                                        .as_value(),
                                         oninput: {
                                             let mut home_layout_draft = home_layout_draft.clone();
                                             move |evt| {
-                                                if let Ok(value) = evt.value().parse::<u8>() {
-                                                    home_layout_draft
-                                                        .with_mut(|layout| {
-                                                            layout.quick_picks.columns = value.clamp(1, 4);
-                                                        });
-                                                }
+                                                let amount =
+                                                    QuickPicksVisibleAmount::from_value(&evt.value());
+                                                let target = quick_picks_visible_count_for_amount(amount);
+                                                home_layout_draft
+                                                    .with_mut(|layout| {
+                                                        layout.quick_picks.visible_count =
+                                                            normalize_quick_picks_requested_count(target)
+                                                                as u8;
+                                                    });
                                             }
                                         },
-                                    }
-                                }
-                                label { class: "space-y-2 block",
-                                    p { class: "text-xs text-zinc-300 font-medium",
-                                        "Rows"
-                                    }
-                                    input {
-                                        class: "w-full px-3 py-2 bg-zinc-800/60 border border-zinc-700/60 rounded text-sm text-white focus:outline-none focus:border-orange-500/50 transition-colors",
-                                        r#type: "number",
-                                        min: "1",
-                                        max: "6",
-                                        value: format!("{}", layout_draft_snapshot.quick_picks.rows),
-                                        oninput: {
-                                            let mut home_layout_draft = home_layout_draft.clone();
-                                            move |evt| {
-                                                if let Ok(value) = evt.value().parse::<u8>() {
-                                                    home_layout_draft
-                                                        .with_mut(|layout| {
-                                                            layout.quick_picks.rows = value.clamp(1, 6);
-                                                        });
-                                                }
-                                            }
-                                        },
+                                        option { value: "small", "Small (14)" }
+                                        option { value: "medium", "Medium (~25)" }
+                                        option { value: "large", "Large (40)" }
                                     }
                                 }
                             }
@@ -2256,7 +2602,8 @@ fn AlbumHighlightCard(album: Album, onclick: EventHandler<MouseEvent>) -> Elemen
 fn LoadMoreStripCard(label: String, onclick: EventHandler<MouseEvent>) -> Element {
     rsx! {
         button {
-            class: "flex-shrink-0 w-32 aspect-square rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 hover:border-emerald-500/70 hover:bg-emerald-500/10 text-zinc-300 hover:text-white transition-colors flex flex-col items-center justify-center gap-2",
+            class: "flex-shrink-0 w-full min-w-0 aspect-square rounded-xl border border-dashed border-zinc-700 bg-zinc-900/30 hover:border-emerald-500/70 hover:bg-emerald-500/10 text-zinc-300 hover:text-white transition-colors flex flex-col items-center justify-center gap-2",
+            style: "width: 100% !important;",
             onclick: move |evt| onclick.call(evt),
             Icon { name: "next".to_string(), class: "w-5 h-5".to_string() }
             span { class: "text-xs font-medium text-center px-2", "{label}" }
