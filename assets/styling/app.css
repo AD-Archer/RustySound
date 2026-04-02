@@ -8,6 +8,9 @@
   --safe-area-left: env(safe-area-inset-left, 0px);
 }
 
+/* Legacy alias — keep --font-sans pointing at the active theme font */
+:root { --font-sans: var(--rs-font-sans, "Space Grotesk", "Sora", "Noto Sans", sans-serif); }
+
 * {
   box-sizing: border-box;
 }
@@ -16,9 +19,9 @@ html,
 body {
   margin: 0;
   padding: 0;
-  font-family: var(--font-sans);
-  background: #09090b;
-  color: #fafafa;
+  font-family: var(--rs-font-sans, "Space Grotesk", "Sora", "Noto Sans", sans-serif);
+  background: var(--rs-bg-base, #09090b);
+  color: var(--rs-text-primary, #fafafa);
   min-height: 100vh;
   overflow: hidden;
   /* Prevent pinch-zoom and double-tap zoom on mobile */
@@ -30,18 +33,11 @@ body {
   isolation: isolate;
   height: 100vh;
   height: 100dvh;
-  background:
-    radial-gradient(
-      900px circle at 8% -10%,
-      rgba(16, 185, 129, 0.18),
-      transparent 45%
-    ),
-    radial-gradient(
-      700px circle at 100% 15%,
-      rgba(59, 130, 246, 0.12),
-      transparent 40%
-    ),
-    linear-gradient(135deg, #09090b 0%, #17181f 50%, #09090b 100%);
+  background: var(--rs-app-gradient,
+    radial-gradient(900px circle at 8% -10%, rgba(16, 185, 129, 0.18), transparent 45%),
+    radial-gradient(700px circle at 100% 15%, rgba(59, 130, 246, 0.12), transparent 40%),
+    linear-gradient(135deg, #09090b 0%, #17181f 50%, #09090b 100%)
+  );
 }
 
 .app-container::before {
@@ -49,11 +45,11 @@ body {
   position: absolute;
   inset: 0;
   background-image: radial-gradient(
-    rgba(255, 255, 255, 0.035) 1px,
+    var(--rs-dot-pattern, rgba(255, 255, 255, 0.035)) 1px,
     transparent 1px
   );
-  background-size: 24px 24px;
-  opacity: 0.4;
+  background-size: var(--rs-dot-size, 24px) var(--rs-dot-size, 24px);
+  opacity: var(--rs-dot-opacity, 0.4);
   pointer-events: none;
   z-index: -1;
 }
@@ -162,7 +158,7 @@ body {
   font-size: 1.9rem;
   font-weight: 600;
   letter-spacing: -0.02em;
-  color: #f8fafc;
+  color: var(--rs-text-primary, #f8fafc);
 }
 
 @media (min-width: 768px) {
@@ -172,7 +168,7 @@ body {
 }
 
 .page-subtitle {
-  color: #a1a1aa;
+  color: var(--rs-text-secondary, #a1a1aa);
   font-size: 0.95rem;
 }
 
@@ -242,12 +238,12 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(113, 113, 122, 0.4);
+  background: var(--rs-scrollbar-thumb, rgba(113, 113, 122, 0.4));
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(113, 113, 122, 0.6);
+  background: var(--rs-scrollbar-hover, rgba(113, 113, 122, 0.6));
 }
 
 /* Animations */
@@ -277,9 +273,9 @@ body {
 
 /* Glass morphism effect */
 .glass {
-  background: rgba(24, 24, 27, 0.8);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  background: var(--rs-glass-bg, rgba(24, 24, 27, 0.8));
+  backdrop-filter: blur(var(--rs-blur-glass, 12px));
+  -webkit-backdrop-filter: blur(var(--rs-blur-glass, 12px));
 }
 
 /* Smooth transitions */
@@ -296,7 +292,7 @@ audio {
 /* Focus styles */
 button:focus-visible,
 input:focus-visible {
-  outline: 2px solid rgba(16, 185, 129, 0.5);
+  outline: 2px solid var(--rs-focus-ring, rgba(16, 185, 129, 0.5));
   outline-offset: 2px;
 }
 
@@ -318,12 +314,12 @@ select {
 select,
 select option,
 select optgroup {
-  background-color: #18181b;
-  color: #f4f4f5;
+  background-color: var(--rs-bg-surface, #18181b);
+  color: var(--rs-text-primary, #f4f4f5);
 }
 
 /* Selection */
 ::selection {
-  background: rgba(16, 185, 129, 0.3);
+  background: var(--rs-selection-bg, rgba(16, 185, 129, 0.3));
   color: white;
 }

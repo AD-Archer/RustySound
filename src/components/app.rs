@@ -1148,6 +1148,22 @@ pub fn AppShell() -> Element {
     use_context_provider(|| VolumeSignal(volume));
     use_context_provider(|| app_settings);
     use_context_provider(|| PlaybackPositionSignal(playback_position));
+
+    // Inject user-defined custom CSS into the document whenever it changes
+    use_effect(move || {
+        let raw = app_settings().custom_css.clone();
+        let escaped = raw
+            .replace('\\', "\\\\")
+            .replace('"', "\\\"")
+            .replace('\n', "\\n")
+            .replace('\r', "\\r")
+            .replace('\0', "");
+        let js = format!(
+            r#"(function(){{var e=document.getElementById('rs-custom-css');if(!e){{e=document.createElement('style');e.id='rs-custom-css';document.head.appendChild(e);}}e.textContent="{}";}})();"#,
+            escaped
+        );
+        let _ = document::eval(&js);
+    });
     use_context_provider(|| SeekRequestSignal(seek_request));
     use_context_provider(|| SidebarOpenSignal(sidebar_open));
     use_context_provider(|| PreviewPlaybackSignal(preview_playback));
@@ -1784,9 +1800,15 @@ pub fn AppShell() -> Element {
         "app-container flex min-h-screen text-white overflow-hidden"
     };
     let swipe_hint_state = swipe_hint();
+    let active_theme = {
+        let t = app_settings().theme;
+        if t.is_empty() || t == "dark" { "rusty".to_string() } else { t }
+    };
 
     rsx! {
-        div { class: "{app_container_class}",
+        div {
+            class: "{app_container_class}",
+            "data-theme": "{active_theme}",
             if sidebar_open() && !song_details_open {
                 div {
                     class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",

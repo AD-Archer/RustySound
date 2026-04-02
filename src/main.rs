@@ -51,10 +51,15 @@ const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
 const APP_CSS: Asset = asset!("/assets/styling/app.css");
 
 #[cfg(not(feature = "desktop"))]
+const THEMES_CSS: Asset = asset!("/assets/styling/themes.css");
+
+#[cfg(not(feature = "desktop"))]
 const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
 
 #[cfg(feature = "desktop")]
 const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
+#[cfg(feature = "desktop")]
+const THEMES_CSS_INLINE: &str = include_str!("../assets/styling/themes.css");
 #[cfg(feature = "desktop")]
 const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
@@ -381,6 +386,8 @@ fn GlobalStyles() -> Element {
     {
         return rsx! {
             document::Style { {TAILWIND_CSS_INLINE} }
+            // themes.css must come before app.css so its variables are defined first
+            document::Style { {THEMES_CSS_INLINE} }
             document::Style { {APP_CSS_INLINE} }
         };
     }
@@ -389,6 +396,7 @@ fn GlobalStyles() -> Element {
     {
         return rsx! {
             document::Stylesheet { href: TAILWIND_CSS }
+            document::Stylesheet { href: THEMES_CSS }
             document::Stylesheet { href: APP_CSS }
         };
     }

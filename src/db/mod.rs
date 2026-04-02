@@ -118,6 +118,8 @@ pub struct AppSettings {
     pub download_limit_mb: u32,
     #[serde(default = "default_artwork_download_preference")]
     pub artwork_download_preference: ArtworkDownloadPreference,
+    #[serde(default)]
+    pub custom_css: String,
 }
 
 fn default_lyrics_request_timeout_secs() -> u32 {
@@ -226,7 +228,7 @@ impl Default for AppSettings {
         Self {
             volume: 0.8,
             last_server_id: None,
-            theme: "dark".to_string(),
+            theme: "rusty".to_string(),
             crossfade_enabled: false,
             crossfade_duration: 3,
             replay_gain: false,
@@ -256,6 +258,7 @@ impl Default for AppSettings {
             download_limit_count: default_download_limit_count(),
             download_limit_mb: default_download_limit_mb(),
             artwork_download_preference: default_artwork_download_preference(),
+            custom_css: String::new(),
         }
     }
 }

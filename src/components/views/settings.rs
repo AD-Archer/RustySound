@@ -661,6 +661,139 @@ fn ServerFormFields(
     }
 }
 
+// ── Theme picker ─────────────────────────────────────────────────────────────
+
+#[derive(Clone, PartialEq, Props)]
+struct ThemeCardProps {
+    name: String,
+    label: String,
+    description: String,
+    bg: String,
+    surface: String,
+    accent: String,
+    is_active: bool,
+    #[props(default)]
+    experimental: bool,
+    on_select: EventHandler<String>,
+}
+
+/// A visual card showing a mini preview of a theme.  Clicking selects it.
+#[component]
+fn ThemeCard(props: ThemeCardProps) -> Element {
+    let is_active = props.is_active;
+    let border_style = if is_active {
+        format!(
+            "border-color: {}; box-shadow: 0 0 0 3px {}26;",
+            props.accent, props.accent
+        )
+    } else {
+        "border-color: rgba(63,63,70,0.35);".to_string()
+    };
+
+    rsx! {
+        button {
+            class: "group relative text-left rounded-xl overflow-hidden transition-all duration-200 border-2 w-full hover:scale-[1.02] focus-visible:outline-none",
+            style: "{border_style}",
+            onclick: {
+                let name = props.name.clone();
+                move |_| props.on_select.call(name.clone())
+            },
+
+            // ── Mini app preview ─────────────────────────────────────────
+            div {
+                class: "h-24 w-full relative overflow-hidden select-none",
+                style: "background: {props.bg};",
+
+                // Sidebar strip
+                div {
+                    class: "absolute inset-y-0 left-0 w-9",
+                    style: "background: {props.surface}; border-right: 1px solid rgba(255,255,255,0.06);",
+                    div {
+                        class: "mt-2 mx-auto h-1 rounded-full",
+                        style: "background: {props.accent}; width: 1.5rem; margin: 8px auto 5px;",
+                    }
+                    div {
+                        class: "mx-auto h-1 rounded-full opacity-20",
+                        style: "background: #fff; width: 1.5rem; margin: 5px auto;",
+                    }
+                    div {
+                        class: "mx-auto h-1 rounded-full opacity-20",
+                        style: "background: #fff; width: 1.5rem; margin: 5px auto;",
+                    }
+                    div {
+                        class: "mx-auto h-1 rounded-full opacity-20",
+                        style: "background: #fff; width: 1.5rem; margin: 5px auto;",
+                    }
+                }
+
+                // Main content area
+                div {
+                    class: "absolute inset-y-0 left-11 right-0 p-2.5 flex flex-col justify-center gap-1.5",
+                    // "Album" row
+                    div {
+                        class: "flex items-center gap-2",
+                        div {
+                            class: "w-7 h-7 rounded flex-shrink-0",
+                            style: "background: {props.surface}; border: 1px solid rgba(255,255,255,0.08);",
+                        }
+                        div {
+                            class: "flex flex-col gap-1",
+                            div { class: "h-1.5 rounded-full", style: "background: rgba(255,255,255,0.55); width: 3.5rem;" }
+                            div { class: "h-1 rounded-full opacity-30", style: "background: #fff; width: 2.5rem;" }
+                        }
+                    }
+                    div { class: "h-px opacity-10", style: "background: #fff;" }
+                    // Accent bar
+                    div { class: "h-1.5 rounded-full", style: "background: {props.accent}; width: 60%; opacity: 0.85;" }
+                    div { class: "h-1 rounded-full opacity-20", style: "background: #fff; width: 40%;" }
+                }
+
+                // Player strip
+                div {
+                    class: "absolute bottom-0 left-0 right-0 h-6 flex items-center gap-2 px-2.5",
+                    style: "background: {props.surface}; border-top: 1px solid rgba(255,255,255,0.06);",
+                    div { class: "w-2 h-2 rounded-full flex-shrink-0", style: "background: {props.accent};" }
+                    div { class: "flex-1 h-0.5 rounded-full", style: "background: {props.accent}; opacity: 0.5;" }
+                    div { class: "w-1.5 h-1.5 rounded-full flex-shrink-0 opacity-30", style: "background: #fff;" }
+                }
+
+                // Active checkmark
+                if is_active {
+                    div {
+                        class: "absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center",
+                        style: "background: {props.accent};",
+                        Icon { name: "check".to_string(), class: "w-3 h-3 text-white".to_string() }
+                    }
+                }
+                // Experimental badge
+                if props.experimental {
+                    div {
+                        class: "absolute top-2 left-2 px-1.5 py-0.5 rounded text-xs font-semibold",
+                        style: "background: rgba(251,191,36,0.18); color: #fbbf24; border: 1px solid rgba(251,191,36,0.35); backdrop-filter: blur(4px);",
+                        "Experimental"
+                    }
+                }
+            }
+
+            // ── Label ─────────────────────────────────────────────────────
+            div {
+                class: "px-3.5 py-3",
+                style: "background: rgba(0,0,0,0.35);",
+                div { class: "flex items-center justify-between gap-2 mb-0.5",
+                    span { class: "text-sm font-semibold text-white", "{props.label}" }
+                    div {
+                        class: "w-3 h-3 rounded-full flex-shrink-0",
+                        style: "background: {props.accent};",
+                    }
+                }
+                p { class: "text-xs text-zinc-500 leading-snug", "{props.description}" }
+            }
+        }
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 #[component]
 pub fn SettingsView() -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -693,6 +826,7 @@ pub fn SettingsView() -> Element {
     let ios_log_text = use_signal(String::new);
     let ios_log_status = use_signal(|| None::<String>);
     let mut active_tab = use_signal(|| "servers".to_string());
+    let mut custom_css_draft = use_signal(|| app_settings().custom_css.clone());
 
     let can_add = use_memo(move || {
         !server_url().trim().is_empty()
@@ -1877,6 +2011,12 @@ pub fn SettingsView() -> Element {
                         "Servers"
                     }
                     button {
+                        class: if active_tab() == "appearance" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
+                        onclick: move |_| *active_tab.write() = "appearance".to_string(),
+                        Icon { name: "swatch".to_string(), class: "w-4 h-4".to_string() }
+                        "Appearance"
+                    }
+                    button {
                         class: if active_tab() == "playback" { "px-4 py-3 text-sm font-medium text-emerald-400 border-b-2 border-emerald-500 flex items-center gap-2 whitespace-nowrap" } else { "px-4 py-3 text-sm font-medium text-zinc-400 hover:text-zinc-200 border-b-2 border-transparent transition-colors flex items-center gap-2 whitespace-nowrap" },
                         onclick: move |_| *active_tab.write() = "playback".to_string(),
                         Icon { name: "music".to_string(), class: "w-4 h-4".to_string() }
@@ -2940,6 +3080,230 @@ pub fn SettingsView() -> Element {
                     }
                 }
                 } // end advanced tab
+
+                // ── Appearance tab ───────────────────────────────────────────────────
+                if active_tab() == "appearance" {
+                div { class: "flex flex-col gap-8",
+
+                // ── Core Themes ──────────────────────────────────────────────────
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    div { class: "flex items-center justify-between mb-1 flex-wrap gap-2",
+                        h2 { class: "text-lg font-semibold text-white", "Theme" }
+                    }
+                    p { class: "text-sm text-zinc-400 mb-6",
+                        "Choose a visual style. Themes change colours, typography, border radii, and surface effects across the entire app. Changes take effect instantly."
+                    }
+
+                    div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4",
+                        // ── Rusty ──
+                        ThemeCard {
+                            name: "rusty".to_string(), label: "Rusty".to_string(),
+                            description: "The classic RustySound look. Deep zinc, emerald green.".to_string(),
+                            bg: "#09090b".to_string(), surface: "#18181b".to_string(), accent: "#10b981".to_string(),
+                            is_active: { let t = app_settings().theme; t == "rusty" || t == "dark" || t.is_empty() },
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Spot ──
+                        ThemeCard {
+                            name: "spot".to_string(), label: "Spot".to_string(),
+                            description: "Jet-black canvas with vivid Spotify-green accents.".to_string(),
+                            bg: "#121212".to_string(), surface: "#1e1e1e".to_string(), accent: "#1ed760".to_string(),
+                            is_active: app_settings().theme == "spot",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Fruit ──
+                        ThemeCard {
+                            name: "fruit".to_string(), label: "Fruit".to_string(),
+                            description: "iOS dark palette, Apple Music red, heavy frosted glass.".to_string(),
+                            bg: "#1c1c1e".to_string(), surface: "#2c2c2e".to_string(), accent: "#fc3c44".to_string(),
+                            is_active: app_settings().theme == "fruit",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Navi ──
+                        ThemeCard {
+                            name: "navi".to_string(), label: "Navi".to_string(),
+                            description: "Deep navy and sky-blue. Calm, organised — Navidrome in spirit.".to_string(),
+                            bg: "#0d1117".to_string(), surface: "#161b2e".to_string(), accent: "#4d9de0".to_string(),
+                            is_active: app_settings().theme == "navi",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                    }
+                }
+
+                // ── Experimental Themes ──────────────────────────────────────────
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    div { class: "flex items-center gap-3 mb-3 flex-wrap",
+                        h2 { class: "text-lg font-semibold text-white", "Experimental Themes" }
+                        span {
+                            class: "px-2 py-0.5 rounded-md text-xs font-semibold",
+                            style: "background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.30);",
+                            "Work in Progress"
+                        }
+                    }
+
+                    // Warning callout
+                    div { class: "flex items-start gap-3 mb-5 p-3.5 rounded-xl border",
+                        style: "background: rgba(251,191,36,0.06); border-color: rgba(251,191,36,0.22);",
+                        div { class: "flex-shrink-0 mt-0.5",
+                            svg { class: "w-4 h-4", style: "color: #fbbf24;", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2",
+                                path { d: "M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" }
+                                line { x1: "12", y1: "9", x2: "12", y2: "13" }
+                                line { x1: "12", y1: "17", x2: "12.01", y2: "17" }
+                            }
+                        }
+                        div {
+                            p { class: "text-sm font-medium", style: "color: #fde68a;", "These themes are works-in-progress and may have visual quirks." }
+                            p { class: "text-xs mt-1", style: "color: rgba(253,230,138,0.70);",
+                                "If you spot an issue please "
+                                a {
+                                    href: "https://github.com/AD-Archer/RustySound/issues",
+                                    target: "_blank",
+                                    class: "underline hover:no-underline",
+                                    style: "color: #fbbf24;",
+                                    "open an issue on GitHub"
+                                }
+                                " — your feedback helps!"
+                            }
+                        }
+                    }
+
+                    div { class: "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4",
+                        // ── Y2K ──
+                        ThemeCard {
+                            name: "y2k".to_string(), label: "Y2K".to_string(),
+                            description: "Cyber millennium — hot magenta, electric neon, monospace chrome.".to_string(),
+                            bg: "#0a0812".to_string(), surface: "#12102a".to_string(), accent: "#ff00cc".to_string(),
+                            experimental: true, is_active: app_settings().theme == "y2k",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Aero ──
+                        ThemeCard {
+                            name: "aero".to_string(), label: "Aero".to_string(),
+                            description: "Frutiger Aero — glossy ocean-blue, nature meets technology, 2006-era.".to_string(),
+                            bg: "#0b1a26".to_string(), surface: "#1a3347".to_string(), accent: "#00b4d8".to_string(),
+                            experimental: true, is_active: app_settings().theme == "aero",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Aqua ──
+                        ThemeCard {
+                            name: "aqua".to_string(), label: "Aqua".to_string(),
+                            description: "macOS Aqua dark — deep ocean navy, gel-blue, pinstripe sidebar.".to_string(),
+                            bg: "#0f1c2e".to_string(), surface: "#1e3054".to_string(), accent: "#1e7edc".to_string(),
+                            experimental: true, is_active: app_settings().theme == "aqua",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Material ──
+                        ThemeCard {
+                            name: "material".to_string(), label: "Material You".to_string(),
+                            description: "M3 dark — warm purple tonal system, very rounded, elevated surfaces.".to_string(),
+                            bg: "#1c1b1f".to_string(), surface: "#2b2930".to_string(), accent: "#d0bcff".to_string(),
+                            experimental: true, is_active: app_settings().theme == "material",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── Fluent ──
+                        ThemeCard {
+                            name: "fluent".to_string(), label: "Fluent".to_string(),
+                            description: "Windows 11 Fluent Design — Mica/Acrylic, Windows blue, reveal depth.".to_string(),
+                            bg: "#202020".to_string(), surface: "#383838".to_string(), accent: "#0078d4".to_string(),
+                            experimental: true, is_active: app_settings().theme == "fluent",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                        // ── HIG ──
+                        ThemeCard {
+                            name: "hig".to_string(), label: "HIG".to_string(),
+                            description: "Apple HIG — OLED true-black, iOS system-blue, ultra minimal.".to_string(),
+                            bg: "#000000".to_string(), surface: "#2c2c2e".to_string(), accent: "#007aff".to_string(),
+                            experimental: true, is_active: app_settings().theme == "hig",
+                            on_select: { let mut app_settings = app_settings.clone(); move |name: String| { let mut s = app_settings(); s.theme = name; app_settings.set(s.clone()); spawn(async move { let _ = save_settings(s).await; }); } },
+                        }
+                    }
+                }
+
+                // ── Custom CSS ───────────────────────────────────────────────────
+                section { class: "bg-zinc-800/30 rounded-2xl border border-zinc-700/30 p-6",
+                    div { class: "flex items-center gap-3 mb-1 flex-wrap",
+                        h2 { class: "text-lg font-semibold text-white", "Custom CSS" }
+                        span {
+                            class: "px-2 py-0.5 rounded-md text-xs font-semibold",
+                            style: "background: rgba(251,191,36,0.15); color: #fbbf24; border: 1px solid rgba(251,191,36,0.30);",
+                            "Experimental"
+                        }
+                    }
+                    p { class: "text-sm text-zinc-400 mb-3",
+                        "Inject your own CSS to customise any part of the app. Loaded after all theme styles so you have full override power."
+                    }
+
+                    // PR call-to-action
+                    div { class: "flex items-start gap-3 mb-4 p-3.5 rounded-xl border",
+                        style: "background: rgba(99,102,241,0.07); border-color: rgba(99,102,241,0.22);",
+                        div { class: "flex-shrink-0 mt-0.5",
+                            svg { class: "w-4 h-4", style: "color: #818cf8;", view_box: "0 0 24 24", fill: "none", stroke: "currentColor", stroke_width: "2",
+                                circle { cx: "12", cy: "12", r: "10" }
+                                path { d: "M12 8v4l3 3" }
+                            }
+                        }
+                        p { class: "text-xs", style: "color: rgba(199,210,254,0.80);",
+                            "Built something beautiful? "
+                            a {
+                                href: "https://github.com/AD-Archer/RustySound",
+                                target: "_blank",
+                                class: "underline hover:no-underline font-medium",
+                                style: "color: #818cf8;",
+                                "Open a pull request"
+                            }
+                            " and it might be featured as an official theme!"
+                        }
+                    }
+
+                    textarea {
+                        class: "w-full h-48 px-3 py-2.5 rounded-xl border border-zinc-700/50 bg-zinc-900/60 text-zinc-200 text-xs font-mono leading-relaxed resize-y focus:outline-none focus:border-emerald-500/50 placeholder-zinc-600",
+                        placeholder: "/* Your custom CSS here */\n\n.page-title {{ font-style: italic; }}\n\n/* Tip: use --rs-* CSS variables to reference theme tokens */",
+                        value: "{custom_css_draft}",
+                        oninput: move |e| custom_css_draft.set(e.value()),
+                    }
+
+                    div { class: "flex items-center justify-between mt-3 gap-3 flex-wrap",
+                        p { class: "text-xs text-zinc-600",
+                            "CSS is applied live to the document — no page reload needed."
+                        }
+                        div { class: "flex items-center gap-2",
+                            if !app_settings().custom_css.is_empty() {
+                                button {
+                                    class: "px-3 py-1.5 rounded-lg border border-zinc-700/60 text-zinc-400 hover:text-red-400 hover:border-red-500/40 transition-colors text-sm",
+                                    onclick: {
+                                        let mut app_settings = app_settings.clone();
+                                        let mut custom_css_draft = custom_css_draft.clone();
+                                        move |_| {
+                                            custom_css_draft.set(String::new());
+                                            let mut s = app_settings();
+                                            s.custom_css = String::new();
+                                            app_settings.set(s.clone());
+                                            spawn(async move { let _ = save_settings(s).await; });
+                                        }
+                                    },
+                                    "Clear"
+                                }
+                            }
+                            button {
+                                class: "px-4 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors text-sm",
+                                onclick: {
+                                    let mut app_settings = app_settings.clone();
+                                    move |_| {
+                                        let css = custom_css_draft();
+                                        let mut s = app_settings();
+                                        s.custom_css = css;
+                                        app_settings.set(s.clone());
+                                        spawn(async move { let _ = save_settings(s).await; });
+                                    }
+                                },
+                                "Apply & Save"
+                            }
+                        }
+                    }
+                }
+
+                } // end appearance content
+                } // end appearance tab
             } else {
                 // Onboarding layout - show when no servers exist
                 div { class: "flex items-center justify-center min-h-[60vh] px-4",
