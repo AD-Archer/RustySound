@@ -1,3 +1,4 @@
+use super::artist_links::{parse_artist_names, resolve_artist_id_for_name, ArtistNameLinks};
 use crate::api::*;
 use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
@@ -845,7 +846,6 @@ fn LoadMoreStripCard(label: String, onclick: EventHandler<MouseEvent>) -> Elemen
 #[component]
 fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let navigation = use_context::<Navigation>();
     let now_playing = use_context::<Signal<Option<Song>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let add_menu = use_context::<AddMenuController>();
@@ -868,24 +868,6 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                 .as_ref()
                 .map(|ca| client.get_cover_art_url(ca, 120))
         });
-
-    let artist_id = song.artist_id.clone();
-    let server_id = song.server_id.clone();
-
-    let on_artist_click = {
-        let artist_id = artist_id.clone();
-        let server_id = server_id.clone();
-        let navigation = navigation.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(artist_id_val) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetailView {
-                    artist_id: artist_id_val,
-                    server_id: server_id.clone(),
-                });
-            }
-        }
-    };
 
     let make_on_open_menu = {
         let add_menu = add_menu.clone();
@@ -1089,14 +1071,13 @@ fn SongCard(song: Song, onclick: EventHandler<MouseEvent>) -> Element {
                         "{song.title}"
                     }
                     div { class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400",
-                        if artist_id.is_some() {
-                            button {
-                                class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors",
-                                onclick: on_artist_click,
-                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                            }
-                        } else {
-                            span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                        ArtistNameLinks {
+                            artist_text: song.artist.clone().unwrap_or_default(),
+                            server_id: song.server_id.clone(),
+                            fallback_artist_id: song.artist_id.clone(),
+                            container_class: "inline-flex max-w-full min-w-0 items-center gap-1".to_string(),
+                            button_class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string(),
+                            separator_class: "text-zinc-500".to_string(),
                         }
                         if downloaded() {
                             Icon {
@@ -1389,18 +1370,48 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
         }
     };
 
-    let on_view_artist_from_menu = {
-        let artist_id = album.artist_id.clone();
-        let server_id = album.server_id.clone();
+    let album_artist_names = parse_artist_names(&album.artist);
+    let direct_album_artist_id = if album_artist_names.len() == 1 {
+        album.artist_id.clone()
+    } else {
+        None
+    };
+    let make_on_view_artist_from_menu_named = {
+        let servers = servers.clone();
         let navigation = navigation.clone();
-        let mut show_context_menu = show_context_menu.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            show_context_menu.set(false);
-            if let Some(artist_id) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetailView {
-                    artist_id,
-                    server_id: server_id.clone(),
+        let server_id = album.server_id.clone();
+        let show_context_menu = show_context_menu.clone();
+        let direct_album_artist_id = direct_album_artist_id.clone();
+        move |artist_name: String| {
+            let servers = servers.clone();
+            let navigation = navigation.clone();
+            let server_id = server_id.clone();
+            let mut show_context_menu = show_context_menu.clone();
+            let direct_album_artist_id = direct_album_artist_id.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                show_context_menu.set(false);
+                if let Some(artist_id) = direct_album_artist_id.clone() {
+                    navigation.navigate_to(AppView::ArtistDetailView {
+                        artist_id,
+                        server_id: server_id.clone(),
+                    });
+                    return;
+                }
+                let server = servers().iter().find(|s| s.id == server_id).cloned();
+                let Some(server) = server else {
+                    return;
+                };
+                let navigation = navigation.clone();
+                let server_id = server_id.clone();
+                let artist_name = artist_name.clone();
+                spawn(async move {
+                    if let Some(artist_id) = resolve_artist_id_for_name(server, artist_name).await {
+                        navigation.navigate_to(AppView::ArtistDetailView {
+                            artist_id,
+                            server_id,
+                        });
+                    }
                 });
             }
         }
@@ -1559,7 +1570,14 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                         class: "w-3 h-3 text-emerald-400 flex-shrink-0".to_string(),
                     }
                 }
-                span { class: "truncate", "{album.artist}" }
+                ArtistNameLinks {
+                    artist_text: album.artist.clone(),
+                    server_id: album.server_id.clone(),
+                    fallback_artist_id: album.artist_id.clone(),
+                    container_class: "inline-flex max-w-full min-w-0 items-center gap-1".to_string(),
+                    button_class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string(),
+                    separator_class: "text-zinc-500".to_string(),
+                }
             }
             // Context menu
             if show_context_menu() {
@@ -1629,15 +1647,22 @@ pub fn AlbumCard(album: Album, onclick: EventHandler<MouseEvent>) -> Element {
                         }
                     }
                     div { class: "border-t border-zinc-700/60 my-1" }
-                    if album.artist_id.is_some() {
-                        button {
-                            class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                            onclick: on_view_artist_from_menu,
-                            Icon {
-                                name: "artist".to_string(),
-                                class: "w-4 h-4".to_string(),
+                    if !album_artist_names.is_empty() {
+                        for artist_name in album_artist_names.iter() {
+                            button {
+                                key: "album-menu-artist-{artist_name}",
+                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                onclick: make_on_view_artist_from_menu_named(artist_name.clone()),
+                                Icon {
+                                    name: "artist".to_string(),
+                                    class: "w-4 h-4".to_string(),
+                                }
+                                if album_artist_names.len() > 1 {
+                                    "View {artist_name}"
+                                } else {
+                                    "View artist"
+                                }
                             }
-                            "View artist"
                         }
                     }
                     button {
@@ -1705,7 +1730,6 @@ pub fn SongRow(
         });
 
     let album_id = song.album_id.clone();
-    let artist_id = song.artist_id.clone();
     let server_id = song.server_id.clone();
 
     let on_album_click_cover = {
@@ -1717,21 +1741,6 @@ pub fn SongRow(
             if let Some(album_id_val) = album_id.clone() {
                 navigation.navigate_to(AppView::AlbumDetailView {
                     album_id: album_id_val,
-                    server_id: server_id.clone(),
-                });
-            }
-        }
-    };
-
-    let on_artist_click = {
-        let artist_id = artist_id.clone();
-        let server_id = server_id.clone();
-        let navigation = navigation.clone();
-        move |evt: MouseEvent| {
-            evt.stop_propagation();
-            if let Some(artist_id_val) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetailView {
-                    artist_id: artist_id_val,
                     server_id: server_id.clone(),
                 });
             }
@@ -1761,25 +1770,49 @@ pub fn SongRow(
         }
     };
 
-    let make_on_view_artist = {
+    let song_artist_names = parse_artist_names(song.artist.as_deref().unwrap_or_default());
+    let direct_song_artist_id = if song_artist_names.len() == 1 {
+        song.artist_id.clone()
+    } else {
+        None
+    };
+    let make_on_view_artist_named = {
+        let servers = servers.clone();
         let navigation = navigation.clone();
-        let artist_id = song.artist_id.clone();
         let server_id = song.server_id.clone();
         let show_mobile_actions = show_mobile_actions.clone();
-        move || {
+        let direct_song_artist_id = direct_song_artist_id.clone();
+        move |artist_name: String| {
+            let servers = servers.clone();
             let navigation = navigation.clone();
-            let artist_id = artist_id.clone();
             let server_id = server_id.clone();
             let mut show_mobile_actions = show_mobile_actions.clone();
+            let direct_song_artist_id = direct_song_artist_id.clone();
             move |evt: MouseEvent| {
                 evt.stop_propagation();
                 show_mobile_actions.set(false);
-                if let Some(artist_id_val) = artist_id.clone() {
+                if let Some(artist_id_val) = direct_song_artist_id.clone() {
                     navigation.navigate_to(AppView::ArtistDetailView {
                         artist_id: artist_id_val,
                         server_id: server_id.clone(),
                     });
+                    return;
                 }
+                let server = servers().iter().find(|s| s.id == server_id).cloned();
+                let Some(server) = server else {
+                    return;
+                };
+                let navigation = navigation.clone();
+                let server_id = server_id.clone();
+                let artist_name = artist_name.clone();
+                spawn(async move {
+                    if let Some(artist_id) = resolve_artist_id_for_name(server, artist_name).await {
+                        navigation.navigate_to(AppView::ArtistDetailView {
+                            artist_id,
+                            server_id,
+                        });
+                    }
+                });
             }
         }
     };
@@ -1977,14 +2010,13 @@ pub fn SongRow(
                             "{song.title}"
                         }
                         div { class: "mt-1 max-w-full inline-flex items-center gap-1 text-xs text-zinc-400",
-                            if artist_id.is_some() {
-                                button {
-                                    class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors",
-                                    onclick: on_artist_click,
-                                    span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
-                                }
-                            } else {
-                                span { class: "truncate", "{song.artist.clone().unwrap_or_default()}" }
+                            ArtistNameLinks {
+                                artist_text: song.artist.clone().unwrap_or_default(),
+                                server_id: song.server_id.clone(),
+                                fallback_artist_id: song.artist_id.clone(),
+                                container_class: "inline-flex max-w-full min-w-0 items-center gap-1".to_string(),
+                                button_class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string(),
+                                separator_class: "text-zinc-500".to_string(),
                             }
                             if show_download && downloaded() {
                                 Icon {
@@ -2055,15 +2087,22 @@ pub fn SongRow(
                                 "View album"
                             }
                         }
-                        if song.artist_id.is_some() {
-                            button {
-                                class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
-                                onclick: make_on_view_artist(),
-                                Icon {
-                                    name: "artist".to_string(),
-                                    class: "w-4 h-4".to_string(),
+                        if !song_artist_names.is_empty() {
+                            for artist_name in song_artist_names.iter() {
+                                button {
+                                    key: "song-row-menu-artist-{song.id}-{artist_name}",
+                                    class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                    onclick: make_on_view_artist_named(artist_name.clone()),
+                                    Icon {
+                                        name: "artist".to_string(),
+                                        class: "w-4 h-4".to_string(),
+                                    }
+                                    if song_artist_names.len() > 1 {
+                                        "View {artist_name}"
+                                    } else {
+                                        "View artist"
+                                    }
                                 }
-                                "View artist"
                             }
                         }
                         if show_download {

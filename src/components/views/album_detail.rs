@@ -3,6 +3,7 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta,
 };
 use crate::components::views::album_song_row::AlbumSongRow;
+use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use crate::offline_audio::{
@@ -336,43 +337,19 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                             "{album.name}"
                                         }
                                         span { class: "text-zinc-500", "•" }
-                                        if let Some(artist_id) = &album.artist_id {
-                                            div { class: "flex items-center gap-2 max-w-full min-w-0",
-                                                button {
-                                                    class: "text-lg text-zinc-300 hover:text-emerald-400 transition-colors max-w-full min-w-0",
-                                                    style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;",
-                                                    onclick: {
-                                                        let artist_id = artist_id.clone();
-                                                        let server_id = album.server_id.clone();
-                                                        let navigation = navigation.clone();
-                                                        move |evt| {
-                                                            evt.stop_propagation();
-                                                            navigation.navigate_to(AppView::ArtistDetailView {
-                                                                artist_id: artist_id.clone(),
-                                                                server_id: server_id.clone(),
-                                                            });
-                                                        }
-                                                    },
-                                                    "{album.artist}"
-                                                }
-                                                if album_downloaded {
-                                                    Icon {
-                                                        name: "download".to_string(),
-                                                        class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string(),
-                                                    }
-                                                }
+                                        div { class: "flex items-center gap-2 max-w-full min-w-0",
+                                            ArtistNameLinks {
+                                                artist_text: album.artist.clone(),
+                                                server_id: album.server_id.clone(),
+                                                fallback_artist_id: album.artist_id.clone(),
+                                                container_class: "inline-flex max-w-full min-w-0 items-center gap-1 text-lg text-zinc-300".to_string(),
+                                                button_class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string(),
+                                                separator_class: "text-zinc-500".to_string(),
                                             }
-                                        } else {
-                                            div { class: "flex items-center gap-2 max-w-full min-w-0",
-                                                p { class: "text-lg text-zinc-300 max-w-full min-w-0",
-                                                    style: "word-break: break-word; overflow: hidden; text-overflow: ellipsis; display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical;",
-                                                    "{album.artist}"
-                                                }
-                                                if album_downloaded {
-                                                    Icon {
-                                                        name: "download".to_string(),
-                                                        class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string(),
-                                                    }
+                                            if album_downloaded {
+                                                Icon {
+                                                    name: "download".to_string(),
+                                                    class: "w-4 h-4 text-emerald-400 flex-shrink-0".to_string(),
                                                 }
                                             }
                                         }

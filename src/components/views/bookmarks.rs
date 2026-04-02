@@ -1,5 +1,6 @@
 use crate::api::models::format_duration;
 use crate::api::*;
+use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{AppView, Icon, Navigation, PlaybackPositionSignal, SeekRequestSignal};
 use dioxus::prelude::*;
 
@@ -241,20 +242,6 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
         }
     };
 
-    let on_artist = {
-        let navigation = navigation.clone();
-        let artist_id = song.artist_id.clone();
-        let server_id = song.server_id.clone();
-        move |_| {
-            if let Some(artist) = artist_id.clone() {
-                navigation.navigate_to(AppView::ArtistDetailView {
-                    artist_id: artist,
-                    server_id: server_id.clone(),
-                });
-            }
-        }
-    };
-
     rsx! {
         div { class: "p-4 rounded-2xl border border-zinc-800/70 bg-zinc-900/50 backdrop-blur",
             div { class: "flex gap-4",
@@ -296,16 +283,13 @@ fn BookmarkCard(bookmark: Bookmark, on_deleted: EventHandler<()>) -> Element {
                     div { class: "flex items-start justify-between gap-3",
                         div { class: "min-w-0 space-y-1",
                             p { class: "font-semibold text-white truncate", "{song.title}" }
-                            if song.artist_id.is_some() {
-                                button {
-                                    class: "text-sm text-emerald-400 hover:text-emerald-300 transition-colors truncate",
-                                    onclick: on_artist,
-                                    "{song.artist.clone().unwrap_or_default()}"
-                                }
-                            } else {
-                                p { class: "text-sm text-zinc-400 truncate",
-                                    "{song.artist.clone().unwrap_or_default()}"
-                                }
+                            ArtistNameLinks {
+                                artist_text: song.artist.clone().unwrap_or_default(),
+                                server_id: song.server_id.clone(),
+                                fallback_artist_id: song.artist_id.clone(),
+                                container_class: "inline-flex max-w-full min-w-0 items-center gap-1 text-sm text-zinc-400".to_string(),
+                                button_class: "inline-flex max-w-fit truncate text-left text-emerald-400 hover:text-emerald-300 transition-colors".to_string(),
+                                separator_class: "text-zinc-500".to_string(),
                             }
                             if song.album_id.is_some() {
                                 button {

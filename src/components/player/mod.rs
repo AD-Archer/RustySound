@@ -1,5 +1,6 @@
 use crate::api::models::format_duration;
 use crate::api::*;
+use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{
     seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, SongDetailsController,
     VolumeSignal,
@@ -28,7 +29,6 @@ pub fn Player() -> Element {
     let current_song = now_playing();
     let current_song_for_fav = current_song.clone();
     let current_song_for_album = current_song.clone();
-    let current_song_for_artist = current_song.clone();
 
     // Get time from audio state (Signal fields need to be read with ())
     let current_time = (audio_state().current_time)();
@@ -141,21 +141,6 @@ pub fn Player() -> Element {
         }
     };
 
-    let on_artist_click = {
-        let song = current_song_for_artist.clone();
-        let navigation = navigation.clone();
-        move |_| {
-            if let Some(ref s) = song {
-                if let Some(artist_id) = &s.artist_id {
-                    navigation.navigate_to(AppView::ArtistDetailView {
-                        artist_id: artist_id.clone(),
-                        server_id: s.server_id.clone(),
-                    });
-                }
-            }
-        }
-    };
-
     rsx! {
         if let Some(message) = playback_error.clone() {
             div { class: "fixed left-0 right-0 bottom-28 md:bottom-24 px-3 md:px-6 z-[60] pointer-events-none",
@@ -244,11 +229,10 @@ pub fn Player() -> Element {
                                             }
                                         }
                                     }
-                                    button {
-                                        class: "text-xs text-zinc-400 truncate max-w-full hover:text-white transition-colors cursor-pointer block text-left w-full",
-                                        onclick: on_artist_click,
-                                        {
-                                            if song.server_name == "Radio" {
+                                    if song.server_name == "Radio" {
+                                        p {
+                                            class: "text-xs text-zinc-400 truncate max-w-full block text-left w-full",
+                                            {
                                                 let station_name = song
                                                     .album
                                                     .clone()
@@ -273,9 +257,16 @@ pub fn Player() -> Element {
                                                 } else {
                                                     station_name
                                                 }
-                                            } else {
-                                                song.artist.clone().unwrap_or_default()
                                             }
+                                        }
+                                    } else {
+                                        ArtistNameLinks {
+                                            artist_text: song.artist.clone().unwrap_or_default(),
+                                            server_id: song.server_id.clone(),
+                                            fallback_artist_id: song.artist_id.clone(),
+                                            container_class: "inline-flex max-w-full min-w-0 items-center gap-1 text-xs text-zinc-400".to_string(),
+                                            button_class: "inline-flex max-w-fit truncate text-left hover:text-white transition-colors".to_string(),
+                                            separator_class: "text-zinc-500".to_string(),
                                         }
                                     }
                                 }

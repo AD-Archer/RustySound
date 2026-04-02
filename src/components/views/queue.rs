@@ -1,6 +1,7 @@
 use crate::api::models::format_duration;
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
+use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{
     generate_queue_extension_from_seed, AddIntent, AddMenuController, AppView, Icon, Navigation,
     PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
@@ -907,30 +908,13 @@ pub fn QueueView() -> Element {
                                                         Icon { name: "more-horizontal".to_string(), class: "w-4 h-4".to_string() }
                                                     }
                                                 }
-                                                if current.artist_id.is_some() {
-                                                    button {
-                                                        class: "text-sm text-zinc-400 hover:text-emerald-400 transition-colors text-left",
-                                                        onclick: {
-                                                            let artist_id = current.artist_id.clone();
-                                                            let server_id = current.server_id.clone();
-                                                            let navigation = navigation.clone();
-                                                            move |evt: MouseEvent| {
-                                                                evt.stop_propagation();
-                                                                if let Some(artist_id) = artist_id.clone() {
-                                                                    navigation
-                                                                        .navigate_to(AppView::ArtistDetailView {
-                                                                            artist_id,
-                                                                            server_id: server_id.clone(),
-                                                                        });
-                                                                }
-                                                            }
-                                                        },
-                                                        "{current.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
-                                                    }
-                                                } else {
-                                                    p { class: "text-sm text-zinc-400",
-                                                        "{current.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
-                                                    }
+                                                ArtistNameLinks {
+                                                    artist_text: current.artist.clone().unwrap_or_default(),
+                                                    server_id: current.server_id.clone(),
+                                                    fallback_artist_id: current.artist_id.clone(),
+                                                    container_class: "inline-flex max-w-full min-w-0 items-center gap-1 text-sm text-zinc-400".to_string(),
+                                                    button_class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string(),
+                                                    separator_class: "text-zinc-500".to_string(),
                                                 }
                                             }
                                         }
@@ -1086,30 +1070,13 @@ pub fn QueueView() -> Element {
                                                         Icon { name: "more-horizontal".to_string(), class: "w-4 h-4".to_string() }
                                                     }
                                                 }
-                                                if song.artist_id.is_some() {
-                                                    button {
-                                                        class: "text-xs text-zinc-500 truncate hover:text-emerald-400 transition-colors",
-                                                        onclick: {
-                                                            let artist_id = song.artist_id.clone();
-                                                            let server_id = song.server_id.clone();
-                                                            let navigation = navigation.clone();
-                                                            move |evt: MouseEvent| {
-                                                                evt.stop_propagation();
-                                                                if let Some(artist_id) = artist_id.clone() {
-                                                                    navigation
-                                                                        .navigate_to(AppView::ArtistDetailView {
-                                                                            artist_id,
-                                                                            server_id: server_id.clone(),
-                                                                        });
-                                                                }
-                                                            }
-                                                        },
-                                                        "{song.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
-                                                    }
-                                                } else {
-                                                    p { class: "text-xs text-zinc-500 truncate",
-                                                        "{song.artist.as_ref().map(|s| s.as_str()).unwrap_or(\"\")}"
-                                                    }
+                                                ArtistNameLinks {
+                                                    artist_text: song.artist.clone().unwrap_or_default(),
+                                                    server_id: song.server_id.clone(),
+                                                    fallback_artist_id: song.artist_id.clone(),
+                                                    container_class: "inline-flex max-w-full min-w-0 items-center gap-1 text-xs text-zinc-500".to_string(),
+                                                    button_class: "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string(),
+                                                    separator_class: "text-zinc-600".to_string(),
                                                 }
                                                 if song.album_id.is_some() {
                                                     button {

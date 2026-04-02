@@ -2,6 +2,7 @@ mod album_detail;
 mod album_song_row;
 mod albums;
 mod artist_detail;
+pub(super) mod artist_links;
 mod artists;
 mod bookmarks;
 mod downloads;
