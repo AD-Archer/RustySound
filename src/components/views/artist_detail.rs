@@ -39,38 +39,110 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
-    let visible_album_count = use_signal(|| ARTIST_ALBUM_BATCH_SIZE);
+    let mut visible_album_count = use_signal(|| ARTIST_ALBUM_BATCH_SIZE);
+    let mut current_artist_id = use_signal(|| artist_id.clone());
+    let mut current_server_id = use_signal(|| server_id.clone());
 
-    let artist_server = servers().into_iter().find(|s| s.id == server_id);
-    let artist_server_for_artist = artist_server.clone();
-    let artist_server_for_top = artist_server.clone();
+    use_effect({
+        let artist_id = artist_id.clone();
+        let server_id = server_id.clone();
+        move || {
+            if current_artist_id() != artist_id {
+                eprintln!(
+                    "[artist-detail.route] artist_id change {} -> {}",
+                    current_artist_id(),
+                    artist_id
+                );
+                current_artist_id.set(artist_id.clone());
+                visible_album_count.set(ARTIST_ALBUM_BATCH_SIZE);
+            }
+            if current_server_id() != server_id {
+                eprintln!(
+                    "[artist-detail.route] server_id change {} -> {}",
+                    current_server_id(),
+                    server_id
+                );
+                current_server_id.set(server_id.clone());
+                visible_album_count.set(ARTIST_ALBUM_BATCH_SIZE);
+            }
+        }
+    });
+
+    let artist_server = servers().into_iter().find(|s| s.id == current_server_id());
 
     let artist_data = use_resource(move || {
-        let server = artist_server_for_artist.clone();
-        let artist_id = artist_id.clone();
+        let server_id = current_server_id();
+        let artist_id = current_artist_id();
+        let server = servers().into_iter().find(|s| s.id == server_id);
         async move {
             if let Some(server) = server {
+                eprintln!(
+                    "[artist-detail.fetch.start] artist_id={} server_id={}",
+                    artist_id, server_id
+                );
                 let client = NavidromeClient::new(server);
-                client.get_artist(&artist_id).await.ok()
+                match client.get_artist(&artist_id).await {
+                    Ok((artist, albums)) => {
+                        eprintln!(
+                            "[artist-detail.fetch.ok] requested_artist_id={} returned_artist_id={} server_id={} albums={}",
+                            artist_id,
+                            artist.id,
+                            server_id,
+                            albums.len()
+                        );
+                        Some((artist, albums))
+                    }
+                    Err(err) => {
+                        eprintln!(
+                            "[artist-detail.fetch.err] artist_id={} server_id={} err={}",
+                            artist_id, server_id, err
+                        );
+                        None
+                    }
+                }
             } else {
+                eprintln!(
+                    "[artist-detail.fetch.skip] missing server artist_id={} server_id={}",
+                    artist_id, server_id
+                );
                 None
             }
         }
     });
 
     let top_songs_data = use_resource({
-        let server = artist_server_for_top.clone();
         let artist_data = artist_data.clone();
         move || {
-            let server = server.clone();
+            let server_id = current_server_id();
+            let server = servers().into_iter().find(|s| s.id == server_id);
             let artist_name = artist_data()
                 .and_then(|value| value.map(|(artist, _)| artist.name.clone()))
                 .filter(|name| !name.is_empty());
             async move {
                 match (server, artist_name) {
                     (Some(server), Some(artist_name)) => {
+                        eprintln!(
+                            "[artist-detail.top.start] artist_name='{}' server_id={}",
+                            artist_name, server_id
+                        );
                         let client = NavidromeClient::new(server);
-                        client.get_top_songs(&artist_name, 20).await.ok()
+                        match client.get_top_songs(&artist_name, 20).await {
+                            Ok(songs) => {
+                                eprintln!(
+                                    "[artist-detail.top.ok] artist_name='{}' songs={}",
+                                    artist_name,
+                                    songs.len()
+                                );
+                                Some(songs)
+                            }
+                            Err(err) => {
+                                eprintln!(
+                                    "[artist-detail.top.err] artist_name='{}' err={}",
+                                    artist_name, err
+                                );
+                                None
+                            }
+                        }
                     }
                     _ => None,
                 }
@@ -151,42 +223,61 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         {
             match artist_data() {
                 Some(Some((artist, albums))) => {
-                    let top_songs = top_songs_data().flatten().unwrap_or_default();
-                    let cover_url = artist_server.as_ref().and_then(|server| {
-                        let client = NavidromeClient::new(server.clone());
-                        artist
-                            .cover_art
-                            .as_ref()
-                            .map(|ca| client.get_cover_art_url(ca, 500))
-                    });
-
-                    let total_albums = albums.len();
-                    let total_songs: u32 = albums.iter().map(|a| a.song_count).sum();
-                    let current_album_limit = visible_album_count().min(total_albums);
-                    let remaining_albums = total_albums.saturating_sub(current_album_limit);
-                    let cover_element = match cover_url {
-                        Some(url) => rsx! {
-                            img {
-                                src: "{url}",
-                                alt: "{artist.name}",
-                                class: "w-full h-full object-cover",
-                                loading: "lazy",
+                    let requested_artist_id = current_artist_id();
+                    let requested_server_id = current_server_id();
+                    let server_matches = artist.server_id.is_empty()
+                        || artist.server_id == requested_server_id;
+                    if artist.id != requested_artist_id || !server_matches {
+                        eprintln!(
+                            "[artist-detail.stale] requested_artist_id={} requested_server_id={} returned_artist_id={} returned_server_id={}",
+                            requested_artist_id,
+                            requested_server_id,
+                            artist.id,
+                            artist.server_id
+                        );
+                        rsx! {
+                            div { class: "flex flex-col items-center justify-center py-20",
+                                div { class: "w-16 h-16 rounded-full border-2 border-zinc-700 border-t-emerald-500 animate-spin mb-4" }
+                                p { class: "text-zinc-400", "Loading artist..." }
                             }
-                        },
-                        None => rsx! {
-                            div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700",
-                                Icon {
-                                    name: "artist".to_string(),
-                                    class: "w-24 h-24 text-white/70".to_string(),
+                        }
+                    } else {
+                        let top_songs = top_songs_data().flatten().unwrap_or_default();
+                        let cover_url = artist_server.as_ref().and_then(|server| {
+                            let client = NavidromeClient::new(server.clone());
+                            artist
+                                .cover_art
+                                .as_ref()
+                                .map(|ca| client.get_cover_art_url(ca, 500))
+                        });
+
+                        let total_albums = albums.len();
+                        let total_songs: u32 = albums.iter().map(|a| a.song_count).sum();
+                        let current_album_limit = visible_album_count().min(total_albums);
+                        let remaining_albums = total_albums.saturating_sub(current_album_limit);
+                        let cover_element = match cover_url {
+                            Some(url) => rsx! {
+                                img {
+                                    src: "{url}",
+                                    alt: "{artist.name}",
+                                    class: "w-full h-full object-cover",
+                                    loading: "lazy",
                                 }
-                            }
-                        },
-                    };
+                            },
+                            None => rsx! {
+                                div { class: "w-full h-full flex items-center justify-center bg-gradient-to-br from-emerald-600 to-teal-700",
+                                    Icon {
+                                        name: "artist".to_string(),
+                                        class: "w-24 h-24 text-white/70".to_string(),
+                                    }
+                                }
+                            },
+                        };
 
-                    rsx! {
-                        div { class: "flex flex-col md:flex-row gap-8 mb-12",
-                            div { class: "w-48 h-48 md:w-64 md:h-64 rounded-full bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0 mx-auto md:mx-0",
-                                {cover_element}
+                        rsx! {
+                            div { class: "flex flex-col md:flex-row gap-8 mb-12",
+                                div { class: "w-48 h-48 md:w-64 md:h-64 rounded-full bg-zinc-800 overflow-hidden shadow-2xl flex-shrink-0 mx-auto md:mx-0",
+                                    {cover_element}
                             }
                             div { class: "flex flex-col justify-end text-center md:text-left",
                                 p { class: "text-sm text-zinc-400 uppercase tracking-wide mb-2 font-medium",
@@ -353,6 +444,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                             }
                         }
                     }
+                }
                 }
                 Some(None) => rsx! {
                     div { class: "flex flex-col items-center justify-center py-20",

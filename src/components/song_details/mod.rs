@@ -5,6 +5,7 @@ use crate::api::{
     search_lyrics_candidates, LyricLine, LyricsQuery, LyricsResult, LyricsSearchCandidate,
     NavidromeClient, ServerConfig, Song,
 };
+use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{
     apply_collection_shuffle_mode, generate_queue_extension_from_seed,
     queue_should_generate_similar_on_end, seek_to, spawn_shuffle_queue, AddIntent,

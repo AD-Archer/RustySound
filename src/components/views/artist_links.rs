@@ -45,33 +45,76 @@ pub(crate) async fn resolve_artist_id_for_name(
 ) -> Option<String> {
     let query = artist_name.trim().to_string();
     if query.is_empty() {
+        eprintln!("[artist-nav.resolve.skip] empty query");
         return None;
     }
 
     let normalized_target = normalize_artist_name_key(&query);
     if normalized_target.is_empty() {
+        eprintln!(
+            "[artist-nav.resolve.skip] normalized query empty raw='{}'",
+            query
+        );
         return None;
     }
 
+    let server_id = server.id.clone();
+    eprintln!(
+        "[artist-nav.resolve.start] server_id={} query='{}' normalized='{}'",
+        server_id, query, normalized_target
+    );
     let client = NavidromeClient::new(server);
 
     if let Ok(results) = client.search(&query, 50, 0, 0).await {
+        let artist_count = results.artists.len();
+        eprintln!(
+            "[artist-nav.resolve.search] server_id={} query='{}' artist_results={}",
+            server_id, query, artist_count
+        );
         for artist in results.artists {
             let normalized_name = normalize_artist_name_key(&artist.name);
             if normalized_name == normalized_target {
+                eprintln!(
+                    "[artist-nav.resolve.match.search] server_id={} query='{}' artist='{}' artist_id={}",
+                    server_id, query, artist.name, artist.id
+                );
                 return Some(artist.id);
             }
         }
+    } else {
+        eprintln!(
+            "[artist-nav.resolve.search.err] server_id={} query='{}'",
+            server_id, query
+        );
     }
 
     if let Ok(artists) = client.get_artists().await {
+        eprintln!(
+            "[artist-nav.resolve.fallback.artists] server_id={} query='{}' artist_count={}",
+            server_id,
+            query,
+            artists.len()
+        );
         for artist in artists {
             if normalize_artist_name_key(&artist.name) == normalized_target {
+                eprintln!(
+                    "[artist-nav.resolve.match.fallback] server_id={} query='{}' artist='{}' artist_id={}",
+                    server_id, query, artist.name, artist.id
+                );
                 return Some(artist.id);
             }
         }
+    } else {
+        eprintln!(
+            "[artist-nav.resolve.fallback.err] server_id={} query='{}'",
+            server_id, query
+        );
     }
 
+    eprintln!(
+        "[artist-nav.resolve.miss] server_id={} query='{}'",
+        server_id, query
+    );
     None
 }
 
@@ -114,7 +157,19 @@ pub fn ArtistNameLinks(
                         let artist_name = artist_name.clone();
                         move |evt: MouseEvent| {
                             evt.stop_propagation();
+                            eprintln!(
+                                "[artist-nav.link.click] server_id={} artist='{}' direct_id={}",
+                                server_id,
+                                artist_name,
+                                direct_artist_id
+                                    .as_deref()
+                                    .unwrap_or("<none>")
+                            );
                             if let Some(artist_id) = direct_artist_id.clone() {
+                                eprintln!(
+                                    "[artist-nav.link.direct] server_id={} artist='{}' artist_id={}",
+                                    server_id, artist_name, artist_id
+                                );
                                 navigation.navigate_to(AppView::ArtistDetailView {
                                     artist_id,
                                     server_id: server_id.clone(),
@@ -124,6 +179,10 @@ pub fn ArtistNameLinks(
 
                             let server = servers().iter().find(|s| s.id == server_id).cloned();
                             let Some(server) = server else {
+                                eprintln!(
+                                    "[artist-nav.link.missing-server] server_id={} artist='{}'",
+                                    server_id, artist_name
+                                );
                                 return;
                             };
 
@@ -134,10 +193,19 @@ pub fn ArtistNameLinks(
                                 if let Some(artist_id) =
                                     resolve_artist_id_for_name(server, artist_name).await
                                 {
+                                    eprintln!(
+                                        "[artist-nav.link.resolved] server_id={} artist_id={}",
+                                        server_id, artist_id
+                                    );
                                     navigation.navigate_to(AppView::ArtistDetailView {
                                         artist_id,
                                         server_id,
                                     });
+                                } else {
+                                    eprintln!(
+                                        "[artist-nav.link.unresolved] server_id={}",
+                                        server_id
+                                    );
                                 }
                             });
                         }

@@ -53,11 +53,19 @@
                 h3 { class: "text-xl md:text-2xl font-semibold text-white leading-tight break-words", "{props.song.title}" }
                 div { class: "space-y-1 pt-1",
                     p { class: "text-[10px] uppercase tracking-[0.18em] text-zinc-500", "Artist" }
-                    if props.song.artist_id.is_some() {
-                        button {
-                            class: "text-sm text-emerald-300 hover:text-emerald-200 transition-colors whitespace-normal break-words leading-snug",
-                            onclick: on_open_artist,
-                            "{song_artist}"
+                    if !song_artist_names.is_empty() {
+                        div { class: "inline-flex flex-wrap items-center justify-center gap-1",
+                            for (index, artist_name) in song_artist_names.iter().enumerate() {
+                                button {
+                                    key: "song-details-artist-{props.song.id}-{artist_name}-{index}",
+                                    class: "text-sm text-emerald-300 hover:text-emerald-200 transition-colors whitespace-normal break-words leading-snug",
+                                    onclick: make_on_open_artist_named.clone()(artist_name.clone()),
+                                    "{artist_name}"
+                                }
+                                if index + 1 < song_artist_names.len() {
+                                    span { class: "text-zinc-500", "•" }
+                                }
+                            }
                         }
                     } else {
                         p { class: "text-sm text-zinc-300 whitespace-normal break-words leading-snug", "{song_artist}" }

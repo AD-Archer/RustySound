@@ -1103,6 +1103,10 @@
     border-style: var(--tw-border-style);
     border-width: 1px;
   }
+  .border-2 {
+    border-style: var(--tw-border-style);
+    border-width: 2px;
+  }
   .border-t {
     border-top-style: var(--tw-border-style);
     border-top-width: 1px;
@@ -1341,6 +1345,9 @@
     @supports (color: color-mix(in lab, red, red)) {
       border-color: color-mix(in oklab, var(--color-zinc-800) 80%, transparent);
     }
+  }
+  .border-t-emerald-500 {
+    border-top-color: var(--color-emerald-500);
   }
   .bg-\[\#1f2a44\] {
     background-color: #1f2a44;

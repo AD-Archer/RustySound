@@ -77,24 +77,94 @@ fn DetailsPanel(props: DetailsPanelProps) -> Element {
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "Unknown Artist".to_string());
+    let song_artist_names = parse_artist_names(
+        props
+            .song
+            .artist
+            .as_deref()
+            .unwrap_or_default(),
+    );
+    let direct_song_artist_id = if song_artist_names.len() == 1 {
+        props.song.artist_id.clone()
+    } else {
+        None
+    };
     let song_album = props
         .song
         .album
         .clone()
         .filter(|value| !value.trim().is_empty())
         .unwrap_or_else(|| "Unknown Album".to_string());
+    let panel_song_id = props.song.id.clone();
 
-    let on_open_artist = {
-        let mut controller = controller.clone();
+    let make_on_open_artist_named = {
+        let servers = servers.clone();
+        let controller = controller.clone();
         let navigation = navigation.clone();
-        let artist_id = props.song.artist_id.clone();
         let server_id = props.song.server_id.clone();
-        move |_| {
-            if let Some(artist_id) = artist_id.clone() {
-                controller.close();
-                navigation.navigate_to(AppView::ArtistDetailView {
-                    artist_id,
-                    server_id: server_id.clone(),
+        let direct_song_artist_id = direct_song_artist_id.clone();
+        let panel_song_id = panel_song_id.clone();
+        move |artist_name: String| {
+            let servers = servers.clone();
+            let mut controller = controller.clone();
+            let navigation = navigation.clone();
+            let server_id = server_id.clone();
+            let direct_song_artist_id = direct_song_artist_id.clone();
+            let panel_song_id = panel_song_id.clone();
+            move |evt: MouseEvent| {
+                evt.stop_propagation();
+                eprintln!(
+                    "[artist-nav.details.click] song_id={} server_id={} artist_name={}",
+                    panel_song_id, server_id, artist_name
+                );
+                if let Some(artist_id) = direct_song_artist_id.clone() {
+                    eprintln!(
+                        "[artist-nav.details.direct] song_id={} artist_id={} server_id={}",
+                        panel_song_id, artist_id, server_id
+                    );
+                    controller.close();
+                    navigation.navigate_to(AppView::ArtistDetailView {
+                        artist_id,
+                        server_id: server_id.clone(),
+                    });
+                    return;
+                }
+
+                let server = servers().iter().find(|entry| entry.id == server_id).cloned();
+                let Some(server) = server else {
+                    eprintln!(
+                        "[artist-nav.details.resolve] missing server for song_id={} server_id={}",
+                        panel_song_id, server_id
+                    );
+                    return;
+                };
+
+                let navigation = navigation.clone();
+                let server_id = server_id.clone();
+                let artist_name = artist_name.clone();
+                let mut controller = controller.clone();
+                let song_id = panel_song_id.clone();
+                spawn(async move {
+                    eprintln!(
+                        "[artist-nav.details.resolve.start] song_id={} query='{}' server_id={}",
+                        song_id, artist_name, server_id
+                    );
+                    if let Some(artist_id) = resolve_artist_id_for_name(server, artist_name).await {
+                        eprintln!(
+                            "[artist-nav.details.resolve.ok] song_id={} artist_id={} server_id={}",
+                            song_id, artist_id, server_id
+                        );
+                        controller.close();
+                        navigation.navigate_to(AppView::ArtistDetailView {
+                            artist_id,
+                            server_id,
+                        });
+                    } else {
+                        eprintln!(
+                            "[artist-nav.details.resolve.miss] song_id={} server_id={}",
+                            song_id, server_id
+                        );
+                    }
                 });
             }
         }
