@@ -270,6 +270,7 @@ input[type=range] {
 
 /* ── Baseline: art radius follows the card radius token ─────────────────── */
 .rs-album-art   { border-radius: var(--rs-radius-card); overflow: hidden; }
+.rs-song-art    { border-radius: var(--rs-radius-card); overflow: hidden; }
 .rs-player-art  { border-radius: var(--rs-radius-lg);   overflow: hidden; }
 
 

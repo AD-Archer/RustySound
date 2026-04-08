@@ -5,7 +5,7 @@
             div { class: "flex justify-center",
                 if props.song.album_id.is_some() {
                     button {
-                        class: "w-full max-w-md aspect-square rounded-2xl border border-zinc-800/80 overflow-hidden bg-zinc-900/60 shadow-2xl hover:ring-2 hover:ring-emerald-500/50 transition-all",
+                        class: "rs-song-art w-full max-w-md aspect-square rounded-2xl border border-zinc-800/80 overflow-hidden bg-zinc-900/60 shadow-2xl hover:ring-2 hover:ring-emerald-500/50 transition-all",
                         onclick: on_open_album_cover,
                         title: "Open album",
                         {
@@ -27,7 +27,7 @@
                         }
                     }
                 } else {
-                    div { class: "w-full max-w-md aspect-square rounded-2xl border border-zinc-800/80 overflow-hidden bg-zinc-900/60 shadow-2xl",
+                    div { class: "rs-song-art w-full max-w-md aspect-square rounded-2xl border border-zinc-800/80 overflow-hidden bg-zinc-900/60 shadow-2xl",
                         {
                             match props.cover_url.clone() {
                                 Some(url) => rsx! {
@@ -294,3 +294,4 @@
         }
     }
 }
+

@@ -463,7 +463,7 @@ pub fn QueueView() -> Element {
                                                                     rsx! {
                                                                         if let Some(album_id) = cover_album_id {
                                                                             button {
-                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
+                                                                                class: "rs-song-art w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                                 aria_label: "Open album",
                                                                                 onclick: {
                                                                                     let album_id = album_id.clone();
@@ -484,14 +484,14 @@ pub fn QueueView() -> Element {
                                                                             }
                                                                         } else {
                                                                             img {
-                                                                                class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                class: "rs-song-art w-10 h-10 rounded object-cover border border-zinc-800/80",
                                                                                 src: "{url}",
                                                                             }
                                                                         }
                                                                     }
                                                                 } else {
                                                                     rsx! {
-                                                                        div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
+                                                                        div { class: "rs-song-art w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
                                                                             Icon {
                                                                                 name: "music".to_string(),
                                                                                 class: "w-4 h-4 text-zinc-500".to_string(),
@@ -646,7 +646,7 @@ pub fn QueueView() -> Element {
                                                                     rsx! {
                                                                         if let Some(album_id) = cover_album_id {
                                                                             button {
-                                                                                class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
+                                                                                class: "rs-song-art w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                                 aria_label: "Open album",
                                                                                 onclick: {
                                                                                     let album_id = album_id.clone();
@@ -667,14 +667,14 @@ pub fn QueueView() -> Element {
                                                                             }
                                                                         } else {
                                                                             img {
-                                                                                class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                class: "rs-song-art w-10 h-10 rounded object-cover border border-zinc-800/80",
                                                                                 src: "{url}",
                                                                             }
                                                                         }
                                                                     }
                                                                 } else {
                                                                     rsx! {
-                                                                        div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
+                                                                        div { class: "rs-song-art w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
                                                                             Icon {
                                                                                 name: "music".to_string(),
                                                                                 class: "w-4 h-4 text-zinc-500".to_string(),
@@ -814,7 +814,7 @@ pub fn QueueView() -> Element {
                                         div { class: "flex items-center gap-4",
                                             if current.album_id.is_some() {
                                                 button {
-                                                    class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
+                                                    class: "rs-song-art w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
                                                     aria_label: "Play current song",
                                                     onclick: {
                                                         let song = current.clone();
@@ -848,7 +848,7 @@ pub fn QueueView() -> Element {
                                                 }
                                             } else {
                                                 button {
-                                                    class: "w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
+                                                    class: "rs-song-art w-12 h-12 rounded-lg bg-zinc-800 flex-shrink-0 overflow-hidden",
                                                     aria_label: "Play current song",
                                                     onclick: {
                                                         let song = current.clone();
@@ -974,7 +974,7 @@ pub fn QueueView() -> Element {
                                             }
                                             if song.album_id.is_some() {
                                                 button {
-                                                    class: "w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
+                                                    class: "rs-song-art w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
                                                     aria_label: "Play queued song",
                                                     onclick: {
                                                         let song = song.clone();
@@ -1009,7 +1009,7 @@ pub fn QueueView() -> Element {
                                                 }
                                             } else {
                                                 button {
-                                                    class: "w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
+                                                    class: "rs-song-art w-12 h-12 rounded-lg bg-zinc-800 overflow-hidden flex-shrink-0",
                                                     aria_label: "Play queued song",
                                                     onclick: {
                                                         let song = song.clone();
@@ -1840,3 +1840,4 @@ async fn build_queue_add_recommendations(
 
     suggestions
 }
+

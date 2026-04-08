@@ -100,7 +100,8 @@
 
 
 /* ── Y2K: Cyberpunk — perfectly square art with neon glow ───────────────── */
-[data-theme="y2k"] .rs-album-art {
+[data-theme="y2k"] .rs-album-art,
+[data-theme="y2k"] .rs-song-art {
   border-radius: 0 !important;
   box-shadow:
     0 0 0 1px rgba(255, 0, 204, 0.5),
@@ -214,3 +215,5 @@
 [data-theme="y2k"] .page-shell {
   padding: 1.25rem 1rem !important;
 }
+
+

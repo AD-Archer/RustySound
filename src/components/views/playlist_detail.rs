@@ -397,7 +397,7 @@ fn PlaylistSongRow(
                 }
             }
             button {
-                class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0 pointer-events-none md:pointer-events-auto",
+                class: "rs-song-art w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0 pointer-events-none md:pointer-events-auto",
                 aria_label: "Open album",
                 onclick: on_album_cover,
                 match cover_url {
@@ -1532,7 +1532,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                         }
                                                     }
                                                 }
-                                                div { class: "w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
+                                                div { class: "rs-song-art w-12 h-12 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
                                                     match cover_url {
                                                         Some(url) => rsx! {
                                                             img { class: "w-full h-full object-cover", src: "{url}" }
@@ -1638,7 +1638,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                         if let Some(url) = cover_url {
                                                                             if let Some(album_id) = cover_album_id {
                                                                                 button {
-                                                                                    class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
+                                                                                    class: "rs-song-art w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                                     aria_label: "Open album",
                                                                                     onclick: {
                                                                                         let album_id = album_id.clone();
@@ -1657,12 +1657,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                                 }
                                                                             } else {
                                                                                 img {
-                                                                                    class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                                    class: "rs-song-art w-10 h-10 rounded object-cover border border-zinc-800/80",
                                                                                     src: "{url}",
                                                                                 }
                                                                             }
                                                                         } else {
-                                                                            div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
+                                                                            div { class: "rs-song-art w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
                                                                                 Icon {
                                                                                     name: "music".to_string(),
                                                                                     class: "w-4 h-4 text-zinc-500".to_string(),
@@ -1790,7 +1790,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                             if let Some(url) = cover_url {
                                                                 if let Some(album_id) = cover_album_id {
                                                                     button {
-                                                                        class: "w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
+                                                                        class: "rs-song-art w-10 h-10 rounded overflow-hidden border border-zinc-800/80 flex-shrink-0 pointer-events-none md:pointer-events-auto",
                                                                         aria_label: "Open album",
                                                                         onclick: {
                                                                             let album_id = album_id.clone();
@@ -1809,12 +1809,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                                     }
                                                                 } else {
                                                                     img {
-                                                                        class: "w-10 h-10 rounded object-cover border border-zinc-800/80",
+                                                                        class: "rs-song-art w-10 h-10 rounded object-cover border border-zinc-800/80",
                                                                         src: "{url}",
                                                                     }
                                                                 }
                                                             } else {
-                                                                div { class: "w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
+                                                                div { class: "rs-song-art w-10 h-10 rounded bg-zinc-800 flex items-center justify-center border border-zinc-800/80",
                                                                     Icon {
                                                                         name: "music".to_string(),
                                                                         class: "w-4 h-4 text-zinc-500".to_string(),
@@ -2108,3 +2108,4 @@ async fn build_playlist_add_recommendations(
 
     suggestions
 }
+

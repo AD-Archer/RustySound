@@ -86,7 +86,8 @@
 
 
 /* ── FLUENT: Windows 11 — subtle corners, clean density ─────────────────── */
-[data-theme="fluent"] .rs-album-art {
+[data-theme="fluent"] .rs-album-art,
+[data-theme="fluent"] .rs-song-art {
   border-radius: 0.5rem !important;
 }
 [data-theme="fluent"] .rs-player-art {
@@ -147,4 +148,6 @@
   font-weight: 600 !important;
   letter-spacing: -0.015em !important;
 }
+
+
 

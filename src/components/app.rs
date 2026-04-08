@@ -1772,7 +1772,7 @@ pub fn AppShell() -> Element {
                 ios_diag_log(
                     "app.resume_bookmark",
                     &format!(
-                        "song_id={} position={position:.3} queue_reset=true autoplay=true",
+                        "song_id={} position={position:.3} queue_reset=true autoplay=false",
                         song.id
                     ),
                 );
@@ -1781,7 +1781,7 @@ pub fn AppShell() -> Element {
                 now_playing.set(Some(song.clone()));
                 playback_position.set(position);
                 seek_request.set(Some((song.id.clone(), position)));
-                is_playing.set(true);
+                is_playing.set(false);
             } else {
                 ios_diag_log("app.resume_bookmark", "no bookmark candidate restored");
             }

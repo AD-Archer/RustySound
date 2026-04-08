@@ -2414,7 +2414,7 @@ pub fn SettingsView() -> Element {
                             div {
                                 p { class: "font-medium text-white", "Resume bookmark on launch" }
                                 p { class: "text-sm text-zinc-400",
-                                    "Automatically queue and play your latest bookmark when the app starts."
+                                    "Automatically queue your latest bookmark when the app starts (loaded at position, paused)."
                                 }
                             }
                             button {

@@ -84,7 +84,8 @@
 
 
 /* ── MATERIAL: Material You — large radius, expressive & spacious ─────────── */
-[data-theme="material"] .rs-album-art {
+[data-theme="material"] .rs-album-art,
+[data-theme="material"] .rs-song-art {
   border-radius: 1.5rem !important;
 }
 [data-theme="material"] .rs-player-art {
@@ -101,7 +102,8 @@
   gap: 1.25rem !important;
 }
 /* Material: tonal surface tint on cards */
-[data-theme="material"] .rs-album-art {
+[data-theme="material"] .rs-album-art,
+[data-theme="material"] .rs-song-art {
   box-shadow: 0 1px 4px rgba(0,0,0,0.3), 0 0 0 1px rgba(103, 80, 164, 0.15) !important;
 }
 
@@ -171,4 +173,6 @@
 [data-theme="material"] .page-shell {
   padding: 2rem 2.5rem 2.5rem !important;
 }
+
+
 

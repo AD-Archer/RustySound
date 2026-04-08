@@ -124,12 +124,12 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
                                         img {
                                             src: "{url}",
                                             alt: "{entry.title}",
-                                            class: "w-10 h-10 rounded-md object-cover border border-zinc-800/80 flex-shrink-0",
+                                            class: "rs-song-art w-10 h-10 rounded-md object-cover border border-zinc-800/80 flex-shrink-0",
                                             loading: "lazy",
                                         }
                                     },
                                     None => rsx! {
-                                        div { class: "w-10 h-10 rounded-md bg-zinc-800 flex items-center justify-center text-zinc-500 border border-zinc-800/80 flex-shrink-0",
+                                        div { class: "rs-song-art w-10 h-10 rounded-md bg-zinc-800 flex items-center justify-center text-zinc-500 border border-zinc-800/80 flex-shrink-0",
                                             Icon { name: "music".to_string(), class: "w-4 h-4".to_string() }
                                         }
                                     },
@@ -235,3 +235,4 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
         }
     }
 }
+

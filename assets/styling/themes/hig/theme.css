@@ -81,7 +81,8 @@
 
 
 /* ── HIG: Apple Human Interface Guidelines — iOS-precise rounding ─────────── */
-[data-theme="hig"] .rs-album-art {
+[data-theme="hig"] .rs-album-art,
+[data-theme="hig"] .rs-song-art {
   border-radius: 1rem !important;
 }
 [data-theme="hig"] .rs-player-art {
@@ -165,3 +166,5 @@
   font-size: 0.9375rem !important;
   color: rgba(235, 235, 245, 0.55) !important;
 }
+
+

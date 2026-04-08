@@ -288,7 +288,7 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
             // Cover
             if album_id.is_some() {
                 button {
-                    class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden justify-self-center pointer-events-none md:pointer-events-auto",
+                    class: "rs-song-art w-10 h-10 rounded bg-zinc-800 overflow-hidden justify-self-center pointer-events-none md:pointer-events-auto",
                     aria_label: "Open album",
                     onclick: on_album_cover,
                     {
@@ -305,7 +305,7 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                     }
                 }
             } else {
-                div { class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden justify-self-center",
+                div { class: "rs-song-art w-10 h-10 rounded bg-zinc-800 overflow-hidden justify-self-center",
                     {
                         match cover_url {
                             Some(url) => rsx! {
@@ -477,3 +477,4 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
         }
     }
 }
+

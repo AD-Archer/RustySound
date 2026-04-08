@@ -323,7 +323,7 @@ fn PlaylistCard(
                 class: "group w-full text-left",
                 onclick: move |e| onclick.call(e),
                 // Playlist cover
-                div { class: "aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
+                div { class: "rs-album-art aspect-square rounded-xl bg-zinc-800 mb-3 overflow-hidden relative shadow-lg group-hover:shadow-xl transition-shadow",
                     {
                         match cover_url {
                             Some(url) => rsx! {

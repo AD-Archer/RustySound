@@ -81,7 +81,8 @@
 
 
 /* ── AERO: Frutiger Aero — CIRCULAR art, organic glossy feel ────────────── */
-[data-theme="aero"] .rs-album-art {
+[data-theme="aero"] .rs-album-art,
+[data-theme="aero"] .rs-song-art {
   border-radius: 50% !important;
   box-shadow:
     0 4px 18px rgba(0, 180, 216, 0.25),

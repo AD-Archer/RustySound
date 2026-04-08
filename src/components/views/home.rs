@@ -3734,7 +3734,7 @@ pub fn SongRow(
             // Cover
             if album_id.is_some() {
                 button {
-                    class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0 pointer-events-none md:pointer-events-auto",
+                    class: "rs-song-art w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0 pointer-events-none md:pointer-events-auto",
                     aria_label: "Open album",
                     onclick: on_album_click_cover,
                     {
@@ -3751,7 +3751,7 @@ pub fn SongRow(
                     }
                 }
             } else {
-                div { class: "w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
+                div { class: "rs-song-art w-10 h-10 rounded bg-zinc-800 overflow-hidden flex-shrink-0",
                     {
                         match cover_url {
                             Some(url) => rsx! {
@@ -3938,3 +3938,4 @@ pub fn SongRow(
         }
     }
 }
+

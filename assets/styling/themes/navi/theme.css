@@ -81,7 +81,8 @@
 
 
 /* ── NAVI: Organised and calm — medium radii, standard density ───────────── */
-[data-theme="navi"] .rs-album-art {
+[data-theme="navi"] .rs-album-art,
+[data-theme="navi"] .rs-song-art {
   border-radius: 0.625rem !important;
 }
 [data-theme="navi"] .rs-player-art {
@@ -143,5 +144,7 @@
   font-weight: 600 !important;
   letter-spacing: -0.02em !important;
 }
+
+
 
 

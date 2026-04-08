@@ -131,7 +131,8 @@
 
 
 /* ── FRUIT: Apple Music — generous iOS radii, larger breathing room ──────── */
-[data-theme="fruit"] .rs-album-art {
+[data-theme="fruit"] .rs-album-art,
+[data-theme="fruit"] .rs-song-art {
   border-radius: 1rem !important;
 }
 [data-theme="fruit"] .rs-player-art {
@@ -211,4 +212,6 @@
   font-size: 1rem !important;
   color: rgba(235, 235, 245, 0.6) !important;
 }
+
+
 
