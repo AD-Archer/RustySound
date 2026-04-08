@@ -1769,6 +1769,14 @@ pub fn AppShell() -> Element {
             }
 
             if let Some((song, position)) = resumed_song {
+                if now_playing.peek().is_some() {
+                    ios_diag_log(
+                        "app.resume_bookmark",
+                        "skip restore: now_playing changed while bookmark lookup was in flight",
+                    );
+                    resume_bookmark_loaded.set(true);
+                    return;
+                }
                 ios_diag_log(
                     "app.resume_bookmark",
                     &format!(

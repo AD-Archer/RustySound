@@ -27,6 +27,7 @@
                 let mut paused_streak: u8 = 0;
                 let mut playing_streak: u8 = 0;
                 let mut play_request_grace_ticks: u8 = 0;
+                let mut play_retry_cooldown_ticks: u8 = 0;
                 let mut last_desired_playing: bool = *is_playing.peek();
                 let mut last_heartbeat_ms: u128 = 0;
                 loop {
@@ -177,6 +178,7 @@
                         // When UI or remote requests play, give AVPlayer a brief grace window
                         // before forcing state back to paused if it reports stale paused snapshots.
                         play_request_grace_ticks = 12;
+                        play_retry_cooldown_ticks = 0;
                         ios_diag_log(
                             "controller.sync",
                             &format!(
@@ -205,6 +207,19 @@
                                     "[native.poll] pause detected during play grace ticks_remaining={}",
                                     play_request_grace_ticks
                                 );
+                                // If transport remains paused during startup grace, nudge play again
+                                // in case the previous play command was dropped or arrived too early.
+                                if play_retry_cooldown_ticks == 0 {
+                                    native_audio_command(serde_json::json!({ "type": "play" }));
+                                    play_retry_cooldown_ticks = 4;
+                                    ios_diag_log(
+                                        "controller.sync",
+                                        "retry play while paused during grace window",
+                                    );
+                                } else {
+                                    play_retry_cooldown_ticks =
+                                        play_retry_cooldown_ticks.saturating_sub(1);
+                                }
                                 continue;
                             }
                             // Source switches can briefly report paused at t=0.
@@ -223,6 +238,21 @@
                                     paused_streak
                                 );
                                 is_playing.set(false);
+                            } else {
+                                // Still paused at the start of the track after grace elapsed:
+                                // keep trying play with a small cooldown so playback can recover
+                                // without requiring manual pause/play spam.
+                                if play_retry_cooldown_ticks == 0 {
+                                    native_audio_command(serde_json::json!({ "type": "play" }));
+                                    play_retry_cooldown_ticks = 4;
+                                    ios_diag_log(
+                                        "controller.sync",
+                                        "retry play while stalled near t=0",
+                                    );
+                                } else {
+                                    play_retry_cooldown_ticks =
+                                        play_retry_cooldown_ticks.saturating_sub(1);
+                                }
                             }
                         } else if !*is_playing.peek() && playing_streak >= 2 {
                             eprintln!(
@@ -234,6 +264,7 @@
                         paused_streak = 0;
                         playing_streak = 0;
                         play_request_grace_ticks = 0;
+                        play_retry_cooldown_ticks = 0;
                         if *is_playing.peek() {
                             is_playing.set(false);
                         }
