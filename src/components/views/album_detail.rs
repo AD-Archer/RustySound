@@ -251,14 +251,17 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         div { class: "space-y-8 overflow-x-hidden",
             // Back button
             button {
-                class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
+                class: "inline-flex items-center justify-center text-zinc-400 hover:text-white transition-colors mb-4 rounded-md p-1 -ml-1",
+                aria_label: "Go back",
+                title: "Go back",
                 onclick: move |_| {
-                    if navigation.go_back().is_none() {
+                    if navigation.can_go_back() {
+                        navigation.go_back();
+                    } else {
                         navigation.navigate_to(AppView::Albums {});
                     }
                 },
-                Icon { name: "prev".to_string(), class: "w-4 h-4".to_string() }
-                "Back to Albums"
+                Icon { name: "arrow-left".to_string(), class: "w-5 h-5".to_string() }
             }
 
             {

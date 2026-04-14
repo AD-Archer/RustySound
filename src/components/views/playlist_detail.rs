@@ -1228,7 +1228,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
                 onclick: move |_| {
-                    if navigation.go_back().is_none() {
+                    if navigation.can_go_back() {
+                        navigation.go_back();
+                    } else {
                         navigation.navigate_to(AppView::PlaylistsView {});
                     }
                 },
@@ -2108,4 +2110,3 @@ async fn build_playlist_add_recommendations(
 
     suggestions
 }
-

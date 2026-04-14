@@ -410,10 +410,28 @@ pub fn QueueView() -> Element {
     rsx! {
         div { class: "space-y-8",
             header { class: "page-header page-header--split",
-                div {
+                div { class: "flex items-start gap-3",
+                    button {
+                        class: "inline-flex items-center justify-center rounded-md p-1 -ml-1 text-zinc-400 hover:text-white transition-colors",
+                        aria_label: "Go back",
+                        title: "Go back",
+                        onclick: {
+                            let navigation = navigation.clone();
+                            move |_| {
+                                if navigation.can_go_back() {
+                                    navigation.go_back();
+                                } else {
+                                    navigation.navigate_to(AppView::HomeView {});
+                                }
+                            }
+                        },
+                        Icon { name: "arrow-left".to_string(), class: "w-5 h-5".to_string() }
+                    }
+                    div {
                     h1 { class: "page-title", "Play Queue" }
                     p { class: "page-subtitle",
                         "{songs.len()} songs • {format_duration(songs.iter().map(|s| s.duration).sum())}"
+                    }
                     }
                 }
 

@@ -1959,7 +1959,6 @@ pub fn AppShell() -> Element {
 
     let view = use_route::<AppView>();
     let sidebar_signal = sidebar_open.clone();
-    let can_go_back = navigation.can_go_back();
     let song_details_open = song_details_state().is_open;
     let is_startup_bootstrapping = !db_initialized() || !settings_loaded();
     let is_home_initializing = home_init_in_progress() && matches!(&view, AppView::HomeView {});
@@ -2025,22 +2024,6 @@ pub fn AppShell() -> Element {
                                     Icon {
                                         name: "menu".to_string(),
                                         class: "w-5 h-5".to_string(),
-                                    }
-                                }
-                                if can_go_back {
-                                    button {
-                                        class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                        aria_label: "Go back",
-                                        onclick: {
-                                            let navigation = navigation.clone();
-                                            move |_| {
-                                                let _ = navigation.go_back();
-                                            }
-                                        },
-                                        Icon {
-                                            name: "arrow-left".to_string(),
-                                            class: "w-5 h-5".to_string(),
-                                        }
                                     }
                                 }
                             }
