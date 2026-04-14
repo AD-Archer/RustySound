@@ -94,6 +94,22 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
 
     rsx! {
         div { class: "h-full overflow-y-visible md:overflow-y-auto pr-1 space-y-2",
+            div { class: "pb-1",
+                button {
+                    class: if (props.create_queue_busy)() {
+                        "w-full px-3 py-2 rounded-xl bg-zinc-700 text-zinc-300 text-sm cursor-not-allowed"
+                    } else {
+                        "w-full px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white text-sm transition-colors"
+                    },
+                    disabled: (props.create_queue_busy)(),
+                    onclick: on_create_queue,
+                    if (props.create_queue_busy)() {
+                        "Creating queue..."
+                    } else {
+                        "Quick Create Queue"
+                    }
+                }
+            }
             for (index, entry) in props.up_next.iter() {
                 div {
                     key: "{entry.server_id}:{entry.id}:{index}",
@@ -235,4 +251,3 @@ fn QueuePanel(props: QueuePanelProps) -> Element {
         }
     }
 }
-

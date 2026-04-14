@@ -6,7 +6,7 @@ use crate::components::{
     generate_queue_extension_from_seed, AddIntent, AddMenuController, AppView, Icon, Navigation,
     PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
 };
-use crate::db::AppSettings;
+use crate::db::{load_temporary_queue_snapshots, AppSettings, TemporaryQueueSnapshot};
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
 use dioxus::prelude::*;
@@ -37,6 +37,39 @@ async fn queue_search_delay_ms(ms: u64) {
 #[cfg(target_arch = "wasm32")]
 async fn queue_search_delay_ms(ms: u64) {
     gloo_timers::future::TimeoutFuture::new(ms as u32).await;
+}
+
+fn restore_queue_snapshot(
+    mut queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut is_playing: Signal<bool>,
+    mut playback_position: Signal<f64>,
+    mut seek_request: Signal<Option<(String, f64)>>,
+    mut preview_playback: Signal<bool>,
+    snapshot: TemporaryQueueSnapshot,
+) {
+    if snapshot.queue.is_empty() {
+        return;
+    }
+    let restored_queue = snapshot.queue;
+    let restored_index = snapshot
+        .queue_index
+        .min(restored_queue.len().saturating_sub(1));
+    let restored_song = snapshot
+        .now_playing
+        .or_else(|| restored_queue.get(restored_index).cloned())
+        .or_else(|| restored_queue.first().cloned());
+
+    queue.set(restored_queue);
+    queue_index.set(restored_index);
+    now_playing.set(restored_song.clone());
+    playback_position.set(snapshot.playback_position.max(0.0));
+    if let Some(song) = restored_song {
+        seek_request.set(Some((song.id.clone(), snapshot.playback_position.max(0.0))));
+    }
+    preview_playback.set(false);
+    is_playing.set(false);
 }
 
 async fn prefetch_lrclib_lyrics_for_queue(songs: Vec<Song>, max_songs: usize) {
@@ -89,11 +122,17 @@ pub fn QueueView() -> Element {
     let lyrics_prefetch_signature = use_signal(String::new);
     let quick_create_queue_busy = use_signal(|| false);
     let mut queue_song_menu = use_signal(|| None::<(Song, usize, f64, f64)>);
+    let saved_queue_snapshots = use_signal(Vec::<TemporaryQueueSnapshot>::new);
+    let saved_queue_snapshots_loaded = use_signal(|| false);
 
     let current_index = queue_index();
     let songs: Vec<Song> = queue().into_iter().collect();
     let queue_len = songs.len();
     let current_song = now_playing();
+    let saved_queue_snapshot_items = saved_queue_snapshots();
+    let can_restore_saved_queue =
+        saved_queue_snapshots_loaded() && !saved_queue_snapshot_items.is_empty();
+    let latest_saved_queue_snapshot = saved_queue_snapshot_items.first().cloned();
     let can_quick_create_more = current_song
         .clone()
         .or_else(|| songs.get(current_index).cloned())
@@ -145,6 +184,20 @@ pub fn QueueView() -> Element {
                     return;
                 }
                 queue_search_debounced.set(query);
+            });
+        });
+    }
+
+    {
+        let saved_queue_snapshots = saved_queue_snapshots.clone();
+        let saved_queue_snapshots_loaded = saved_queue_snapshots_loaded.clone();
+        use_effect(move || {
+            let mut saved_queue_snapshots = saved_queue_snapshots.clone();
+            let mut saved_queue_snapshots_loaded = saved_queue_snapshots_loaded.clone();
+            spawn(async move {
+                let snapshots = load_temporary_queue_snapshots().await.unwrap_or_default();
+                saved_queue_snapshots.set(snapshots);
+                saved_queue_snapshots_loaded.set(true);
             });
         });
     }
@@ -774,22 +827,58 @@ pub fn QueueView() -> Element {
                     p { class: "text-zinc-500 text-sm mt-2",
                         "Use Add Songs above to build a queue."
                     }
-                    button {
-                        class: if quick_create_queue_busy() || !can_quick_create_more {
-                            "mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
-                        } else {
-                            "mt-4 inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
-                        },
-                        disabled: quick_create_queue_busy() || !can_quick_create_more,
-                        onclick: on_quick_create_more,
-                        Icon {
-                            name: if quick_create_queue_busy() { "loader".to_string() } else { "plus".to_string() },
-                            class: "w-4 h-4".to_string(),
+                    div { class: "mt-4 grid w-full max-w-xl grid-cols-1 sm:grid-cols-2 gap-2",
+                        button {
+                            class: if quick_create_queue_busy() || !can_quick_create_more {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
+                            } else {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
+                            },
+                            disabled: quick_create_queue_busy() || !can_quick_create_more,
+                            onclick: on_quick_create_more,
+                            Icon {
+                                name: if quick_create_queue_busy() { "loader".to_string() } else { "plus".to_string() },
+                                class: "w-4 h-4".to_string(),
+                            }
+                            if quick_create_queue_busy() {
+                                "Adding songs..."
+                            } else {
+                                "Quick Create Queue"
+                            }
                         }
-                        if quick_create_queue_busy() {
-                            "Adding songs..."
-                        } else {
-                            "Quick Create Queue"
+                        button {
+                            class: if can_restore_saved_queue {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
+                            } else {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
+                            },
+                            disabled: !can_restore_saved_queue,
+                            onclick: {
+                                let latest_saved_queue_snapshot = latest_saved_queue_snapshot.clone();
+                                let queue = queue.clone();
+                                let queue_index = queue_index.clone();
+                                let now_playing = now_playing.clone();
+                                let is_playing = is_playing.clone();
+                                let playback_position = playback_position.clone();
+                                let seek_request = seek_request.clone();
+                                let preview_playback = preview_playback.clone();
+                                move |_| {
+                                    if let Some(snapshot) = latest_saved_queue_snapshot.clone() {
+                                        restore_queue_snapshot(
+                                            queue.clone(),
+                                            queue_index.clone(),
+                                            now_playing.clone(),
+                                            is_playing.clone(),
+                                            playback_position.clone(),
+                                            seek_request.clone(),
+                                            preview_playback.clone(),
+                                            snapshot,
+                                        );
+                                    }
+                                }
+                            },
+                            Icon { name: "clock".to_string(), class: "w-4 h-4".to_string() }
+                            "Restore Previous Queue"
                         }
                     }
                 }
@@ -1195,23 +1284,59 @@ pub fn QueueView() -> Element {
                         }
                     }
                 }
-                div { class: "flex justify-center pt-4",
-                    button {
-                        class: if quick_create_queue_busy() || !can_quick_create_more {
-                            "inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
-                        } else {
-                            "inline-flex items-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
-                        },
-                        disabled: quick_create_queue_busy() || !can_quick_create_more,
-                        onclick: on_quick_create_more,
-                        Icon {
-                            name: if quick_create_queue_busy() { "loader".to_string() } else { "plus".to_string() },
-                            class: "w-4 h-4".to_string(),
+                div { class: "pt-4 flex justify-center",
+                    div { class: "grid w-full max-w-xl grid-cols-1 sm:grid-cols-2 gap-2",
+                        button {
+                            class: if quick_create_queue_busy() || !can_quick_create_more {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
+                            } else {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
+                            },
+                            disabled: quick_create_queue_busy() || !can_quick_create_more,
+                            onclick: on_quick_create_more,
+                            Icon {
+                                name: if quick_create_queue_busy() { "loader".to_string() } else { "plus".to_string() },
+                                class: "w-4 h-4".to_string(),
+                            }
+                            if quick_create_queue_busy() {
+                                "Adding songs..."
+                            } else {
+                                "Quick Create Queue"
+                            }
                         }
-                        if quick_create_queue_busy() {
-                            "Adding songs..."
-                        } else {
-                            "Quick Create Queue"
+                        button {
+                            class: if can_restore_saved_queue {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-900/70 px-4 py-2 text-sm text-zinc-300 hover:text-white hover:border-emerald-500/70 hover:bg-emerald-500/10 transition-colors"
+                            } else {
+                                "inline-flex items-center justify-center gap-2 rounded-xl border border-zinc-700 bg-zinc-800/60 px-4 py-2 text-sm text-zinc-500 cursor-not-allowed"
+                            },
+                            disabled: !can_restore_saved_queue,
+                            onclick: {
+                                let latest_saved_queue_snapshot = latest_saved_queue_snapshot.clone();
+                                let queue = queue.clone();
+                                let queue_index = queue_index.clone();
+                                let now_playing = now_playing.clone();
+                                let is_playing = is_playing.clone();
+                                let playback_position = playback_position.clone();
+                                let seek_request = seek_request.clone();
+                                let preview_playback = preview_playback.clone();
+                                move |_| {
+                                    if let Some(snapshot) = latest_saved_queue_snapshot.clone() {
+                                        restore_queue_snapshot(
+                                            queue.clone(),
+                                            queue_index.clone(),
+                                            now_playing.clone(),
+                                            is_playing.clone(),
+                                            playback_position.clone(),
+                                            seek_request.clone(),
+                                            preview_playback.clone(),
+                                            snapshot,
+                                        );
+                                    }
+                                }
+                            },
+                            Icon { name: "clock".to_string(), class: "w-4 h-4".to_string() }
+                            "Restore Previous Queue"
                         }
                     }
                 }
@@ -1840,4 +1965,3 @@ async fn build_queue_add_recommendations(
 
     suggestions
 }
-
