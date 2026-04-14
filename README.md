@@ -118,8 +118,14 @@ Note: release artifacts may be unsigned/ad-hoc signed when Apple notarization se
 
 ```bash
 flatpak remote-add --if-not-exists --user adarcher-rustysound https://ad-archer.github.io/packages/rustysound.flatpakrepo
-flatpak install --user adarcher-rustysound app.adarcher.rustysound
+flatpak install --user adarcher-rustysound app.adarcher.rustysound//stable
 flatpak run app.adarcher.rustysound
+```
+
+If you installed an older build that tracked `master`, migrate once with:
+
+```bash
+flatpak install --user adarcher-rustysound app.adarcher.rustysound//stable
 ```
 
 To remove:
@@ -149,7 +155,7 @@ flatpak install --user flathub org.gnome.Platform//49
 flatpak install --user flathub org.gnome.Platform.Locale//49
 
 # Then reinstall the app from the adarcher remote
-flatpak install --user adarcher-rustysound app.adarcher.rustysound
+flatpak install --user adarcher-rustysound app.adarcher.rustysound//stable
 ```
 
 If you prefer a system-wide install (no `--user`), omit `--user` from the commands. Also ensure the runtime architecture matches your system (x86_64 vs aarch64).
