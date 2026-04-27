@@ -1,6 +1,6 @@
 use crate::api::*;
 use crate::components::views::artist_links::{
-    parse_artist_names, resolve_artist_id_for_name, ArtistNameLinks,
+    ArtistNameLinks, parse_artist_names, resolve_artist_id_for_name,
 };
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;
@@ -477,4 +477,3 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
         }
     }
 }
-

@@ -2,8 +2,8 @@ use crate::api::models::format_duration;
 use crate::api::*;
 use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{
-    seek_to, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, SongDetailsController,
-    VolumeSignal,
+    AppView, AudioState, Icon, Navigation, PlaybackPositionSignal, SongDetailsController,
+    VolumeSignal, seek_to,
 };
 use dioxus::prelude::*;
 

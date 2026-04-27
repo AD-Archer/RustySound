@@ -5,18 +5,18 @@ use crate::cache_service::{
 };
 use crate::components::views::home_layout::HomeFeedLoadProfile;
 use crate::components::{
-    ios_audio_log_snapshot, ios_diag_log, view_label, AddIntent, AddMenuController,
-    AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon,
-    IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
-    SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal, SongDetailsController,
-    SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController, AudioState,
+    HomeRefreshSignal, Icon, IsPlayingSignal, Navigation, PlaybackPositionSignal, Player,
+    PreviewPlaybackSignal, SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal,
+    SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    ios_audio_log_snapshot, ios_diag_log, view_instance_key, view_label,
 };
 use crate::db::{
-    initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
-    save_servers, save_settings, save_temporary_queue_snapshot, AppSettings, PlaybackState,
-    QueueItem, TemporaryQueueSnapshot,
+    AppSettings, PlaybackState, QueueItem, TemporaryQueueSnapshot, initialize_database,
+    load_playback_state, load_servers, load_settings, save_playback_state, save_servers,
+    save_settings, save_temporary_queue_snapshot,
 };
-use crate::diagnostics::{log_perf, PerfTimer};
+use crate::diagnostics::{PerfTimer, log_perf};
 use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
 use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
@@ -25,14 +25,15 @@ use dioxus::core::{Runtime, RuntimeGuard};
 use dioxus::desktop::use_muda_event_handler;
 use dioxus_router::components::Outlet;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::closure::Closure;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::closure::Closure;
 #[cfg(target_arch = "wasm32")]
 use web_sys::window;
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
+use dioxus_router::use_navigator;
 
 #[cfg(target_arch = "wasm32")]
 const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
@@ -113,7 +114,11 @@ fn home_init_profile_cache_key(profile: HomeFeedLoadProfile) -> &'static str {
     profile.as_storage()
 }
 
-fn queue_snapshot_signature(queue: &[Song], queue_index: usize, now_playing: Option<&Song>) -> String {
+fn queue_snapshot_signature(
+    queue: &[Song],
+    queue_index: usize,
+    now_playing: Option<&Song>,
+) -> String {
     let mut signature = String::new();
     signature.push_str(&queue.len().to_string());
     signature.push('|');
@@ -903,6 +908,10 @@ async fn initialize_home_cache(
 pub fn AppShell() -> Element {
     let mut servers = use_signal(Vec::<ServerConfig>::new);
     let current_view = use_route::<AppView>();
+    let router_navigator = use_navigator();
+    let mut current_view_signal = use_signal(|| current_view.clone());
+    let pending_navigation_target = use_signal(|| None::<AppView>);
+    let outlet_key = view_instance_key(&current_view);
     let now_playing = use_signal(|| None::<Song>);
     let queue = use_signal(Vec::<Song>::new);
     let mut queue_index = use_signal(|| 0usize);
@@ -933,7 +942,38 @@ pub fn AppShell() -> Element {
     let audio_state = use_signal(AudioState::default);
     let preview_playback = use_signal(|| false);
     let sidebar_open = use_signal(|| false);
-    let navigation = Navigation::new();
+    use_effect({
+        let current_view = current_view.clone();
+        move || {
+            if current_view_signal() != current_view {
+                current_view_signal.set(current_view.clone());
+            }
+        }
+    });
+
+    let navigation = Navigation::new(
+        router_navigator,
+        current_view_signal,
+        pending_navigation_target,
+    );
+    use_effect({
+        let navigation = navigation;
+        move || {
+            let current_view = current_view_signal();
+            let pending_target = pending_navigation_target();
+            if pending_target.is_some() && matches!(current_view, AppView::HomeView {}) {
+                eprintln!(
+                    "[nav.refresh.effect] current={} pending={}",
+                    current_view,
+                    pending_target
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "<none>".to_string())
+                );
+                navigation.resume_pending_navigation();
+            }
+        }
+    });
     let seek_request = use_signal(|| None::<(String, f64)>);
     let mut resume_bookmark_loaded = use_signal(|| false);
     #[cfg(target_arch = "wasm32")]
@@ -2081,7 +2121,10 @@ pub fn AppShell() -> Element {
                                     }
                                 }
                             }
-                            Outlet::<AppView> {}
+                            div {
+                                key: "{outlet_key}",
+                                Outlet::<AppView> {}
+                            }
                         }
                     }
                     Player {}

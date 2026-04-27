@@ -4,18 +4,18 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta,
 };
 use crate::components::views::artist_links::{
-    parse_artist_names, resolve_artist_id_for_name, ArtistNameLinks,
+    ArtistNameLinks, parse_artist_names, resolve_artist_id_for_name,
 };
 use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
     PreviewPlaybackSignal, SeekRequestSignal,
 };
 use crate::db::AppSettings;
-use crate::diagnostics::{log_perf, PerfTimer};
+use crate::diagnostics::{PerfTimer, log_perf};
 use crate::offline_audio::{
-    download_songs_batch, is_playlist_auto_download_tracked, is_song_downloaded,
+    DownloadOrigin, download_songs_batch, is_playlist_auto_download_tracked, is_song_downloaded,
     mark_collection_downloaded, mark_playlist_auto_download_tracked, prefetch_song_audio,
-    prefetch_song_audio_with_origin, sync_downloaded_collection_members, DownloadOrigin,
+    prefetch_song_audio_with_origin, sync_downloaded_collection_members,
 };
 use dioxus::prelude::*;
 use std::cell::RefCell;
@@ -622,10 +622,24 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut show_playlist_menu = use_signal(|| false);
     let mut playlist_menu_x = use_signal(|| 0f64);
     let mut playlist_menu_y = use_signal(|| 0f64);
-
-    let server = servers().into_iter().find(|s| s.id == server_id);
+    let mut current_playlist_id = use_signal(|| playlist_id.clone());
+    let mut current_server_id = use_signal(|| server_id.clone());
     let playlist_queue_source = format!("{}::{}", server_id.clone(), playlist_id.clone());
-    let server_for_playlist = server.clone();
+
+    use_effect({
+        let playlist_id = playlist_id.clone();
+        let server_id = server_id.clone();
+        move || {
+            if current_playlist_id() != playlist_id {
+                current_playlist_id.set(playlist_id.clone());
+                show_playlist_menu.set(false);
+            }
+            if current_server_id() != server_id {
+                current_server_id.set(server_id.clone());
+                show_playlist_menu.set(false);
+            }
+        }
+    });
 
     {
         let mut song_search_debounced = song_search_debounced.clone();
@@ -653,8 +667,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     }
 
     let playlist_data = use_resource(move || {
-        let server = server_for_playlist.clone();
-        let playlist_id = playlist_id.clone();
+        let server_id = current_server_id();
+        let playlist_id = current_playlist_id();
+        let server = servers().into_iter().find(|s| s.id == server_id);
         let _reload = reload();
         async move {
             if let Some(server) = server {
@@ -667,23 +682,23 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     });
 
     let search_results = {
-        let server = server.clone();
         use_resource(move || {
-            let server = server.clone();
+            let server_id = current_server_id();
+            let server = servers().into_iter().find(|s| s.id == server_id);
             let query = song_search_debounced();
             async move { search_playlist_add_candidates(server, query).await }
         })
     };
 
     let auto_recommendations = {
-        let server = server.clone();
         let edit_mode = edit_mode.clone();
         let song_list = song_list.clone();
         let recently_added_seed = recently_added_seed.clone();
         let dismissed_recommendations = dismissed_recommendations.clone();
         let recommendation_refresh_nonce = recommendation_refresh_nonce.clone();
         use_resource(move || {
-            let server = server.clone();
+            let server_id = current_server_id();
+            let server = servers().into_iter().find(|s| s.id == server_id);
             let editing = edit_mode();
             let playlist_songs = song_list();
             let recent_seed = recently_added_seed();

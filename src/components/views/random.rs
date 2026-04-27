@@ -1,10 +1,10 @@
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
+use crate::components::Icon;
 use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
 };
 use crate::components::views::home::SongRow;
-use crate::components::Icon;
 use dioxus::prelude::*;
 use std::collections::HashSet;
 

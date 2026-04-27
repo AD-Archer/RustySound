@@ -3,11 +3,11 @@ use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{
-    generate_queue_extension_from_seed, AddIntent, AddMenuController, AppView, Icon, Navigation,
-    PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
+    AddIntent, AddMenuController, AppView, Icon, Navigation, PlaybackPositionSignal,
+    PreviewPlaybackSignal, SeekRequestSignal, generate_queue_extension_from_seed,
 };
-use crate::db::{load_temporary_queue_snapshots, AppSettings, TemporaryQueueSnapshot};
-use crate::diagnostics::{log_perf, PerfTimer};
+use crate::db::{AppSettings, TemporaryQueueSnapshot, load_temporary_queue_snapshots};
+use crate::diagnostics::{PerfTimer, log_perf};
 use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
 use dioxus::prelude::*;
 use std::collections::HashSet;

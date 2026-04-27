@@ -1,13 +1,13 @@
 use crate::api::{NavidromeClient, ServerConfig, Song};
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
-use crate::db::{save_settings, AppSettings};
+use crate::db::{AppSettings, save_settings};
 use crate::offline_audio::{
-    clear_downloads, download_stats, list_active_downloads, list_downloaded_collection_memberships,
-    list_downloaded_collections, list_downloaded_entries, refresh_downloaded_cache,
-    remove_downloaded_album, remove_downloaded_collection, remove_downloaded_song,
-    run_auto_download_pass, sync_downloaded_collection_members,
-    sync_downloaded_collection_metadata, ActiveDownloadEntry, DownloadCollectionEntry,
-    DownloadCollectionMembershipEntry, DownloadIndexEntry,
+    ActiveDownloadEntry, DownloadCollectionEntry, DownloadCollectionMembershipEntry,
+    DownloadIndexEntry, clear_downloads, download_stats, list_active_downloads,
+    list_downloaded_collection_memberships, list_downloaded_collections, list_downloaded_entries,
+    refresh_downloaded_cache, remove_downloaded_album, remove_downloaded_collection,
+    remove_downloaded_song, run_auto_download_pass, sync_downloaded_collection_members,
+    sync_downloaded_collection_metadata,
 };
 use dioxus::prelude::*;
 use rand::seq::SliceRandom;

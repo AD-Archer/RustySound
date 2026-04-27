@@ -4,10 +4,10 @@ use crate::cache_service::{
     stats as current_cache_stats,
 };
 use crate::components::{
-    ios_audio_log_clear, ios_audio_log_export_txt, ios_audio_log_snapshot, AppView, Icon,
-    Navigation, VolumeSignal,
+    AppView, Icon, Navigation, VolumeSignal, ios_audio_log_clear, ios_audio_log_export_txt,
+    ios_audio_log_snapshot,
 };
-use crate::db::{save_servers_now, save_settings, AppSettings, ArtworkDownloadPreference};
+use crate::db::{AppSettings, ArtworkDownloadPreference, save_servers_now, save_settings};
 use crate::offline_audio::{
     clear_downloads, download_stats, prune_temporary_queue_prefetch_downloads,
     refresh_downloaded_cache, run_auto_download_pass,
