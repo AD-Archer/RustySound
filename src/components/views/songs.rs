@@ -1,8 +1,8 @@
 use crate::api::*;
-use crate::components::Icon;
 use crate::components::views::artist_links::{
-    ArtistNameLinks, parse_artist_names, resolve_artist_id_for_name,
+    parse_artist_names, resolve_artist_id_for_name, ArtistNameLinks,
 };
+use crate::components::Icon;
 use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
 use crate::db::AppSettings;
 use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};

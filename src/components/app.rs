@@ -5,18 +5,18 @@ use crate::cache_service::{
 };
 use crate::components::views::home_layout::HomeFeedLoadProfile;
 use crate::components::{
-    AddIntent, AddMenuController, AddToMenuOverlay, AppView, AudioController, AudioState,
-    HomeRefreshSignal, Icon, IsPlayingSignal, Navigation, PlaybackPositionSignal, Player,
-    PreviewPlaybackSignal, SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal,
-    SongDetailsController, SongDetailsOverlay, SongDetailsState, VolumeSignal,
-    ios_audio_log_snapshot, ios_diag_log, view_instance_key, view_label,
+    ios_audio_log_snapshot, ios_diag_log, view_instance_key, view_label, AddIntent,
+    AddMenuController, AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal,
+    Icon, IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
+    SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal, SongDetailsController,
+    SongDetailsOverlay, SongDetailsState, VolumeSignal,
 };
 use crate::db::{
-    AppSettings, PlaybackState, QueueItem, TemporaryQueueSnapshot, initialize_database,
-    load_playback_state, load_servers, load_settings, save_playback_state, save_servers,
-    save_settings, save_temporary_queue_snapshot,
+    initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
+    save_servers, save_settings, save_temporary_queue_snapshot, AppSettings, PlaybackState,
+    QueueItem, TemporaryQueueSnapshot,
 };
-use crate::diagnostics::{PerfTimer, log_perf};
+use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
 use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
@@ -25,9 +25,9 @@ use dioxus::core::{Runtime, RuntimeGuard};
 use dioxus::desktop::use_muda_event_handler;
 use dioxus_router::components::Outlet;
 #[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
 use wasm_bindgen::closure::Closure;
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use web_sys::window;
 // Re-export RepeatMode for other components

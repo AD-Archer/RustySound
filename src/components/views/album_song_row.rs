@@ -1,6 +1,6 @@
 use crate::api::*;
 use crate::components::views::artist_links::{
-    ArtistNameLinks, parse_artist_names, resolve_artist_id_for_name,
+    parse_artist_names, resolve_artist_id_for_name, ArtistNameLinks,
 };
 use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
 use crate::db::AppSettings;

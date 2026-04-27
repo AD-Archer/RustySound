@@ -3,7 +3,7 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, queue_should_generate_similar_on_end, spawn_shuffle_queue,
 };
 use crate::components::{
-    AddIntent, AddMenuController, AudioState, Icon, PlaybackPositionSignal, ios_diag_log, seek_to,
+    ios_diag_log, seek_to, AddIntent, AddMenuController, AudioState, Icon, PlaybackPositionSignal,
 };
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;

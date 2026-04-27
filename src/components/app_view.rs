@@ -1,7 +1,7 @@
 //! Defines the shared application view state.
 
-use crate::components::AppShell;
 use crate::components::views::*;
+use crate::components::AppShell;
 use dioxus::prelude::*;
 
 #[derive(Routable, Clone, PartialEq)]

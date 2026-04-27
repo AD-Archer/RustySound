@@ -1,19 +1,19 @@
-use super::artist_links::{ArtistNameLinks, parse_artist_names, resolve_artist_id_for_name};
+use super::artist_links::{parse_artist_names, resolve_artist_id_for_name, ArtistNameLinks};
 use super::home_layout::{
-    HomeAlbumSectionConfig, HomeAlbumSource, HomeFeedLoadProfile, HomeLayoutSettings,
-    HomeQuickPicksLayout, HomeQuickPicksSize, HomeQuickPlayAction, HomeSongSectionConfig,
-    HomeSongSource, HomeSortDirection, HomeTopStripMode, parse_home_layout_settings,
-    serialize_home_layout_settings,
+    parse_home_layout_settings, serialize_home_layout_settings, HomeAlbumSectionConfig,
+    HomeAlbumSource, HomeFeedLoadProfile, HomeLayoutSettings, HomeQuickPicksLayout,
+    HomeQuickPicksSize, HomeQuickPlayAction, HomeSongSectionConfig, HomeSongSource,
+    HomeSortDirection, HomeTopStripMode,
 };
 use crate::api::*;
 use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta,
 };
 use crate::components::{
-    AddIntent, AddMenuController, AppView, HomeFeedState, HomeRefreshSignal, Icon, Navigation,
-    ios_audio_log_snapshot, ios_diag_log,
+    ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController, AppView, HomeFeedState,
+    HomeRefreshSignal, Icon, Navigation,
 };
-use crate::db::{AppSettings, save_settings};
+use crate::db::{save_settings, AppSettings};
 use crate::offline_audio::{
     download_songs_batch, is_album_downloaded, is_song_downloaded, mark_collection_downloaded,
     prefetch_song_audio, sync_downloaded_collection_members,

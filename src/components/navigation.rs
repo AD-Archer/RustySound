@@ -6,7 +6,7 @@ use crate::components::app_view::AppView;
 #[cfg(target_arch = "wasm32")]
 use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
-use web_sys::{HtmlElement, window};
+use web_sys::{window, HtmlElement};
 
 #[derive(Clone, Copy)]
 pub struct Navigation(

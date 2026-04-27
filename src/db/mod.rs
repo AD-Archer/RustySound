@@ -580,7 +580,9 @@ pub async fn load_playback_state() -> Result<PlaybackState, StorageError> {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub async fn save_temporary_queue_snapshot(snapshot: TemporaryQueueSnapshot) -> Result<(), DbError> {
+pub async fn save_temporary_queue_snapshot(
+    snapshot: TemporaryQueueSnapshot,
+) -> Result<(), DbError> {
     if snapshot.queue.is_empty() {
         return Ok(());
     }
@@ -598,7 +600,9 @@ pub async fn save_temporary_queue_snapshot(snapshot: TemporaryQueueSnapshot) -> 
 }
 
 #[cfg(target_arch = "wasm32")]
-pub async fn save_temporary_queue_snapshot(snapshot: TemporaryQueueSnapshot) -> Result<(), StorageError> {
+pub async fn save_temporary_queue_snapshot(
+    snapshot: TemporaryQueueSnapshot,
+) -> Result<(), StorageError> {
     if snapshot.queue.is_empty() {
         return Ok(());
     }

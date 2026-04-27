@@ -1,16 +1,16 @@
 //! Song-details overlay, panels, and shared helpers.
 
 use crate::api::{
-    LyricLine, LyricsQuery, LyricsResult, LyricsSearchCandidate, NavidromeClient, ServerConfig,
-    Song, fetch_lyrics_with_fallback, format_duration, normalize_lyrics_provider_order,
-    search_lyrics_candidates,
+    fetch_lyrics_with_fallback, format_duration, normalize_lyrics_provider_order,
+    search_lyrics_candidates, LyricLine, LyricsQuery, LyricsResult, LyricsSearchCandidate,
+    NavidromeClient, ServerConfig, Song,
 };
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{
-    AddIntent, AddMenuController, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal,
-    SidebarOpenSignal, VolumeSignal, apply_collection_shuffle_mode,
-    generate_queue_extension_from_seed, queue_should_generate_similar_on_end, seek_to,
-    spawn_shuffle_queue,
+    apply_collection_shuffle_mode, generate_queue_extension_from_seed,
+    queue_should_generate_similar_on_end, seek_to, spawn_shuffle_queue, AddIntent,
+    AddMenuController, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal,
+    SidebarOpenSignal, VolumeSignal,
 };
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;

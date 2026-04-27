@@ -6,7 +6,7 @@ use crate::components::audio_manager::{
 use crate::components::views::home::{AlbumCard, SongRow};
 use crate::components::views::search::ArtistCard;
 use crate::components::{AppView, Icon, Navigation};
-use crate::diagnostics::{PerfTimer, log_perf};
+use crate::diagnostics::{log_perf, PerfTimer};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 
