@@ -1,5 +1,7 @@
 use crate::api::{
-    default_lyrics_provider_order, models::ServerConfig, normalize_lyrics_provider_order,
+    default_lyrics_provider_order,
+    models::{ServerConfig, Song},
+    normalize_lyrics_provider_order,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::storage::app_data_dir;
@@ -37,6 +39,9 @@ const SETTINGS_KEY: &str = "rustysound.app_settings";
 const PLAYBACK_KEY: &str = "rustysound.playback_state";
 #[cfg(target_arch = "wasm32")]
 const SERVERS_KEY: &str = "rustysound.servers";
+#[cfg(target_arch = "wasm32")]
+const TEMP_QUEUE_SNAPSHOTS_KEY: &str = "rustysound.temporary_queue_snapshots";
+const TEMP_QUEUE_SNAPSHOT_LIMIT: usize = 1;
 
 /// Repeat mode for playback
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
@@ -303,6 +308,98 @@ pub struct QueueItem {
     pub server_id: String,
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct TemporaryQueueSnapshot {
+    pub id: String,
+    pub saved_at_epoch_ms: i64,
+    pub queue: Vec<Song>,
+    pub queue_index: usize,
+    pub now_playing: Option<Song>,
+    pub playback_position: f64,
+}
+
+fn snapshot_signature(snapshot: &TemporaryQueueSnapshot) -> String {
+    let mut signature = String::new();
+    signature.push_str(&snapshot.queue_index.to_string());
+    signature.push('|');
+    if let Some(song) = snapshot.now_playing.as_ref() {
+        signature.push_str(song.server_id.trim());
+        signature.push(':');
+        signature.push_str(song.id.trim());
+    }
+    signature.push('|');
+    for song in &snapshot.queue {
+        signature.push_str(song.server_id.trim());
+        signature.push(':');
+        signature.push_str(song.id.trim());
+        signature.push(';');
+    }
+    signature
+}
+
+fn normalize_queue_snapshots(
+    snapshots: Vec<TemporaryQueueSnapshot>,
+) -> Vec<TemporaryQueueSnapshot> {
+    let mut snapshots: Vec<TemporaryQueueSnapshot> = snapshots
+        .into_iter()
+        .filter_map(|mut snapshot| {
+            if snapshot.queue.is_empty() {
+                return None;
+            }
+
+            snapshot.queue_index = snapshot
+                .queue_index
+                .min(snapshot.queue.len().saturating_sub(1));
+            snapshot.playback_position = snapshot.playback_position.max(0.0);
+            if snapshot.id.trim().is_empty() {
+                snapshot.id = format!("queue-{}", snapshot.saved_at_epoch_ms.max(0));
+            }
+            Some(snapshot)
+        })
+        .collect();
+
+    snapshots.sort_by(|left, right| {
+        right
+            .saved_at_epoch_ms
+            .cmp(&left.saved_at_epoch_ms)
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    snapshots.truncate(TEMP_QUEUE_SNAPSHOT_LIMIT);
+    snapshots
+}
+
+fn upsert_queue_snapshot(
+    existing: Vec<TemporaryQueueSnapshot>,
+    mut incoming: TemporaryQueueSnapshot,
+) -> Vec<TemporaryQueueSnapshot> {
+    if incoming.id.trim().is_empty() {
+        incoming.id = format!("queue-{}", incoming.saved_at_epoch_ms.max(0));
+    }
+    incoming.queue_index = incoming
+        .queue_index
+        .min(incoming.queue.len().saturating_sub(1));
+    incoming.playback_position = incoming.playback_position.max(0.0);
+
+    let incoming_signature = snapshot_signature(&incoming);
+    let mut snapshots = normalize_queue_snapshots(existing);
+    if let Some(position) = snapshots
+        .iter()
+        .position(|snapshot| snapshot_signature(snapshot) == incoming_signature)
+    {
+        let mut existing_snapshot = snapshots.remove(position);
+        existing_snapshot.saved_at_epoch_ms = incoming.saved_at_epoch_ms;
+        existing_snapshot.queue = incoming.queue;
+        existing_snapshot.queue_index = incoming.queue_index;
+        existing_snapshot.now_playing = incoming.now_playing;
+        existing_snapshot.playback_position = incoming.playback_position;
+        snapshots.insert(0, existing_snapshot);
+    } else {
+        snapshots.insert(0, incoming);
+    }
+
+    normalize_queue_snapshots(snapshots)
+}
+
 // Database operations for native platforms
 // These run directly on desktop/mobile without needing #[server]
 
@@ -479,6 +576,66 @@ pub async fn load_playback_state() -> Result<PlaybackState, StorageError> {
     match LocalStorage::get(PLAYBACK_KEY) {
         Ok(state) => Ok(state),
         Err(_) => Ok(PlaybackState::default()),
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn save_temporary_queue_snapshot(
+    snapshot: TemporaryQueueSnapshot,
+) -> Result<(), DbError> {
+    if snapshot.queue.is_empty() {
+        return Ok(());
+    }
+
+    let mut snapshots = load_temporary_queue_snapshots().await?;
+    snapshots = upsert_queue_snapshot(snapshots, snapshot);
+    let payload = serde_json::to_string(&snapshots).map_err(|e| DbError::new(e.to_string()))?;
+    let conn = get_db_connection()?;
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('temporary_queue_snapshots', ?1)",
+        [&payload],
+    )
+    .map_err(|e| DbError::new(e.to_string()))?;
+    Ok(())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn save_temporary_queue_snapshot(
+    snapshot: TemporaryQueueSnapshot,
+) -> Result<(), StorageError> {
+    if snapshot.queue.is_empty() {
+        return Ok(());
+    }
+
+    let existing = load_temporary_queue_snapshots().await.unwrap_or_default();
+    let snapshots = upsert_queue_snapshot(existing, snapshot);
+    LocalStorage::set(TEMP_QUEUE_SNAPSHOTS_KEY, snapshots).map_err(|e| e)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub async fn load_temporary_queue_snapshots() -> Result<Vec<TemporaryQueueSnapshot>, DbError> {
+    let conn = get_db_connection()?;
+    let result: Result<String, rusqlite::Error> = conn.query_row(
+        "SELECT value FROM settings WHERE key = 'temporary_queue_snapshots'",
+        [],
+        |row: &rusqlite::Row| row.get(0),
+    );
+
+    match result {
+        Ok(json) => {
+            let parsed: Vec<TemporaryQueueSnapshot> =
+                serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string()))?;
+            Ok(normalize_queue_snapshots(parsed))
+        }
+        Err(_) => Ok(Vec::new()),
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub async fn load_temporary_queue_snapshots() -> Result<Vec<TemporaryQueueSnapshot>, StorageError> {
+    match LocalStorage::get(TEMP_QUEUE_SNAPSHOTS_KEY) {
+        Ok(snapshots) => Ok(normalize_queue_snapshots(snapshots)),
+        Err(_) => Ok(Vec::new()),
     }
 }
 

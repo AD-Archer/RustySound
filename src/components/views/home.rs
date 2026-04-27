@@ -1450,16 +1450,15 @@ return (function () {
                             } else {
                                 div { class: "overflow-x-auto",
                                     div { class: "flex gap-4 pb-2 min-w-min",
-                                        for (index , song) in items.iter().take(visible).enumerate() {
+                                        for song in items.iter().take(visible) {
                                             div { class: "w-32 flex-shrink-0",
                                                 SongCard {
                                                     song: song.clone(),
                                                     onclick: {
                                                         let song = song.clone();
-                                                        let songs_for_queue = items.clone();
                                                         move |_| {
-                                                            queue.set(songs_for_queue.clone());
-                                                            queue_index.set(index);
+                                                            queue.set(vec![song.clone()]);
+                                                            queue_index.set(0);
                                                             now_playing.set(Some(song.clone()));
                                                             is_playing.set(true);
                                                         }
@@ -1523,16 +1522,15 @@ return (function () {
                                         "grid-template-columns: repeat(auto-fit, minmax({}px, 1fr));",
                                         quick_picks_grid_min_px,
                                     ),
-                                    for (index , song) in quick_picks_display.iter().enumerate() {
+                                    for song in quick_picks_display.iter() {
                                         div { class: "w-full min-w-0",
                                             SongCard {
                                                 song: song.clone(),
                                                 onclick: {
                                                     let song = song.clone();
-                                                    let queue_items = quick_picks_display.clone();
                                                     move |_| {
-                                                        queue.set(queue_items.clone());
-                                                        queue_index.set(index);
+                                                        queue.set(vec![song.clone()]);
+                                                        queue_index.set(0);
                                                         now_playing.set(Some(song.clone()));
                                                         is_playing.set(true);
                                                     }
@@ -3938,4 +3936,3 @@ pub fn SongRow(
         }
     }
 }
-

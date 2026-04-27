@@ -5,19 +5,20 @@ use crate::cache_service::{
 };
 use crate::components::views::home_layout::HomeFeedLoadProfile;
 use crate::components::{
-    ios_audio_log_snapshot, ios_diag_log, view_label, AddIntent, AddMenuController,
-    AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon,
-    IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
+    ios_audio_log_snapshot, ios_diag_log, view_instance_key, view_label, AddIntent,
+    AddMenuController, AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal,
+    Icon, IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
     SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal, SongDetailsController,
     SongDetailsOverlay, SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
-    save_servers, save_settings, AppSettings, PlaybackState, QueueItem,
+    save_servers, save_settings, save_temporary_queue_snapshot, AppSettings, PlaybackState,
+    QueueItem, TemporaryQueueSnapshot,
 };
 use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
-use chrono::{DateTime, NaiveDateTime};
+use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
 #[cfg(all(feature = "desktop", target_os = "macos"))]
@@ -32,6 +33,7 @@ use web_sys::window;
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
+use dioxus_router::use_navigator;
 
 #[cfg(target_arch = "wasm32")]
 const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
@@ -110,6 +112,31 @@ fn home_init_profile_from_settings(settings: &AppSettings) -> HomeFeedLoadProfil
 
 fn home_init_profile_cache_key(profile: HomeFeedLoadProfile) -> &'static str {
     profile.as_storage()
+}
+
+fn queue_snapshot_signature(
+    queue: &[Song],
+    queue_index: usize,
+    now_playing: Option<&Song>,
+) -> String {
+    let mut signature = String::new();
+    signature.push_str(&queue.len().to_string());
+    signature.push('|');
+    signature.push_str(&queue_index.to_string());
+    signature.push('|');
+    if let Some(song) = now_playing {
+        signature.push_str(song.server_id.trim());
+        signature.push(':');
+        signature.push_str(song.id.trim());
+    }
+    signature.push('|');
+    for song in queue {
+        signature.push_str(song.server_id.trim());
+        signature.push(':');
+        signature.push_str(song.id.trim());
+        signature.push(';');
+    }
+    signature
 }
 
 #[cfg(all(feature = "desktop", target_os = "macos"))]
@@ -881,6 +908,10 @@ async fn initialize_home_cache(
 pub fn AppShell() -> Element {
     let mut servers = use_signal(Vec::<ServerConfig>::new);
     let current_view = use_route::<AppView>();
+    let router_navigator = use_navigator();
+    let mut current_view_signal = use_signal(|| current_view.clone());
+    let pending_navigation_target = use_signal(|| None::<AppView>);
+    let outlet_key = view_instance_key(&current_view);
     let now_playing = use_signal(|| None::<Song>);
     let queue = use_signal(Vec::<Song>::new);
     let mut queue_index = use_signal(|| 0usize);
@@ -889,6 +920,7 @@ pub fn AppShell() -> Element {
     let mut app_settings = use_signal(AppSettings::default);
     let mut playback_position = use_signal(|| 0.0f64);
     let mut last_playback_save = use_signal(|| None::<(String, String, u64, usize, usize)>);
+    let mut last_queue_snapshot_signature = use_signal(String::new);
     let mut db_initialized = use_signal(|| false);
     let mut servers_loaded = use_signal(|| false);
     let mut settings_loaded = use_signal(|| false);
@@ -910,7 +942,38 @@ pub fn AppShell() -> Element {
     let audio_state = use_signal(AudioState::default);
     let preview_playback = use_signal(|| false);
     let sidebar_open = use_signal(|| false);
-    let navigation = Navigation::new();
+    use_effect({
+        let current_view = current_view.clone();
+        move || {
+            if current_view_signal() != current_view {
+                current_view_signal.set(current_view.clone());
+            }
+        }
+    });
+
+    let navigation = Navigation::new(
+        router_navigator,
+        current_view_signal,
+        pending_navigation_target,
+    );
+    use_effect({
+        let navigation = navigation;
+        move || {
+            let current_view = current_view_signal();
+            let pending_target = pending_navigation_target();
+            if pending_target.is_some() && matches!(current_view, AppView::HomeView {}) {
+                eprintln!(
+                    "[nav.refresh.effect] current={} pending={}",
+                    current_view,
+                    pending_target
+                        .as_ref()
+                        .map(ToString::to_string)
+                        .unwrap_or_else(|| "<none>".to_string())
+                );
+                navigation.resume_pending_navigation();
+            }
+        }
+    });
     let seek_request = use_signal(|| None::<(String, f64)>);
     let mut resume_bookmark_loaded = use_signal(|| false);
     #[cfg(target_arch = "wasm32")]
@@ -1893,9 +1956,49 @@ pub fn AppShell() -> Element {
         }
     });
 
+    // Save temporary queue snapshots so queue can be restored after tab/app close.
+    use_effect(move || {
+        if !db_initialized() || !settings_loaded() {
+            return;
+        }
+        if preview_playback() {
+            return;
+        }
+
+        let queue_snapshot = queue();
+        if queue_snapshot.is_empty() {
+            return;
+        }
+
+        let clamped_queue_index = queue_index().min(queue_snapshot.len().saturating_sub(1));
+        let now_playing_snapshot = now_playing();
+        let signature = queue_snapshot_signature(
+            &queue_snapshot,
+            clamped_queue_index,
+            now_playing_snapshot.as_ref(),
+        );
+        if signature == last_queue_snapshot_signature() {
+            return;
+        }
+        last_queue_snapshot_signature.set(signature);
+
+        let saved_at_epoch_ms = Utc::now().timestamp_millis();
+        let snapshot = TemporaryQueueSnapshot {
+            id: format!("queue-{saved_at_epoch_ms}"),
+            saved_at_epoch_ms,
+            queue: queue_snapshot,
+            queue_index: clamped_queue_index,
+            now_playing: now_playing_snapshot,
+            playback_position: playback_position().max(0.0),
+        };
+
+        spawn(async move {
+            let _ = save_temporary_queue_snapshot(snapshot).await;
+        });
+    });
+
     let view = use_route::<AppView>();
     let sidebar_signal = sidebar_open.clone();
-    let can_go_back = navigation.can_go_back();
     let song_details_open = song_details_state().is_open;
     let is_startup_bootstrapping = !db_initialized() || !settings_loaded();
     let is_home_initializing = home_init_in_progress() && matches!(&view, AppView::HomeView {});
@@ -1963,22 +2066,6 @@ pub fn AppShell() -> Element {
                                         class: "w-5 h-5".to_string(),
                                     }
                                 }
-                                if can_go_back {
-                                    button {
-                                        class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                        aria_label: "Go back",
-                                        onclick: {
-                                            let navigation = navigation.clone();
-                                            move |_| {
-                                                let _ = navigation.go_back();
-                                            }
-                                        },
-                                        Icon {
-                                            name: "arrow-left".to_string(),
-                                            class: "w-5 h-5".to_string(),
-                                        }
-                                    }
-                                }
                             }
                             div { class: "flex flex-col items-center text-center",
                                 span { class: "text-xs uppercase tracking-widest text-zinc-500",
@@ -2034,7 +2121,10 @@ pub fn AppShell() -> Element {
                                     }
                                 }
                             }
-                            Outlet::<AppView> {}
+                            div {
+                                key: "{outlet_key}",
+                                Outlet::<AppView> {}
+                            }
                         }
                     }
                     Player {}

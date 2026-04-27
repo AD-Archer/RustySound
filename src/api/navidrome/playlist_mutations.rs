@@ -1,5 +1,41 @@
 // Playlist write/update operations.
 impl NavidromeClient {
+    pub async fn rename_playlist(&self, playlist_id: &str, name: &str) -> Result<(), String> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return Err("Playlist name cannot be empty.".to_string());
+        }
+
+        let url = self.build_url_owned(
+            "updatePlaylist",
+            vec![
+                ("playlistId".to_string(), playlist_id.to_string()),
+                ("name".to_string(), trimmed.to_string()),
+            ],
+        );
+        let response = HTTP_CLIENT
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+
+        let _ = cache_remove_prefix(&format!(
+            "api:getPlaylist:v1:{}:{}",
+            self.server.id, playlist_id
+        ));
+        self.invalidate_playlist_cache();
+        Ok(())
+    }
+
     pub async fn create_playlist(
         &self,
         name: &str,

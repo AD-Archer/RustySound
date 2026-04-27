@@ -477,4 +477,3 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
         }
     }
 }
-

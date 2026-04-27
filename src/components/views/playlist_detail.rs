@@ -622,10 +622,30 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut show_playlist_menu = use_signal(|| false);
     let mut playlist_menu_x = use_signal(|| 0f64);
     let mut playlist_menu_y = use_signal(|| 0f64);
-
-    let server = servers().into_iter().find(|s| s.id == server_id);
+    let mut show_rename_dialog = use_signal(|| false);
+    let mut rename_value = use_signal(String::new);
+    let rename_busy = use_signal(|| false);
+    let rename_error = use_signal(|| None::<String>);
+    let mut current_playlist_id = use_signal(|| playlist_id.clone());
+    let mut current_server_id = use_signal(|| server_id.clone());
     let playlist_queue_source = format!("{}::{}", server_id.clone(), playlist_id.clone());
-    let server_for_playlist = server.clone();
+
+    use_effect({
+        let playlist_id = playlist_id.clone();
+        let server_id = server_id.clone();
+        move || {
+            if current_playlist_id() != playlist_id {
+                current_playlist_id.set(playlist_id.clone());
+                show_playlist_menu.set(false);
+                show_rename_dialog.set(false);
+            }
+            if current_server_id() != server_id {
+                current_server_id.set(server_id.clone());
+                show_playlist_menu.set(false);
+                show_rename_dialog.set(false);
+            }
+        }
+    });
 
     {
         let mut song_search_debounced = song_search_debounced.clone();
@@ -653,8 +673,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     }
 
     let playlist_data = use_resource(move || {
-        let server = server_for_playlist.clone();
-        let playlist_id = playlist_id.clone();
+        let server_id = current_server_id();
+        let playlist_id = current_playlist_id();
+        let server = servers().into_iter().find(|s| s.id == server_id);
         let _reload = reload();
         async move {
             if let Some(server) = server {
@@ -667,23 +688,23 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     });
 
     let search_results = {
-        let server = server.clone();
         use_resource(move || {
-            let server = server.clone();
+            let server_id = current_server_id();
+            let server = servers().into_iter().find(|s| s.id == server_id);
             let query = song_search_debounced();
             async move { search_playlist_add_candidates(server, query).await }
         })
     };
 
     let auto_recommendations = {
-        let server = server.clone();
         let edit_mode = edit_mode.clone();
         let song_list = song_list.clone();
         let recently_added_seed = recently_added_seed.clone();
         let dismissed_recommendations = dismissed_recommendations.clone();
         let recommendation_refresh_nonce = recommendation_refresh_nonce.clone();
         use_resource(move || {
-            let server = server.clone();
+            let server_id = current_server_id();
+            let server = servers().into_iter().find(|s| s.id == server_id);
             let editing = edit_mode();
             let playlist_songs = song_list();
             let recent_seed = recently_added_seed();
@@ -1166,6 +1187,80 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         }
     };
 
+    let on_open_rename_dialog = {
+        let playlist_data_ref = playlist_data.clone();
+        let mut show_playlist_menu = show_playlist_menu.clone();
+        let mut show_rename_dialog = show_rename_dialog.clone();
+        let mut rename_value = rename_value.clone();
+        let mut rename_error = rename_error.clone();
+        move |evt: MouseEvent| {
+            evt.stop_propagation();
+            show_playlist_menu.set(false);
+            rename_error.set(None);
+            if let Some(Some((playlist, _))) = playlist_data_ref() {
+                rename_value.set(playlist.name.clone());
+                show_rename_dialog.set(true);
+            }
+        }
+    };
+
+    let on_confirm_rename = {
+        let playlist_data_ref = playlist_data.clone();
+        let servers = servers.clone();
+        let mut rename_busy = rename_busy.clone();
+        let mut rename_error = rename_error.clone();
+        let mut show_rename_dialog = show_rename_dialog.clone();
+        let rename_value = rename_value.clone();
+        let mut reload = reload.clone();
+        move |_: MouseEvent| {
+            if rename_busy() {
+                return;
+            }
+
+            let next_name = rename_value().trim().to_string();
+            if next_name.is_empty() {
+                rename_error.set(Some("Playlist name cannot be empty.".to_string()));
+                return;
+            }
+
+            let Some(Some((playlist, _))) = playlist_data_ref() else {
+                rename_error.set(Some("Playlist is not available.".to_string()));
+                return;
+            };
+
+            if playlist.name.trim() == next_name {
+                show_rename_dialog.set(false);
+                return;
+            }
+
+            let Some(server) = servers()
+                .into_iter()
+                .find(|server| server.id == playlist.server_id)
+            else {
+                rename_error.set(Some("Server not found.".to_string()));
+                return;
+            };
+
+            let playlist_id = playlist.id.clone();
+            rename_busy.set(true);
+            rename_error.set(None);
+            spawn(async move {
+                let client = NavidromeClient::new(server);
+                match client.rename_playlist(&playlist_id, &next_name).await {
+                    Ok(_) => {
+                        rename_busy.set(false);
+                        show_rename_dialog.set(false);
+                        reload.set(reload().saturating_add(1));
+                    }
+                    Err(err) => {
+                        rename_busy.set(false);
+                        rename_error.set(Some(err));
+                    }
+                }
+            });
+        }
+    };
+
     let delete_playlist_action = {
         let playlist_data_ref = playlist_data.clone();
         let servers = servers.clone();
@@ -1228,7 +1323,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             button {
                 class: "flex items-center gap-2 text-zinc-400 hover:text-white transition-colors mb-4",
                 onclick: move |_| {
-                    if navigation.go_back().is_none() {
+                    if navigation.can_go_back() {
+                        navigation.go_back();
+                    } else {
                         navigation.navigate_to(AppView::PlaylistsView {});
                     }
                 },
@@ -1313,14 +1410,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                     span { "{format_duration(playlist.duration / 1000)}" }
                                     span { "{downloaded_song_count} downloaded" }
                                 }
-                                div { class: "mt-6 w-full max-w-sm grid grid-cols-5 gap-2 md:max-w-none md:flex md:flex-wrap md:gap-3 justify-center md:justify-start",
+                                div { class: if editing_allowed && edit_mode() { "mt-6 w-full max-w-sm grid grid-cols-1 gap-2 md:max-w-none md:flex md:flex-wrap md:gap-3 justify-center md:justify-start" } else { "mt-6 w-full max-w-sm grid grid-cols-5 gap-2 md:max-w-none md:flex md:flex-wrap md:gap-3 justify-center md:justify-start" },
                                     if editing_allowed && edit_mode() {
                                         button {
-                                            class: "col-span-1 p-3 rounded-full bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center justify-center gap-2 md:px-8",
+                                            class: "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/20 transition-colors flex items-center justify-center gap-2 md:px-4",
                                             onclick: move |_| on_toggle_edit_mode(()),
                                             title: "Done editing playlist",
                                             Icon { name: "check".to_string(), class: "w-5 h-5".to_string() }
-                                            span { class: "hidden md:inline", "Done Editing" }
+                                            span { class: "hidden md:inline", "Done editing" }
                                         }
                                     } else {
                                         button {
@@ -1330,45 +1427,45 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                             Icon { name: "play".to_string(), class: "w-5 h-5".to_string() }
                                             span { class: "hidden md:inline", "Play" }
                                         }
-                                    }
-                                    button {
-                                        class: if download_busy() { "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center" } else if playlist_fully_downloaded { "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center" } else { "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center" },
-                                        disabled: download_busy(),
-                                        onclick: on_download_playlist,
-                                        title: if download_busy() { "Downloading playlist" } else if playlist_fully_downloaded { "Playlist fully downloaded" } else { "Download playlist" },
-                                        Icon {
-                                            name: if download_busy() { "loader".to_string() } else if playlist_fully_downloaded { "check".to_string() } else { "download".to_string() },
-                                            class: "w-5 h-5".to_string(),
+                                        button {
+                                            class: if download_busy() { "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-500 cursor-not-allowed flex items-center justify-center" } else if playlist_fully_downloaded { "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center" } else { "col-span-1 p-3 rounded-full border border-emerald-500/60 text-emerald-300 hover:text-white hover:border-emerald-400 transition-colors flex items-center justify-center" },
+                                            disabled: download_busy(),
+                                            onclick: on_download_playlist,
+                                            title: if download_busy() { "Downloading playlist" } else if playlist_fully_downloaded { "Playlist fully downloaded" } else { "Download playlist" },
+                                            Icon {
+                                                name: if download_busy() { "loader".to_string() } else if playlist_fully_downloaded { "check".to_string() } else { "download".to_string() },
+                                                class: "w-5 h-5".to_string(),
+                                            }
                                         }
-                                    }
-                                    button {
-                                        class: if shuffle_enabled() {
-                                            "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
-                                        } else {
-                                            "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
-                                        },
-                                        onclick: on_toggle_shuffle,
-                                        title: if shuffle_enabled() {
-                                            "Shuffle is on"
-                                        } else {
-                                            "Shuffle is off"
-                                        },
-                                        Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
-                                    }
-                                    button {
-                                        class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors flex items-center justify-center",
-                                        onclick: on_favorite_toggle,
-                                        Icon {
-                                            name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
-                                            class: "w-5 h-5".to_string(),
+                                        button {
+                                            class: if shuffle_enabled() {
+                                                "col-span-1 p-3 rounded-full bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center justify-center"
+                                            } else {
+                                                "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center"
+                                            },
+                                            onclick: on_toggle_shuffle,
+                                            title: if shuffle_enabled() {
+                                                "Shuffle is on"
+                                            } else {
+                                                "Shuffle is off"
+                                            },
+                                            Icon { name: "shuffle".to_string(), class: "w-5 h-5".to_string() }
                                         }
-                                    }
-                                    button {
-                                        class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
-                                        onclick: on_open_playlist_menu,
-                                        Icon {
-                                            name: "more-horizontal".to_string(),
-                                            class: "w-5 h-5".to_string(),
+                                        button {
+                                            class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-400 hover:text-emerald-400 hover:border-emerald-500/50 transition-colors flex items-center justify-center",
+                                            onclick: on_favorite_toggle,
+                                            Icon {
+                                                name: if is_favorited() { "heart-filled".to_string() } else { "heart".to_string() },
+                                                class: "w-5 h-5".to_string(),
+                                            }
+                                        }
+                                        button {
+                                            class: "col-span-1 p-3 rounded-full border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors flex items-center justify-center",
+                                            onclick: on_open_playlist_menu,
+                                            Icon {
+                                                name: "more-horizontal".to_string(),
+                                                class: "w-5 h-5".to_string(),
+                                            }
                                         }
                                     }
                                     if show_playlist_menu() {
@@ -1410,6 +1507,15 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                                 }
                                             }
                                             if editing_allowed {
+                                                button {
+                                                    class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                                                    onclick: on_open_rename_dialog,
+                                                    Icon {
+                                                        name: "edit".to_string(),
+                                                        class: "w-4 h-4".to_string(),
+                                                    }
+                                                    "Rename playlist"
+                                                }
                                                 button {
                                                     class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
                                                     onclick: {
@@ -1908,6 +2014,52 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     }
                 },
             }
+            if show_rename_dialog() {
+                div { class: "fixed inset-0 bg-black/50 flex items-center justify-center z-50",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        if !rename_busy() {
+                            show_rename_dialog.set(false);
+                        }
+                    },
+                    div {
+                        class: "bg-zinc-900 border border-zinc-700 rounded-lg p-6 max-w-md w-full mx-4",
+                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                        h2 { class: "text-xl font-bold text-white mb-4", "Rename Playlist" }
+                        p { class: "text-zinc-400 text-sm mb-3",
+                            "Choose a new name for this playlist."
+                        }
+                        input {
+                            class: "w-full px-3 py-2 rounded-lg bg-zinc-950/60 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 mb-3",
+                            value: rename_value,
+                            disabled: rename_busy(),
+                            oninput: move |e| rename_value.set(e.value()),
+                            placeholder: "Playlist name",
+                        }
+                        if let Some(err) = rename_error() {
+                            p { class: "text-sm text-red-300 mb-3", "{err}" }
+                        }
+                        div { class: "flex gap-3 justify-end",
+                            button {
+                                class: "px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors",
+                                disabled: rename_busy(),
+                                onclick: move |_| show_rename_dialog.set(false),
+                                "Cancel"
+                            }
+                            button {
+                                class: "px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors",
+                                disabled: rename_busy(),
+                                onclick: on_confirm_rename,
+                                if rename_busy() {
+                                    "Saving..."
+                                } else {
+                                    "Save"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
             if show_delete_confirm() {
                 div { class: "fixed inset-0 bg-black/50 flex items-center justify-center z-50",
                     div { class: "bg-zinc-900 border border-zinc-700 rounded-lg p-6 max-w-md w-full mx-4",
@@ -2108,4 +2260,3 @@ async fn build_playlist_add_recommendations(
 
     suggestions
 }
-

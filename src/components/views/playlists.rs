@@ -250,6 +250,10 @@ fn PlaylistCard(
     let mut show_delete_confirm = use_signal(|| false);
     let mut delete_error = use_signal(|| None::<String>);
     let mut deleting = use_signal(|| false);
+    let mut show_rename_dialog = use_signal(|| false);
+    let mut rename_value = use_signal(|| playlist.name.clone());
+    let mut rename_error = use_signal(|| None::<String>);
+    let mut renaming = use_signal(|| false);
 
     let is_auto_imported = playlist
         .comment
@@ -313,6 +317,64 @@ fn PlaylistCard(
                         }
                     }
                 });
+            }
+        }
+    };
+
+    let on_open_rename = {
+        let playlist_name = playlist.name.clone();
+        move |_: MouseEvent| {
+            show_menu.set(false);
+            rename_error.set(None);
+            rename_value.set(playlist_name.clone());
+            show_rename_dialog.set(true);
+        }
+    };
+
+    let on_confirm_rename = {
+        let servers = servers.clone();
+        let playlist_id = playlist.id.clone();
+        let playlist_server_id = playlist.server_id.clone();
+        let current_name = playlist.name.clone();
+        move |_: MouseEvent| {
+            if renaming() {
+                return;
+            }
+
+            let next_name = rename_value().trim().to_string();
+            if next_name.is_empty() {
+                rename_error.set(Some("Playlist name cannot be empty.".to_string()));
+                return;
+            }
+            if current_name.trim() == next_name {
+                show_rename_dialog.set(false);
+                return;
+            }
+
+            let servers_snapshot = servers();
+            if let Some(server) = servers_snapshot
+                .into_iter()
+                .find(|s| s.id == playlist_server_id && s.active)
+            {
+                let client = NavidromeClient::new(server);
+                let playlist_id = playlist_id.clone();
+                renaming.set(true);
+                rename_error.set(None);
+                spawn(async move {
+                    match client.rename_playlist(&playlist_id, &next_name).await {
+                        Ok(_) => {
+                            renaming.set(false);
+                            show_rename_dialog.set(false);
+                            on_delete.call(());
+                        }
+                        Err(err) => {
+                            rename_error.set(Some(err));
+                            renaming.set(false);
+                        }
+                    }
+                });
+            } else {
+                rename_error.set(Some("Server not available.".to_string()));
             }
         }
     };
@@ -409,6 +471,15 @@ fn PlaylistCard(
                     }
                     if editing_allowed {
                         button {
+                            class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
+                            onclick: on_open_rename,
+                            Icon {
+                                name: "edit".to_string(),
+                                class: "w-4 h-4".to_string(),
+                            }
+                            "Rename playlist"
+                        }
+                        button {
                             class: "w-full flex items-center gap-2 px-2.5 py-2.5 rounded-lg text-sm text-red-300 hover:bg-red-500/10 transition-colors",
                             onclick: move |_: MouseEvent| {
                                 show_menu.set(false);
@@ -438,6 +509,51 @@ fn PlaylistCard(
                             class: "w-4 h-4".to_string(),
                         }
                         "Add to..."
+                    }
+                }
+            }
+
+            if show_rename_dialog() {
+                div {
+                    class: "fixed inset-0 z-[10000] flex items-center justify-center bg-black/60",
+                    onclick: move |evt: MouseEvent| {
+                        evt.stop_propagation();
+                        if !renaming() {
+                            show_rename_dialog.set(false);
+                        }
+                    },
+                    div {
+                        class: "bg-zinc-900 border border-zinc-700 rounded-2xl p-6 max-w-sm w-full mx-4 shadow-2xl",
+                        onclick: move |evt: MouseEvent| evt.stop_propagation(),
+                        h3 { class: "text-lg font-semibold text-white mb-2", "Rename playlist" }
+                        input {
+                            class: "w-full px-3 py-2 rounded-lg bg-zinc-950/60 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 mb-3",
+                            value: rename_value,
+                            disabled: renaming(),
+                            placeholder: "Playlist name",
+                            oninput: move |e| rename_value.set(e.value()),
+                        }
+                        if let Some(err) = rename_error() {
+                            p { class: "text-sm text-red-400 mb-3", "{err}" }
+                        }
+                        div { class: "flex gap-3 justify-end",
+                            button {
+                                class: "px-4 py-2 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-zinc-500 transition-colors text-sm",
+                                disabled: renaming(),
+                                onclick: move |_| show_rename_dialog.set(false),
+                                "Cancel"
+                            }
+                            button {
+                                class: "px-4 py-2 rounded-lg bg-emerald-500/20 border border-emerald-500/60 text-emerald-300 hover:text-white hover:bg-emerald-500/30 transition-colors text-sm",
+                                disabled: renaming(),
+                                onclick: on_confirm_rename,
+                                if renaming() {
+                                    "Saving..."
+                                } else {
+                                    "Save"
+                                }
+                            }
+                        }
                     }
                 }
             }
