@@ -109,6 +109,10 @@ impl NavidromeClient {
         let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:", self.server.id));
     }
 
+    pub fn refresh_playlist_cache(&self) {
+        self.invalidate_playlist_cache();
+    }
+
     async fn ensure_native_auth_session(&self) -> Result<NativeAuthSession, String> {
         let key = self.native_cache_key();
         {

@@ -389,11 +389,12 @@ jobs:
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
       run: cargo install dioxus-cli --version 0.7.3 --locked
-    - name: Build Android release APK
+    - name: Build Android release APKs (ARM64 + x86_64)
       run: |
         export ANDROID_AAPT2_FROM_MAVEN_OVERRIDE="$ANDROID_HOME/build-tools/34.0.0/aapt2"
         export GRADLE_OPTS="-Dorg.gradle.project.android.aapt2FromMavenOverride=$ANDROID_AAPT2_FROM_MAVEN_OVERRIDE ${GRADLE_OPTS:-}"
-        ./scripts/bundle-android.sh
+        OUT_DIR="dist/android/aarch64-linux-android" ./scripts/bundle-android.sh --target aarch64-linux-android
+        OUT_DIR="dist/android/x86_64-linux-android" ./scripts/bundle-android.sh --target x86_64-linux-android
       env:
         ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
         ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}

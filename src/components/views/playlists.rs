@@ -30,6 +30,10 @@ pub fn PlaylistsView() -> Element {
     let mut hide_auto_imported = use_signal(|| true);
     let mut owner_filter = use_signal(|| "all".to_string());
     let mut sort_by = use_signal(|| "newest".to_string());
+    let mut show_create_playlist = use_signal(|| false);
+    let mut create_playlist_name = use_signal(String::new);
+    let create_playlist_busy = use_signal(|| false);
+    let mut create_playlist_status = use_signal(|| None::<(bool, String)>);
 
     let playlists = use_resource(move || {
         let servers = servers();
@@ -48,7 +52,7 @@ pub fn PlaylistsView() -> Element {
 
     rsx! {
         div { class: "space-y-8",
-            header { class: "page-header page-header--split",
+            header { class: "page-header page-header--split gap-3",
                 div {
                     h1 { class: "page-title", "Playlists" }
                     p { class: "page-subtitle", "Your playlists from all servers" }
@@ -58,41 +62,120 @@ pub fn PlaylistsView() -> Element {
                         }
                     }
                 }
-                div { class: "relative w-full md:max-w-xs",
-                    Icon {
-                        name: "search".to_string(),
-                        class: "absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500".to_string(),
-                    }
-                    input {
-                        class: "w-full pl-10 pr-4 py-2.5 bg-zinc-800/50 border border-zinc-700/50 rounded-xl text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                        placeholder: "Search playlists",
-                        value: search_query,
-                        oninput: move |e| {
-                            let value = e.value();
-                            if value.is_empty() || value.len() >= 2 {
-                                search_query.set(value);
+                div { class: "w-full md:w-auto flex items-center justify-end gap-2",
+                    div { class: "relative flex items-center justify-end gap-2",
+                        button {
+                            class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
+                            onclick: {
+                                let servers = servers.clone();
+                                move |_| {
+                                    for server in servers().into_iter().filter(|server| server.active) {
+                                        NavidromeClient::new(server).refresh_playlist_cache();
+                                    }
+                                    show_create_playlist.set(false);
+                                    refresh.set(refresh().saturating_add(1));
+                                }
+                            },
+                            "Refresh"
+                        }
+                        button {
+                            class: if !single_active_server { "px-4 py-2 rounded-xl bg-zinc-800/40 text-zinc-500 text-sm font-medium cursor-not-allowed" } else { "px-4 py-2 rounded-xl bg-emerald-500 text-white text-sm font-medium hover:bg-emerald-400 transition-colors" },
+                            disabled: !single_active_server || create_playlist_busy(),
+                            onclick: move |_| {
+                                create_playlist_status.set(None);
+                                show_create_playlist.set(!show_create_playlist());
+                            },
+                            "Create Playlist"
+                        }
+                        if show_create_playlist() {
+                            div { class: "absolute top-full right-0 mt-2 z-20 w-[min(30rem,calc(100vw-1.5rem))] rounded-xl border border-zinc-700/70 bg-zinc-900/95 p-3 shadow-2xl space-y-2",
+                                p { class: "text-xs uppercase tracking-wide text-zinc-500", "Create empty playlist" }
+                                div { class: "flex flex-col sm:flex-row gap-2",
+                                    input {
+                                        class: "flex-1 px-3 py-2 rounded-lg bg-zinc-900/50 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
+                                        placeholder: "Playlist name",
+                                        value: create_playlist_name,
+                                        disabled: create_playlist_busy(),
+                                        oninput: move |e| create_playlist_name.set(e.value()),
+                                    }
+                                    button {
+                                        class: if create_playlist_busy() || !single_active_server { "px-4 py-2 rounded-lg bg-emerald-500/60 text-white cursor-not-allowed" } else { "px-4 py-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-400 transition-colors" },
+                                        disabled: create_playlist_busy() || !single_active_server,
+                                        onclick: {
+                                            let servers = servers.clone();
+                                            let mut create_playlist_busy = create_playlist_busy.clone();
+                                            let mut create_playlist_status = create_playlist_status.clone();
+                                            let mut create_playlist_name = create_playlist_name.clone();
+                                            let mut refresh = refresh.clone();
+                                            let mut show_create_playlist = show_create_playlist.clone();
+                                            move |_| {
+                                                if create_playlist_busy() {
+                                                    return;
+                                                }
+                                                let name = create_playlist_name().trim().to_string();
+                                                if name.is_empty() {
+                                                    create_playlist_status.set(Some((false, "Please enter a playlist name.".to_string())));
+                                                    return;
+                                                }
+                                                let Some(active_server) = servers().into_iter().find(|server| server.active) else {
+                                                    create_playlist_status.set(Some((false, "No active server found.".to_string())));
+                                                    return;
+                                                };
+                                                create_playlist_busy.set(true);
+                                                create_playlist_status.set(None);
+                                                spawn(async move {
+                                                    let client = NavidromeClient::new(active_server);
+                                                    match client.create_playlist(&name, None, &[]).await {
+                                                        Ok(_) => {
+                                                            create_playlist_name.set(String::new());
+                                                            create_playlist_status.set(Some((true, format!("Playlist \"{name}\" created."))));
+                                                            show_create_playlist.set(false);
+                                                            refresh.set(refresh().saturating_add(1));
+                                                        }
+                                                        Err(err) => create_playlist_status.set(Some((false, err))),
+                                                    }
+                                                    create_playlist_busy.set(false);
+                                                });
+                                            }
+                                        },
+                                        if create_playlist_busy() { "Creating..." } else { "Create" }
+                                    }
+                                }
+                                div { class: "flex items-center justify-between gap-2",
+                                    if let Some((ok, text)) = create_playlist_status() {
+                                        p { class: if ok { "text-xs text-emerald-300" } else { "text-xs text-red-300" }, "{text}" }
+                                    } else {
+                                        p { class: "text-xs text-zinc-500", "Only available with one active server." }
+                                    }
+                                    button {
+                                        class: "px-2 py-1 rounded-md text-xs text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors",
+                                        onclick: move |_| show_create_playlist.set(false),
+                                        "Cancel"
+                                    }
+                                }
                             }
-                        },
+                        }
                     }
-                }
-                button {
-                    class: "px-4 py-2 rounded-xl bg-zinc-800/60 hover:bg-zinc-800 text-zinc-200 text-sm font-medium transition-colors",
-                    onclick: move |_| refresh.set(refresh() + 1),
-                    "Refresh"
                 }
             }
 
             div { class: "overflow-x-auto",
-                div { class: "flex gap-2 min-w-min sm:grid sm:grid-cols-2 lg:grid-cols-4 sm:gap-3",
-                    label { class: "flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/60 transition-colors whitespace-nowrap flex-shrink-0 sm:flex-shrink",
-                        input {
-                            r#type: "checkbox",
-                            checked: hide_auto_imported(),
-                            onchange: move |e| hide_auto_imported.set(e.checked()),
-                            class: "w-3.5 h-3.5 rounded cursor-pointer",
+                div { class: "flex items-center gap-2 min-w-min sm:min-w-0 sm:grid sm:grid-cols-[minmax(14rem,1fr)_auto_auto_auto] sm:gap-3",
+                    div { class: "relative min-w-[14rem] sm:min-w-0",
+                        Icon {
+                            name: "search".to_string(),
+                            class: "absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-500".to_string(),
                         }
-                        span { class: "text-xs sm:text-sm font-medium text-zinc-200",
-                            "Hide auto-imported"
+                        input {
+                            class: "w-full pl-10 pr-4 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/50 text-xs sm:text-sm text-white placeholder:text-zinc-500 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20 transition-colors",
+                            placeholder: "Search playlists",
+                            value: search_query,
+                            oninput: move |e| {
+                                let value = e.value();
+                                if value.is_empty() || value.len() >= 2 {
+                                    search_query.set(value);
+                                }
+                            },
                         }
                     }
                     select {
@@ -109,6 +192,17 @@ pub fn PlaylistsView() -> Element {
                         option { value: "name", "Name (A-Z)" }
                         option { value: "created", "Date created" }
                         option { value: "changed", "Last changed" }
+                    }
+                    label { class: "flex items-center gap-1.5 px-3 py-2 rounded-lg bg-zinc-800/40 border border-zinc-700/50 cursor-pointer hover:bg-zinc-800/60 transition-colors whitespace-nowrap flex-shrink-0 sm:flex-shrink justify-self-end",
+                        input {
+                            r#type: "checkbox",
+                            checked: hide_auto_imported(),
+                            onchange: move |e| hide_auto_imported.set(e.checked()),
+                            class: "w-3.5 h-3.5 rounded cursor-pointer",
+                        }
+                        span { class: "text-xs sm:text-sm font-medium text-zinc-200",
+                            "Hide auto-imported"
+                        }
                     }
                 }
             }

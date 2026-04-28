@@ -3,7 +3,13 @@
     let render_playlist_picker = || {
         let loading = playlists().is_none();
         let available = playlists().unwrap_or_default();
-        let filter = playlist_filter().to_lowercase();
+        let raw_filter = playlist_filter();
+        let trimmed_filter = raw_filter.trim().to_string();
+        let exact_match_exists = !trimmed_filter.is_empty()
+            && available
+                .iter()
+                .any(|playlist| playlist.name.trim().eq_ignore_ascii_case(trimmed_filter.as_str()));
+        let filter = trimmed_filter.to_lowercase();
         let mut filtered: Vec<Playlist> = if filter.is_empty() {
             available
         } else {
@@ -17,6 +23,10 @@
         let limited: Vec<Playlist> = filtered.drain(..).take(limit).collect();
         let truncated = total_filtered > limited.len();
         let servers_list = servers();
+        let can_create_from_search = playlist_guard.is_none()
+            && !loading
+            && !trimmed_filter.is_empty()
+            && !exact_match_exists;
         rsx! {
             div { class: "space-y-4",
                 h3 { class: "text-lg font-semibold text-white", "Add to playlist" }
@@ -24,7 +34,23 @@
                     class: "w-full px-3 py-2 rounded-lg bg-zinc-900/50 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
                     placeholder: "Search playlists",
                     value: playlist_filter,
-                    oninput: move |e| playlist_filter.set(e.value()),
+                    oninput: move |e| {
+                        let value = e.value();
+                        playlist_filter.set(value.clone());
+                        new_playlist_name.set(value);
+                    },
+                }
+                if can_create_from_search {
+                    button {
+                        class: if is_processing() { "w-full px-3 py-2 rounded-xl bg-emerald-500/60 text-white cursor-not-allowed text-sm flex items-center justify-center gap-2" } else { "w-full px-3 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-400 transition-colors text-sm flex items-center justify-center gap-2" },
+                        disabled: is_processing(),
+                        onclick: create_playlist,
+                        Icon {
+                            name: "plus".to_string(),
+                            class: "w-4 h-4".to_string(),
+                        }
+                        "Create \"{trimmed_filter}\""
+                    }
                 }
                 if let Some(reason) = playlist_guard.clone() {
                     div { class: "p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm",
@@ -84,35 +110,6 @@
                         }
                     }
                 }
-                div { class: "space-y-2 pt-2 border-t border-zinc-800",
-                    label { class: "text-xs uppercase tracking-wide text-zinc-500", "Create new" }
-                    div { class: "flex flex-col sm:flex-row gap-2",
-                        input {
-                            class: "flex-1 px-3 py-2 rounded-lg bg-zinc-900/50 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                            placeholder: "Playlist name",
-                            value: new_playlist_name,
-                            oninput: move |e| new_playlist_name.set(e.value()),
-                        }
-                        button {
-                            class: if is_processing() { "px-4 py-2 rounded-lg bg-emerald-500/60 text-white cursor-not-allowed flex items-center gap-2" } else { "px-4 py-2 rounded-lg bg-emerald-500 text-white hover:bg-emerald-400 transition-colors flex items-center gap-2" },
-                            onclick: create_playlist,
-                            disabled: is_processing(),
-                            if is_processing() {
-                                Icon {
-                                    name: "loader".to_string(),
-                                    class: "w-4 h-4 animate-spin".to_string(),
-                                }
-                                "Working..."
-                            } else {
-                                Icon {
-                                    name: "plus".to_string(),
-                                    class: "w-4 h-4".to_string(),
-                                }
-                                "Create"
-                            }
-                        }
-                    }
-                }
             }
         }
     };
@@ -150,12 +147,20 @@
                             }
                         }
                     }
-                    button {
-                        class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors",
-                        onclick: on_close,
-                        Icon {
-                            name: "x".to_string(),
-                            class: "w-5 h-5".to_string(),
+                    div { class: "flex items-center gap-2",
+                        button {
+                            class: if show_playlist_picker() { "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-medium" } else { "px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors text-sm font-medium" },
+                            disabled: is_processing(),
+                            onclick: on_open_playlist_picker,
+                            "Add to playlist"
+                        }
+                        button {
+                            class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors",
+                            onclick: on_close,
+                            Icon {
+                                name: "x".to_string(),
+                                class: "w-5 h-5".to_string(),
+                            }
                         }
                     }
                 }
@@ -203,16 +208,6 @@
                                     name: "chevron-right".to_string(),
                                     class: "w-5 h-5".to_string(),
                                 }
-                            }
-                        }
-                        button {
-                            class: "w-full flex items-center justify-between px-4 py-3 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 transition-colors",
-                            onclick: on_open_playlist_picker,
-                            disabled: is_processing(),
-                            span { "Add to playlist" }
-                            Icon {
-                                name: "playlist".to_string(),
-                                class: "w-5 h-5".to_string(),
                             }
                         }
                         if matches!(intent_for_display.target, AddTarget::Song(_)) {
