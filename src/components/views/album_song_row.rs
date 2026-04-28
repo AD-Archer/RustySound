@@ -7,6 +7,20 @@ use crate::db::AppSettings;
 use crate::offline_audio::{is_song_downloaded, prefetch_song_audio};
 use dioxus::prelude::*;
 
+fn anchored_menu_style(
+    anchor_x: f64,
+    anchor_y: f64,
+    menu_width: f64,
+    menu_max_height: f64,
+) -> String {
+    let preferred_top = (anchor_y + 8.0).max(8.0);
+    let preferred_left = (anchor_x - menu_width).max(4.0);
+    format!(
+        "top: clamp(8px, {:.1}px, calc(100vh - {:.1}px - 8px)); left: clamp(4px, {:.1}px, calc(100vw - {:.1}px - 4px)); max-height: min({:.1}px, calc(100vh - 16px)); overflow-y: auto;",
+        preferred_top, menu_max_height, preferred_left, menu_width, menu_max_height
+    )
+}
+
 /// Song row tailored for album detail pages: adds per-song favorite toggle.
 #[component]
 pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>) -> Element {
@@ -20,6 +34,8 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
     let is_favorited = use_signal(|| song.starred.is_some());
     let download_busy = use_signal(|| false);
     let mut show_mobile_actions = use_signal(|| false);
+    let mut menu_x = use_signal(|| 0f64);
+    let mut menu_y = use_signal(|| 0f64);
     let initially_downloaded = is_song_downloaded(&song);
     let downloaded = use_signal(move || initially_downloaded);
     let is_current = now_playing()
@@ -357,6 +373,9 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                     aria_label: "Song actions",
                     onclick: move |evt: MouseEvent| {
                         evt.stop_propagation();
+                        let coords = evt.client_coordinates();
+                        menu_x.set(coords.x);
+                        menu_y.set(coords.y);
                         show_mobile_actions.set(!show_mobile_actions());
                     },
                     Icon {
@@ -366,14 +385,15 @@ pub fn AlbumSongRow(song: Song, index: usize, onclick: EventHandler<MouseEvent>)
                 }
                 if show_mobile_actions() {
                     div {
-                        class: "fixed inset-0 z-20",
+                        class: "fixed inset-0 z-[9998]",
                         onclick: move |evt: MouseEvent| {
                             evt.stop_propagation();
                             show_mobile_actions.set(false);
                         },
                     }
                     div {
-                        class: "absolute right-0 top-10 z-30 w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                        class: "fixed z-[9999] w-44 rounded-xl border border-zinc-700 bg-zinc-900/95 shadow-2xl p-1.5 space-y-1",
+                        style: anchored_menu_style(menu_x(), menu_y(), 176.0, 360.0),
                         onclick: move |evt: MouseEvent| evt.stop_propagation(),
                         button {
                             class: "w-full flex items-center gap-2 px-2.5 py-2 rounded-lg text-sm text-zinc-200 hover:bg-zinc-800/80 transition-colors",
