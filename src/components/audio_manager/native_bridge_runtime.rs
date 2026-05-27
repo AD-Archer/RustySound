@@ -2,10 +2,16 @@
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 fn ensure_native_audio_bridge() {
     let _ = document::eval(NATIVE_AUDIO_BOOTSTRAP_JS);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn ensure_native_audio_bridge() {
+    android_audio_command_payload(serde_json::json!({ "type": "init" }).to_string());
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
@@ -21,7 +27,8 @@ fn ensure_native_audio_bridge() {
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 fn native_audio_command(value: serde_json::Value) {
     ensure_native_audio_bridge();
@@ -35,6 +42,12 @@ fn native_audio_command(value: serde_json::Value) {
         }})();"#
     );
     let _ = document::eval(&script);
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn native_audio_command(value: serde_json::Value) {
+    let payload = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
+    android_audio_command_payload(payload);
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
@@ -55,7 +68,8 @@ fn native_audio_command(value: serde_json::Value) {
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     ensure_native_audio_bridge();
@@ -82,6 +96,22 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     eval.join::<NativeAudioSnapshot>().await.ok()
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    dioxus::mobile::wry::prelude::dispatch(move |env, activity, _webview| {
+        let snapshot = android_call_snapshot(env, activity)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<NativeAudioSnapshot>(&raw).ok());
+        let _ = tx.send(snapshot);
+    });
+    tokio::time::timeout(std::time::Duration::from_millis(200), rx)
+        .await
+        .ok()
+        .and_then(|result| result.ok())
+        .flatten()
+}
+
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
 async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_windows_player(|player| player.snapshot())
@@ -95,7 +125,8 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 async fn native_delay_ms(ms: u64) {
     let script = format!(
@@ -105,6 +136,11 @@ async fn native_delay_ms(ms: u64) {
         }})();"#
     );
     let _ = document::eval(&script).await;
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+async fn native_delay_ms(ms: u64) {
+    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]

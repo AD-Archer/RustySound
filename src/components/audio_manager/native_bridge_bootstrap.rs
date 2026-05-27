@@ -3,7 +3,8 @@
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
 (() => {

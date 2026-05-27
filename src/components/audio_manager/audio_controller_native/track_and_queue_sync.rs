@@ -25,9 +25,15 @@
         let volume = volume.clone();
         let queue = queue.clone();
         let mut queue_index = queue_index.clone();
-        #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+        #[cfg(any(
+            all(not(target_arch = "wasm32"), target_os = "ios"),
+            all(not(target_arch = "wasm32"), target_os = "android")
+        ))]
         let repeat_mode = repeat_mode.clone();
-        #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+        #[cfg(any(
+            all(not(target_arch = "wasm32"), target_os = "ios"),
+            all(not(target_arch = "wasm32"), target_os = "android")
+        ))]
         let shuffle_enabled = shuffle_enabled.clone();
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
@@ -111,6 +117,23 @@
                         .collect::<Vec<_>>();
                     ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
                 }
+                #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+                {
+                    let queue_snapshot = queue();
+                    let queue_idx = queue_index();
+                    let servers_snapshot = servers.peek().clone();
+                    let offline_mode = app_settings.peek().offline_mode;
+                    let repeat = repeat_mode();
+                    let shuffle = shuffle_enabled();
+                    android_update_playback_plan(
+                        &queue_snapshot,
+                        queue_idx,
+                        repeat,
+                        shuffle,
+                        &servers_snapshot,
+                        offline_mode,
+                    );
+                }
 
                 let should_clear = last_src.peek().is_some()
                     || last_song_id.peek().is_some()
@@ -143,6 +166,21 @@
                     })
                     .collect::<Vec<_>>();
                 ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
+            }
+            #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+            {
+                let queue_snapshot = queue();
+                let queue_idx = queue_index();
+                let repeat = repeat_mode();
+                let shuffle = shuffle_enabled();
+                android_update_playback_plan(
+                    &queue_snapshot,
+                    queue_idx,
+                    repeat,
+                    shuffle,
+                    &servers_snapshot,
+                    offline_mode,
+                );
             }
 
             if let Some(url) = resolve_stream_url(&song, &servers_snapshot, offline_mode) {

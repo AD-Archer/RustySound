@@ -11,6 +11,8 @@ include!("shared_types_and_web_helpers.rs");
 include!("native_bridge_bootstrap.rs");
 // Native Windows backend implementation.
 include!("native_windows_backend.rs");
+// Native Android media session/service backend implementation.
+include!("native_android_backend.rs");
 // Core iOS player backend implementation.
 include!("native_ios_backend.rs");
 // iOS remote control and now-playing integration helpers.
