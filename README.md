@@ -72,29 +72,47 @@ Or manually add `https://ad-archer.github.io/packages/source.json` as a source i
 ##### Homebrew (Recommended)
 
 ```bash
-brew tap ad-archer/homebrew-tap
+brew tap ad-archer/tap
+brew trust ad-archer/tap        # Homebrew 6+ only loads third-party taps you trust
 brew install --cask rustysound
+xattr -dr com.apple.quarantine /Applications/Rustysound.app
 ```
+
+Homebrew 6 and later refuse to load casks from a tap you haven't trusted, so without `brew trust`
+the install stops with an "untrusted" error. To trust only RustySound instead of the whole tap, use
+`brew trust --cask ad-archer/tap/rustysound`.
 
 To update:
 
 ```bash
-brew upgrade rustysound
+brew update
+brew upgrade --cask rustysound
+xattr -dr com.apple.quarantine /Applications/Rustysound.app
 ```
 
 ##### DMG Installer
 
 1. Download the latest `.dmg` file from [Releases](https://github.com/AD-Archer/RustySound/releases)
 2. Open the DMG and drag RustySound to your Applications folder
+3. Run `xattr -dr com.apple.quarantine /Applications/Rustysound.app`
 
-**Troubleshooting**: If macOS says the app is damaged or won't open:
+##### If macOS says the app is damaged or won't open
+
+RustySound isn't signed with an Apple Developer ID. macOS flags everything downloaded from the
+internet as quarantined, and Gatekeeper won't open unsigned quarantined apps, often saying the app
+"is damaged". Remove the flag after installing and after each update:
 
 ```bash
-# Option 1: Right-click in Finder and choose Open, then confirm
-# Option 2: Run this command
-xattr -dr com.apple.quarantine /Applications/RustySound.app
-open /Applications/RustySound.app
+xattr -dr com.apple.quarantine /Applications/Rustysound.app
+open /Applications/Rustysound.app
 ```
+
+- `xattr` edits a file's extended attributes.
+- `-d com.apple.quarantine` deletes the quarantine flag.
+- `-r` does it for every file inside the `.app` bundle.
+
+Only do this for apps you trust. Without the terminal: right-click the app in Finder, choose **Open**,
+then click **Open Anyway** in System Settings > Privacy & Security.
 
 #### Windows
 
