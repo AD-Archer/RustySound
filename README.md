@@ -72,8 +72,8 @@ Or manually add `https://ad-archer.github.io/packages/source.json` as a source i
 ##### Homebrew (Recommended)
 
 ```bash
-brew tap ad-archer/tap
 brew trust ad-archer/tap        # Homebrew 6+ only loads third-party taps you trust
+brew tap ad-archer/tap
 brew install --cask rustysound
 xattr -dr com.apple.quarantine /Applications/Rustysound.app
 ```
