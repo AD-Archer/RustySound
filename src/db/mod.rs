@@ -129,6 +129,30 @@ pub struct AppSettings {
     pub home_layout_json: String,
     #[serde(default = "default_home_feed_load_profile")]
     pub home_feed_load_profile: String,
+    // Discovery (Discover screen). All optional; empty strings mean "not set".
+    /// Last.fm API key. Enables Last.fm similar artists/albums/tracks off-server.
+    #[serde(default)]
+    pub lastfm_api_key: String,
+    /// Last.fm username. Seeds discovery from the user's Last.fm top artists.
+    #[serde(default)]
+    pub lastfm_username: String,
+    /// ListenBrainz username. Enables "fresh releases" from artists the user listens to.
+    #[serde(default)]
+    pub listenbrainz_username: String,
+    /// Show recommendations from outside the user's servers.
+    #[serde(default = "default_discovery_offserver_enabled")]
+    pub discovery_offserver_enabled: bool,
+    /// Resolve 30-second previews (iTunes) for off-server items.
+    #[serde(default = "default_discovery_previews_enabled")]
+    pub discovery_previews_enabled: bool,
+}
+
+fn default_discovery_offserver_enabled() -> bool {
+    true
+}
+
+fn default_discovery_previews_enabled() -> bool {
+    true
 }
 
 fn default_lyrics_request_timeout_secs() -> u32 {
@@ -288,6 +312,11 @@ impl Default for AppSettings {
             custom_css: String::new(),
             home_layout_json: default_home_layout_json(),
             home_feed_load_profile: default_home_feed_load_profile(),
+            lastfm_api_key: String::new(),
+            lastfm_username: String::new(),
+            listenbrainz_username: String::new(),
+            discovery_offserver_enabled: default_discovery_offserver_enabled(),
+            discovery_previews_enabled: default_discovery_previews_enabled(),
         }
     }
 }
@@ -688,4 +717,32 @@ fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
             e
         ))
     })
+}
+
+#[cfg(test)]
+mod discovery_settings_tests {
+    use super::*;
+
+    #[test]
+    fn old_settings_load_with_discovery_defaults() {
+        // Settings JSON saved before the discovery fields existed.
+        let legacy = r#"{"volume":0.5,"last_server_id":null,"theme":"rusty",
+            "crossfade_enabled":false,"crossfade_duration":3,"replay_gain":false}"#;
+        let settings: AppSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(settings.lastfm_api_key, "");
+        assert_eq!(settings.lastfm_username, "");
+        assert_eq!(settings.listenbrainz_username, "");
+        assert!(settings.discovery_offserver_enabled);
+        assert!(settings.discovery_previews_enabled);
+    }
+
+    #[test]
+    fn discovery_fields_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.lastfm_username = "rj".to_string();
+        settings.discovery_previews_enabled = false;
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, settings);
+    }
 }

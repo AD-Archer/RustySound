@@ -37,6 +37,8 @@ pub struct SubsonicResponseInner {
     #[serde(alias = "scanStatus")]
     pub scan_status: Option<ScanStatusPayload>,
     pub bookmarks: Option<BookmarksContainer>,
+    #[serde(default, alias = "artistInfo2")]
+    pub artist_info2: Option<ArtistInfo2Payload>,
 }
 
 #[derive(Debug, Deserialize)]

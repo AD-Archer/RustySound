@@ -59,6 +59,15 @@ pub struct Album {
     pub starred: Option<String>,
     #[serde(default, alias = "userRating", alias = "rating")]
     pub user_rating: Option<u32>,
+    /// Total plays of the album (Subsonic `playCount`, API 1.14+). `None` when the server omits it.
+    #[serde(default, alias = "playCount")]
+    pub play_count: Option<u32>,
+    /// When the album was last played (OpenSubsonic `played`, ISO 8601). Navidrome sends it.
+    #[serde(default)]
+    pub played: Option<String>,
+    /// When the album was added to the library (Subsonic `created`, ISO 8601).
+    #[serde(default)]
+    pub created: Option<String>,
     #[serde(default)]
     pub server_id: String,
 }
