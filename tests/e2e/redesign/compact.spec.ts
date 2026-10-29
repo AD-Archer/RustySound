@@ -48,7 +48,8 @@ test.describe("compact layout", () => {
     await playFirstTrack(page, mock);
     const mini = tid(page, "mini-player");
     await expect(mini).toBeVisible();
-    for (const id of KEPT_PLAYER_IDS.slice(0, 1)) await expect(page.locator(`#${id}`).first()).toBeAttached();
+    // MediaSession presses these by id, so they must exist even on the compact layout.
+    for (const id of KEPT_PLAYER_IDS) await expect(page.locator(`#${id}`).first(), id).toBeAttached();
     await mini.click();
     const now = tid(page, "now-playing");
     await expect(now).toBeVisible();

@@ -12,6 +12,8 @@ import { WEB_URL } from "./support/env";
 
 const REDESIGN = process.env.REDESIGN === "1";
 const PERF = process.env.PERF === "1";
+// Workers inherit this, so perf results from one run are merged into the same JSON files.
+process.env.RS_PERF_RUN_ID ??= new Date().toISOString();
 
 const mac = { viewport: { width: 1440, height: 900 }, deviceScaleFactor: 2 };
 

@@ -98,6 +98,7 @@ let md = `# RustySound perf ${cmpDir ? "comparison" : "baseline"}\n\n`;
 for (const p of projects) {
   const m = cur.get(p).meta;
   md += `- **${p}**: ${m.browser}, commit ${m.commit}, ${m.date}, wasm ${m.wasmBytes ? (m.wasmBytes / 1048576).toFixed(2) + " MB" : "?"}, mock latency ${m.mockLatencyMs} ms, settings ${JSON.stringify(m.settings)}\n`;
+  for (const [title, msg] of Object.entries(m.failures ?? {})) md += `  - FAILED: ${title}: ${msg}\n`;
 }
 if (cmpDir) md += `- compared against: \`${cmpDir}\`\n`;
 md += `\n| Metric | ${projects.map((p) => (cmpDir ? `${p} | Δ vs baseline` : p)).join(" | ")} |\n`;

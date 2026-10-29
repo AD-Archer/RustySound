@@ -2,7 +2,7 @@
 // Writes perf-<project>.json into RS_PERF_OUT (default tests/.out/perf); tests/perf/report.ts
 // turns those into markdown and can diff against an earlier run.
 import { execSync } from "node:child_process";
-import { mkdirSync, statSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdirSync, readFileSync, statSync, writeFileSync, readdirSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 import type { BrowserContext, Page } from "@playwright/test";
@@ -16,9 +16,11 @@ const COLD_RUNS = Number(process.env.RS_PERF_COLD_RUNS ?? 5);
 const PLAYBACK_SECONDS = Number(process.env.RS_PERF_PLAYBACK_SECONDS ?? 20);
 const TARGET_ROWS = Number(process.env.RS_PERF_TARGET_ROWS ?? 1000);
 
+// Each test adds its section here; afterEach merges it into perf-<project>.json, so a failing
+// test (which restarts the worker) never loses the other sections. Tests run one at a time
+// (workers: 1 in PERF mode) but are not serial, so one failure doesn't skip the rest.
 const results: Record<string, any> = {};
-
-test.describe.configure({ mode: "serial" });
+const RUN_ID = process.env.RS_PERF_RUN_ID ?? "local";
 
 function contextOptions(use: Record<string, any>) {
   const keys = ["viewport", "deviceScaleFactor", "userAgent", "isMobile", "hasTouch", "screen", "locale"];
@@ -94,8 +96,16 @@ const rowCount = (page: Page) =>
     return document.querySelectorAll("main div.space-y-1 > div").length;
   });
 
-test.afterAll(async ({ browser }, testInfo) => {
+test.afterEach(async ({ browser }, testInfo) => {
   mkdirSync(OUT, { recursive: true });
+  const file = join(OUT, `perf-${testInfo.project.name}.json`);
+  let previous: Record<string, any> = {};
+  try {
+    const j = JSON.parse(readFileSync(file, "utf8"));
+    if (j.meta?.runId === RUN_ID) previous = j;
+  } catch {}
+  const failures = { ...(previous.meta?.failures ?? {}) };
+  if (testInfo.status !== testInfo.expectedStatus) failures[testInfo.title] = (testInfo.error?.message ?? "failed").split("\n")[0].slice(0, 300);
   let commit = "unknown";
   try {
     commit = execSync("git rev-parse --short HEAD", { cwd: REPO_ROOT }).toString().trim();
@@ -105,8 +115,11 @@ test.afterAll(async ({ browser }, testInfo) => {
     const f = readdirSync(join(WEB_DIR, "assets")).find((n) => n.endsWith(".wasm"));
     if (f) wasmBytes = statSync(join(WEB_DIR, "assets", f)).size;
   } catch {}
-  const doc = {
+  const doc: Record<string, any> = {
+    ...previous,
     meta: {
+      runId: RUN_ID,
+      failures,
       project: testInfo.project.name,
       browser: `${browser.browserType().name()} ${browser.version()}`,
       date: new Date().toISOString(),
@@ -118,9 +131,12 @@ test.afterAll(async ({ browser }, testInfo) => {
       viewport: testInfo.project.use.viewport,
       settings: { COLD_RUNS, PLAYBACK_SECONDS, TARGET_ROWS },
     },
-    ...results,
   };
-  writeFileSync(join(OUT, `perf-${testInfo.project.name}.json`), JSON.stringify(doc, null, 2));
+  // One level of merge so b1 and b2 can both contribute to `playback`.
+  for (const [k, v] of Object.entries(results)) {
+    doc[k] = v && typeof v === "object" && !Array.isArray(v) ? { ...(previous[k] ?? {}), ...v } : v;
+  }
+  writeFileSync(file, JSON.stringify(doc, null, 2));
 });
 
 test("a. cold load to first meaningful content", async ({ browser }, testInfo) => {
