@@ -1,0 +1,40 @@
+{
+  "subsonic-response": {
+    "status": "ok",
+    "version": "1.16.1",
+    "type": "navidrome",
+    "serverVersion": "0.58.0",
+    "openSubsonic": true,
+    "artistInfo2": {
+      "biography": "Mira Okafor is a placeholder artist.",
+      "musicBrainzId": "00000000-0000-0000-0000-000000000001",
+      "lastFmUrl": "https://www.last.fm/music/Mira+Okafor",
+      "smallImageUrl": "https://music.example/share/img/ar-1?size=300",
+      "mediumImageUrl": "https://music.example/share/img/ar-1?size=600",
+      "largeImageUrl": "https://music.example/share/img/ar-1?size=1200",
+      "similarArtist": [
+        {
+          "id": "ar-2",
+          "name": "Junie Marlow",
+          "coverArt": "ar-2_69733a55",
+          "albumCount": 3,
+          "artistImageUrl": "https://music.example/share/img/ar-2?size=600",
+          "musicBrainzId": "",
+          "sortName": "junie marlow",
+          "roles": ["albumartist"]
+        },
+        {
+          "id": "-1",
+          "name": "Ilse Varga",
+          "albumCount": 0,
+          "artistImageUrl": "https://music.example/share/img/ar-?size=600",
+          "musicBrainzId": "",
+          "sortName": "",
+          "roles": []
+        },
+        { "id": "-1", "name": "Delta Pines", "albumCount": 0 },
+        { "id": "-1", "name": "  ", "albumCount": 0 }
+      ]
+    }
+  }
+}

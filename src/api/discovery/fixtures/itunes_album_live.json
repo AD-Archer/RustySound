@@ -1,0 +1,11 @@
+
+
+
+{
+ "resultCount":2,
+ "results": [
+{"wrapperType":"collection", "collectionType":"Album", "artistId":657515, "collectionId":1109714933, "amgArtistId":41092, "artistName":"Radiohead", "collectionName":"In Rainbows", "collectionCensoredName":"In Rainbows", "artistViewUrl":"https://music.apple.com/us/artist/radiohead/657515?uo=4", "collectionViewUrl":"https://music.apple.com/us/album/in-rainbows/1109714933?uo=4", "artworkUrl60":"https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/dd/50/c7/dd50c790-99ac-d3d0-5ab8-e3891fb8fd52/634904032463.png/60x60bb.jpg", "artworkUrl100":"https://is1-ssl.mzstatic.com/image/thumb/Music126/v4/dd/50/c7/dd50c790-99ac-d3d0-5ab8-e3891fb8fd52/634904032463.png/100x100bb.jpg", "collectionPrice":9.99, "collectionExplicitness":"notExplicit", "trackCount":10, "copyright":"℗ 2007 LLLP LLP under exclusive license to XL Recordings Ltd", "country":"USA", "currency":"USD", "releaseDate":"2007-10-10T07:00:00Z", "primaryGenreName":"Alternative"}, 
+{"wrapperType":"collection", "collectionType":"Album", "artistId":657515, "collectionId":1097861387, "amgArtistId":41092, "artistName":"Radiohead", "collectionName":"OK Computer", "collectionCensoredName":"OK Computer", "artistViewUrl":"https://music.apple.com/us/artist/radiohead/657515?uo=4", "collectionViewUrl":"https://music.apple.com/us/album/ok-computer/1097861387?uo=4", "artworkUrl60":"https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/07/60/ba/0760ba0f-148c-b18f-d0ff-169ee96f3af5/634904078164.png/60x60bb.jpg", "artworkUrl100":"https://is1-ssl.mzstatic.com/image/thumb/Music116/v4/07/60/ba/0760ba0f-148c-b18f-d0ff-169ee96f3af5/634904078164.png/100x100bb.jpg", "collectionPrice":9.99, "collectionExplicitness":"notExplicit", "trackCount":12, "copyright":"℗ 1997 XL Recordings Ltd", "country":"USA", "currency":"USD", "releaseDate":"1997-05-21T07:00:00Z", "primaryGenreName":"Alternative"}]
+}
+
+
