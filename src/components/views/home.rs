@@ -1099,6 +1099,11 @@ return (function () {
         .collect();
     let quick_picks_grid_min_px = quick_picks_card_min_px(quick_picks_size);
 
+    // First run (agent G1): no server on → the welcome stage with "Add your server".
+    if !has_servers {
+        return rsx! { super::FirstRun {} };
+    }
+
     rsx! {
         div { class: "space-y-8 max-w-none",
             if show_home_album_overlay {

@@ -125,6 +125,10 @@ pub struct AppSettings {
     pub artwork_download_preference: ArtworkDownloadPreference,
     #[serde(default)]
     pub custom_css: String,
+    // Appearance (agent G1)
+    /// Light/dark choice, separate from the theme: "system" (default), "light" or "dark".
+    #[serde(default = "default_appearance")]
+    pub appearance: String,
     #[serde(default = "default_home_layout_json")]
     pub home_layout_json: String,
     #[serde(default = "default_home_feed_load_profile")]
@@ -205,6 +209,10 @@ fn default_download_limit_mb() -> u32 {
 
 fn default_artwork_download_preference() -> ArtworkDownloadPreference {
     ArtworkDownloadPreference::PreferServer
+}
+
+fn default_appearance() -> String {
+    "system".to_string()
 }
 
 fn default_home_layout_json() -> String {
@@ -310,6 +318,7 @@ impl Default for AppSettings {
             download_limit_mb: default_download_limit_mb(),
             artwork_download_preference: default_artwork_download_preference(),
             custom_css: String::new(),
+            appearance: default_appearance(),
             home_layout_json: default_home_layout_json(),
             home_feed_load_profile: default_home_feed_load_profile(),
             lastfm_api_key: String::new(),

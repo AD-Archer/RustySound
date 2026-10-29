@@ -139,11 +139,14 @@ pub fn stage_theme(raw: &str) -> &'static str {
 
 /// `data-appearance` value: "system", "light" or "dark".
 ///
-/// AppSettings has no appearance field yet (phase 2 adds it with a "system"
-/// default). Until then everything follows the system. When the field lands,
-/// read it here; this is the only place the shell asks.
-pub fn appearance_attr(_settings: &AppSettings) -> &'static str {
-    "system"
+/// Reads `AppSettings::appearance`; anything unknown (or an old settings file
+/// without the field) follows the system. This is the only place the shell asks.
+pub fn appearance_attr(settings: &AppSettings) -> &'static str {
+    match settings.appearance.trim().to_ascii_lowercase().as_str() {
+        "light" => "light",
+        "dark" => "dark",
+        _ => "system",
+    }
 }
 
 /// Builds a cover-art URL for `cover_art` on the server `server_id`, at the
