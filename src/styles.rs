@@ -59,7 +59,9 @@ mod inline {
         "\n",
         include_str!("../assets/styling/views/player.css"),
         "\n",
-        include_str!("../assets/styling/views/settings.css")
+        include_str!("../assets/styling/views/settings.css"),
+        "\n",
+        include_str!("../assets/styling/views/search.css")
     );
 }
 
@@ -81,6 +83,7 @@ mod linked {
     pub const VIEW_PERSONAL: Asset = asset!("/assets/styling/views/personal.css");
     pub const VIEW_PLAYER: Asset = asset!("/assets/styling/views/player.css");
     pub const VIEW_SETTINGS: Asset = asset!("/assets/styling/views/settings.css");
+    pub const VIEW_SEARCH: Asset = asset!("/assets/styling/views/search.css");
 }
 
 /// Injects every registered stylesheet into the document head.
@@ -110,6 +113,7 @@ pub fn GlobalStyles() -> Element {
             document::Stylesheet { href: linked::VIEW_PERSONAL }
             document::Stylesheet { href: linked::VIEW_PLAYER }
             document::Stylesheet { href: linked::VIEW_SETTINGS }
+            document::Stylesheet { href: linked::VIEW_SEARCH }
         }
     }
 }
