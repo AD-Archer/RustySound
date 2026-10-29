@@ -44,12 +44,15 @@ test.describe("wide layout", () => {
     const flow = tid(page, "coverflow");
     await expect(flow).toBeVisible();
     const center = tid(page, "coverflow-center");
-    const first = await center.innerText();
+    // Covers are images; the centred cover's accessible name says which album it is.
+    const name = () => center.getAttribute("aria-label");
+    const first = await name();
+    expect(first).toBeTruthy();
     await flow.focus();
     await page.keyboard.press("ArrowRight");
-    await expect.poll(() => center.innerText()).not.toBe(first);
+    await expect.poll(name).not.toBe(first);
     await page.keyboard.press("ArrowLeft");
-    await expect.poll(() => center.innerText()).toBe(first);
+    await expect.poll(name).toBe(first);
   });
 
   test("right-click on a track row opens the track menu with every action", async ({ connected: page, mock }) => {

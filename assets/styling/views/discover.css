@@ -2,3 +2,371 @@
    View-specific styles only. Use tokens from tokens.css; do not restyle kit
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-discover- to keep them out of the kit namespace. */
+
+/* ==========================================================================
+   STAGE
+   ========================================================================== */
+
+.rs-discover__stage {
+  position: relative;
+  padding: calc(var(--safe-top) + 10px) 0 18px;
+}
+
+.rs-discover__stage--wide {
+  padding: 0 0 24px;
+}
+
+.rs-discover__bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: 6px var(--gutter) 0;
+}
+
+.rs-discover__title {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-large);
+  line-height: var(--lh-large);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-title);
+}
+
+.rs-discover__stage--wide .rs-discover__bar {
+  height: 52px;
+  padding: 0 16px 0 var(--gutter-wide);
+}
+
+.rs-discover__stage--wide .rs-discover__title {
+  flex: 1;
+  font-family: inherit;
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+/* A search "field" on the stage toolbar that opens Search (wide). */
+.rs-discover__search {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 240px;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--stage-field-line);
+  border-radius: var(--r-btn);
+  background: var(--stage-field);
+  color: var(--stage-muted);
+  font-size: var(--fs-sub);
+  text-align: left;
+  cursor: text;
+}
+
+.rs-discover__search span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (hover: hover) {
+  .rs-discover__search:hover { border-color: var(--stage-badge-line); }
+}
+
+/* Server status pill: opens Settings. */
+.rs-discover__server {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 7px;
+  max-width: min(52vw, 260px);
+  min-height: 30px;
+  padding: 5px 12px 5px 10px;
+  border: 1px solid var(--stage-field-line);
+  border-radius: var(--r-pill);
+  background: var(--stage-field);
+  color: color-mix(in srgb, var(--stage-ink) 87%, var(--stage-muted));
+  font-size: var(--fs-sub);
+  cursor: pointer;
+  transition: border-color var(--dur-fast);
+}
+
+@media (hover: hover) {
+  .rs-discover__server:hover { border-color: var(--stage-badge-line); }
+}
+
+.rs-discover__server-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-discover__server-count {
+  flex: none;
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-discover__stage-actions {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-3);
+}
+
+.rs-discover__stage--wide .rs-discover__stage-actions {
+  margin-top: var(--sp-5);
+}
+
+.rs-discover__stage-empty {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 56px 32px 48px;
+  text-align: center;
+  font-size: var(--fs-callout);
+  color: var(--stage-muted);
+}
+
+.rs-discover__stage-empty p {
+  margin: 0;
+}
+
+.rs-discover__stage-empty .rs-discover__stage-empty-title {
+  margin-bottom: var(--sp-2);
+  font-size: 16px;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+}
+
+/* Loading placeholder with the flow + caption footprint. */
+.rs-discover__flow-skel {
+  --cover: 148px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  height: calc(var(--cover) + 32px + 54px + 40px);
+  margin-top: var(--sp-5);
+}
+
+.rs-discover__flow-skel--wide {
+  height: calc(var(--cover) + 40px + 54px + 30px + 44px);
+  margin-top: 18px;
+}
+
+.rs-discover__flow-skel-cover,
+.rs-discover__flow-skel-side {
+  border-radius: var(--r-cover);
+  background: linear-gradient(90deg, #17181a 0%, #24252a 50%, #17181a 100%);
+  background-size: 200% 100%;
+  animation: rs-shimmer 1.4s linear infinite;
+}
+
+.rs-discover__flow-skel-cover {
+  width: var(--cover);
+  height: var(--cover);
+}
+
+.rs-discover__flow-skel-side {
+  width: calc(var(--cover) * .28);
+  height: calc(var(--cover) * .86);
+  margin-top: calc(var(--cover) * .07);
+  opacity: .6;
+}
+
+/* Pull-to-refresh hint (compact). */
+.rs-discover__pull {
+  position: absolute;
+  top: calc(var(--safe-top) + 4px);
+  left: 50%;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--stage-field-line);
+  border-radius: 50%;
+  background: var(--stage-field);
+  color: var(--stage-ink);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.rs-discover__pull--busy svg,
+.rs-discover__spin svg {
+  animation: rs-spin .9s linear infinite;
+}
+
+/* ==========================================================================
+   PAGE
+   ========================================================================== */
+
+.rs-discover__page {
+  padding: 0 var(--gutter) var(--sp-4);
+}
+
+.rs-discover--wide .rs-discover__page {
+  padding: 20px var(--gutter-wide) var(--sp-4);
+}
+
+.rs-discover__controls {
+  margin: 14px 0;
+}
+
+.rs-discover--wide .rs-discover__controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-6);
+  margin: 0;
+}
+
+.rs-discover__keys {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--fs-foot);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.rs-discover__keys kbd {
+  min-width: 20px;
+  height: 20px;
+  display: inline-grid;
+  place-items: center;
+  padding: 0 4px;
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 5px;
+  background: var(--surface);
+  font: inherit;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-discover__note {
+  margin: 0 4px 14px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-discover--wide .rs-discover__note {
+  margin-top: 14px;
+}
+
+.rs-discover__cols {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+  margin-top: 18px;
+}
+
+.rs-discover__cols > .rs-discover__col > .rs-hd:first-child {
+  margin-top: 0;
+}
+
+/* Below ~1100px the two columns get too narrow for the rows. */
+@media (max-width: 1100px) {
+  .rs-discover__cols {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .rs-discover__cols > .rs-discover__col + .rs-discover__col > .rs-hd:first-child {
+    margin-top: var(--sp-7);
+  }
+}
+
+/* A quiet one-line note inside an inset list (empty sections). */
+.rs-discover__quiet {
+  padding: 14px 16px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+/* ---- Rewind window ----------------------------------------------------- */
+
+.rs-discover__window {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-5);
+  margin: 0 0 var(--sp-2);
+}
+
+.rs-discover--wide .rs-discover__window {
+  margin-top: 18px;
+}
+
+.rs-discover__window-note {
+  margin: 0;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+/* ---- Mix rows ---------------------------------------------------------- */
+
+.rs-discover-mix {
+  gap: var(--sp-3);
+  padding-block: 0;
+}
+
+.rs-app[data-layout="wide"] .rs-discover-mix {
+  padding-block: 0;
+}
+
+.rs-discover-mix__main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--row-h);
+  padding: 7px var(--sp-2) 7px 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-app[data-layout="wide"] .rs-discover-mix__main {
+  min-height: var(--row-h-wide);
+}
+
+.rs-discover-mix:has(.rs-discover-mix__main:active) {
+  background: var(--tint-strong);
+}
+
+@media (hover: hover) {
+  .rs-discover-mix:hover { background: var(--tint); }
+}
+
+.rs-discover-mix__fresh {
+  flex: none;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  color: var(--accent-text);
+}
+
+.rs-discover__num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Off-server rows --------------------------------------------------- */
+
+.rs-discover-off {
+  gap: var(--sp-4);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-discover__pull--busy svg,
+  .rs-discover__spin svg,
+  .rs-discover__flow-skel-cover,
+  .rs-discover__flow-skel-side {
+    animation: none;
+  }
+}
