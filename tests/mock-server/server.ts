@@ -944,7 +944,9 @@ async function handle(req: Request): Promise<Response> {
     // Handy for tests: ids for the known fixture entities.
     const artist = S.lib.artists.find((a) => a.name === KNOWN.artist)!;
     const album = S.lib.albums.find((a) => a.name === KNOWN.artistAlbum)!;
+    const big = S.lib.playlists.find((p) => p.name === KNOWN.bigPlaylistName)!;
     return json({
+      bigPlaylist: playlistJson(big),
       artist: artistJson(artist),
       album: albumJson(album),
       albumSongs: album.songIds.map((id) => songJson(S.lib.songById.get(id)!)),

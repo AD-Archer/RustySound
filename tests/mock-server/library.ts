@@ -170,8 +170,9 @@ export const KNOWN = {
   artistAlbum: "Lanterns Over Harbor",
   secondArtist: "Mira Solenne",
   secondArtistAlbum: "Glass Weather",
-  /** an artist present in the library whose similar list includes off-library artists */
   playlistName: "Late Night Drive",
+  bigPlaylistName: "Deep Cuts",
+  bigPlaylistSize: 1200,
   searchTerm: "Paper Comets",
 } as const;
 
@@ -320,7 +321,8 @@ export function buildLibrary(opts: { streamBase: string }): Library {
     "Discover Weekly (imported)", "Chill Synths", "Dinner Party", "Old Favourites", "Fresh Finds",
   ];
   const playlists: PlaylistRec[] = playlistNames.map((name, i) => {
-    const size = i === 0 ? 40 : rand.int(8, i === 6 ? 220 : 60);
+    // "Deep Cuts" is deliberately huge: playing it gives a 1,200-song queue for perf tests.
+    const size = i === 0 ? 40 : i === 6 ? KNOWN.bigPlaylistSize : rand.int(8, 60);
     const ids = new Set<string>();
     while (ids.size < size) ids.add(rand.pick(songs).id);
     const created = rand.int(10, 1000);
