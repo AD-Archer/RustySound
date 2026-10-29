@@ -145,6 +145,23 @@ pub struct AppSettings {
     /// Resolve 30-second previews (iTunes) for off-server items.
     #[serde(default = "default_discovery_previews_enabled")]
     pub discovery_previews_enabled: bool,
+    // Discover (agent D)
+    /// Rewind window on Discover, in months (3, 6 or 12). Remembered per device.
+    #[serde(default = "default_discover_rewind_months")]
+    pub discover_rewind_months: u32,
+    /// JSON map of Discover mix id to the server playlist it was saved as:
+    /// `{"<mix id>": {"server_id": "...", "playlist_id": "..."}}`. Re-saving a
+    /// mix replaces that playlist instead of making a new one.
+    #[serde(default = "default_discover_saved_mix_playlists")]
+    pub discover_saved_mix_playlists: String,
+}
+
+fn default_discover_rewind_months() -> u32 {
+    6
+}
+
+fn default_discover_saved_mix_playlists() -> String {
+    "{}".to_string()
 }
 
 fn default_discovery_offserver_enabled() -> bool {
@@ -317,6 +334,8 @@ impl Default for AppSettings {
             listenbrainz_username: String::new(),
             discovery_offserver_enabled: default_discovery_offserver_enabled(),
             discovery_previews_enabled: default_discovery_previews_enabled(),
+            discover_rewind_months: default_discover_rewind_months(),
+            discover_saved_mix_playlists: default_discover_saved_mix_playlists(),
         }
     }
 }
@@ -734,6 +753,8 @@ mod discovery_settings_tests {
         assert_eq!(settings.listenbrainz_username, "");
         assert!(settings.discovery_offserver_enabled);
         assert!(settings.discovery_previews_enabled);
+        assert_eq!(settings.discover_rewind_months, 6);
+        assert_eq!(settings.discover_saved_mix_playlists, "{}");
     }
 
     #[test]

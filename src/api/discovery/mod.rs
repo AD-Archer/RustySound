@@ -6,6 +6,8 @@
 //! - Progressive: [`load_discover_stage`], then [`load_discover_mixes`], then
 //!   [`load_discover_off_server`]. Call them in that order; they share one
 //!   library snapshot in memory, so later calls reuse the first one's requests.
+//! - [`load_discover_rewind`]: the Rewind segment for a chosen window (3, 6 or
+//!   12 months). Reuses the snapshot, so switching windows costs no requests.
 //! - [`refresh_discover`]: user-initiated "new picks" (new seed for today and
 //!   refetch). Call it before the loaders.
 //! - [`save_mix_as_playlist`]: turn a [`Mix`] into a real server playlist.
@@ -17,7 +19,7 @@
 //!   per day) until [`refresh_discover`] is called.
 //! - Only `active` servers are used. Items carry their `server_id`.
 
-// The Discover view (phase 2) consumes this API; until then most of it is unused.
+// Some helpers (e.g. `load_discover`) are kept for tests and future callers.
 #![allow(dead_code)]
 
 mod cache;
@@ -31,6 +33,7 @@ mod stage;
 mod types;
 mod util;
 
+pub use rewind::{DEFAULT_REWIND_MONTHS, REWIND_MONTH_CHOICES};
 pub use types::*;
 
 use crate::api::models::{ServerConfig, Song};
@@ -136,7 +139,7 @@ pub fn refresh_discover(servers: &[ServerConfig]) {
     cache::bump_salt(&util::today_key(), &active);
 }
 
-/// Cover Flow items plus the "New in your library" and "Rewind" album shelves.
+/// Cover Flow items plus the "New in your library" album shelf.
 ///
 /// Server requests (cold): 3 album lists + 1 song list per server, plus ≤ 2
 /// `getArtistInfo2` and ≤ 2 `getArtist` for "Because you play …". No external
@@ -155,18 +158,25 @@ pub async fn load_discover_stage(servers: &[ServerConfig], settings: &AppSetting
     }
 
     let snapshot = ctx.snapshot().await;
-    let rewind_albums = rewind::select_rewind_albums(&snapshot.frequent, ctx.now, ctx.seed("rewind-albums"), 12);
+    // Cover Flow always uses the default window, so changing the Rewind
+    // segment's window never reshuffles the stage.
+    let rewind_albums = rewind::select_rewind_albums(
+        &snapshot.frequent,
+        ctx.now,
+        rewind::cutoff_days_for_months(DEFAULT_REWIND_MONTHS),
+        ctx.seed("rewind-albums"),
+        3,
+    );
     let new_albums = stage::new_in_library(&snapshot.newest, ctx.now, 20);
     let because = because_you_play(&ctx, &snapshot).await;
 
     let section = StageSection {
         stage: stage::compose_stage(
-            &rewind_albums[..rewind_albums.len().min(3)],
+            &rewind_albums,
             &new_albums[..new_albums.len().min(6)],
             &because,
         ),
         new_in_library: new_albums,
-        rewind_albums,
         generated_on: ctx.date.clone(),
     };
     if snapshot.servers_ok > 0 {
@@ -208,7 +218,7 @@ async fn because_you_play(ctx: &LoadContext, snapshot: &LibrarySnapshot) -> Vec<
     picks.into_iter().flatten().collect()
 }
 
-/// Generated mixes ("For You") and Rewind songs.
+/// Generated mixes ("For You").
 ///
 /// Server requests (cold): the shared snapshot, plus ≤ 3 `getSimilarSongs2`
 /// (Discovery), ≤ 2 `getSimilarSongs2` (artist radios) and ≤ 3 `getAlbum`
@@ -286,7 +296,49 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
 
     let section = MixesSection {
         mixes,
-        rewind_songs: rewind::select_rewind_songs(&snapshot.top_songs, ctx.now, 20),
+        generated_on: ctx.date.clone(),
+    };
+    if snapshot.servers_ok > 0 {
+        cache::put(&key, &section);
+    }
+    section
+}
+
+/// The Rewind segment: heavily played albums (≥ 5 plays, ≤ 12) and songs
+/// (≥ 3 plays, ≤ 20) not played within the last `months` months.
+///
+/// `months` is the user's window (3, 6 or 12; see [`REWIND_MONTH_CHOICES`]);
+/// other values are clamped. Uses only the shared library snapshot, so after
+/// [`load_discover_stage`] it makes no requests. Empty when the server lacks
+/// `played` dates (plain Subsonic servers).
+pub async fn load_discover_rewind(
+    servers: &[ServerConfig],
+    settings: &AppSettings,
+    months: u32,
+) -> RewindSection {
+    let Some(ctx) = LoadContext::new(servers, settings) else {
+        return RewindSection {
+            months,
+            generated_on: util::today_key(),
+            ..Default::default()
+        };
+    };
+    let key = ctx.section_key(&format!("rewind-{months}"));
+    if let Some(cached) = cache::get::<RewindSection>(&key) {
+        return cached;
+    }
+    let snapshot = ctx.snapshot().await;
+    let cutoff_days = rewind::cutoff_days_for_months(months);
+    let section = RewindSection {
+        months,
+        albums: rewind::select_rewind_albums(
+            &snapshot.frequent,
+            ctx.now,
+            cutoff_days,
+            ctx.seed("rewind-albums"),
+            12,
+        ),
+        songs: rewind::select_rewind_songs(&snapshot.top_songs, ctx.now, cutoff_days, 20),
         generated_on: ctx.date.clone(),
     };
     if snapshot.servers_ok > 0 {
@@ -534,6 +586,9 @@ mod tests {
         assert!(feed.mixes.mixes.is_empty());
         assert!(feed.off_server.items.is_empty());
         assert_eq!(feed.off_server.status.external_requests, 0);
+        let rewind = runtime.block_on(load_discover_rewind(&servers, &settings, 12));
+        assert_eq!(rewind.months, 12);
+        assert!(rewind.albums.is_empty() && rewind.songs.is_empty());
         assert_eq!(feed.stage.generated_on.len(), 10);
     }
 

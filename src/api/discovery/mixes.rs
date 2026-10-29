@@ -3,7 +3,7 @@
 
 use super::library::ArtistSeed;
 use super::reasons::{freshness_label, join_names, length_label};
-use super::rewind::{is_rewind_candidate, MIN_SONG_PLAYS};
+use super::rewind::{cutoff_days_for_months, is_rewind_candidate, DEFAULT_REWIND_MONTHS, MIN_SONG_PLAYS};
 use super::types::{CoverRef, Mix, MixKind};
 use super::util::{normalize_name, SeededRng};
 use crate::api::models::{Album, Song};
@@ -200,10 +200,15 @@ pub fn build_deep_cuts(ctx: &MixContext, albums: Vec<(Album, Vec<Song>)>) -> Opt
 }
 
 /// Rewind mix: most-played songs not played in 6+ months, shuffled by seed.
+/// Always uses the default 6-month window, so "For You" doesn't change when the
+/// user picks another window in the Rewind segment.
 pub fn build_rewind_mix(ctx: &MixContext, top_songs: &[Song]) -> Option<Mix> {
+    let cutoff_days = cutoff_days_for_months(DEFAULT_REWIND_MONTHS);
     let mut songs: Vec<Song> = top_songs
         .iter()
-        .filter(|s| is_rewind_candidate(s.played.as_deref(), s.play_count, MIN_SONG_PLAYS, ctx.now))
+        .filter(|s| {
+            is_rewind_candidate(s.played.as_deref(), s.play_count, MIN_SONG_PLAYS, ctx.now, cutoff_days)
+        })
         .cloned()
         .collect();
     songs.sort_by_key(|s| std::cmp::Reverse(s.play_count.unwrap_or(0)));

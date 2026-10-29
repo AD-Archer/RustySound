@@ -583,6 +583,26 @@ mod tests {
     }
 
     #[test]
+    fn not_present_artists_accept_minus_one_and_empty_ids() {
+        // Real Navidrome sends "-1"; some servers (and older mocks) send "".
+        let json: SubsonicResponse = serde_json::from_str(
+            r#"{"subsonic-response":{"status":"ok","artistInfo2":{"similarArtist":[
+                {"id":"ar-9","name":"In Library","albumCount":2},
+                {"id":"-1","name":"Minus One","albumCount":0},
+                {"id":"","name":"Empty Id","albumCount":0},
+                {"name":"No Id","albumCount":0}
+            ]}}}"#,
+        )
+        .unwrap();
+        let info = artist_info_from_response("s1", json).unwrap();
+        let present: Vec<bool> = info.similar.iter().map(|a| a.in_library()).collect();
+        assert_eq!(present, vec![true, false, false, false]);
+        let items = navidrome_items(&seed("Seed"), &info);
+        let names: Vec<&str> = items.iter().map(|i| i.title.as_str()).collect();
+        assert_eq!(names, vec!["Minus One", "Empty Id", "No Id"]);
+    }
+
+    #[test]
     fn navidrome_error_envelope_is_an_error() {
         let json: SubsonicResponse = serde_json::from_str(
             r#"{"subsonic-response":{"status":"failed","error":{"code":70,"message":"Artist not found"}}}"#,

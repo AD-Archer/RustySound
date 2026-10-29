@@ -11,7 +11,8 @@ use serde::{Deserialize, Serialize};
 /// item's `reason` field; the kind is for icons, grouping or analytics.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ReasonKind {
-    /// A heavily played album or song that hasn't been played in 6+ months.
+    /// A heavily played album or song that hasn't been played for a while
+    /// (the user's Rewind window, 6 months by default).
     Rewind,
     /// Recently added to the library.
     NewInLibrary,
@@ -181,8 +182,6 @@ pub struct StageSection {
     pub stage: Vec<DiscoverAlbum>,
     /// Recently added albums, newest first (≤ 20). "New" segment.
     pub new_in_library: Vec<DiscoverAlbum>,
-    /// Heavily played albums not played in 6+ months (≤ 12). "Rewind" segment.
-    pub rewind_albums: Vec<DiscoverAlbum>,
     /// Local date (YYYY-MM-DD) this was generated for.
     pub generated_on: String,
 }
@@ -192,8 +191,18 @@ pub struct StageSection {
 pub struct MixesSection {
     /// 0–5 mixes in display order: Discovery, Deep Cuts, Rewind, then artist radios.
     pub mixes: Vec<Mix>,
-    /// Heavily played songs not played in 6+ months (≤ 20). "Rewind" segment.
-    pub rewind_songs: Vec<DiscoverSong>,
+    pub generated_on: String,
+}
+
+/// The "Rewind" segment for one window, from [`super::load_discover_rewind`].
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct RewindSection {
+    /// The window this was computed for, in months (3, 6 or 12).
+    pub months: u32,
+    /// Heavily played albums not played within the window (≤ 12), most played first.
+    pub albums: Vec<DiscoverAlbum>,
+    /// Heavily played songs not played within the window (≤ 20), most played first.
+    pub songs: Vec<DiscoverSong>,
     pub generated_on: String,
 }
 
