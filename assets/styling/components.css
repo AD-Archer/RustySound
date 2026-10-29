@@ -827,6 +827,7 @@
 .rs-iconbtn--quiet { color: var(--muted); }
 .rs-iconbtn--accent { color: var(--accent); }
 .rs-iconbtn[aria-pressed="true"] { color: var(--accent); }
+.rs-iconbtn--rated { color: var(--rating); }
 
 @media (hover: hover) {
   .rs-iconbtn:hover:not(:disabled) { background: var(--tint); }
@@ -940,6 +941,11 @@
   display: grid;
   place-items: center;
   color: var(--muted);
+}
+
+.rs-art__ph-icon {
+  width: 100%;
+  height: 100%;
 }
 
 .rs-stage .rs-art,
@@ -1753,6 +1759,27 @@
   border-radius: var(--r-thumb);
 }
 
+button.rs-bar__art {
+  padding: 0;
+  overflow: hidden;
+}
+
+.rs-bar__artists {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rs-bar__sep {
+  flex: none;
+  color: var(--stage-faint);
+}
+
+.rs-bar__title:disabled {
+  cursor: default;
+}
+
 .rs-bar__meta {
   flex: 1;
   min-width: 0;
@@ -1968,6 +1995,27 @@
   position: absolute;
   left: 0;
   right: 0;
+}
+
+.rs-vlist__window {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-vlist__window > li {
+  position: relative;
+}
+
+.rs-list .rs-vlist__window > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--rs-sep, var(--sep-inset));
+  right: 0;
+  z-index: 1;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
 }
 
 /* ==========================================================================

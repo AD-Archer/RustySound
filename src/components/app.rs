@@ -4,12 +4,19 @@ use crate::cache_service::{
     remove_by_prefix as cache_remove_prefix,
 };
 use crate::components::views::home_layout::HomeFeedLoadProfile;
+use crate::components::ui::env::{
+    appearance_attr, platform_name, stage_theme, use_layout_provider,
+};
+use crate::components::ui::{
+    LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
+    TrackMenuHost, TrackMenuRequest,
+};
 use crate::components::{
-    ios_audio_log_snapshot, ios_diag_log, view_instance_key, view_label, AddIntent,
-    AddMenuController, AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal,
-    Icon, IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
-    SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal, SongDetailsController,
-    SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    ios_audio_log_snapshot, ios_diag_log, view_instance_key, AddIntent, AddMenuController,
+    AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal, Icon,
+    IsPlayingSignal, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
+    ShuffleEnabledSignal, SidebarOpenSignal, SongDetailsController, SongDetailsOverlay,
+    SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
@@ -163,19 +170,59 @@ fn loading_progress_percent(progress: f32) -> u32 {
     (progress.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
+const BOOT_MARK: Asset = asset!("/assets/favicon-96x96.png");
+
+/// Full-screen stage overlay shown while the app boots or warms its caches.
 #[component]
-fn LoadingProgressBar(progress: f32, stage: String) -> Element {
+fn BootOverlay(
+    title: String,
+    message: String,
+    progress: f32,
+    stage: String,
+    logs: Vec<String>,
+    testid: String,
+) -> Element {
     let percent = loading_progress_percent(progress);
     rsx! {
-        div { class: "w-full space-y-2",
-            div { class: "flex items-center justify-between gap-3 text-xs text-zinc-500",
-                p { class: "truncate text-left", "{stage}" }
-                p { class: "shrink-0 font-medium text-zinc-400", "{percent}%" }
-            }
-            div { class: "h-2 overflow-hidden rounded-full bg-zinc-800/80",
-                div {
-                    class: "h-full rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-300 transition-[width] duration-500 ease-out",
-                    style: format!("width: {percent}%;"),
+        div {
+            class: "rs-boot",
+            role: "status",
+            aria_live: "polite",
+            "data-testid": "{testid}",
+            div { class: "rs-boot__inner",
+                img {
+                    class: "rs-boot__mark",
+                    src: BOOT_MARK,
+                    alt: "",
+                    width: "64",
+                    height: "64",
+                }
+                h1 { class: "rs-boot__title", "{title}" }
+                p { class: "rs-boot__msg", "{message}" }
+                div { class: "rs-boot__progress",
+                    div {
+                        class: "rs-track",
+                        role: "progressbar",
+                        aria_label: "{title}",
+                        aria_valuemin: "0",
+                        aria_valuemax: "100",
+                        aria_valuenow: "{percent}",
+                        div {
+                            class: "rs-track__fill rs-boot__fill",
+                            style: "width:{percent}%",
+                        }
+                    }
+                    div { class: "rs-boot__meta",
+                        span { class: "rs-truncate", "{stage}" }
+                        span { class: "num", "{percent}%" }
+                    }
+                }
+                if !logs.is_empty() {
+                    div { class: "rs-boot__log",
+                        for (index, line) in logs.iter().enumerate() {
+                            div { key: "{index}", "{line}" }
+                        }
+                    }
                 }
             }
         }
@@ -941,7 +988,28 @@ pub fn AppShell() -> Element {
     let mut ios_loading_log_poll_generation = use_signal(|| 0u64);
     let audio_state = use_signal(AudioState::default);
     let preview_playback = use_signal(|| false);
-    let sidebar_open = use_signal(|| false);
+    let mut sidebar_open = use_signal(|| false);
+    // Resize-aware layout; only flips re-render the shell.
+    let layout_signal = use_layout_provider();
+    use_context_provider(|| LayoutSignal(layout_signal));
+    let track_menu_request = use_signal(|| None::<TrackMenuRequest>);
+    let track_menu_change = use_signal(|| None::<SongChange>);
+    use_context_provider(|| TrackMenuController::new(track_menu_request, track_menu_change));
+    let mut main_scroll_top = use_signal(|| 0.0f64);
+    let mut main_scroll_height = use_signal(|| 0.0f64);
+    let mut main_viewport_top = use_signal(|| 0.0f64);
+    use_context_provider(|| MainScroll {
+        top: main_scroll_top,
+        height: main_scroll_height,
+        viewport_top: main_viewport_top,
+    });
+    // The inner transport signals, taken once. Reading the outer AudioState
+    // signal would re-render the shell on every playback tick, because the
+    // native controllers write through `audio_state.write()`.
+    let (transport_loading_signal, transport_label_signal) = use_hook(move || {
+        let state = audio_state.peek();
+        (state.is_transport_loading, state.transport_loading_label)
+    });
     use_effect({
         let current_view = current_view.clone();
         move || {
@@ -983,6 +1051,16 @@ pub fn AppShell() -> Element {
     let add_menu = AddMenuController::new(add_menu_intent.clone());
     let song_details_state = use_signal(SongDetailsState::default);
     let song_details = SongDetailsController::new(song_details_state.clone());
+    {
+        let song_details = song_details.clone();
+        use_effect(move || {
+            if sidebar_open() {
+                let mut song_details = song_details.clone();
+                song_details.close();
+                sidebar_open.set(false);
+            }
+        });
+    }
     let mut home_feed = HomeFeedState {
         recent_albums: use_signal(|| None::<Vec<Album>>),
         most_played_albums: use_signal(|| None::<Vec<Album>>),
@@ -1322,6 +1400,22 @@ pub fn AppShell() -> Element {
     use_context_provider(|| ShuffleEnabledSignal(shuffle_enabled));
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
+
+    // Mirror the root attributes onto <html> so the page background, overscroll
+    // area and scrollbars follow the theme too.
+    use_effect(move || {
+        let layout = layout_signal();
+        let (theme, appearance) = {
+            let settings = app_settings.read();
+            (stage_theme(&settings.theme), appearance_attr(&settings))
+        };
+        let js = format!(
+            "(function(){{var r=document.documentElement;r.setAttribute('data-theme','{theme}');r.setAttribute('data-appearance','{appearance}');r.setAttribute('data-layout','{}');r.setAttribute('data-platform','{}');}})();",
+            layout.attr(),
+            platform_name()
+        );
+        let _ = document::eval(&js);
+    });
 
     // Initialize database and load saved state on mount
     use_effect(move || {
@@ -1905,55 +1999,67 @@ pub fn AppShell() -> Element {
         }
     });
 
-    // Auto-save playback position periodically
+    // Auto-save playback position periodically.
+    // Runs on every position tick, so it must stay cheap: it reads the queue
+    // length (no clone) and only builds the queue list when it actually saves.
     use_effect(move || {
-        let song = now_playing();
         let pos = playback_position();
-        let q = queue();
         let idx = queue_index();
         let previewing = preview_playback();
+        let ready = db_initialized();
+        let queue_len = queue.read().len();
+        let song_key = now_playing
+            .read()
+            .as_ref()
+            .map(|song| (song.id.clone(), song.server_id.clone()));
 
-        if db_initialized() && song.is_some() && !previewing {
-            let current = song.as_ref().expect("checked is_some");
-            let song_id = current.id.clone();
-            let server_id = current.server_id.clone();
-            let position_ms = (pos.max(0.0) * 1000.0).round() as u64;
-            let queue_len = q.len();
-
-            let should_save = match last_playback_save() {
-                Some((prev_song_id, prev_server_id, prev_pos_ms, prev_idx, prev_queue_len)) => {
-                    prev_song_id != song_id
-                        || prev_server_id != server_id
-                        || prev_idx != idx
-                        || prev_queue_len != queue_len
-                        || position_ms.abs_diff(prev_pos_ms) >= 1500
-                }
-                None => true,
-            };
-
-            if !should_save {
-                return;
-            }
-
-            last_playback_save.set(Some((song_id, server_id, position_ms, idx, queue_len)));
-
-            let state = PlaybackState {
-                song_id: song.as_ref().map(|s| s.id.clone()),
-                server_id: song.as_ref().map(|s| s.server_id.clone()),
-                position: pos,
-                queue: q
-                    .iter()
-                    .map(|s| QueueItem {
-                        song_id: s.id.clone(),
-                        server_id: s.server_id.clone(),
-                    })
-                    .collect(),
-                queue_index: idx,
-            };
-            spawn(async move {
-                let _ = save_playback_state(state).await;
-            });
+        if !ready || previewing {
+            return;
         }
+        let Some((song_id, server_id)) = song_key else {
+            return;
+        };
+        let position_ms = (pos.max(0.0) * 1000.0).round() as u64;
+
+        let should_save = match &*last_playback_save.peek() {
+            Some((prev_song_id, prev_server_id, prev_pos_ms, prev_idx, prev_queue_len)) => {
+                *prev_song_id != song_id
+                    || *prev_server_id != server_id
+                    || *prev_idx != idx
+                    || *prev_queue_len != queue_len
+                    || position_ms.abs_diff(*prev_pos_ms) >= 1500
+            }
+            None => true,
+        };
+        if !should_save {
+            return;
+        }
+
+        last_playback_save.set(Some((
+            song_id.clone(),
+            server_id.clone(),
+            position_ms,
+            idx,
+            queue_len,
+        )));
+
+        let state = PlaybackState {
+            song_id: Some(song_id),
+            server_id: Some(server_id),
+            position: pos,
+            queue: queue
+                .peek()
+                .iter()
+                .map(|s| QueueItem {
+                    song_id: s.id.clone(),
+                    server_id: s.server_id.clone(),
+                })
+                .collect(),
+            queue_index: idx,
+        };
+        spawn(async move {
+            let _ = save_playback_state(state).await;
+        });
     });
 
     // Save temporary queue snapshots so queue can be restored after tab/app close.
@@ -1977,7 +2083,7 @@ pub fn AppShell() -> Element {
             clamped_queue_index,
             now_playing_snapshot.as_ref(),
         );
-        if signature == last_queue_snapshot_signature() {
+        if signature == *last_queue_snapshot_signature.peek() {
             return;
         }
         last_queue_snapshot_signature.set(signature);
@@ -1989,7 +2095,7 @@ pub fn AppShell() -> Element {
             queue: queue_snapshot,
             queue_index: clamped_queue_index,
             now_playing: now_playing_snapshot,
-            playback_position: playback_position().max(0.0),
+            playback_position: playback_position.peek().max(0.0),
         };
 
         spawn(async move {
@@ -1998,168 +2104,121 @@ pub fn AppShell() -> Element {
     });
 
     let view = use_route::<AppView>();
-    let sidebar_signal = sidebar_open.clone();
-    let song_details_open = song_details_state().is_open;
+    let layout = layout_signal();
+    let compact = layout.is_compact();
     let is_startup_bootstrapping = !db_initialized() || !settings_loaded();
     let is_home_initializing = home_init_in_progress() && matches!(&view, AppView::HomeView {});
-    let startup_bootstrap_status_text = startup_bootstrap_status();
-    let startup_bootstrap_progress_value = startup_bootstrap_progress();
-    let home_init_status_text = home_init_status()
-        .unwrap_or_else(|| "Caching songs and albums for Home to avoid cold loads.".to_string());
-    let home_init_progress_value = home_init_progress();
     let show_ios_loading_logs = cfg!(all(not(target_arch = "wasm32"), target_os = "ios"));
-    let ios_loading_logs_preview = ios_loading_log_lines();
-    let offline_mode_enabled = app_settings().offline_mode;
-    let transport_loading_state = audio_state();
-    let is_transport_loading = (transport_loading_state.is_transport_loading)();
-    let transport_loading_label = (transport_loading_state.transport_loading_label)()
-        .unwrap_or_else(|| "Loading playback...".to_string());
+    let boot_logs = if show_ios_loading_logs && (is_startup_bootstrapping || is_home_initializing) {
+        ios_loading_log_lines()
+    } else {
+        Vec::new()
+    };
+    let (offline_mode_enabled, theme_attr, appearance) = {
+        let settings = app_settings.read();
+        (
+            settings.offline_mode,
+            stage_theme(&settings.theme),
+            appearance_attr(&settings),
+        )
+    };
+    let is_transport_loading = transport_loading_signal();
     let show_transport_loading_overlay =
         is_transport_loading && !is_startup_bootstrapping && !is_home_initializing;
-    let app_container_class = if sidebar_open() {
-        "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
+    let transport_loading_label = if show_transport_loading_overlay {
+        transport_label_signal().unwrap_or_else(|| "Loading playback…".to_string())
     } else {
-        "app-container flex min-h-screen text-white overflow-hidden"
+        String::new()
     };
+    let has_song = now_playing.read().is_some();
+    let player_on = !compact || has_song;
     let swipe_hint_state = swipe_hint();
-    let active_theme = {
-        let t = app_settings().theme;
-        if t.is_empty() || t == "dark" {
-            "rusty".to_string()
-        } else {
-            t
-        }
-    };
 
     rsx! {
         div {
-            "data-theme": "{active_theme}",
-            div {
-                class: "{app_container_class}",
-                if sidebar_open() && !song_details_open {
-                    div {
-                        class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
-                        onclick: {
-                            let mut sidebar_open = sidebar_open.clone();
-                            move |_| sidebar_open.set(false)
-                        },
-                    }
-                }
+            class: "rs-app",
+            "data-platform": platform_name(),
+            "data-theme": theme_attr,
+            "data-appearance": appearance,
+            "data-layout": layout.attr(),
+            "data-player": if player_on { "on" } else { "off" },
 
-                // Sidebar
-                Sidebar { sidebar_open: sidebar_signal, overlay_mode: false }
+            if !compact {
+                Sidebar {}
+            }
 
-                // Main content area + player
-                div { class: "flex-1 min-h-0 flex flex-col overflow-hidden",
-                    header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
-                        div { class: "flex items-center justify-between px-4 py-3",
-                            div { class: "flex items-center gap-1",
-                                button {
-                                    class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                    aria_label: "Open menu",
-                                    onclick: {
-                                        let mut sidebar_open = sidebar_open.clone();
-                                        move |_| sidebar_open.set(true)
-                                    },
-                                    Icon {
-                                        name: "menu".to_string(),
-                                        class: "w-5 h-5".to_string(),
-                                    }
-                                }
-                            }
-                            div { class: "flex flex-col items-center text-center",
-                                span { class: "text-xs uppercase tracking-widest text-zinc-500",
-                                    "RustySound"
-                                }
-                                span { class: "text-sm font-semibold text-white", "{view_label(&view)}" }
+            div { class: "rs-content",
+                main {
+                    class: "rs-main main-scroll",
+                    onmounted: move |evt| async move {
+                        if let Ok(rect) = evt.get_client_rect().await {
+                            main_viewport_top.set(rect.origin.y);
+                            main_scroll_height.set(rect.size.height);
+                        }
+                    },
+                    onscroll: move |evt| {
+                        // Quantised so windowed lists re-render per 32px, not per event.
+                        let top = (evt.scroll_top() / 32.0).floor() * 32.0;
+                        if top != *main_scroll_top.peek() {
+                            main_scroll_top.set(top);
+                        }
+                        let height = evt.client_height() as f64;
+                        if (height - *main_scroll_height.peek()).abs() > 1.0 {
+                            main_scroll_height.set(height);
+                        }
+                    },
+                    if offline_mode_enabled {
+                        div { class: "rs-banner", role: "status", "data-testid": "offline-banner",
+                            Icon { name: "offline".to_string(), class: "rs-ic".to_string() }
+                            div { class: "rs-banner__text",
+                                p { class: "rs-banner__title", "Offline mode is on" }
+                                p { class: "rs-banner__sub", "Only downloaded and cached music is available." }
                             }
                             button {
-                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                aria_label: "Open queue",
-                                onclick: {
-                                    let nav = navigation.clone();
-                                    move |_| nav.navigate_to(AppView::QueueView {})
+                                r#type: "button",
+                                class: "rs-pill rs-pill--mini",
+                                onclick: move |_| {
+                                    let mut settings = app_settings();
+                                    if !settings.offline_mode {
+                                        return;
+                                    }
+                                    settings.offline_mode = false;
+                                    apply_cache_settings(&settings);
+                                    let settings_clone = settings.clone();
+                                    app_settings.set(settings);
+                                    spawn(async move {
+                                        let _ = save_settings(settings_clone).await;
+                                    });
                                 },
-                                Icon {
-                                    name: "bars".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
+                                "Go Online"
                             }
                         }
                     }
-
-                    // Main scrollable content
-                    main {
-                        class: "flex-1 min-h-0 overflow-y-auto main-scroll",
-                        div {
-                            class: "page-shell",
-                            if offline_mode_enabled {
-                                div { class: "mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3",
-                                    div {
-                                        p { class: "text-sm font-medium text-amber-200", "Offline mode is currently enabled." }
-                                        p { class: "text-xs text-amber-100/80", "Only downloaded and cached content is available." }
-                                    }
-                                    button {
-                                        class: "px-3 py-2 rounded-lg border border-amber-400/60 text-amber-100 hover:text-white hover:border-amber-300 transition-colors text-sm",
-                                        onclick: {
-                                            let mut app_settings = app_settings.clone();
-                                            move |_| {
-                                                let mut settings = app_settings();
-                                                if !settings.offline_mode {
-                                                    return;
-                                                }
-                                                settings.offline_mode = false;
-                                                apply_cache_settings(&settings);
-                                                let settings_clone = settings.clone();
-                                                app_settings.set(settings);
-                                                spawn(async move {
-                                                    let _ = save_settings(settings_clone).await;
-                                                });
-                                            }
-                                        },
-                                        "Disable Offline Mode"
-                                    }
-                                }
-                            }
-                            div {
-                                key: "{outlet_key}",
-                                Outlet::<AppView> {}
-                            }
-                        }
+                    div { key: "{outlet_key}", class: "rs-outlet",
+                        Outlet::<AppView> {}
                     }
-                    Player {}
                 }
+                PlayerBar {}
+            }
+
+            if compact {
+                TabBar {}
             }
 
             if let Some((direction, progress)) = swipe_hint_state {
                 if progress > 0.0 {
                     div {
-                        class: if direction > 0 {
-                            "swipe-hint swipe-hint--back 2xl:hidden"
-                        } else {
-                            "swipe-hint swipe-hint--forward 2xl:hidden"
-                        },
-                        style: if direction > 0 {
-                            format!(
-                                "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
-                                0.2 + progress.min(1.0) * 0.8,
-                                -12.0 + progress.min(1.0) * 12.0,
-                                0.86 + progress.min(1.0) * 0.18
-                            )
-                        } else {
-                            format!(
-                                "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
-                                0.2 + progress.min(1.0) * 0.8,
-                                12.0 - progress.min(1.0) * 12.0,
-                                0.86 + progress.min(1.0) * 0.18
-                            )
-                        },
-                        div {
-                            class: "w-10 h-10 rounded-full border border-emerald-400/50 bg-zinc-950/80 text-emerald-300 shadow-lg backdrop-blur flex items-center justify-center",
-                            Icon {
-                                name: "arrow-left".to_string(),
-                                class: if direction > 0 { "w-5 h-5".to_string() } else { "w-5 h-5 rotate-180".to_string() },
-                            }
+                        class: if direction > 0 { "rs-swipe-hint rs-swipe-hint--back" } else { "rs-swipe-hint rs-swipe-hint--forward" },
+                        aria_hidden: "true",
+                        style: format!(
+                            "opacity:{:.2};transform:translateY(-50%) translateX({:.1}px) scale({:.2});",
+                            0.2 + progress.min(1.0) * 0.8,
+                            if direction > 0 { -12.0 + progress.min(1.0) * 12.0 } else { 12.0 - progress.min(1.0) * 12.0 },
+                            0.86 + progress.min(1.0) * 0.18
+                        ),
+                        Icon {
+                            name: if direction > 0 { "chevron-left".to_string() } else { "chevron-right".to_string() },
+                            class: "rs-ic".to_string(),
                         }
                     }
                 }
@@ -2169,87 +2228,32 @@ pub fn AppShell() -> Element {
 
             SongDetailsOverlay { controller: song_details.clone() }
 
-            if song_details_open {
-                if sidebar_open() {
-                    div {
-                        class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[115]",
-                        onclick: {
-                            let mut sidebar_open = sidebar_open.clone();
-                            move |_| sidebar_open.set(false)
-                        },
-                    }
-                }
-                Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
-            }
+            TrackMenuHost {}
 
             if show_transport_loading_overlay {
-                div { class: "fixed inset-0 z-[205] bg-zinc-950/70 backdrop-blur-sm flex items-center justify-center px-6 pointer-events-none",
-                    div { class: "max-w-sm text-center space-y-3 rounded-2xl border border-zinc-700/70 bg-zinc-900/85 px-6 py-5 shadow-2xl",
-                        div { class: "flex items-center justify-center",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                            }
-                        }
-                        h2 { class: "text-lg font-semibold text-white", "Loading Audio" }
-                        p { class: "text-sm text-zinc-300", "{transport_loading_label}" }
-                    }
+                div { class: "rs-capsule", role: "status", "data-testid": "transport-loading",
+                    span { class: "rs-spinner", aria_hidden: "true" }
+                    span { class: "rs-truncate", "{transport_loading_label}" }
                 }
             }
 
             if is_startup_bootstrapping {
-                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
-                    div { class: "max-w-md text-center space-y-3",
-                        div { class: "flex items-center justify-center",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                            }
-                        }
-                        h2 { class: "text-lg font-semibold text-white", "Preparing RustySound" }
-                        p { class: "text-sm text-zinc-400",
-                            "Loading servers and settings, then warming local cache for faster navigation."
-                        }
-                        LoadingProgressBar {
-                            progress: startup_bootstrap_progress_value,
-                            stage: startup_bootstrap_status_text,
-                        }
-                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
-                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
-                                for line in ios_loading_logs_preview.iter() {
-                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
-                                }
-                            }
-                        }
-                    }
+                BootOverlay {
+                    title: "Starting RustySound".to_string(),
+                    message: "Loading your servers and settings.".to_string(),
+                    progress: startup_bootstrap_progress(),
+                    stage: startup_bootstrap_status(),
+                    logs: boot_logs.clone(),
+                    testid: "boot-overlay".to_string(),
                 }
-            }
-
-            if is_home_initializing {
-                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
-                    div { class: "max-w-md text-center space-y-3",
-                        div { class: "flex items-center justify-center",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                            }
-                        }
-                        h2 { class: "text-lg font-semibold text-white", "App initializing, please wait" }
-                        p { class: "text-sm text-zinc-400", "{home_init_status_text}" }
-                        LoadingProgressBar {
-                            progress: home_init_progress_value,
-                            stage: home_init_status_text.clone(),
-                        }
-                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
-                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
-                                for line in ios_loading_logs_preview.iter() {
-                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
-                                }
-                            }
-                        }
-                    }
+            } else if is_home_initializing {
+                BootOverlay {
+                    title: "Getting Discover ready".to_string(),
+                    message: "Caching songs and albums so Discover opens instantly.".to_string(),
+                    progress: home_init_progress(),
+                    stage: home_init_status().unwrap_or_else(|| "Caching your library".to_string()),
+                    logs: boot_logs.clone(),
+                    testid: "home-init-overlay".to_string(),
                 }
             }
 
