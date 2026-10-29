@@ -201,6 +201,51 @@ fn web_try_play(audio: &HtmlAudioElement) {
     }
 }
 
+/// Called once, from a capture-phase listener inside the first user gesture.
+/// WebKit lifts an element's "user gesture required" restriction the first
+/// time `play()` runs on it during a gesture, even without a source, so later
+/// programmatic `play()` calls (after the track URL resolves) are allowed.
+/// Only touches an element that has no source yet, so nothing audible starts.
+#[cfg(target_arch = "wasm32")]
+fn web_unlock_audio_element() {
+    let Some(audio) = get_or_create_audio_element() else {
+        return;
+    };
+    let has_src = audio
+        .get_attribute("src")
+        .map(|src| !src.is_empty())
+        .unwrap_or(false);
+    if has_src || !audio.paused() {
+        return;
+    }
+    if let Ok(promise) = audio.play() {
+        // Rejects with AbortError once paused below; that is expected. Runs
+        // outside the Dioxus runtime (raw DOM listener), so no `spawn`.
+        wasm_bindgen_futures::spawn_local(async move {
+            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
+        });
+    }
+    let _ = audio.pause();
+}
+
+/// Sticky user activation as the browser sees it (`navigator.userActivation`),
+/// used as a second opinion next to the app's own interaction flag.
+#[cfg(target_arch = "wasm32")]
+fn web_has_sticky_activation() -> bool {
+    let Some(win) = window() else {
+        return false;
+    };
+    let Ok(navigator) = js_sys::Reflect::get(&win, &"navigator".into()) else {
+        return false;
+    };
+    js_sys::Reflect::get(&navigator, &"userActivation".into())
+        .ok()
+        .filter(|value| value.is_object())
+        .and_then(|activation| js_sys::Reflect::get(&activation, &"hasBeenActive".into()).ok())
+        .and_then(|value| value.as_bool())
+        .unwrap_or(false)
+}
+
 #[cfg(target_arch = "wasm32")]
 fn defer_signal_update<F>(f: F)
 where
