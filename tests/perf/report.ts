@@ -40,6 +40,7 @@ const ROWS: Row[] = [
   ["(a) wasm fetched / instantiated, median", "coldLoad.medianWasmFetchedMs|coldLoad.medianWasmInstantiatedMs", "ms"],
   ["(a) requests / cover requests at FMC", "coldLoad.medianRequestsAtFmc|coldLoad.medianImageRequestsAtFmc", ""],
   ["(b) Idle, nothing playing (10 s): DOM mutations/s", "playback.idlePaused10s.domMutationsPerSecond", "/s"],
+  ["(b) Idle, nothing playing (10 s): dropped frames / p95 frame (noise floor)", "playback.idlePaused10s.droppedFrames|playback.idlePaused10s.p95FrameMs", "ms"],
   ["(b) Album queue: long tasks (Long Tasks API)", "playback.albumQueue.playing.longtaskApi.longTasks", ""],
   ["(b) Album queue: total blocking time (Long Tasks API)", "playback.albumQueue.playing.longtaskApi.totalBlockingMs", "ms"],
   ["(b) Album queue: probe long tasks / blocking", "playback.albumQueue.playing.probeLongTasks|playback.albumQueue.playing.probeBlockingMs", "ms"],
