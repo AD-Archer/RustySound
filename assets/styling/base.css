@@ -1,0 +1,221 @@
+/* ==========================================================================
+   RustySound base: reset, typography, browser surfaces, platform tweaks.
+   Loaded after tokens.css. Tailwind (legacy, removed at the end of phase 2)
+   lives in a cascade layer, so these unlayered rules win over its preflight.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sys);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+/* The app root. Owns the type ramp so legacy body rules can't leak in. */
+.rs-app {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sys);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  caret-color: var(--accent);
+  accent-color: var(--accent);
+}
+
+/* Mac reads one step smaller, as in the Mac mock. */
+.rs-app[data-platform="macos"][data-layout="wide"],
+.rs-app[data-platform="web"][data-layout="wide"] {
+  font-size: var(--fs-callout);
+}
+
+.rs-app button,
+.rs-app input,
+.rs-app select,
+.rs-app textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.rs-app :where(button) {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rs-app :where(button:disabled) {
+  cursor: default;
+}
+
+.rs-app :where(svg) {
+  display: block;
+  flex: none;
+}
+
+.rs-app :where(img) {
+  display: block;
+}
+
+.rs-app :where(h1, h2, h3, h4, p) {
+  margin: 0;
+}
+
+.rs-app :where(ul, ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-app :where(a) {
+  color: var(--accent-text);
+  text-decoration: none;
+  text-underline-offset: .18em;
+}
+
+/* ---- Browser surfaces ------------------------------------------------- */
+
+::selection {
+  background: var(--tint-strong);
+  color: inherit;
+}
+
+.rs-app :focus {
+  outline: none;
+}
+
+.rs-app :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rs-app input,
+.rs-app textarea {
+  caret-color: var(--accent);
+}
+
+.rs-app ::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.rs-app * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border: 3px solid transparent;
+  border-radius: 999px;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* ---- Utilities -------------------------------------------------------- */
+
+.num,
+.rs-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.rs-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Platform tweaks -------------------------------------------------- */
+
+[data-platform="ios"] .rs-app,
+.rs-app[data-platform="ios"] {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Text inputs at 16px stop iOS zooming the page on focus. */
+.rs-app[data-platform="ios"] input,
+.rs-app[data-platform="ios"] textarea,
+.rs-app[data-platform="ios"] select,
+.rs-app[data-platform="web"][data-layout="compact"] input,
+.rs-app[data-platform="web"][data-layout="compact"] textarea {
+  font-size: max(16px, 1em);
+}
+
+/* WebKitGTK repaints reflections and backdrop blur slowly. */
+.rs-app[data-platform="linux"] .rs-cover,
+.rs-app[data-platform="linux"] .rs-hero-art {
+  -webkit-box-reflect: unset;
+}
+
+.rs-app[data-platform="linux"] .rs-scrim {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ---- Reduced motion (the one place !important is allowed) ------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

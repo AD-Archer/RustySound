@@ -9,6 +9,7 @@ mod diagnostics;
 mod offline_art;
 mod offline_audio;
 mod storage;
+mod styles;
 
 use components::AppView;
 
@@ -46,44 +47,6 @@ const APPLE_TOUCH_ICON: Asset = asset!("/assets/apple-touch-icon.png");
 const WEB_MANIFEST: &str = "/assets/site.webmanifest";
 #[cfg(not(feature = "desktop"))]
 const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
-
-#[cfg(not(any(feature = "desktop", target_os = "ios")))]
-const APP_CSS: Asset = asset!("/assets/styling/app.css");
-
-#[cfg(not(any(feature = "desktop", target_os = "ios")))]
-const THEMES_CSS: Asset = asset!("/assets/styling/themes.css");
-
-#[cfg(not(any(feature = "desktop", target_os = "ios")))]
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-
-#[cfg(any(feature = "desktop", target_os = "ios"))]
-const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
-#[cfg(any(feature = "desktop", target_os = "ios"))]
-const THEMES_CSS_INLINE: &str = concat!(
-    include_str!("../assets/styling/themes/shared/base.css"),
-    "\n",
-    include_str!("../assets/styling/themes/rusty/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/spot/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/fruit/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/navi/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/y2k/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/aero/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/aqua/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/material/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/fluent/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/hig/theme.css")
-);
-#[cfg(any(feature = "desktop", target_os = "ios"))]
-const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
 #[cfg(feature = "desktop")]
 fn desktop_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
@@ -181,30 +144,19 @@ fn main() {
         {
             config = config.with_custom_head(
                 r#"<style>
-                html, body { background: #09090b !important; }
-                .app-container {
-                  background: linear-gradient(180deg, #09090b 0%, #12141a 100%) !important;
-                }
-                .app-container::before { display: none !important; }
-                .glass {
-                  background: rgba(24, 24, 27, 0.96) !important;
-                  backdrop-filter: none !important;
-                  -webkit-backdrop-filter: none !important;
-                }
+                /* WebKitGTK: keep scrolling cheap. Legacy Tailwind views only;
+                   the Stage kit is already light on effects. */
                 .main-scroll {
-                  scroll-behavior: auto !important;
-                  overscroll-behavior: contain !important;
+                  scroll-behavior: auto;
+                  overscroll-behavior: contain;
                 }
                 @media (min-width: 1200px) {
-                  .app-container {
-                    background: #09090b !important;
-                  }
-                  .main-scroll [class*="transition"],
+                  .main-scroll [class*="transition-"],
                   .main-scroll [class*="animate-"] {
                     transition: none !important;
                     animation: none !important;
                   }
-                  .main-scroll [class*="shadow"] {
+                  .main-scroll [class*="shadow-"] {
                     box-shadow: none !important;
                   }
                 }
@@ -396,30 +348,8 @@ fn App() -> Element {
         document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }
         document::Meta { name: "apple-mobile-web-app-title", content: "RustySound" }
 
-        GlobalStyles {}
+        styles::GlobalStyles {}
 
         Router::<AppView> {}
-    }
-}
-
-#[component]
-fn GlobalStyles() -> Element {
-    #[cfg(any(feature = "desktop", target_os = "ios"))]
-    {
-        return rsx! {
-            document::Style { {TAILWIND_CSS_INLINE} }
-            // Theme variables/overrides must come before app.css so tokens are defined first.
-            document::Style { {THEMES_CSS_INLINE} }
-            document::Style { {APP_CSS_INLINE} }
-        };
-    }
-
-    #[cfg(not(any(feature = "desktop", target_os = "ios")))]
-    {
-        return rsx! {
-            document::Stylesheet { href: TAILWIND_CSS }
-            document::Stylesheet { href: THEMES_CSS }
-            document::Stylesheet { href: APP_CSS }
-        };
     }
 }
