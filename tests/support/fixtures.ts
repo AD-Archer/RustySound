@@ -11,7 +11,7 @@ export interface MockFixtures {
   album: { id: string; name: string; artist: string; songCount: number };
   albumSongs: { id: string; title: string; duration: number }[];
   playlist: { id: string; name: string };
-  bigPlaylist: { id: string; name: string; songCount: number };
+  bigPlaylist: { id: string; name: string; songCount: number; duration: number };
 }
 
 export function mockServerConfig(name = "Mock Navidrome") {

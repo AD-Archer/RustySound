@@ -76,6 +76,29 @@ test.describe("baseline smoke", () => {
     await expect.poll(async () => (await audioState(page))?.currentTime ?? 0).toBeGreaterThan(pausedAt + 0.5);
   });
 
+  test("first tap after a cold deep-link load starts playback", async ({ connected: page, mock }) => {
+    // Found while building the harness: on a fresh load, the first click that should start
+    // playback leaves the audio element paused; any earlier click on the page avoids it.
+    await page.goto(`/album/${mock.album.id}/mock-server-0001`);
+    await waitForAppReady(page);
+    const row = page.getByText(mock.albumSongs[0].title, { exact: true }).first();
+    await row.click();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain(`id=${mock.albumSongs[0].id}`);
+    await expect
+      .poll(async () => (await audioState(page))?.currentTime ?? 0, { message: "playback starts on the first tap", timeout: 10_000 })
+      .toBeGreaterThan(0.5);
+  });
+
+  test("playlist header shows the playlist's total duration", async ({ connected: page, mock }) => {
+    // Subsonic returns playlist `duration` in seconds; the header must not read it as milliseconds.
+    await page.goto(`/playlist/${mock.bigPlaylist.id}/mock-server-0001`);
+    await waitForAppReady(page);
+    await expect(page.getByText(`${mock.bigPlaylist.songCount} songs`)).toBeVisible();
+    const secs = Math.floor(mock.bigPlaylist.duration / 1000);
+    const misread = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}`;
+    await expect(page.getByText(misread, { exact: true }), `duration rendered as ms (${misread})`).toHaveCount(0);
+  });
+
   test("next track advances the queue", async ({ connected: page, mock }) => {
     await playFirstTrack(page, mock);
     await page.locator("#next-btn").click();

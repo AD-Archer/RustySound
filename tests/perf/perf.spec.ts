@@ -247,6 +247,9 @@ test("b2. main thread during playback, 1,200-song queue (app idle on Home)", asy
   await instrumentOnly(page.context());
   await page.goto(`/playlist/${mock.bigPlaylist.id}/mock-server-0001`);
   await waitForAppReady(page);
+  // Workaround for a current-app bug (see baseline "first tap after a cold deep-link load"):
+  // the first click after a fresh load doesn't start audio, so click neutral page chrome first.
+  await page.getByText(mock.bigPlaylist.name, { exact: true }).first().click();
   await page.getByTitle("Play playlist").click();
   await expect.poll(async () => (await audioState(page))?.currentTime ?? 0, { timeout: 30_000 }).toBeGreaterThan(1);
   // Go Home in-app (page.goto would reload and drop the queue).
