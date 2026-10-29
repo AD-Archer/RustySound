@@ -17,3 +17,5 @@ dist/
 
 # Redesign working files (plan, mocks, reports); not shipped
 .redesign/
+# Dev-only test harness (package.json, tests/)
+node_modules/

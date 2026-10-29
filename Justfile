@@ -292,3 +292,33 @@ run-linux-binary path="./dist/linux/rustysound":
 
 merge:
     git push && git checkout prod && git merge main && git push && git checkout main
+
+# ---- Test harness (tests/, dev-only package.json) ------------------------------------
+
+# Install test deps and the Playwright browsers (WebKit, Chromium, Firefox).
+test-setup:
+    bun install
+    ./node_modules/.bin/playwright install chromium webkit firefox
+
+# Mock Subsonic/OpenSubsonic server with a generated library (user demo/demo, MOCK_PORT=4533).
+mock-server *args:
+    bun tests/mock-server/server.ts {{args}}
+
+# Web release build that the e2e and perf suites serve (target/dx/rustysound/release/web/public).
+web-build:
+    ./scripts/run-with-rustup-env.sh dx build --platform web --release
+
+# Baseline smoke suite on webkit-iphone, webkit-mac, chromium-mac, firefox-mac, chromium-iphone.
+# Pass Playwright args, e.g. `just test-e2e --project=webkit-iphone`. RS_WEB_URL=... tests a running server.
+test-e2e *args:
+    ./node_modules/.bin/playwright test --config tests/playwright.config.ts {{args}}
+
+# Redesign suite against the data-testid contract (fails until phase 2 lands).
+test-redesign *args:
+    REDESIGN=1 ./node_modules/.bin/playwright test --config tests/playwright.config.ts {{args}}
+
+# Perf run on Chromium and WebKit at Mac size. Writes perf-*.json and perf-report.md into `out`;
+# pass compare=<dir of an earlier run> to add deltas.
+perf out="tests/.out/perf" compare="":
+    PERF=1 RS_PERF_OUT="{{out}}" ./node_modules/.bin/playwright test --config tests/playwright.config.ts
+    bun tests/perf/report.ts "{{out}}" --out "{{out}}/perf-report.md" {{ if compare != "" { "--compare " + compare } else { "" } }}
