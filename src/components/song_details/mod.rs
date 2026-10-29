@@ -1,33 +1,51 @@
-//! Song-details overlay, panels, and shared helpers.
+//! Now Playing (the song-details sheet), its Lyrics / Up Next / Info panels,
+//! and the queue actions the queue page shares.
+//!
+//! Module map:
+//! - `overlay`   the sheet (compact) or large overlay (wide); one tree only
+//! - `art`       big cover with reflection, up-next covers waiting to its right
+//! - `meta`      title, artist links, star, "…", rating stars, volume
+//! - `transport` glossy scrubber, times, format badge, transport buttons
+//! - `panels`    Lyrics | Up Next | Info segmented control
+//! - `lyrics/*`  lyrics source, lines, search sheet, Shot share mode
+//! - `up_next`   Up Next panel, queue edit rows, quick create, save queue
+//! - `info`      details list, related songs
+//! - `actions`   playback/queue/library actions (`PlayerCtx`)
+//! - `types`     `SongDetailsController` and friends
 
-use crate::api::{
-    fetch_lyrics_with_fallback, format_duration, normalize_lyrics_provider_order,
-    search_lyrics_candidates, LyricLine, LyricsQuery, LyricsResult, LyricsSearchCandidate,
-    NavidromeClient, ServerConfig, Song,
-};
-use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
-use crate::components::{
-    apply_collection_shuffle_mode, generate_queue_extension_from_seed,
-    queue_should_generate_similar_on_end, seek_to, spawn_shuffle_queue, AddIntent,
-    AddMenuController, AppView, AudioState, Icon, Navigation, PlaybackPositionSignal,
-    SidebarOpenSignal, VolumeSignal,
-};
-use crate::db::{AppSettings, RepeatMode};
-use dioxus::prelude::*;
+pub(crate) mod actions;
+mod art;
+mod info;
+mod lyrics;
+mod meta;
+mod overlay;
+mod panels;
+mod transport;
+mod types;
+pub(crate) mod up_next;
 
-// Tab/state/controller definitions shared by all song-details panels.
-include!("types.rs");
-// Main overlay component split into setup and view chunks.
-include!("overlay.rs");
-// Desktop/mobile details pane with metadata and transport controls.
-include!("details_panel.rs");
-// Up-next queue panel controls.
-include!("queue_panel.rs");
-// Related songs recommendation panel.
-include!("related_panel.rs");
-// Compact lyrics preview strip for details view.
-include!("mini_lyrics_strip.rs");
-// Full lyrics panel with sync, search, and candidate selection.
-include!("lyrics_panel.rs");
-// Shared helper functions used across song-details sections.
-include!("helpers.rs");
+pub use overlay::SongDetailsOverlay;
+pub use types::{SongDetailsController, SongDetailsState, SongDetailsTab};
+
+// TEMP perf probe (agent F); removed before the final commit.
+#[allow(dead_code)]
+pub(crate) fn np_probe(name: &str) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let Some(win) = web_sys::window() else { return };
+        let key = wasm_bindgen::JsValue::from_str("__rsProbe");
+        let obj = match js_sys::Reflect::get(&win, &key) {
+            Ok(v) if v.is_object() => v,
+            _ => {
+                let o: wasm_bindgen::JsValue = js_sys::Object::new().into();
+                let _ = js_sys::Reflect::set(&win, &key, &o);
+                o
+            }
+        };
+        let k = wasm_bindgen::JsValue::from_str(name);
+        let cur = js_sys::Reflect::get(&obj, &k).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
+        let _ = js_sys::Reflect::set(&obj, &k, &wasm_bindgen::JsValue::from_f64(cur + 1.0));
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    let _ = name;
+}
