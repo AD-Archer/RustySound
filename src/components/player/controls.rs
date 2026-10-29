@@ -162,9 +162,9 @@ pub(super) fn RatingButton() -> Element {
                 aria_expanded: if rating_open() { "true" } else { "false" },
                 disabled: !has_song,
                 onclick: move |_| rating_open.set(!rating_open()),
-                Icon {
-                    name: if current_rating > 0 { "star-filled".to_string() } else { "star".to_string() },
-                    class: "rs-ic rs-ic--sm".to_string(),
+                Icon { name: "rating".to_string(), class: "rs-ic".to_string() }
+                if current_rating > 0 {
+                    span { class: "rs-rate__value num", "{current_rating}" }
                 }
             }
             if rating_open() && has_song {

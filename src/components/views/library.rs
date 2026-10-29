@@ -57,7 +57,7 @@ pub fn LibraryView() -> Element {
     ];
 
     rsx! {
-        div { class: "rs-view", "data-testid": "library",
+        div { class: "rs-view rs-view--narrow", "data-testid": "library",
             div { class: "rs-page-head",
                 h1 { class: "rs-large-title", "Library" }
             }

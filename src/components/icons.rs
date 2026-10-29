@@ -55,6 +55,7 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "play-next" => (Stroke, r#"<path d="M3.5 4.5v6l5-3Z" fill="currentColor"/><path d="M12 7.5h9M3.5 13.5h17.5M3.5 19h17.5"/>"#),
         "add-to-queue" => (Stroke, r#"<path d="M3.5 5h17.5M3.5 10.5h17.5M12 16.5h9"/><path d="M3.5 13.5v6l5-3Z" fill="currentColor"/>"#),
         "star" => (Stroke, r#"<path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8Z"/>"#),
+        "rating" => (Stroke, r#"<path d="m6 8.2 1.1 2.2 2.4.3-1.8 1.7.5 2.4L6 13.6l-2.2 1.2.5-2.4-1.8-1.7 2.4-.3Z"/><path d="m18 8.2 1.1 2.2 2.4.3-1.8 1.7.5 2.4-2.2-1.2-2.2 1.2.5-2.4-1.8-1.7 2.4-.3Z"/><path d="m12 4.2 1.1 2.2 2.4.3-1.8 1.7.5 2.4L12 9.6l-2.2 1.2.5-2.4-1.8-1.7 2.4-.3Z"/><path d="M8 19h8"/>"#),
         "star-filled" => (Stroke, r#"<path d="m12 3.6 2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.9l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8Z" fill="currentColor"/>"#),
         "heart" => (Stroke, r#"<path d="M12 20s-7.5-4.6-7.5-10.1A4.3 4.3 0 0 1 12 7.4a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20Z"/>"#),
         "heart-filled" => (Stroke, r#"<path d="M12 20s-7.5-4.6-7.5-10.1A4.3 4.3 0 0 1 12 7.4a4.3 4.3 0 0 1 7.5 2.5C19.5 15.4 12 20 12 20Z" fill="currentColor"/>"#),

@@ -101,6 +101,11 @@
   padding: 0;
 }
 
+/* Readable measure for list-only pages on wide windows. */
+.rs-app[data-layout="wide"] .rs-view--narrow > * {
+  max-width: 760px;
+}
+
 .rs-large-title {
   font-family: var(--font-display);
   font-size: var(--fs-large);
@@ -1931,6 +1936,19 @@ button.rs-bar__art {
   color: var(--rating);
 }
 
+.rs-rate > .rs-iconbtn {
+  position: relative;
+}
+
+.rs-rate__value {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
+
 .rs-rate__clear {
   padding: 0 8px;
   font-size: var(--fs-foot);
@@ -1961,9 +1979,10 @@ button.rs-bar__art {
   left: 50%;
   z-index: 62;
   bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 20px);
-  max-width: calc(100vw - 32px);
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
   padding: 8px 14px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-list);
   background: var(--stage-base);
   border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--stage-line));
   color: var(--stage-ink);
