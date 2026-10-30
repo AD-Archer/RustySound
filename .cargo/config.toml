@@ -1,5 +1,9 @@
 [target.aarch64-apple-ios]
 linker = "scripts/ios-clang.sh"
+# The binary links Apple's Swift overlays (libswiftCoreMedia) through @rpath. iOS keeps
+# them in /usr/lib/swift, which isn't on the default rpath, so without this the app is
+# killed at launch on a real device ("Library not loaded: @rpath/libswiftCoreMedia.dylib").
+rustflags = ["-C", "link-arg=-Wl,-rpath,/usr/lib/swift"]
 
 [target.aarch64-apple-ios-sim]
 linker = "scripts/ios-clang.sh"
