@@ -309,26 +309,34 @@
   border-top-color: var(--accent);
 }
 
-/* ---- Edge-swipe hint (web) ------------------------------------------- */
+/* ---- Edge swipe (compact; ui/edge_swipe.js) --------------------------
+   While a swipe is up the page (.rs-main) follows the finger by transform
+   only, over a dim layer the script adds behind it and fades out as the page
+   leaves. The class is added once per gesture, never per move. */
 
-.rs-swipe-hint {
-  position: fixed;
-  top: 50%;
-  z-index: 140;
-  width: 40px;
-  height: 40px;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--stage-base);
-  color: var(--stage-ink);
-  border: 1px solid var(--stage-line);
-  box-shadow: var(--stage-shadow);
+.rs-edge-under {
+  position: absolute;
+  inset: 0;
   pointer-events: none;
+  background: rgba(0, 0, 0, .12);
 }
 
-.rs-swipe-hint--back { left: calc(var(--safe-left) + 10px); }
-.rs-swipe-hint--forward { right: calc(var(--safe-right) + 10px); }
+.rs-main.rs-edge-drag {
+  will-change: transform;
+}
+
+.rs-edge-drag--back {
+  box-shadow: -1px 0 0 var(--line), -10px 0 28px rgba(0, 0, 0, .18);
+}
+
+.rs-edge-drag--forward {
+  box-shadow: 1px 0 0 var(--line), 10px 0 28px rgba(0, 0, 0, .18);
+}
+
+/* Fixed children of the moving page would re-anchor to it and jump. */
+.rs-edge-drag .rs-library-index {
+  visibility: hidden;
+}
 
 /* ==========================================================================
    STAGE

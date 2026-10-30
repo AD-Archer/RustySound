@@ -11,6 +11,7 @@ mod artwork;
 mod artwork_mosaic;
 mod button;
 mod cover_flow;
+mod edge_swipe;
 mod empty_state;
 pub mod env;
 mod icon_button;
@@ -39,6 +40,7 @@ pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use cover_flow::{CoverFlow, CoverFlowItem};
+pub use edge_swipe::EdgeSwipe;
 pub use empty_state::EmptyState;
 pub use env::{
     cover_art_url, format_clock, use_layout, Layout, LayoutSignal, COMPACT_MAX_WIDTH,
