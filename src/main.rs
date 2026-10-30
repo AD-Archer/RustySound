@@ -377,12 +377,18 @@ fn App() -> Element {
             document::Link { rel: "manifest", href: WEB_MANIFEST }
         }
 
-        // Theme color for mobile browsers
+        // The native apps behave like apps (no pinch zoom; Dynamic Type covers text size).
+        // The web build must allow zoom.
         document::Meta {
             name: "viewport",
-            content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+            content: if cfg!(target_arch = "wasm32") {
+                "width=device-width, initial-scale=1, viewport-fit=cover"
+            } else {
+                "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+            },
         }
-        document::Meta { name: "theme-color", content: "#a38449" }
+        // Theme color for mobile browsers: the Stage's black.
+        document::Meta { name: "theme-color", content: "#000000" }
         document::Meta { name: "mobile-web-app-capable", content: "yes" }
         document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }
         document::Meta { name: "apple-mobile-web-app-title", content: "RustySound" }

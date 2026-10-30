@@ -30,7 +30,7 @@
 }
 
 .rs-library-menubtn__hint {
-  color: var(--muted);
+  color: var(--muted-strong);
   font-weight: var(--fw-regular);
 }
 

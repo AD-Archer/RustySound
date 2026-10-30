@@ -292,7 +292,6 @@ fn BookmarkRow(bookmark: Bookmark, on_menu: EventHandler<(Bookmark, Option<(f64,
                 button {
                     r#type: "button",
                     class: "rs-row",
-                    aria_label: "Resume {song.title} at {at}",
                     onclick: {
                         let resume_now = resume_now.clone();
                         move |_| {

@@ -127,9 +127,10 @@ pub fn MiniProgressLine() -> Element {
     } else {
         0.0
     };
+    let scale = percent / 100.0;
     rsx! {
         div { class: "rs-mini__line", aria_hidden: "true",
-            i { style: "width:{percent:.2}%" }
+            i { style: "transform:scaleX({scale:.4})" }
         }
     }
 }

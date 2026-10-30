@@ -372,7 +372,6 @@ fn StationRow(
                 button {
                     r#type: "button",
                     class: "rs-row",
-                    aria_label: "Play {station.name}",
                     aria_current: if playing_row { Some("true") } else { None },
                     onclick: {
                         let station = station.clone();

@@ -54,12 +54,18 @@ pub fn ProgressTrack(
             class: if drag().is_some() { "rs-track--active" },
             class: if live { "rs-track--live" },
             "data-testid": testid.clone(),
-            div {
-                class: "rs-track__fill",
-                style: if live { "width:100%".to_string() } else { format!("width:{percent:.3}%") },
+            // Fill and knob move with transforms only, so a playback tick never
+            // repaints (on Home a repaint re-layerised the whole Cover Flow).
+            div { class: "rs-track__clip",
+                div {
+                    class: "rs-track__fill",
+                    style: if live { "transform:none".to_string() } else { format!("transform:scaleX({:.4})", percent / 100.0) },
+                }
             }
             if interactive {
-                div { class: "rs-track__knob", style: "left:{percent:.3}%" }
+                div { class: "rs-track__rail", style: "transform:translateX({percent:.3}%)",
+                    div { class: "rs-track__knob" }
+                }
             }
             input {
                 class: "rs-track__input",

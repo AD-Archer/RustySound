@@ -1611,15 +1611,34 @@
   box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6);
 }
 
+/* Fill and knob move by transform (set inline per tick), never by width or
+   left, so playback ticks stay on the compositor. The clip keeps the rounded
+   ends; the rail is full width so translateX(%) maps to the track. */
+.rs-track__clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
 .rs-track__fill {
   position: absolute;
-  inset: 0 auto 0 0;
-  border-radius: 4px 0 0 4px;
+  inset: 0;
+  transform-origin: left center;
+  will-change: transform;
   background: linear-gradient(var(--accent-hi), var(--accent) 50%, var(--accent-lo));
+}
+
+.rs-track__rail {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  pointer-events: none;
 }
 
 .rs-track__knob {
   position: absolute;
+  left: 0;
   top: 50%;
   width: 13px;
   height: 13px;
@@ -1667,12 +1686,11 @@
 }
 
 .rs-track--thin .rs-track__fill {
-  border-radius: 2px;
   background: var(--stage-vol-fill);
 }
 
 .rs-track--live .rs-track__fill {
-  width: 100%;
+  transform: none;
   opacity: .35;
 }
 
@@ -1971,6 +1989,8 @@
 .rs-mini__line i {
   display: block;
   height: 100%;
+  transform-origin: left center;
+  will-change: transform;
   background: var(--accent);
 }
 
