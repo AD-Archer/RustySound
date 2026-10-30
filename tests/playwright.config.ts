@@ -1,9 +1,10 @@
 // Playwright config for RustySound.
 //
 // Modes (pick with env):
-//   default      baseline smoke suite (tests/e2e/baseline) on all five browser projects
-//   REDESIGN=1   redesign suite (tests/e2e/redesign) on the same projects; fails until phase 2 lands
-//   PERF=1       perf baseline (tests/perf) on perf-chromium-mac and perf-webkit-mac only
+//   default      baseline smoke suite (tests/e2e/baseline: the pre-redesign core behaviours,
+//                ported to the Stage UI in phase 3) on all five browser projects
+//   REDESIGN=1   redesign suite (tests/e2e/redesign, incl. the axe sweep) on the same projects
+//   PERF=1       perf suite (tests/perf) on perf-chromium-mac and perf-webkit-mac only
 //
 // The global setup starts the mock server and a static server over the web release build.
 // RS_WEB_URL points the tests at an already-running server instead.

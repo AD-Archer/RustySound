@@ -23,7 +23,14 @@ export interface PerfWindow {
 /** Selectors that mean "the first meaningful content is on screen". Kept loose so the redesign also matches. */
 export const FMC_SCRIPT_CONFIG = {
   blocking: /App initializing, please wait|Loading Home|Loading RustySound/i.source,
-  headingText: ["Recently Added Albums", "Most Played Albums", "Discover"],
+  /** pre-redesign Home section headings */
+  headingText: ["Recently Added Albums", "Most Played Albums"],
+  /**
+   * Redesign: the Home view's own content. Text matching can't be used there because "Home"
+   * is also the sidebar/tab label, which renders with the shell before any content.
+   */
+  contentSelectors: ['[data-testid="home"] [data-testid="coverflow-center"]', '[data-testid="home"] section[data-testid^="shelf-"]'],
+  blockingSelectors: ['[data-testid="boot-overlay"]'],
 };
 
 export function instrument(cfg: typeof FMC_SCRIPT_CONFIG) {
@@ -79,13 +86,17 @@ export function instrument(cfg: typeof FMC_SCRIPT_CONFIG) {
 
   // First meaningful content: blocking overlays gone, a known section heading present, a cover decoded.
   const checkFmc = () => {
-    if (state.fmc !== null) return;
+    // Stop polling once found, once a measurement window starts, or after 30 s (pages other
+    // than Home never match, and a rAF loop would otherwise run inside the playback windows).
+    if (state.fmc !== null || state.recording || performance.now() > 30_000) return;
     const main = document.getElementById("main");
     if (main && main.childElementCount > 0 && state.mainFirstChild === null) state.mainFirstChild = performance.now();
     const body = document.body;
     if (!body) return requestAnimationFrame(checkFmc);
     const text = body.innerText || "";
-    const heading = cfg.headingText.find((h) => text.includes(h));
+    const heading =
+      cfg.contentSelectors.find((s) => document.querySelector(s)) ?? cfg.headingText.find((h) => text.includes(h));
+    const overlay = cfg.blockingSelectors.some((s) => document.querySelector(s));
     const imgs = document.querySelectorAll<HTMLImageElement>('img[src*="getCoverArt"]');
     let decoded = false;
     for (const img of imgs) {
@@ -97,7 +108,7 @@ export function instrument(cfg: typeof FMC_SCRIPT_CONFIG) {
         }
       }
     }
-    if (heading && decoded && !blocking.test(text)) {
+    if (heading && decoded && !overlay && !blocking.test(text)) {
       state.fmc = performance.now();
       state.fmcDetail = heading;
       return;
