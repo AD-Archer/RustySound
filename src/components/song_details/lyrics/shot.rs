@@ -10,7 +10,7 @@ use super::shot_share::{
 };
 use crate::api::{LyricsResult, ServerConfig, Song};
 use crate::components::ui::env::cover_art_url;
-use crate::components::ui::{IconButton, IconButtonSize, PillButton, PillVariant};
+use crate::components::ui::{IconButton, IconButtonSize, Button, ButtonVariant};
 use crate::components::AudioState;
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -227,25 +227,25 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
 
             div { class: "rs-player-shot__bar",
                 if shot_mode() {
-                    PillButton {
+                    Button {
                         label: "Lines".to_string(),
                         icon: "chevron-left".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         onclick: move |_| {
                             shot_mode.set(false);
                             customize_open.set(false);
                         },
                     }
-                    PillButton {
+                    Button {
                         label: "Customize".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         onclick: move |_| {
                             customize_open.toggle();
                             theme_open.set(false);
                         },
                     }
                 } else {
-                    PillButton {
+                    Button {
                         label: "Shot".to_string(),
                         icon: "eye".to_string(),
                         disabled: selected.is_empty(),
@@ -258,18 +258,18 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
                 }
                 span { class: "rs-player-shot__spacer" }
                 if shot_mode() {
-                    PillButton {
+                    Button {
                         label: if pending() { "Saving…".to_string() } else { "Save".to_string() },
-                        variant: PillVariant::Primary,
+                        variant: ButtonVariant::Filled,
                         disabled: selected.is_empty() || pending(),
                         onclick: {
                             let mut share = share.clone();
                             move |_| share(ScreenshotShareIntent::Save)
                         },
                     }
-                    PillButton {
+                    Button {
                         label: "Share".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         disabled: selected.is_empty() || pending(),
                         onclick: {
                             let mut share = share.clone();

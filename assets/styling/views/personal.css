@@ -325,7 +325,7 @@
   color: var(--ink);
 }
 
-.rs-personal-sheet-pills {
+.rs-personal-sheet-actions {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--sp-4);
@@ -364,7 +364,9 @@
 }
 
 .rs-personal-field input::placeholder {
-  color: var(--faint);
+  /* --faint was 3.1:1 (light) / 3.3:1 (dark) on the list surface; --muted
+     is 5.7:1 / 4.9:1. */
+  color: var(--muted);
 }
 
 .rs-personal-field:focus-within {
@@ -403,7 +405,7 @@
 }
 
 .rs-app[data-layout="wide"] .rs-personal-band__head {
-  padding-inline: var(--gutter-wide);
+  padding-inline: var(--view-pad);
 }
 
 .rs-personal-band__empty {
@@ -419,7 +421,7 @@
 }
 
 .rs-app[data-layout="wide"] .rs-personal-page {
-  padding: var(--sp-8) var(--gutter-wide) 32px;
+  padding: var(--sp-8) var(--view-pad) 32px;
 }
 
 .rs-personal-foot {

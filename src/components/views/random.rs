@@ -8,8 +8,8 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
 };
 use crate::components::ui::{
-    cover_art_url, use_layout, CoverFlow, CoverFlowItem, EmptyState, InsetList, PillButton,
-    PillVariant, Skeleton, Stage, TrackRow,
+    cover_art_url, use_layout, CoverFlow, CoverFlowItem, EmptyState, InsetList, Button,
+    ButtonVariant, Skeleton, Stage, TrackRow,
 };
 use crate::components::{AppView, IsPlayingSignal, Navigation, ShuffleEnabledSignal};
 use dioxus::prelude::*;
@@ -299,24 +299,24 @@ pub fn RandomView() -> Element {
                         icon: "shuffle".to_string(),
                         title: "No servers connected".to_string(),
                         message: "Add a Navidrome server to get random picks from your library.".to_string(),
-                        PillButton {
+                        Button {
                             label: "Add Server".to_string(),
                             onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
                         }
                     }
                 } else {
                     div { class: "rs-personal-actions",
-                        PillButton {
+                        Button {
                             label: "Play All".to_string(),
                             icon: "play".to_string(),
                             disabled: list.is_empty(),
                             testid: "random-play-all".to_string(),
                             onclick: play_all,
                         }
-                        PillButton {
+                        Button {
                             label: "Shuffle Again".to_string(),
                             icon: "refresh-cw".to_string(),
-                            variant: PillVariant::Quiet,
+                            variant: ButtonVariant::Tinted,
                             disabled: busy,
                             testid: "random-refresh".to_string(),
                             onclick: move |_| generation.with_mut(|g| *g += 1),
@@ -353,9 +353,9 @@ pub fn RandomView() -> Element {
                             }
                         }
                         div { class: "rs-personal-foot",
-                            PillButton {
+                            Button {
                                 label: if busy { "Loading…".to_string() } else { "Load More".to_string() },
-                                variant: PillVariant::Quiet,
+                                variant: ButtonVariant::Tinted,
                                 disabled: busy,
                                 testid: "random-load-more".to_string(),
                                 onclick: load_more,

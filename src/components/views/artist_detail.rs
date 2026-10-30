@@ -3,8 +3,8 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    MenuPopover, MenuPopoverItem, Artwork, EmptyState, InsetList, PillButton,
-    PillVariant, SectionHeader, TrackRow,
+    Menu, MenuItem, Artwork, EmptyState, InsetList, Button,
+    ButtonVariant, SectionHeader, TrackRow,
 };
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
 use crate::components::views::library::shared::{
@@ -229,7 +229,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             }
             div { class: "rs-library-page",
                 div { class: "rs-library-actions",
-                    PillButton {
+                    Button {
                         label: if busy() { "Loading…".to_string() } else { "Play".to_string() },
                         icon: "play".to_string(),
                         block: true,
@@ -240,10 +240,10 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                             move |_| start(false)
                         },
                     }
-                    PillButton {
+                    Button {
                         label: "Shuffle".to_string(),
                         icon: "shuffle".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         block: true,
                         disabled: busy() || albums.is_empty(),
                         testid: "artist-shuffle".to_string(),
@@ -330,17 +330,17 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                MenuPopover {
+                Menu {
                     label: format!("{} actions", artist.name),
                     anchor,
                     on_close: move |_| menu_at.set(None),
-                    MenuPopoverItem {
+                    MenuItem {
                         label: if starred() { "Unfavorite".to_string() } else { "Favorite".to_string() },
                         icon: if starred() { "star-filled".to_string() } else { "star".to_string() },
                         testid: "artist-favorite".to_string(),
                         onclick: toggle_star,
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Play Top Songs".to_string(),
                         icon: "play".to_string(),
                         disabled: top_count == 0,
@@ -350,7 +350,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                             status.set(player.play(list, 0, None).err());
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Add Top Songs to Queue".to_string(),
                         icon: "add-to-queue".to_string(),
                         disabled: top_count == 0,

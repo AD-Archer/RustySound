@@ -63,11 +63,15 @@
   --r-nav: 7px;            /* sidebar items                            */
   --r-btn: 8px;            /* small square buttons                     */
   --r-seg: 9px;
+  --r-button: 10px;        /* text buttons (style A), toasts           */
+  --r-button-sm: 8px;      /* small text buttons                       */
+  --r-tag: 4px;            /* badges and tags: 1px line border         */
   --r-list: 12px;          /* inset grouped lists                      */
   --r-menu: 13px;
   --r-bar: 14px;           /* floating player                          */
   --r-sheet: 16px;
-  --r-pill: 999px;
+  /* No capsule radius: the owner ruled out pills. Round things (status
+     dots, avatars, switch knobs) use 50%. */
 
   /* ---- Sizes ----------------------------------------------------------- */
   --touch: 44px;
@@ -110,6 +114,7 @@
   --stage-field: #1c1c1e;
   --stage-field-line: #333336;
   --stage-badge-line: #3a3c41;
+  --stage-btn-ink: #8db8f5;     /* button text on the stage; 7.8:1 on the fill */
   --stage-hover: rgba(255, 255, 255, .08);
   --stage-pressed: rgba(255, 255, 255, .1);
   --stage-vol-track: #3a3c41;
@@ -117,10 +122,6 @@
   --stage-cover-blank: #222;
   --stage-shadow: 0 10px 30px rgba(0, 0, 0, .45);
   --stage-shadow-wide: 0 10px 30px rgba(0, 0, 0, .25);
-
-  /* ---- Legacy island (Tailwind views until phase 2 ends; then delete) - */
-  --legacy-bg: #121315;
-  --legacy-ink: #fafafa;
 
   /* ---- Status ---------------------------------------------------------- */
   --ok: #34c759;
@@ -164,6 +165,14 @@
   --tint: rgba(42, 123, 228, .1);
   --tint-strong: rgba(42, 123, 228, .16);
 
+  /* Text buttons (ui/button.rs). Ink measured on the fill over --page:
+     #1456ad is 4.94:1, the danger ink 4.64:1, white on --danger-fill 5.85:1. */
+  --btn-fill: rgba(120, 120, 128, .14);
+  --btn-fill-hover: rgba(120, 120, 128, .22);
+  --btn-ink: #1456ad;
+  --btn-danger-ink: #b3202a;
+  --danger-fill: #c4202b;
+
   --seg-trough: #d6d8dc;
   --seg-thumb: #f8f8f9;
   --menu: #f8f8f9;
@@ -193,6 +202,8 @@
   --accent-ink: #fff;
   --tint: rgba(42, 123, 228, .12);
   --tint-strong: rgba(42, 123, 228, .2);
+  --btn-ink: #124f9e;          /* 4.91:1 on the fill over the page        */
+  --btn-danger-ink: #9e1c25;
   --seg-trough: #c5c8cd;
   --seg-thumb: #eceef0;
   --menu: #eceef0;
@@ -218,6 +229,7 @@
   --accent-ink: #160b05;       /* dark text on orange fills (6.2:1)       */
   --tint: rgba(255, 91, 31, .12);
   --tint-strong: rgba(255, 91, 31, .2);
+  --btn-ink: #96300a;          /* 5.36:1 on the fill over the page        */
   --seg-trough: #dbd6cf;
   --seg-thumb: #f9f7f4;
   --menu: #f9f7f4;
@@ -246,6 +258,11 @@
   --accent-ink: #fff;
   --tint: rgba(74, 144, 238, .16);
   --tint-strong: rgba(74, 144, 238, .24);
+  --btn-fill: rgba(120, 120, 128, .24);
+  --btn-fill-hover: rgba(120, 120, 128, .32);
+  --btn-ink: #8db8f5;          /* 5.81:1 on the fill over --surface       */
+  --btn-danger-ink: #ff8a8d;   /* 5.23:1 on the fill over --surface       */
+  --danger-fill: #c8303a;      /* white is 5.33:1                         */
   --seg-trough: #2a2b2f;
   --seg-thumb: #4a4c52;
   --menu: #2a2b2f;
@@ -267,6 +284,8 @@
   --muted: #8a8d93;
   --faint: #6a6d73;
   --line: #2a2c30;
+  --btn-ink: #8db8f5;
+  --btn-danger-ink: #ff8a8d;
   --seg-trough: #222326;
   --seg-thumb: #3e4045;
   --menu: #222326;
@@ -291,6 +310,7 @@
   --accent-ink: #160b05;
   --tint: rgba(255, 106, 51, .16);
   --tint-strong: rgba(255, 106, 51, .26);
+  --btn-ink: #ffa07a;          /* 6.04:1 on the fill over --surface       */
   --seg-trough: #2c2824;
   --seg-thumb: #4d4640;
   --menu: #2c2824;
@@ -322,6 +342,11 @@
     --accent-ink: #fff;
     --tint: rgba(74, 144, 238, .16);
     --tint-strong: rgba(74, 144, 238, .24);
+    --btn-fill: rgba(120, 120, 128, .24);
+    --btn-fill-hover: rgba(120, 120, 128, .32);
+    --btn-ink: #8db8f5;          /* 5.81:1 on the fill over --surface       */
+    --btn-danger-ink: #ff8a8d;   /* 5.23:1 on the fill over --surface       */
+    --danger-fill: #c8303a;      /* white is 5.33:1                         */
     --seg-trough: #2a2b2f;
     --seg-thumb: #4a4c52;
     --menu: #2a2b2f;
@@ -344,6 +369,8 @@
     --muted: #8a8d93;
     --faint: #6a6d73;
     --line: #2a2c30;
+    --btn-ink: #8db8f5;
+    --btn-danger-ink: #ff8a8d;
     --seg-trough: #222326;
     --seg-thumb: #3e4045;
     --menu: #222326;
@@ -369,6 +396,7 @@
     --accent-ink: #160b05;
     --tint: rgba(255, 106, 51, .16);
     --tint-strong: rgba(255, 106, 51, .26);
+    --btn-ink: #ffa07a;          /* 6.04:1 on the fill over --surface       */
     --seg-trough: #2c2824;
     --seg-thumb: #4d4640;
     --menu: #2c2824;

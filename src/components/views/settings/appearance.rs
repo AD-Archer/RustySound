@@ -2,7 +2,7 @@
 
 use super::shared::{use_settings_ctx, Footnote, GroupTitle};
 use crate::components::ui::env::{appearance_attr, stage_theme};
-use crate::components::ui::{PillButton, PillVariant, Segmented};
+use crate::components::ui::{Button, ButtonVariant, Segmented};
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -84,8 +84,9 @@ pub(super) fn AppearanceSection() -> Element {
             }
         }
         div { class: "rs-settings-form__actions rs-settings-form__actions--start",
-            PillButton {
+            Button {
                 label: "Apply".to_string(),
+                variant: ButtonVariant::Filled,
                 disabled: !dirty,
                 testid: "custom-css-apply".to_string(),
                 onclick: move |_| {
@@ -94,9 +95,9 @@ pub(super) fn AppearanceSection() -> Element {
                 },
             }
             if !saved_css.is_empty() || !draft().is_empty() {
-                PillButton {
+                Button {
                     label: "Clear".to_string(),
-                    variant: PillVariant::Quiet,
+                    variant: ButtonVariant::Tinted,
                     onclick: move |_| {
                         draft.set(String::new());
                         ctx.update(|s| s.custom_css = String::new());

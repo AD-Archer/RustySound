@@ -1,7 +1,7 @@
 //! Create, rename and delete sheets for playlists (list and detail pages).
 
 use crate::api::{NavidromeClient, Playlist, ServerConfig};
-use crate::components::ui::{PillButton, PillVariant, Sheet};
+use crate::components::ui::{Button, ButtonVariant, Sheet};
 use dioxus::prelude::*;
 
 fn server_for(servers: &[ServerConfig], server_id: &str) -> Option<ServerConfig> {
@@ -46,13 +46,14 @@ fn NameForm(
                 p { class: "rs-library-form__error", role: "alert", "{err}" }
             }
             div { class: "rs-library-form__actions",
-                PillButton {
+                Button {
                     label: "Cancel".to_string(),
-                    variant: PillVariant::Quiet,
+                    variant: ButtonVariant::Tinted,
                     onclick: move |_| on_cancel.call(()),
                 }
-                PillButton {
+                Button {
                     label: if busy { format!("{action}…") } else { action.clone() },
+                    variant: ButtonVariant::Filled,
                     disabled: busy || value.read().trim().is_empty(),
                     testid: "playlist-name-submit".to_string(),
                     onclick: move |_| on_submit.call(()),
@@ -238,14 +239,14 @@ pub fn DeletePlaylistSheet(
                 p { class: "rs-library-form__error", role: "alert", "{err}" }
             }
             div { class: "rs-library-form__actions",
-                PillButton {
+                Button {
                     label: "Cancel".to_string(),
-                    variant: PillVariant::Quiet,
+                    variant: ButtonVariant::Tinted,
                     onclick: move |_| on_close.call(()),
                 }
                 button {
                     r#type: "button",
-                    class: "rs-pill rs-library-pill--danger",
+                    class: "rs-btn rs-btn--filled rs-btn--danger",
                     disabled: busy(),
                     "data-testid": "playlist-delete-confirm",
                     onclick: confirm,

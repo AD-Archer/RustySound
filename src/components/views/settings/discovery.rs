@@ -186,7 +186,7 @@ fn TestButton(label: String, testid: String, running: bool, onclick: EventHandle
     rsx! {
         button {
             r#type: "button",
-            class: "rs-pill rs-pill--mini rs-settings-field__test",
+            class: "rs-btn rs-btn--plain rs-settings-field__test",
             aria_label: "{label}",
             "data-testid": "{testid}",
             // aria-disabled, not disabled, so the focused button keeps focus while it runs.

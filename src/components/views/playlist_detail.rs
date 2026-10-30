@@ -7,8 +7,8 @@ mod edit_row;
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, MenuPopover, MenuPopoverGap, MenuPopoverItem, Artwork, EmptyState, IconButton,
-    PillButton, PillVariant, TrackRow, VirtualList,
+    use_layout, Menu, MenuGap, MenuItem, Artwork, EmptyState, IconButton,
+    Button, ButtonVariant, TrackRow, VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
@@ -96,9 +96,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             icon: "playlist".to_string(),
                             title: "Playlist not found".to_string(),
                             message: "It may have been deleted on the server.".to_string(),
-                            PillButton {
+                            Button {
                                 label: "All Playlists".to_string(),
-                                variant: PillVariant::Quiet,
+                                variant: ButtonVariant::Tinted,
                                 onclick: move |_| navigation.navigate_to(AppView::PlaylistsView {}),
                             }
                         }
@@ -341,15 +341,15 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             div { class: "rs-library-page",
                 if is_editing {
                     div { class: "rs-library-actions",
-                        PillButton {
+                        Button {
                             label: "Add Songs".to_string(),
                             icon: "plus".to_string(),
-                            variant: PillVariant::Quiet,
+                            variant: ButtonVariant::Tinted,
                             block: true,
                             testid: "playlist-add-songs".to_string(),
                             onclick: move |_| sheet.set(Some(Sheet::AddSongs)),
                         }
-                        PillButton {
+                        Button {
                             label: "Done".to_string(),
                             icon: "check".to_string(),
                             block: true,
@@ -359,7 +359,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     }
                 } else {
                     div { class: "rs-library-actions",
-                        PillButton {
+                        Button {
                             label: "Play".to_string(),
                             icon: "play".to_string(),
                             block: true,
@@ -370,10 +370,10 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 move |_| play_from(0)
                             },
                         }
-                        PillButton {
+                        Button {
                             label: "Shuffle".to_string(),
                             icon: "shuffle".to_string(),
-                            variant: PillVariant::Quiet,
+                            variant: ButtonVariant::Tinted,
                             block: true,
                             disabled: count == 0,
                             testid: "playlist-shuffle".to_string(),
@@ -408,7 +408,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         title: "This playlist is empty".to_string(),
                         message: if read_only { "There's nothing in it yet.".to_string() } else { "Add songs from any track menu, or here with Add Songs.".to_string() },
                         if !read_only {
-                            PillButton {
+                            Button {
                                 label: "Add Songs".to_string(),
                                 icon: "plus".to_string(),
                                 onclick: move |_| {
@@ -470,12 +470,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                MenuPopover {
+                Menu {
                     label: format!("{} actions", playlist.name),
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     testid: "playlist-menu".to_string(),
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Play Next".to_string(),
                         icon: "play-next".to_string(),
                         disabled: count == 0,
@@ -484,7 +484,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), true);
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Add to Queue".to_string(),
                         icon: "add-to-queue".to_string(),
                         disabled: count == 0,
@@ -493,7 +493,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), false);
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Add to Playlist…".to_string(),
                         icon: "playlist".to_string(),
                         onclick: {
@@ -506,13 +506,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             }
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: if starred() { "Unfavorite".to_string() } else { "Favorite".to_string() },
                         icon: if starred() { "star-filled".to_string() } else { "star".to_string() },
                         onclick: toggle_star,
                     }
                     if can_download {
-                        MenuPopoverItem {
+                        MenuItem {
                             label: if dl_busy() { "Downloading…".to_string() } else { "Download".to_string() },
                             icon: "download".to_string(),
                             detail: dl_detail.clone(),
@@ -520,13 +520,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             onclick: download.clone(),
                         }
                     }
-                    MenuPopoverGap {}
+                    MenuGap {}
                     if read_only {
                         div { class: "rs-menu__note",
                             "Auto-imported playlists are read-only. Edit the playlist file on the server instead."
                         }
                     } else {
-                        MenuPopoverItem {
+                        MenuItem {
                             label: if editing() { "Done Editing".to_string() } else { "Edit".to_string() },
                             icon: "edit".to_string(),
                             testid: "playlist-edit".to_string(),
@@ -535,7 +535,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 editing.toggle();
                             },
                         }
-                        MenuPopoverItem {
+                        MenuItem {
                             label: "Rename…".to_string(),
                             icon: "edit".to_string(),
                             onclick: move |_| {
@@ -543,7 +543,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 sheet.set(Some(Sheet::Rename));
                             },
                         }
-                        MenuPopoverItem {
+                        MenuItem {
                             label: "Delete Playlist…".to_string(),
                             icon: "trash".to_string(),
                             danger: true,

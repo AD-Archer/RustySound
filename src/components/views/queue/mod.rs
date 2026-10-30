@@ -10,7 +10,7 @@ use crate::components::song_details::up_next::{
     save_queue_as_playlist, spawn_quick_create, QueueEditRow,
 };
 use crate::components::ui::{
-    use_layout, EmptyState, IconButton, PillButton, PillVariant, SectionHeader, TrackRow,
+    use_layout, EmptyState, IconButton, Button, ButtonVariant, SectionHeader, TrackRow,
     VirtualList,
 };
 use crate::components::{AddMenuController, AppView, Navigation, PreviewPlaybackSignal, SeekRequestSignal};
@@ -151,20 +151,20 @@ pub fn QueueView() -> Element {
 
     let restore = latest_snapshot.clone().map(|snapshot| {
         rsx! {
-            PillButton {
+            Button {
                 label: "Restore Previous Queue".to_string(),
                 icon: "clock".to_string(),
-                variant: PillVariant::Quiet,
+                variant: ButtonVariant::Tinted,
                 testid: "queue-restore".to_string(),
                 onclick: move |_| restore_snapshot(player, seek_request, preview, snapshot.clone()),
             }
         }
     });
     let quick_create = rsx! {
-        PillButton {
+        Button {
             label: if busy() { "Adding…".to_string() } else { "Quick Create".to_string() },
             icon: "plus".to_string(),
-            variant: PillVariant::Quiet,
+            variant: ButtonVariant::Tinted,
             disabled: busy() || seed.is_none(),
             testid: "queue-quick-create".to_string(),
             onclick: {
@@ -208,7 +208,7 @@ pub fn QueueView() -> Element {
                 }
             }
             div { class: "rs-player-queue__actions",
-                PillButton {
+                Button {
                     label: "Add Songs".to_string(),
                     icon: "plus".to_string(),
                     testid: "queue-add".to_string(),
@@ -216,23 +216,23 @@ pub fn QueueView() -> Element {
                 }
                 {quick_create}
                 if count > 0 {
-                    PillButton {
+                    Button {
                         label: if editing_now { "Done".to_string() } else { "Edit".to_string() },
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         testid: "queue-edit".to_string(),
                         onclick: move |_| editing.toggle(),
                     }
-                    PillButton {
+                    Button {
                         label: "Save as Playlist".to_string(),
                         icon: "playlist".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         testid: "queue-save".to_string(),
                         onclick: move |_| save_queue_as_playlist(player, add_menu.clone()),
                     }
-                    PillButton {
+                    Button {
                         label: "Clear".to_string(),
                         icon: "trash".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         testid: "queue-clear".to_string(),
                         onclick: move |_| {
                             editing.set(false);

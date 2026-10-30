@@ -15,9 +15,8 @@
   border: 0;
 }
 
-.rs-app[data-layout="wide"] .rs-search > * {
-  max-width: 980px;
-}
+/* Wide: a centred 980px column (see .rs-view). */
+.rs-search { --view-max: 980px; }
 
 /* The field stays reachable while results scroll under it. */
 .rs-search-bar {

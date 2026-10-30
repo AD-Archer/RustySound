@@ -4,7 +4,7 @@ use super::server_form::{format_connection_error, ServerSheet};
 use super::shared::{use_settings_ctx, ActionRow, Footnote};
 use crate::api::{NavidromeClient, ServerConfig};
 use crate::components::ui::{
-    EmptyState, IconButton, IconButtonSize, PillButton, PillVariant, Sheet, Switch,
+    EmptyState, IconButton, IconButtonSize, Button, ButtonVariant, Sheet, Switch,
 };
 use crate::db::save_servers_now;
 use dioxus::prelude::*;
@@ -81,7 +81,7 @@ pub(super) fn ServersSection() -> Element {
                 title: "No server yet".to_string(),
                 message: "Add your Navidrome (or any Subsonic) server to start listening.".to_string(),
                 testid: "servers-empty".to_string(),
-                PillButton {
+                Button {
                     label: "Add Server".to_string(),
                     icon: "plus".to_string(),
                     testid: "server-add".to_string(),
@@ -163,14 +163,14 @@ pub(super) fn ServersSection() -> Element {
                         "“{server.name}” will be removed from RustySound. Nothing on the server itself is deleted, and you can add it again later."
                     }
                     div { class: "rs-settings-form__actions",
-                        PillButton {
+                        Button {
                             label: "Cancel".to_string(),
-                            variant: PillVariant::Quiet,
+                            variant: ButtonVariant::Tinted,
                             onclick: move |_| overlay.set(Overlay::None),
                         }
                         button {
                             r#type: "button",
-                            class: "rs-pill rs-settings-danger-pill",
+                            class: "rs-btn rs-btn--filled rs-btn--danger",
                             "data-testid": "server-delete-yes",
                             onclick: {
                                 let id = server.id.clone();

@@ -6,7 +6,7 @@
 
 use super::server_form::ServerSheet;
 use crate::api::ServerConfig;
-use crate::components::ui::{PillButton, Stage};
+use crate::components::ui::{Button, Stage};
 use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 
@@ -36,7 +36,7 @@ pub fn FirstRun() -> Element {
                             "Every server is switched off. Turn one on in Settings to bring your music back."
                         }
                         div { class: "rs-firstrun__actions",
-                            PillButton {
+                            Button {
                                 label: "Open Settings".to_string(),
                                 icon: "settings".to_string(),
                                 testid: "first-run-settings".to_string(),
@@ -48,7 +48,7 @@ pub fn FirstRun() -> Element {
                             "Your Navidrome library, with Cover Flow and fresh picks every day."
                         }
                         div { class: "rs-firstrun__actions",
-                            PillButton {
+                            Button {
                                 label: "Add your server".to_string(),
                                 icon: "plus".to_string(),
                                 testid: "first-run-add".to_string(),

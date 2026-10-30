@@ -144,21 +144,10 @@ fn main() {
         {
             config = config.with_custom_head(
                 r#"<style>
-                /* WebKitGTK: keep scrolling cheap. Legacy Tailwind views only;
-                   the Stage kit is already light on effects. */
+                /* WebKitGTK: keep scrolling cheap. */
                 .main-scroll {
                   scroll-behavior: auto;
                   overscroll-behavior: contain;
-                }
-                @media (min-width: 1200px) {
-                  .main-scroll [class*="transition-"],
-                  .main-scroll [class*="animate-"] {
-                    transition: none !important;
-                    animation: none !important;
-                  }
-                  .main-scroll [class*="shadow-"] {
-                    box-shadow: none !important;
-                  }
                 }
                 </style>"#
                     .to_string(),
@@ -234,7 +223,7 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         .append_items(&[
             &MenuItem::with_id(
                 "rustysound-go-home",
-                "Discover",
+                "Home",
                 true,
                 Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit1)),
             ),

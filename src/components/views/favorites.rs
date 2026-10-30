@@ -10,8 +10,8 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta,
 };
 use crate::components::ui::{
-    use_long_press, ActionMenu, Artwork, EmptyState, InsetList, MenuAction, PillButton,
-    PillVariant, Segmented, Skeleton, TrackMenuController, TrackRow, VirtualList,
+    use_long_press, Menu, Artwork, EmptyState, InsetList, MenuAction, Button,
+    ButtonVariant, Segmented, Skeleton, TrackMenuController, TrackRow, VirtualList,
 };
 use crate::components::{AddIntent, AddMenuController, AppView, IsPlayingSignal, Navigation};
 use crate::diagnostics::{log_perf, PerfTimer};
@@ -256,7 +256,7 @@ pub fn FavoritesView() -> Element {
                     icon: "server".to_string(),
                     title: "No servers connected".to_string(),
                     message: "Add a Navidrome server to see the songs, albums and artists you've starred.".to_string(),
-                    PillButton {
+                    Button {
                         label: "Add Server".to_string(),
                         onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
                     }
@@ -272,16 +272,16 @@ pub fn FavoritesView() -> Element {
                     }
                     if active_tab == 0 && counts.map(|c| c.0 > 0).unwrap_or(false) {
                         div { class: "rs-personal-tools",
-                            PillButton {
+                            Button {
                                 label: "Play".to_string(),
                                 icon: "play".to_string(),
                                 testid: "favorites-play".to_string(),
                                 onclick: move |_| play_songs(0, false),
                             }
-                            PillButton {
+                            Button {
                                 label: "Shuffle".to_string(),
                                 icon: "shuffle".to_string(),
-                                variant: PillVariant::Quiet,
+                                variant: ButtonVariant::Tinted,
                                 onclick: move |_| play_songs(0, true),
                             }
                         }
@@ -418,7 +418,7 @@ pub fn FavoritesView() -> Element {
                         ),
                     };
                     rsx! {
-                        ActionMenu {
+                        Menu {
                             title,
                             actions,
                             anchor,

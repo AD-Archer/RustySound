@@ -4,7 +4,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, MenuPopover, MenuPopoverGap, MenuPopoverItem, Artwork, EmptyState, IconButton,
+    use_layout, Menu, MenuGap, MenuItem, Artwork, EmptyState, IconButton,
     IconButtonSize, SearchField, VirtualList,
 };
 use crate::components::views::library::playlist_sheets::{
@@ -340,14 +340,14 @@ pub fn PlaylistsView() -> Element {
             {body}
 
             if let Some(anchor) = filter_at() {
-                MenuPopover {
+                Menu {
                     label: "Sort and filter playlists".to_string(),
                     anchor,
                     on_close: move |_| filter_at.set(None),
                     testid: "playlists-filter-menu".to_string(),
                     div { class: "rs-menu__note", "Sort by" }
                     for (value, label) in SORTS {
-                        MenuPopoverItem {
+                        MenuItem {
                             key: "{value}",
                             label: label.to_string(),
                             checked: sort() == value,
@@ -357,9 +357,9 @@ pub fn PlaylistsView() -> Element {
                             },
                         }
                     }
-                    MenuPopoverGap {}
+                    MenuGap {}
                     div { class: "rs-menu__note", "Owner" }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "All Owners".to_string(),
                         checked: owner_filter().is_none(),
                         onclick: move |_| {
@@ -368,7 +368,7 @@ pub fn PlaylistsView() -> Element {
                         },
                     }
                     for name in owners() {
-                        MenuPopoverItem {
+                        MenuItem {
                             key: "{name}",
                             label: name.clone(),
                             checked: owner_filter().as_deref() == Some(name.as_str()),
@@ -381,8 +381,8 @@ pub fn PlaylistsView() -> Element {
                             },
                         }
                     }
-                    MenuPopoverGap {}
-                    MenuPopoverItem {
+                    MenuGap {}
+                    MenuItem {
                         label: "Hide Auto-Imported".to_string(),
                         checked: hide_auto(),
                         testid: "playlists-hide-auto".to_string(),
@@ -391,7 +391,7 @@ pub fn PlaylistsView() -> Element {
                             hide_auto.toggle();
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Refresh".to_string(),
                         icon: "refresh-cw".to_string(),
                         onclick: move |_| {
@@ -410,12 +410,12 @@ pub fn PlaylistsView() -> Element {
                     let playlist = menu.playlist.clone();
                     let editable = !is_auto_imported(&playlist);
                     rsx! {
-                        MenuPopover {
+                        Menu {
                             label: format!("{} actions", playlist.name),
                             anchor: menu.anchor,
                             on_close: move |_| row_menu.set(None),
                             testid: "playlist-row-menu".to_string(),
-                            MenuPopoverItem {
+                            MenuItem {
                                 label: "Play".to_string(),
                                 icon: "play".to_string(),
                                 onclick: {
@@ -426,7 +426,7 @@ pub fn PlaylistsView() -> Element {
                                     }
                                 },
                             }
-                            MenuPopoverItem {
+                            MenuItem {
                                 label: "Shuffle".to_string(),
                                 icon: "shuffle".to_string(),
                                 onclick: {
@@ -437,7 +437,7 @@ pub fn PlaylistsView() -> Element {
                                     }
                                 },
                             }
-                            MenuPopoverItem {
+                            MenuItem {
                                 label: "Add to…".to_string(),
                                 icon: "plus".to_string(),
                                 onclick: {
@@ -450,9 +450,9 @@ pub fn PlaylistsView() -> Element {
                                     }
                                 },
                             }
-                            MenuPopoverGap {}
+                            MenuGap {}
                             if editable {
-                                MenuPopoverItem {
+                                MenuItem {
                                     label: "Rename…".to_string(),
                                     icon: "edit".to_string(),
                                     testid: "playlist-rename".to_string(),
@@ -464,7 +464,7 @@ pub fn PlaylistsView() -> Element {
                                         }
                                     },
                                 }
-                                MenuPopoverItem {
+                                MenuItem {
                                     label: "Delete…".to_string(),
                                     icon: "trash".to_string(),
                                     danger: true,

@@ -4,8 +4,8 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    format_clock, use_long_press, ActionMenu, Artwork, EmptyState, IconButton, IconButtonSize,
-    InsetList, MenuAction, PillButton, Skeleton,
+    format_clock, use_long_press, Menu, Artwork, EmptyState, IconButton, IconButtonSize,
+    InsetList, MenuAction, Button, Skeleton,
 };
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{AppView, IsPlayingSignal, Navigation, PlaybackPositionSignal, SeekRequestSignal};
@@ -154,7 +154,7 @@ pub fn BookmarksView() -> Element {
                     icon: "server".to_string(),
                     title: "No servers connected".to_string(),
                     message: "Add a Navidrome server to see your bookmarks.".to_string(),
-                    PillButton {
+                    Button {
                         label: "Add Server".to_string(),
                         onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
                     }
@@ -188,7 +188,7 @@ pub fn BookmarksView() -> Element {
             }
 
             if let Some(anchor) = header_menu() {
-                ActionMenu {
+                Menu {
                     title: "Bookmarks".to_string(),
                     anchor,
                     testid: "bookmarks-actions".to_string(),
@@ -205,7 +205,7 @@ pub fn BookmarksView() -> Element {
                 }
             }
             if let Some(menu) = row_menu() {
-                ActionMenu {
+                Menu {
                     title: menu.bookmark.entry.title.clone(),
                     anchor: menu.anchor,
                     testid: "bookmark-menu".to_string(),
@@ -220,7 +220,7 @@ pub fn BookmarksView() -> Element {
                 }
             }
             if confirm_clear() {
-                ActionMenu {
+                Menu {
                     title: "Clear All Bookmarks?".to_string(),
                     message: format!("{count} saved positions will be deleted from your server."),
                     testid: "bookmarks-confirm".to_string(),

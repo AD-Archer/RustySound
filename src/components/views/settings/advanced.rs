@@ -3,7 +3,7 @@
 
 use super::shared::{Footnote, GroupTitle};
 use crate::api::{NavidromeClient, ScanStatus, ServerConfig};
-use crate::components::ui::{IconButton, IconButtonSize, PillButton, PillVariant};
+use crate::components::ui::{IconButton, IconButtonSize, Button, ButtonVariant};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 
@@ -94,7 +94,7 @@ pub(super) fn AdvancedSection() -> Element {
                             }
                             button {
                                 r#type: "button",
-                                class: "rs-pill rs-pill--mini",
+                                class: "rs-btn rs-btn--tinted rs-btn--small",
                                 aria_label: "Scan {server.name}",
                                 "data-testid": "scan-start",
                                 disabled: matches!(scans.read().get(&server.id), Some(ScanState::Busy)),
@@ -129,9 +129,9 @@ fn IosAudioLogs() -> Element {
     rsx! {
         GroupTitle { title: "iOS Audio Logs".to_string() }
         div { class: "rs-settings-form__actions rs-settings-form__actions--start",
-            PillButton {
+            Button {
                 label: "Refresh".to_string(),
-                variant: PillVariant::Quiet,
+                variant: ButtonVariant::Tinted,
                 onclick: move |_| {
                     let lines = ios_audio_log_snapshot(1000);
                     if lines.is_empty() {
@@ -143,9 +143,9 @@ fn IosAudioLogs() -> Element {
                     }
                 },
             }
-            PillButton {
+            Button {
                 label: "Export .txt".to_string(),
-                variant: PillVariant::Quiet,
+                variant: ButtonVariant::Tinted,
                 onclick: move |_| {
                     let mut body = text();
                     if body.trim().is_empty() {
@@ -163,9 +163,9 @@ fn IosAudioLogs() -> Element {
                     }));
                 },
             }
-            PillButton {
+            Button {
                 label: "Clear".to_string(),
-                variant: PillVariant::Quiet,
+                variant: ButtonVariant::Tinted,
                 onclick: move |_| {
                     ios_audio_log_clear();
                     text.set(String::new());

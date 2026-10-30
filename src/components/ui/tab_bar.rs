@@ -5,21 +5,22 @@ use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
-    Discover,
+    Home,
     Library,
     Search,
 }
 
 fn tab_for(view: &AppView) -> Tab {
     match view {
-        AppView::HomeView {} => Tab::Discover,
+        AppView::HomeView {} => Tab::Home,
         AppView::SearchView {} => Tab::Search,
         _ => Tab::Library,
     }
 }
 
-/// Discover / Library / Search. Reads the route itself; no props.
-/// Testids: `tab-discover`, `tab-library`, `tab-search`.
+/// Home / Library / Search. Reads the route itself; no props.
+/// Testids: `tab-discover` (Home; the id predates the rename), `tab-library`,
+/// `tab-search`.
 #[component]
 pub fn TabBar() -> Element {
     let view = use_route::<AppView>();
@@ -28,7 +29,7 @@ pub fn TabBar() -> Element {
     let active = tab_for(&view);
 
     let tabs = [
-        (Tab::Discover, "Discover", "discover", "tab-discover", AppView::HomeView {}),
+        (Tab::Home, "Home", "home", "tab-discover", AppView::HomeView {}),
         (Tab::Library, "Library", "library", "tab-library", AppView::LibraryView {}),
         (Tab::Search, "Search", "search", "tab-search", AppView::SearchView {}),
     ];

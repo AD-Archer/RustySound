@@ -5,11 +5,12 @@ use crate::components::{AppView, Icon, Navigation, SongDetailsController};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
-/// Discover, Search; Library (Playlists, Artists, Albums, Songs, Favorites,
+/// Home, Search; Library (Playlists, Artists, Albums, Songs, Favorites,
 /// Downloads); Radio, Stats; Settings with the server status at the bottom.
 /// The "Library" heading opens `/library` (Random, Bookmarks and Queue live
 /// there). Reads route, servers and settings itself; no props.
-/// Testids: `nav-<route>` (nav-discover, nav-albums, …, nav-library, nav-settings).
+/// Testids: `nav-<route>` (nav-discover for Home, nav-albums, …, nav-library,
+/// nav-settings).
 #[component]
 pub fn Sidebar() -> Element {
     let view = use_route::<AppView>();
@@ -68,7 +69,7 @@ pub fn Sidebar() -> Element {
         (
             None,
             vec![
-                ("Discover", "discover", "nav-discover", AppView::HomeView {}),
+                ("Home", "home", "nav-discover", AppView::HomeView {}),
                 ("Search", "search", "nav-search", AppView::SearchView {}),
             ],
         ),

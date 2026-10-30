@@ -18,10 +18,10 @@
   gap: 5px;
   height: 32px;
   padding: 0 10px 0 12px;
-  border: 1px solid var(--line);
-  border-radius: var(--r-pill);
-  background: var(--surface);
-  color: var(--accent-text);
+  border: 0;
+  border-radius: var(--r-button-sm);
+  background: var(--btn-fill);
+  color: var(--btn-ink);
   font-size: var(--fs-callout);
   font-weight: var(--fw-medium);
   white-space: nowrap;
@@ -184,10 +184,8 @@
   scroll-snap-align: start;
 }
 
-.rs-app[data-layout="wide"] .rs-library-home > .rs-page-head,
-.rs-app[data-layout="wide"] .rs-library-home__lists {
-  max-width: 760px;
-}
+/* Wide: lists and the shelf share one centred column (see .rs-view). */
+.rs-library-home { --view-max: 960px; }
 
 /* ---- Paging ------------------------------------------------------------ */
 
@@ -216,7 +214,7 @@
 /* ---- Albums: Cover Flow view ----------------------------------------- */
 
 .rs-library-flowstage {
-  margin: 0 calc(-1 * var(--gutter-wide)) var(--sp-6);
+  margin: 0 calc(-1 * var(--view-pad)) var(--sp-6);
   padding: 32px 0 24px;
   border-radius: 0;
 }
@@ -243,8 +241,10 @@
   padding: 0 6px 0 4px;
 }
 
+/* Wide: the stage band spans the window; its content lines up with the
+   centred column below (--view-pad, see .rs-view). */
 .rs-app[data-layout="wide"] .rs-library-hero__nav {
-  padding: 0 calc(var(--gutter-wide) - 12px) 0 calc(var(--gutter-wide) - 12px);
+  padding: 0 calc(var(--view-pad) - 12px);
 }
 
 .rs-library-back {
@@ -280,7 +280,7 @@
 .rs-app[data-layout="wide"] .rs-library-hero__body {
   align-items: center;
   gap: 28px;
-  padding: var(--sp-4) var(--gutter-wide) 0;
+  padding: var(--sp-4) var(--view-pad) 0;
 }
 
 .rs-library-hero__art {
@@ -428,7 +428,7 @@
 }
 
 .rs-app[data-layout="wide"] .rs-library-page {
-  padding: 0 var(--gutter-wide);
+  padding: 0 var(--view-pad);
 }
 
 .rs-library-actions {
@@ -438,23 +438,21 @@
   margin: var(--sp-6) 0;
 }
 
-.rs-app[data-layout="wide"] .rs-library-actions .rs-pill--block {
+.rs-app[data-layout="wide"] .rs-library-actions .rs-btn--block {
   flex: 0 0 168px;
   width: auto;
 }
 
+/* Download: a square tinted button beside Play and Shuffle (style A). */
 .rs-library-actions__dl {
-  border: 1px solid var(--line);
-  border-radius: 50%;
-  width: 42px;
-  height: 42px;
-  color: var(--accent-text);
+  border-radius: var(--r-button);
+  background: var(--btn-fill);
+  color: var(--btn-ink);
 }
 
-.rs-app[data-layout="wide"] .rs-library-page > .rs-list,
-.rs-app[data-layout="wide"] .rs-library-page > .rs-vlist,
-.rs-app[data-layout="wide"] .rs-library-page > .rs-list-foot {
-  max-width: 960px;
+.rs-app[data-layout="wide"] .rs-library-actions__dl {
+  width: 36px;
+  height: 36px;
 }
 
 /* Similar artists: round thumbs in a row. */
@@ -562,14 +560,13 @@
 }
 
 .rs-app[data-layout="wide"] .rs-library-artists-view {
-  padding-right: var(--gutter-wide);
+  padding-right: var(--view-pad);
 }
 
-.rs-app[data-layout="wide"] .rs-library-artists-view > *,
-.rs-app[data-layout="wide"] .rs-library-songs > *,
-.rs-app[data-layout="wide"] .rs-library-playlists-view > * {
-  max-width: 960px;
-}
+/* Wide: a centred 960px column (see .rs-view). */
+.rs-library-artists-view,
+.rs-library-songs,
+.rs-library-playlists-view { --view-max: 960px; }
 
 /* ---- Playlists list -------------------------------------------------- */
 
@@ -634,7 +631,7 @@
   padding-right: 8px;
 }
 
-.rs-library-cand .rs-pill--mini {
+.rs-library-cand .rs-btn--plain {
   flex: none;
 }
 
@@ -677,15 +674,6 @@
   margin-top: var(--sp-4);
 }
 
-.rs-library-pill--danger {
-  background: var(--danger);
-  color: #fff;
-}
-
-@media (hover: hover) {
-  .rs-library-pill--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, #000); }
-}
-
 /* Reduced motion: no lift on tiles. */
 @media (prefers-reduced-motion: reduce) {
   .rs-library-tile__art { transition: none; }
@@ -693,6 +681,3 @@
   .rs-library-tile:active .rs-library-tile__art { transform: none; }
 }
 
-.rs-app[data-layout="wide"] .rs-library-page > .rs-hd {
-  max-width: 960px;
-}

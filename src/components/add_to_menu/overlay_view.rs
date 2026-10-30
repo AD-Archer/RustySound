@@ -213,7 +213,7 @@
                                     }
                                     button {
                                         r#type: "button",
-                                        class: "rs-pill rs-pill--mini",
+                                        class: "rs-btn rs-btn--plain",
                                         title: "Play 12 seconds, then return to your song",
                                         disabled: preview_song_key() == Some(song_key(&song)),
                                         onclick: {
@@ -225,7 +225,7 @@
                                     }
                                     button {
                                         r#type: "button",
-                                        class: "rs-pill rs-pill--mini",
+                                        class: "rs-btn rs-btn--plain",
                                         disabled: busy,
                                         onclick: {
                                             let song = song.clone();

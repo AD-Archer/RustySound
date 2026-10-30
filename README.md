@@ -21,8 +21,8 @@ A lightweight cross-platform music streaming client for Navidrome and Subsonic-c
 - **Playlist management**: Create and organize playlists
 - **Browse and search**: Find music by artist, album, or track
 - **Full controls**: Play, pause, skip, shuffle, repeat, and more
-- **Modern UI**: Clean, responsive Tailwind CSS interface
-- **Customizable themes**: Multiple built-in themes with CSS overrides
+- **Native-feeling UI**: Token-based CSS with compact (phone) and wide (Mac/desktop) layouts
+- **Themes**: Stage, Graphite and Tape, light or dark, plus custom CSS
 
 ## Supported Platforms
 
@@ -357,7 +357,7 @@ rustysound/
 │   └── components.rs      # Component exports
 ├── Cargo.toml             # Rust dependencies
 ├── Dioxus.toml           # Dioxus configuration
-└── tailwind.css          # Tailwind CSS styles
+└── assets/styling/       # tokens.css, base.css, components.css, views/*.css
 ```
 
 ## Contributing
