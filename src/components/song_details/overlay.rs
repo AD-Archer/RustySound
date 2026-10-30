@@ -26,7 +26,6 @@ const CLOSE_ANIMATION_MS: u64 = 240;
 
 #[component]
 pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
-    super::np_probe("overlay");
     let now_playing = use_context::<Signal<Option<Song>>>();
     let layout = use_layout();
     let closing = use_signal(|| false);

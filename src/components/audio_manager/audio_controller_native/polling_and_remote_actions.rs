@@ -38,10 +38,16 @@
                         continue;
                     };
 
-                    let mut effective_duration = *audio_state.peek().duration.peek();
+                    let (mut duration_signal, mut current_time_signal) = {
+                        let state = audio_state.peek();
+                        (state.duration, state.current_time)
+                    };
+                    let mut effective_duration = *duration_signal.peek();
                     if snapshot.duration.is_finite() && snapshot.duration > 0.0 {
                         effective_duration = snapshot.duration;
-                        audio_state.write().duration.set(snapshot.duration);
+                        if (*duration_signal.peek() - snapshot.duration).abs() > 0.01 {
+                            duration_signal.set(snapshot.duration);
+                        }
                     }
 
                     let mut current_time = snapshot.current_time.max(0.0);
@@ -88,8 +94,12 @@
                         }
                     }
 
-                    playback_position.set(current_time);
-                    audio_state.write().current_time.set(current_time);
+                    if *current_time_signal.peek() != current_time {
+                        current_time_signal.set(current_time);
+                    }
+                    if *playback_position.peek() != current_time {
+                        playback_position.set(current_time);
+                    }
 
                     let selected_song_id = now_playing.peek().as_ref().map(|song| song.id.clone());
                     if *audio_state.peek().is_transport_loading.peek() {

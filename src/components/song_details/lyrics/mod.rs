@@ -48,7 +48,6 @@ fn dom_id_for(song: &Song) -> String {
 
 #[component]
 pub(crate) fn LyricsPanel(song: Song) -> Element {
-    super::np_probe("lyrics");
     let source = use_context::<LyricsSource>();
     let settings = use_context::<Signal<AppSettings>>();
     // Only the two settings this panel shows; other settings writes don't

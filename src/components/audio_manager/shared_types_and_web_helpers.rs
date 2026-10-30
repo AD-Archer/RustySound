@@ -106,20 +106,25 @@ impl Default for AudioState {
     }
 }
 
-fn set_transport_loading(mut audio_state: Signal<AudioState>, loading: bool, message: Option<&str>) {
-    let mut state = audio_state.write();
+/// Writes only the inner signals, and only when they change. (Taking
+/// `audio_state.write()` here notified every reader of the outer AudioState
+/// signal on each 200/250 ms poll tick, even when nothing changed.)
+fn set_transport_loading(audio_state: Signal<AudioState>, loading: bool, message: Option<&str>) {
+    let (mut loading_signal, mut label_signal) = {
+        let state = audio_state.peek();
+        (state.is_transport_loading, state.transport_loading_label)
+    };
     let next_label = if loading {
         message.map(|value| value.to_string())
     } else {
         None
     };
-    if *state.is_transport_loading.peek() == loading
-        && *state.transport_loading_label.peek() == next_label
-    {
-        return;
+    if *loading_signal.peek() != loading {
+        loading_signal.set(loading);
     }
-    state.is_transport_loading.set(loading);
-    state.transport_loading_label.set(next_label);
+    if *label_signal.peek() != next_label {
+        label_signal.set(next_label);
+    }
 }
 
 /// Initialize the global audio element once.

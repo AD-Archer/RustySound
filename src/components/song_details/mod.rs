@@ -26,26 +26,3 @@ pub(crate) mod up_next;
 
 pub use overlay::SongDetailsOverlay;
 pub use types::{SongDetailsController, SongDetailsState, SongDetailsTab};
-
-// TEMP perf probe (agent F); removed before the final commit.
-#[allow(dead_code)]
-pub(crate) fn np_probe(name: &str) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let Some(win) = web_sys::window() else { return };
-        let key = wasm_bindgen::JsValue::from_str("__rsProbe");
-        let obj = match js_sys::Reflect::get(&win, &key) {
-            Ok(v) if v.is_object() => v,
-            _ => {
-                let o: wasm_bindgen::JsValue = js_sys::Object::new().into();
-                let _ = js_sys::Reflect::set(&win, &key, &o);
-                o
-            }
-        };
-        let k = wasm_bindgen::JsValue::from_str(name);
-        let cur = js_sys::Reflect::get(&obj, &k).ok().and_then(|v| v.as_f64()).unwrap_or(0.0);
-        let _ = js_sys::Reflect::set(&obj, &k, &wasm_bindgen::JsValue::from_f64(cur + 1.0));
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    let _ = name;
-}
