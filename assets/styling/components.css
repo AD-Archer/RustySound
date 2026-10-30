@@ -325,7 +325,8 @@
   will-change: transform;
 }
 
-.rs-edge-drag--back {
+.rs-edge-drag--back,
+.rs-ptx-lead {
   box-shadow: -1px 0 0 var(--line), -10px 0 28px rgba(0, 0, 0, .18);
 }
 
@@ -336,6 +337,32 @@
 /* Fixed children of the moving page would re-anchor to it and jump. */
 .rs-edge-drag .rs-library-index {
   visibility: hidden;
+}
+
+/* ---- Page transitions (ui/page_transition.js) -------------------------
+   Between routes the script lays a frozen copy of the old page (the ghost)
+   over or under .rs-main and animates the two by transform and opacity:
+   an iOS push / pop on compact, a short fade on wide. The dim layer is the
+   edge swipe's (.rs-edge-under); the leading page's edge shadow is
+   .rs-ptx-lead (above). The script sets position, size and stacking inline
+   and removes everything when the animation ends. */
+
+.rs-ptx-ghost {
+  position: absolute;
+  overflow: hidden;
+  pointer-events: none;
+  background: var(--page);
+  /* Its own layer: nothing inside lays out, paints or positions against
+     the rest of the page (fixed children anchor to it). */
+  contain: strict;
+}
+
+.rs-ptx-ghost__content {
+  position: relative;
+}
+
+.rs-ptx-shade {
+  inset: auto;
 }
 
 /* ==========================================================================

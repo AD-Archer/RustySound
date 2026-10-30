@@ -1,7 +1,7 @@
 //! The stage band at the top of album, artist and playlist pages.
 
 use crate::components::ui::{IconButton, IconButtonSize, Stage};
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{AppView, Icon, Navigation, PageMotion};
 use dioxus::prelude::*;
 
 /// Black stage band: back link and "…" on top, then artwork with a subtle
@@ -39,7 +39,7 @@ pub fn DetailHero(
                         if navigation.can_go_back() {
                             navigation.go_back();
                         } else {
-                            navigation.navigate_to(fallback.clone());
+                            navigation.navigate_with(fallback.clone(), PageMotion::Back);
                         }
                     },
                     Icon { name: "chevron-left".to_string(), class: "rs-ic rs-ic--md".to_string() }
@@ -99,7 +99,7 @@ pub fn DetailHeroSkeleton(back_label: String, fallback: AppView, #[props(default
                         if navigation.can_go_back() {
                             navigation.go_back();
                         } else {
-                            navigation.navigate_to(fallback.clone());
+                            navigation.navigate_with(fallback.clone(), PageMotion::Back);
                         }
                     },
                     Icon { name: "chevron-left".to_string(), class: "rs-ic rs-ic--md".to_string() }

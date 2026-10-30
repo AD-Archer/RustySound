@@ -126,6 +126,10 @@ function install() {
 
   function begin() {
     phase = "drag";
+    // A page transition still playing (page_transition.js) would fight the
+    // drag for the page's transform: end it now. While this gesture is not
+    // idle, that script skips the navigation the swipe commits.
+    if (window.__rsPageTx) window.__rsPageTx.settle();
     if (reduceMotion.matches) return;
     const main = document.querySelector(".rs-main");
     g.main = main;
@@ -190,7 +194,7 @@ function install() {
   function finish(speed) {
     const message = g.dir > 0 ? "back" : "forward";
     if (!g.main) {
-      // Reduced motion: no slide, just go.
+      // Reduced motion: no slide, just go (page_transition.js fades).
       reset();
       send(message);
       return;

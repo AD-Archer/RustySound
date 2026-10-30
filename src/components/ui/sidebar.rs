@@ -2,7 +2,7 @@
 
 use crate::api::ServerConfig;
 use crate::components::ui::WindowDragRegion;
-use crate::components::{AppView, Icon, Navigation, SongDetailsController};
+use crate::components::{AppView, Icon, Navigation, PageMotion, SongDetailsController};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -24,7 +24,8 @@ pub fn Sidebar() -> Element {
         let mut song_details = song_details.clone();
         move |_| {
             song_details.close();
-            navigation.navigate_to(target.clone());
+            // Sidebar items are sections, not deeper pages: cross-fade.
+            navigation.navigate_with(target.clone(), PageMotion::Tab);
         }
     };
 

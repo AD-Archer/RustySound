@@ -4,7 +4,7 @@ use crate::components::ui::env::{
     appearance_attr, platform_name, stage_theme, use_layout_provider,
 };
 use crate::components::ui::{
-    use_main_scroll_provider, EdgeSwipe, LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
+    use_main_scroll_provider, EdgeSwipe, LayoutSignal, MainScroll, PageTransition, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
     TrackMenuHost, TrackMenuRequest, WindowDragRegion,
 };
 use crate::components::{
@@ -1076,6 +1076,8 @@ pub fn AppShell() -> Element {
 
             // Edge swipe back/forward; the script only acts on compact.
             EdgeSwipe {}
+            // Push / pop / fade between pages (Navigation announces each one).
+            PageTransition {}
 
             AddToMenuOverlay { controller: add_menu.clone() }
 

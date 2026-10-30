@@ -13,7 +13,7 @@ use crate::components::ui::{
     use_layout, Button, ButtonSize, EmptyState, IconButton, Menu, MenuGap, MenuItem,
     SectionHeader, TrackRow, VirtualList,
 };
-use crate::components::{AddMenuController, AppView, Navigation, PreviewPlaybackSignal, SeekRequestSignal};
+use crate::components::{AddMenuController, AppView, Navigation, PageMotion, PreviewPlaybackSignal, SeekRequestSignal};
 use crate::db::{load_temporary_queue_snapshots, TemporaryQueueSnapshot};
 use crate::diagnostics::{log_perf, PerfTimer};
 use add_songs::AddSongsSheet;
@@ -192,7 +192,7 @@ pub fn QueueView() -> Element {
                                 if navigation.can_go_back() {
                                     navigation.go_back();
                                 } else {
-                                    navigation.navigate_to(AppView::HomeView {});
+                                    navigation.navigate_with(AppView::HomeView {}, PageMotion::Back);
                                 }
                             },
                         }

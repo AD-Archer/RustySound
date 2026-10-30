@@ -38,6 +38,6 @@ pub use app::*;
 pub use app_view::AppView;
 pub use audio_manager::*;
 pub use icons::*;
-pub use navigation::Navigation;
+pub use navigation::{Navigation, PageMotion};
 pub use song_details::*;
 // Views are accessed via views::ViewName

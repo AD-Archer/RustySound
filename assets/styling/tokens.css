@@ -93,6 +93,11 @@
   --dur-fast: .15s;
   --dur-med: .25s;
   --dur-flow: .45s;
+  /* Page transitions (ui/page_transition.js): the compact push / pop, and
+     the wide layout's fade. --ease-push is iOS's navigation curve. */
+  --ease-push: cubic-bezier(.32, .72, 0, 1);
+  --dur-push: .34s;
+  --dur-page: .2s;
 
   /* ---- Safe areas ------------------------------------------------------ */
   --safe-top: env(safe-area-inset-top, 0px);

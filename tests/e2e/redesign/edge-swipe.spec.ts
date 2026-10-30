@@ -103,6 +103,26 @@ test.describe("edge swipe", () => {
     await expect(page.locator(".rs-edge-under")).toHaveCount(0);
   });
 
+  test("a committed swipe doesn't replay the page transition", async ({ connected: page, browserName }) => {
+    await homeThenLibrary(page);
+    await expect.poll(() => page.evaluate(() => (window as any).__rsPageTx?.state())).toBe("idle");
+    const before = await page.evaluate(() => (window as any).__rsPageTx.last());
+    await page.evaluate(() => {
+      const w = window as any;
+      w.__ghostSeen = false;
+      new MutationObserver(() => {
+        if (document.querySelector(".rs-ptx-ghost")) w.__ghostSeen = true;
+      }).observe(document.body, { childList: true, subtree: true });
+    });
+    const { width, height } = page.viewportSize()!;
+    const y = height * 0.6;
+    await swipe(page, browserName, { x: 6, y }, { x: width * 0.6, y: y + 6 });
+    await expect(page).toHaveURL(/\/$/);
+    await expect.poll(() => gestureState(page)).toBe("idle");
+    expect(await page.evaluate(() => (window as any).__ghostSeen), "no second (button-style) transition").toBe(false);
+    expect(await page.evaluate(() => (window as any).__rsPageTx.last())).toEqual(before);
+  });
+
   test("a fast flick commits a short swipe", async ({ connected: page, browserName }) => {
     await homeThenLibrary(page);
     const y = page.viewportSize()!.height * 0.6;
