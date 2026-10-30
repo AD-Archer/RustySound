@@ -332,6 +332,14 @@
   -webkit-line-clamp: 2;
 }
 
+/* A small line above the title (a mix's "Made by RustySound"). */
+.rs-library-hero__eyebrow {
+  margin-bottom: 4px;
+  font-size: var(--fs-sub);
+  line-height: 20px;
+  color: var(--stage-muted);
+}
+
 .rs-library-hero__sub {
   margin-top: 2px;
   font-size: var(--fs-title);

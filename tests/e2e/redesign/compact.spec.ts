@@ -43,11 +43,12 @@ test.describe("compact layout", () => {
     expect(order.indexOf("shelf-songs")).toBeLessThan(order.indexOf("shelf-albums"));
     expect(order.indexOf("shelf-albums")).toBeLessThan(order.indexOf("shelf-new"));
     if (order.includes("shelf-offserver")) expect(order.at(-1)).toBe("shelf-offserver");
-    // Playlists mix the user's playlists with generated mixes (tagged "Mix").
+    // Playlists mix the user's playlists with generated mixes (marked as RustySound's).
     const playlists = tid(page, "shelf-playlists");
     await expect.poll(() => playlists.locator("[data-testid='mix-card']").count()).toBeGreaterThan(0);
     await expect(playlists.locator("[data-testid='playlist-card']").first()).toBeVisible();
-    await expect(playlists.locator("[data-testid='mix-card']").first().locator(".rs-badge")).toHaveText("Mix");
+    await expect(playlists.locator("[data-testid='mix-card']").first().locator("[data-testid='rs-mark']")).toBeVisible();
+    await expect(playlists.locator("[data-testid='mix-card']").first().locator(".rs-hcard__sub")).toHaveText("RustySound");
     // About 2.3 cards per screen: the third card peeks in at the right edge.
     const width = page.viewportSize()!.width;
     const third = await tid(page, "shelf-new").locator("[role='listitem']").nth(2).boundingBox();

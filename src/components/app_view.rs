@@ -52,6 +52,9 @@ pub enum AppView {
         playlist_id: String,
         server_id: String,
     },
+    /// A generated mix; `mix_id` is its slug (`api::discovery::mix_slug`).
+    #[route("/mix/:mix_id")]
+    MixDetailView { mix_id: String },
 }
 
 #[allow(dead_code)]
@@ -76,5 +79,6 @@ pub fn view_label(view: &AppView) -> &'static str {
         AppView::AlbumDetailView { .. } => "Album",
         AppView::ArtistDetailView { .. } => "Artist",
         AppView::PlaylistDetailView { .. } => "Playlist",
+        AppView::MixDetailView { .. } => "Mix",
     }
 }

@@ -12,7 +12,7 @@ enum Tab {
 
 fn tab_for(view: &AppView) -> Tab {
     match view {
-        AppView::HomeView {} => Tab::Home,
+        AppView::HomeView {} | AppView::MixDetailView { .. } => Tab::Home,
         AppView::SearchView {} => Tab::Search,
         _ => Tab::Library,
     }

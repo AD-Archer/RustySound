@@ -46,7 +46,7 @@ pub fn LibraryView() -> Element {
         ("Artists", "artist", "library-artists", AppView::ArtistsView {}),
         ("Albums", "album", "library-albums", AppView::Albums {}),
         ("Songs", "music", "library-songs", AppView::SongsView {}),
-        ("Favorites", "star", "library-favorites", AppView::FavoritesView {}),
+        ("Favorites", "heart", "library-favorites", AppView::FavoritesView {}),
         ("Downloads", "download", "library-downloads", AppView::DownloadsView {}),
     ];
     let more: [(&str, &str, &str, AppView); 5] = [

@@ -47,6 +47,7 @@ pub use home::{
     load_albums_you_might_like, load_home_playlists, load_new_in_library, load_recently_played,
     load_songs_you_might_like,
 };
+pub use mixes::{mix_id_from_slug, mix_slug};
 pub use rewind::DEFAULT_REWIND_MONTHS;
 pub use types::*;
 
@@ -331,6 +332,65 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
         cache::put(&key, &section);
     }
     section
+}
+
+/// What [`load_mix`] found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MixLookup {
+    Found(Mix),
+    /// No such mix today (not enough data, or an unknown id).
+    Missing,
+    /// No active server to build it from.
+    NoServer,
+}
+
+/// One generated mix by id, for the mix page (`/mix/<slug>`).
+///
+/// Reads today's mixes ([`load_discover_mixes`]: the in-memory memo, then the
+/// disk cache, so it matches Home exactly and costs no requests once Home
+/// has loaded); otherwise regenerates them from the same day seed. An artist
+/// radio that isn't in today's list (a link from another day, or from before
+/// a refresh) is rebuilt from the server and artist ids in its id, with
+/// 1 `getArtist` and 1 `getSimilarSongs2`, then cached for the day.
+pub async fn load_mix(servers: &[ServerConfig], settings: &AppSettings, id: &str) -> MixLookup {
+    let Some(ctx) = LoadContext::new(servers, settings) else {
+        return MixLookup::NoServer;
+    };
+    let section = load_discover_mixes(servers, settings).await;
+    if let Some(mix) = section.mixes.into_iter().find(|m| m.id == id) {
+        return MixLookup::Found(mix);
+    }
+    let Some((server_id, artist_id)) = mixes::radio_parts(id) else {
+        return MixLookup::Missing;
+    };
+    let key = ctx.section_key(&format!("mix:{id}"));
+    if let Some(mix) = cache::get::<Mix>(&key) {
+        return MixLookup::Found(mix);
+    }
+    let Some(server) = ctx.server(server_id) else {
+        return MixLookup::Missing;
+    };
+    let client = NavidromeClient::new(server);
+    let (artist, similar) = futures_util::join!(
+        server_call(client.get_artist(artist_id)),
+        server_call(client.get_similar_songs2(artist_id, 40)),
+    );
+    let (Ok((artist, _)), Ok(songs)) = (artist, similar) else {
+        return MixLookup::Missing;
+    };
+    let seed = ArtistSeed {
+        server_id: server_id.to_string(),
+        artist_id: artist_id.to_string(),
+        name: artist.name.clone(),
+        plays: 0,
+    };
+    match mixes::build_artist_radio(&ctx.mix_context(), &seed, songs) {
+        Some(mix) => {
+            cache::put(&key, &mix);
+            MixLookup::Found(mix)
+        }
+        None => MixLookup::Missing,
+    }
 }
 
 /// Haven't heard in a while: heavily played albums (≥ 5 plays, ≤ 12) and songs

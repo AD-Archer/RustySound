@@ -61,12 +61,47 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
-        if item_type == "playlist" {
-            self.invalidate_playlist_cache();
-        } else {
-            self.invalidate_favorites_cache();
-        }
+        self.invalidate_after_star(id, item_type);
         Ok(())
+    }
+
+    /// Stars (`star = true`) or unstars many songs: one `star`/`unstar` call
+    /// per 50 ids (Subsonic takes repeated `id` parameters). Stops at the
+    /// first failure; returns how many songs were updated before it.
+    pub async fn star_songs(&self, ids: &[String], star: bool) -> Result<usize, (usize, String)> {
+        let endpoint = if star { "star" } else { "unstar" };
+        let mut done = 0usize;
+        for chunk in ids.chunks(50) {
+            let params: Vec<(String, String)> =
+                chunk.iter().map(|id| ("id".to_string(), id.clone())).collect();
+            let url = self.build_url_owned(endpoint, params);
+            let result: Result<(), String> = async {
+                let response = HTTP_CLIENT
+                    .get(&url)
+                    .send()
+                    .await
+                    .map_err(|e| e.to_string())?;
+                let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+                if json.subsonic_response.status != "ok" {
+                    return Err(json
+                        .subsonic_response
+                        .error
+                        .map(|e| e.message)
+                        .unwrap_or("Unknown error".to_string()));
+                }
+                Ok(())
+            }
+            .await;
+            if let Err(err) = result {
+                if done > 0 {
+                    self.invalidate_after_star("", "song");
+                }
+                return Err((done, err));
+            }
+            done += chunk.len();
+        }
+        self.invalidate_after_star("", "song");
+        Ok(done)
     }
 
     #[allow(dead_code)]
@@ -182,11 +217,7 @@ impl NavidromeClient {
                 .unwrap_or("Unknown error".to_string()));
         }
 
-        if item_type == "playlist" {
-            self.invalidate_playlist_cache();
-        } else {
-            self.invalidate_favorites_cache();
-        }
+        self.invalidate_after_star(id, item_type);
         Ok(())
     }
 
