@@ -4841,7 +4841,7 @@ dependencies = [
  "objc",
  "once_cell",
  "png 0.17.16",
- "rand 0.8.8",
+ "rand 0.10.3",
  "reqwest",
  "rusqlite",
  "serde",
