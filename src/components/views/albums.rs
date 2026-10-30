@@ -1,10 +1,10 @@
-//! Albums: a cover grid (or Cover Flow on wide windows) with one sort menu,
+//! Albums: a cover grid (or Cover Flow on wide windows) with one sort and view menu,
 //! a debounced search and offset paging that appends as you scroll.
 
 use crate::api::*;
 use crate::components::ui::{
-    cover_art_url, use_layout, Menu, MenuItem, CoverFlow, CoverFlowItem, EmptyState,
-    SearchField, Segmented, Stage,
+    cover_art_url, use_layout, CoverFlow, CoverFlowItem, EmptyState, Menu, MenuGap, MenuItem,
+    SearchField, Stage,
 };
 use crate::components::views::library::shared::{
     use_servers,
@@ -160,6 +160,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
     let offset = (pager.offset)();
     let searching = !query.read().is_empty();
     let current_sort = sort();
+    let sortable = genre.is_none() && !searching;
 
     let flow_items: Vec<CoverFlowItem> = if show_flow {
         let servers_now = servers.read();
@@ -201,18 +202,9 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         div { class: "rs-view rs-view--full rs-library-albums", "data-testid": "albums",
             div { class: "rs-page-head",
                 h1 { class: "rs-large-title", "{title}" }
-                div { class: "rs-library-head-tools",
-                    if wide {
-                        Segmented {
-                            options: vec!["Grid".to_string(), "Cover Flow".to_string()],
-                            selected: if flow_view() { 1 } else { 0 },
-                            inline: true,
-                            label: "Album view".to_string(),
-                            testid: "albums-view-toggle".to_string(),
-                            on_select: move |i: usize| flow_view.set(i == 1),
-                        }
-                    }
-                    if genre.is_none() && !searching {
+                // One menu for sort and, on wide windows, Grid / Cover Flow.
+                if sortable || wide {
+                    div { class: "rs-library-head-tools",
                         button {
                             r#type: "button",
                             class: "rs-library-menubtn",
@@ -222,8 +214,13 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                                 let p = evt.client_coordinates();
                                 menu_at.set(Some(Some((p.x - 200.0, p.y + 16.0))));
                             },
-                            span { class: "rs-library-menubtn__hint", "Sort" }
-                            "{sort_label(&current_sort)}"
+                            if sortable {
+                                span { class: "rs-library-menubtn__hint", "Sort" }
+                                "{sort_label(&current_sort)}"
+                            } else {
+                                span { class: "rs-library-menubtn__hint", "View" }
+                                if flow_view() { "Cover Flow" } else { "Grid" }
+                            }
                             Icon { name: "chevron-down".to_string(), class: "rs-ic rs-ic--sm".to_string() }
                         }
                     }
@@ -302,21 +299,47 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
 
             if let Some(anchor) = menu_at() {
                 Menu {
-                    label: "Sort albums".to_string(),
-                    title: "Sort by".to_string(),
+                    label: "Sort and view albums".to_string(),
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     testid: "albums-sort-menu".to_string(),
-                    for (value, label) in SORTS {
+                    if sortable {
+                        div { class: "rs-menu__note", "Sort by" }
+                        for (value, label) in SORTS {
+                            MenuItem {
+                                key: "{value}",
+                                label: label.to_string(),
+                                checked: current_sort == value,
+                                onclick: move |_| {
+                                    menu_at.set(None);
+                                    if sort.peek().as_str() != value {
+                                        sort.set(value.to_string());
+                                    }
+                                },
+                            }
+                        }
+                    }
+                    if wide {
+                        if sortable {
+                            MenuGap {}
+                        }
+                        div { class: "rs-menu__note", "View as" }
                         MenuItem {
-                            key: "{value}",
-                            label: label.to_string(),
-                            checked: current_sort == value,
+                            label: "Grid".to_string(),
+                            checked: !flow_view(),
+                            testid: "albums-view-grid".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
-                                if sort.peek().as_str() != value {
-                                    sort.set(value.to_string());
-                                }
+                                flow_view.set(false);
+                            },
+                        }
+                        MenuItem {
+                            label: "Cover Flow".to_string(),
+                            checked: flow_view(),
+                            testid: "albums-view-flow".to_string(),
+                            onclick: move |_| {
+                                menu_at.set(None);
+                                flow_view.set(true);
                             },
                         }
                     }

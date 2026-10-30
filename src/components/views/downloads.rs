@@ -37,7 +37,7 @@ mod native {
     use crate::components::audio_manager::normalize_manual_queue_songs;
     use crate::components::ui::{
         use_long_press, Menu, Artwork, EmptyState, IconButton, InsetList, ListInset,
-        ListRow, MenuAction, Button, ButtonVariant, SectionHeader, Segmented, Sheet, Skeleton,
+        ListRow, MenuAction, MenuGap, MenuItem, Button, ButtonSize, ButtonVariant, SectionHeader, Segmented, Sheet, Skeleton,
         TrackMenuController, VirtualList,
     };
     use crate::components::{
@@ -449,7 +449,7 @@ mod native {
         };
 
         let run_action = move |key: String| {
-            if *store.busy.peek() && key != "settings" && key != "clear" {
+            if *store.busy.peek() {
                 return;
             }
             let mut busy = store.busy;
@@ -513,11 +513,6 @@ mod native {
                         store.reload();
                     });
                 }
-                "clear" => {
-                    let mut pending = store.pending;
-                    pending.set(Some(PendingDelete::ClearAll));
-                }
-                "settings" => navigation.navigate_to(AppView::SettingsView {}),
                 _ => {}
             }
         };
@@ -565,20 +560,16 @@ mod native {
                     },
                 }
 
-                InsetList { inset: ListInset::Text, label: "Download settings".to_string(),
-                    SwitchRow {
-                        title: "Downloads".to_string(),
-                        subtitle: "Allow saving songs for offline listening".to_string(),
-                        on: downloads_on,
-                        testid: "downloads-toggle".to_string(),
-                        on_toggle: move |_| toggle(false),
-                    }
-                    SwitchRow {
-                        title: "Auto-Download".to_string(),
-                        subtitle: "Fetch favorite songs and recent albums and playlists".to_string(),
-                        on: auto_on,
-                        testid: "auto-download-toggle".to_string(),
-                        on_toggle: move |_| toggle(true),
+                // The switches live in the "…" menu; only "off" needs saying here.
+                if !downloads_on {
+                    div { class: "rs-personal-off", role: "note", "data-testid": "downloads-off",
+                        p { "Downloads are off, so nothing new is saved for offline listening." }
+                        Button {
+                            label: "Turn On Downloads".to_string(),
+                            icon: "download".to_string(),
+                            size: ButtonSize::Small,
+                            onclick: move |_| toggle(false),
+                        }
                     }
                 }
                 p {
@@ -633,11 +624,49 @@ mod native {
                         MenuAction::new("run", "Run Auto-Download Now", "download").disabled(busy),
                         MenuAction::new("refresh", "Refresh Albums & Playlists", "refresh-cw").disabled(busy),
                         MenuAction::new("cache", "Refresh Lyrics & Artwork", "lyrics").disabled(busy),
-                        MenuAction::new("settings", "Download Settings", "settings"),
-                        MenuAction::new("clear", "Clear All Downloads…", "trash").danger(),
                     ],
                     on_close: move |_| header_menu.set(None),
                     on_action: run_action,
+                    MenuGap {}
+                    MenuItem {
+                        label: "Allow Downloads".to_string(),
+                        checked: downloads_on,
+                        testid: "downloads-toggle".to_string(),
+                        onclick: move |_| {
+                            header_menu.set(None);
+                            toggle(false);
+                        },
+                    }
+                    MenuItem {
+                        label: "Auto-Download".to_string(),
+                        checked: auto_on,
+                        testid: "auto-download-toggle".to_string(),
+                        onclick: move |_| {
+                            header_menu.set(None);
+                            toggle(true);
+                        },
+                    }
+                    MenuItem {
+                        label: "Download Settings…".to_string(),
+                        icon: "settings".to_string(),
+                        testid: "downloads-actions-settings".to_string(),
+                        onclick: move |_| {
+                            header_menu.set(None);
+                            navigation.navigate_to(AppView::SettingsView {});
+                        },
+                    }
+                    MenuGap {}
+                    MenuItem {
+                        label: "Clear All Downloads…".to_string(),
+                        icon: "trash".to_string(),
+                        danger: true,
+                        testid: "downloads-actions-clear".to_string(),
+                        onclick: move |_| {
+                            header_menu.set(None);
+                            let mut pending = store.pending;
+                            pending.set(Some(PendingDelete::ClearAll));
+                        },
+                    }
                 }
             }
             // Later in the DOM paints on top: sheet, then its menus, then confirm.
@@ -698,37 +727,6 @@ mod native {
                     span { b { "{albums}" } if albums == 1 { " album" } else { " albums" } }
                     span { b { "{playlists}" } if playlists == 1 { " playlist" } else { " playlists" } }
                     span { "Limit {limit_songs}" }
-                }
-            }
-        }
-    }
-
-    #[component]
-    fn SwitchRow(
-        title: String,
-        subtitle: String,
-        on: bool,
-        testid: String,
-        on_toggle: EventHandler<()>,
-    ) -> Element {
-        rsx! {
-            li {
-                button {
-                    r#type: "button",
-                    class: "rs-row",
-                    role: "switch",
-                    aria_checked: if on { "true" } else { "false" },
-                    "data-testid": "{testid}",
-                    onclick: move |_| on_toggle.call(()),
-                    span { class: "rs-row__meta",
-                        span { class: "rs-row__title", span { "{title}" } }
-                        span { class: "rs-row__sub", style: "display:block", "{subtitle}" }
-                    }
-                    span {
-                        class: "rs-personal-switch",
-                        class: if on { "rs-personal-switch--on" },
-                        aria_hidden: "true",
-                    }
                 }
             }
         }

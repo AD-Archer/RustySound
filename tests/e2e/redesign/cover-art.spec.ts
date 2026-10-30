@@ -29,9 +29,11 @@ test.describe("cover art", () => {
   });
 
   test("Albums Cover Flow shows the centre and side covers within 4 s", async ({ connected: page }) => {
-    test.skip(isCompact(page), "Cover Flow view toggle is wide-only");
+    test.skip(isCompact(page), "Cover Flow view is wide-only");
     await gotoReady(page, "/albums");
-    await page.getByRole("radio", { name: "Cover Flow" }).or(page.getByRole("button", { name: "Cover Flow" })).first().click();
+    // Grid / Cover Flow lives in the albums sort-and-view menu.
+    await tid(page, "albums-sort").click();
+    await tid(page, "albums-sort-menu").getByRole("menuitemradio", { name: "Cover Flow" }).click();
     await expect(tid(page, "coverflow")).toBeVisible();
     await expect.poll(() => loadedCovers(page, "[data-testid='coverflow']"), { timeout: 4_000 }).toBeGreaterThanOrEqual(3);
   });

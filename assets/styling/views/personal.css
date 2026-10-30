@@ -251,50 +251,24 @@
   color: var(--ink);
 }
 
-/* iOS-style switch inside a list row. */
-.rs-personal-switch {
-  position: relative;
-  width: 51px;
-  height: 31px;
-  flex: none;
-  border-radius: 16px;
-  background: var(--seg-trough);
-  transition: background-color var(--dur-fast);
+/* Downloads switched off: one line and the way back on. */
+.rs-personal-off {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3) var(--sp-5);
+  margin-bottom: var(--sp-5);
+  padding: 12px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
 }
 
-.rs-personal-switch::after {
-  content: "";
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 27px;
-  height: 27px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 6px rgba(0, 0, 0, .18), 0 0 0 .5px rgba(0, 0, 0, .06);
-  transition: transform var(--dur-fast) var(--ease-out);
-}
-
-.rs-personal-switch--on {
-  background: var(--accent);
-}
-
-.rs-personal-switch--on::after {
-  transform: translateX(20px);
-}
-
-.rs-app[data-layout="wide"] .rs-personal-switch {
-  width: 38px;
-  height: 22px;
-}
-
-.rs-app[data-layout="wide"] .rs-personal-switch::after {
-  width: 18px;
-  height: 18px;
-}
-
-.rs-app[data-layout="wide"] .rs-personal-switch--on::after {
-  transform: translateX(16px);
+.rs-personal-off p {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-sub);
 }
 
 .rs-personal-status {

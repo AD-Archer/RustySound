@@ -282,6 +282,10 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         onclick: on_shuffle,
                     }
                 }
+                // Download progress stays visible after the menu closes.
+                if let Some(detail) = dl_detail.clone() {
+                    p { class: "rs-library-status", role: "status", "Downloading {detail}…" }
+                }
                 if let Some(text) = status() {
                     p { class: "rs-library-status", role: "status", "{text}" }
                 }

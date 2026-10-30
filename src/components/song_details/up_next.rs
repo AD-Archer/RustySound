@@ -5,7 +5,8 @@ use super::types::SongDetailsController;
 use crate::api::Song;
 use crate::components::audio_manager::generate_queue_extension_from_seed;
 use crate::components::ui::{
-    Artwork, EmptyState, IconButton, IconButtonSize, InsetList, Button, ButtonVariant, TrackRow,
+    Artwork, Button, ButtonVariant, EmptyState, IconButton, IconButtonSize, InsetList, Menu,
+    MenuGap, MenuItem, TrackRow,
 };
 use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
 use dioxus::prelude::*;
@@ -113,6 +114,8 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
     let mut controller = use_context::<SongDetailsController>();
     let mut editing = use_signal(|| false);
     let busy = use_signal(|| false);
+    let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
+    let mut confirm_clear = use_signal(|| false);
 
     if is_live_song(&song) {
         return rsx! {
@@ -146,31 +149,40 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
         move |_| spawn_quick_create(player, seed.clone(), busy)
     };
 
+    let mut open_queue = move || {
+        menu_at.set(None);
+        controller.close();
+        navigation.navigate_to(AppView::QueueView {});
+    };
+
     rsx! {
         section { class: "rs-player-upnext", "data-testid": "queue-list", aria_label: "Up Next",
             div { class: "rs-player-upnext__head",
                 p { class: "rs-player-upnext__count",
                     if remaining == 1 { "1 song" } else { "{remaining} songs" }
+                    if busy() {
+                        " · adding similar songs…"
+                    }
                 }
-                if !upcoming.is_empty() {
+                // Reordering keeps a visible way out; otherwise everything
+                // lives in the "…" menu.
+                if editing_now {
                     Button {
-                        label: if editing_now { "Done".to_string() } else { "Edit".to_string() },
+                        label: "Done".to_string(),
                         variant: ButtonVariant::Plain,
-                        testid: "up-next-edit".to_string(),
-                        onclick: move |_| editing.toggle(),
+                        testid: "up-next-done".to_string(),
+                        onclick: move |_| editing.set(false),
                     }
-                    Button {
-                        label: "Save as Playlist".to_string(),
-                        variant: ButtonVariant::Plain,
-                        onclick: move |_| save_queue_as_playlist(player, add_menu.clone()),
-                    }
-                    Button {
-                        label: "Clear".to_string(),
-                        variant: ButtonVariant::Plain,
-                        testid: "up-next-clear".to_string(),
-                        onclick: move |_| {
-                            editing.set(false);
-                            player.clear_queue();
+                } else {
+                    IconButton {
+                        icon: "more-horizontal".to_string(),
+                        label: "Up Next options".to_string(),
+                        quiet: true,
+                        size: IconButtonSize::Small,
+                        testid: "up-next-more".to_string(),
+                        onclick: move |evt: MouseEvent| {
+                            let p = evt.client_coordinates();
+                            menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                         },
                     }
                 }
@@ -207,23 +219,97 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                         }
                     }
                 }
-                div { class: "rs-player-upnext__foot",
-                    if remaining > upcoming.len() {
+                if remaining > upcoming.len() {
+                    div { class: "rs-player-upnext__foot",
                         span { "Showing the next {upcoming.len()} of {remaining}." }
+                        Button {
+                            label: "See All".to_string(),
+                            variant: ButtonVariant::Plain,
+                            onclick: move |_| open_queue(),
+                        }
                     }
-                    Button {
-                        label: if busy() { "Adding…".to_string() } else { "Quick Create".to_string() },
+                }
+            }
+        }
+        // Modals opened from the panel: their Escape must not also close Now Playing.
+        div { class: "rs-player-modals", onkeydown: move |evt| evt.stop_propagation(),
+            if let Some(anchor) = menu_at() {
+                Menu {
+                    label: "Up Next options".to_string(),
+                    anchor,
+                    testid: "up-next-menu".to_string(),
+                    on_close: move |_| menu_at.set(None),
+                    if !upcoming.is_empty() {
+                        MenuItem {
+                            label: "Edit".to_string(),
+                            icon: "edit".to_string(),
+                            testid: "up-next-edit".to_string(),
+                            onclick: move |_| {
+                                menu_at.set(None);
+                                editing.set(true);
+                            },
+                        }
+                    }
+                    MenuItem {
+                        label: "Quick Create".to_string(),
                         icon: "plus".to_string(),
-                        variant: ButtonVariant::Plain,
+                        detail: if busy() { Some("Adding…".to_string()) } else { None },
                         disabled: busy(),
-                        onclick: quick_create,
+                        testid: "up-next-quick-create".to_string(),
+                        onclick: {
+                            let quick_create = quick_create.clone();
+                            move |evt| {
+                                menu_at.set(None);
+                                quick_create(evt);
+                            }
+                        },
                     }
-                    Button {
+                    if !upcoming.is_empty() {
+                        MenuItem {
+                            label: "Save as Playlist…".to_string(),
+                            icon: "playlist".to_string(),
+                            testid: "up-next-save".to_string(),
+                            onclick: move |_| {
+                                menu_at.set(None);
+                                save_queue_as_playlist(player, add_menu.clone());
+                            },
+                        }
+                    }
+                    MenuItem {
                         label: "Open Full Queue".to_string(),
-                        variant: ButtonVariant::Plain,
+                        icon: "queue".to_string(),
+                        testid: "up-next-open-queue".to_string(),
+                        onclick: move |_| open_queue(),
+                    }
+                    if !upcoming.is_empty() {
+                        MenuGap {}
+                        MenuItem {
+                            label: "Clear Up Next…".to_string(),
+                            icon: "trash".to_string(),
+                            danger: true,
+                            testid: "up-next-menu-clear".to_string(),
+                            onclick: move |_| {
+                                menu_at.set(None);
+                                confirm_clear.set(true);
+                            },
+                        }
+                    }
+                }
+            }
+            if confirm_clear() {
+                Menu {
+                    message: "Clear Up Next? The song that's playing keeps playing; everything after it is removed.".to_string(),
+                    label: "Clear Up Next".to_string(),
+                    testid: "up-next-clear-confirm".to_string(),
+                    on_close: move |_| confirm_clear.set(false),
+                    MenuItem {
+                        label: "Clear Up Next".to_string(),
+                        danger: true,
+                        testid: "up-next-clear".to_string(),
                         onclick: move |_| {
-                            controller.close();
-                            navigation.navigate_to(AppView::QueueView {});
+                            confirm_clear.set(false);
+                            editing.set(false);
+                            player.clear_queue();
                         },
                     }
                 }

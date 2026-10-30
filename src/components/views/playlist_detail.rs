@@ -1,4 +1,4 @@
-//! Playlist page: stage band with the cover, Play / Shuffle / Download, a
+//! Playlist page: stage band with the cover, Play / Shuffle (Download is in "…"), a
 //! windowed track list (playlists run to thousands of songs), and an edit
 //! mode with Move Up / Down, Remove, Rename, Delete and an Add Songs sheet.
 
@@ -7,7 +7,7 @@ mod edit_row;
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, Menu, MenuGap, MenuItem, Artwork, EmptyState, IconButton,
+    use_layout, Menu, MenuGap, MenuItem, Artwork, EmptyState,
     Button, ButtonVariant, TrackRow, VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
@@ -379,20 +379,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             testid: "playlist-shuffle".to_string(),
                             onclick: shuffle_all,
                         }
-                        if can_download {
-                            IconButton {
-                                icon: if all_downloaded { "downloaded".to_string() } else { "download".to_string() },
-                                label: if dl_busy() { "Downloading playlist".to_string() } else if all_downloaded { "Playlist downloaded".to_string() } else { "Download playlist".to_string() },
-                                disabled: dl_busy() || count == 0,
-                                pressed: all_downloaded,
-                                class: "rs-library-actions__dl".to_string(),
-                                testid: "playlist-download".to_string(),
-                                onclick: {
-                                    let mut download = download.clone();
-                                    move |evt| download(evt)
-                                },
-                            }
-                        }
                     }
                 }
                 if let Some(detail) = dl_detail.clone() {
@@ -513,10 +499,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     }
                     if can_download {
                         MenuItem {
-                            label: if dl_busy() { "Downloading…".to_string() } else { "Download".to_string() },
-                            icon: "download".to_string(),
+                            label: if dl_busy() { "Downloading…".to_string() } else if all_downloaded { "Download Again".to_string() } else { "Download".to_string() },
+                            icon: if all_downloaded { "downloaded".to_string() } else { "download".to_string() },
                             detail: dl_detail.clone(),
                             disabled: dl_busy() || count == 0,
+                            testid: "playlist-download".to_string(),
                             onclick: download.clone(),
                         }
                     }

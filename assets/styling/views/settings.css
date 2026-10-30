@@ -359,6 +359,45 @@
   margin-left: var(--sp-2);
 }
 
+/* The tappable part of a server row (opens the edit sheet). */
+.rs-settings-server__open {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--sp-3);
+  margin: calc(-1 * var(--sp-3)) 0;
+  padding: var(--sp-3) 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-settings-server__open .rs-settings-server__dot {
+  align-self: flex-start;
+}
+
+.rs-settings-server__chev {
+  flex: none;
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  .rs-settings-server__open:hover .rs-row__title { color: var(--accent); }
+}
+
+/* "Delete Server…" under the edit form, set apart from Save. */
+.rs-settings-form__delete {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-6);
+  padding-top: var(--sp-4);
+  border-top: 1px solid var(--line);
+}
+
 /* ==========================================================================
    Forms (server sheet, Discovery accounts)
    ========================================================================== */
@@ -808,4 +847,29 @@
   .rs-firstrun__inner,
   .rs-settings-toast { animation: none; }
   .rs-settings-meter__fill { transition: none; }
+}
+
+/* A whole-row action (Quick Scan): trailing accent label instead of a button. */
+.rs-settings-row--tap {
+  width: 100%;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-settings-row--tap:disabled {
+  cursor: default;
+}
+
+.rs-settings-row__action {
+  flex: none;
+  color: var(--accent);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-settings-row--tap:disabled .rs-settings-row__action {
+  color: var(--muted);
 }
