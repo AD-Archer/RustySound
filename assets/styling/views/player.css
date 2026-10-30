@@ -154,7 +154,7 @@
   padding: 8px 28px 24px 12px;
 }
 
-/* ---- Cover Flow at rest: the queue waits to the right ----------------- */
+/* ---- Cover Flow at rest: played songs to the left, the queue to the right */
 
 .rs-player-flow {
   position: relative;
@@ -162,6 +162,12 @@
   height: calc(var(--np-cover) * 1.18);
   margin-top: 12px;
   perspective: 900px;
+}
+
+/* Compact: the side covers run off both screen edges; never let them scroll
+   the sheet sideways. */
+.rs-player-np--compact .rs-player-flow {
+  overflow-x: clip;
 }
 
 .rs-player-flow--wide {
@@ -196,6 +202,14 @@
     translateZ(calc(var(--np-cover) * -0.35))
     rotateY(-62deg);
   transition: transform var(--dur-flow) var(--ease-out);
+}
+
+/* Already played: the mirror image, waiting to the left. */
+.rs-app .rs-player-flow__side--prev {
+  transform:
+    translateX(calc(var(--np-cover) * -1 * (0.62 + 0.26 * var(--i))))
+    translateZ(calc(var(--np-cover) * -0.35))
+    rotateY(62deg);
 }
 
 .rs-app .rs-player-flow__side::after {
@@ -464,6 +478,25 @@
   font-size: var(--fs-sub);
   color: var(--stage-muted);
   font-variant-numeric: tabular-nums;
+}
+
+/* Section labels (Played, Now Playing, Up Next), styled like Settings' group headings. */
+.rs-player-upnext__label {
+  margin: var(--sp-6) 12px var(--sp-3);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-regular);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--stage-muted);
+}
+
+.rs-player-upnext__label:first-of-type {
+  margin-top: 0;
+}
+
+/* Already played: present but quieter than what's to come. */
+.rs-player-upnext__history {
+  opacity: .62;
 }
 
 .rs-player-upnext__foot {

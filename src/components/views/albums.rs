@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    cover_art_url, use_layout, CoverFlow, CoverFlowItem, EmptyState, Menu, MenuGap, MenuItem,
+    cover_art_src, use_layout, CoverFlow, CoverFlowItem, EmptyState, Menu, MenuGap, MenuItem,
     SearchField, Stage,
 };
 use crate::components::views::library::shared::{
@@ -15,7 +15,14 @@ use crate::components::views::library::tiles::AlbumGrid;
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
-const PAGE: u32 = 48;
+const PAGE: u32 = 96;
+/// Placeholder tiles after the loaded ones while the next page is on its way.
+const GHOST_TILES: usize = 12;
+/// Ask for the next page this far (px, ghosts included) before the grid ends:
+/// about one page of tiles (two columns on a phone, six or more on wide), so a
+/// fling rarely reaches tiles that aren't there.
+const PREFETCH_PX: u32 = 9000;
+const PREFETCH_PX_WIDE: u32 = 4000;
 
 const SORTS: [(&str, &str); 5] = [
     ("recent", "Recently Played"),
@@ -171,7 +178,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                 title: album.name.clone(),
                 subtitle: album.artist.clone(),
                 reason: album.year.filter(|y| *y > 0).map(|y| y.to_string()).unwrap_or_default(),
-                art: cover_art_url(
+                art: cover_art_src(
                     &servers_now,
                     &album.server_id,
                     album.cover_art.as_deref().or(Some(album.id.as_str())),
@@ -286,9 +293,17 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                     on_retry: move |_| load_more(),
                 }
             } else {
-                AlbumGrid { albums: grid_albums, label: title.clone() }
+                AlbumGrid {
+                    albums: grid_albums,
+                    label: title.clone(),
+                    ghosts: if !done && error.is_none() { GHOST_TILES } else { 0 },
+                }
                 if !done && error.is_none() {
-                    LoadMore { key: "{offset}", on_near_end: move |_| load_more() }
+                    LoadMore {
+                        key: "{offset}",
+                        lead_px: if wide { PREFETCH_PX_WIDE } else { PREFETCH_PX },
+                        on_near_end: move |_| load_more(),
+                    }
                 }
                 PageFoot {
                     loading,

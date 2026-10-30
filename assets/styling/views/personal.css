@@ -189,9 +189,21 @@
 
 /* Infinite-scroll sentinel and its spinner. */
 .rs-personal-more {
+  position: relative;
   display: grid;
   place-items: center;
   min-height: 56px;
+}
+
+/* Reaches a few screens up from the spinner, so the next page is asked for
+   before a fast scroll gets to the end. */
+.rs-personal-more__trigger {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 3000px;
+  pointer-events: none;
 }
 
 /* ---- Downloads ---------------------------------------------------------- */

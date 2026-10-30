@@ -43,7 +43,7 @@ pub use cover_flow::{CoverFlow, CoverFlowItem};
 pub use edge_swipe::EdgeSwipe;
 pub use empty_state::EmptyState;
 pub use env::{
-    cover_art_url, format_clock, use_layout, Layout, LayoutSignal, COMPACT_MAX_WIDTH,
+    cover_art_src, cover_art_url, format_clock, use_layout, Layout, LayoutSignal, COMPACT_MAX_WIDTH,
 };
 pub use icon_button::{IconButton, IconButtonSize};
 pub use inset_list::{InsetList, ListInset};
@@ -64,7 +64,7 @@ pub use tab_bar::TabBar;
 pub use track_menu::{SongChange, TrackMenu, TrackMenuController, TrackMenuRequest};
 pub use track_menu_host::TrackMenuHost;
 pub use track_row::TrackRow;
-pub use virtual_list::{MainScroll, VirtualList};
+pub use virtual_list::{use_main_scroll_provider, MainScroll, VirtualList};
 pub use window_drag::WindowDragRegion;
 
 // The player bar lives with the rest of the player code; re-exported so the

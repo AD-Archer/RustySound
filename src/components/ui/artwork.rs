@@ -1,7 +1,7 @@
 //! Cover art with fixed size, lazy loading and a placeholder.
 
 use crate::api::ServerConfig;
-use crate::components::ui::env::cover_art_url;
+use crate::components::ui::env::cover_art_src;
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -36,7 +36,7 @@ pub fn Artwork(
     let url = match src.clone().filter(|value| !value.is_empty()) {
         Some(explicit) => Some(explicit),
         None => servers.and_then(|servers| {
-            cover_art_url(
+            cover_art_src(
                 &servers.read(),
                 &server_id,
                 cover_art.as_deref(),

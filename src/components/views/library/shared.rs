@@ -213,18 +213,32 @@ pub fn use_downloaded_keys(songs: Signal<Vec<Song>>) -> Signal<HashSet<String>> 
     let mut keys = use_signal(HashSet::<String>::new);
     let menu = use_context::<TrackMenuController>();
     use_effect(move || {
-        let list = songs.read().clone();
-        if cfg!(target_arch = "wasm32") || list.is_empty() {
+        // Ids only (no whole-list clone). One listing of the download folder,
+        // off the main thread: this reruns after every page a paged list
+        // appends, and checking each song with file calls on the main thread
+        // stalled scrolling for longer the further down the list you were.
+        let ids: Vec<(String, String)> = songs
+            .read()
+            .iter()
+            .map(|song| (song.server_id.clone(), song.id.clone()))
+            .collect();
+        if cfg!(target_arch = "wasm32") || ids.is_empty() {
             return;
         }
         spawn(async move {
-            // Yield first so the list paints before the file checks run.
+            // Yield first so the list paints before the folder is read.
             sleep_ms(0).await;
-            let found: HashSet<String> = list
-                .iter()
-                .filter(|song| crate::offline_audio::is_song_downloaded(song))
-                .map(song_key)
-                .collect();
+            #[cfg(not(target_arch = "wasm32"))]
+            let found: HashSet<String> = tokio::task::spawn_blocking(move || {
+                crate::offline_audio::downloaded_song_keys(&ids)
+            })
+            .await
+            .unwrap_or_default();
+            #[cfg(target_arch = "wasm32")]
+            let found: HashSet<String> = {
+                let _ = ids;
+                HashSet::new()
+            };
             if *keys.peek() != found {
                 keys.set(found);
             }

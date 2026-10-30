@@ -287,6 +287,9 @@ function install() {
   document.addEventListener("touchcancel", onEnd, passive);
   window.addEventListener("popstate", onExternalNav);
   window.addEventListener("blur", () => phase === "drag" && springBack());
+  // Leaving the app mid-swipe may never deliver touchend/touchcancel; don't
+  // come back to a half-moved page or a gesture that is still armed.
+  document.addEventListener("visibilitychange", () => document.hidden && onExternalNav());
 
   return {
     setSender(fn) {

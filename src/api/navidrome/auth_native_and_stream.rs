@@ -368,6 +368,33 @@ impl NavidromeClient {
         remote_url
     }
 
+    /// Cover URL for an `<img>` in the UI. Cheap enough to call while rendering:
+    /// native webview builds get the local cover route (served and cached off the
+    /// main thread, see `offline_art::use_cover_art_handler`), never a data URL;
+    /// the web build gets the server URL.
+    pub fn get_cover_art_display_url(&self, cover_art_id: &str, size: u32) -> String {
+        #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+        {
+            let requested_size = size.min(COVER_ART_MAX_PX);
+            let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
+            if normalized_cover_art_id.is_empty() {
+                return String::new();
+            }
+            let remote_url =
+                self.build_cover_art_network_url(&normalized_cover_art_id, requested_size);
+            crate::offline_art::cover_art_display_url(
+                &self.server.id,
+                &normalized_cover_art_id,
+                requested_size,
+                &remote_url,
+            )
+        }
+        #[cfg(not(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile"))))]
+        {
+            self.get_cover_art_url(cover_art_id, size)
+        }
+    }
+
     fn build_cover_art_network_url(&self, cover_art_id: &str, requested_size: u32) -> String {
         let auth = self.auth_params_for_binary();
         format!(

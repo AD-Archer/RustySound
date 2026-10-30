@@ -4,7 +4,7 @@ use crate::components::ui::env::{
     appearance_attr, platform_name, stage_theme, use_layout_provider,
 };
 use crate::components::ui::{
-    EdgeSwipe, LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
+    use_main_scroll_provider, EdgeSwipe, LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
     TrackMenuHost, TrackMenuRequest, WindowDragRegion,
 };
 use crate::components::{
@@ -279,14 +279,12 @@ pub fn AppShell() -> Element {
     let track_menu_request = use_signal(|| None::<TrackMenuRequest>);
     let track_menu_change = use_signal(|| None::<SongChange>);
     use_context_provider(|| TrackMenuController::new(track_menu_request, track_menu_change));
-    let mut main_scroll_top = use_signal(|| 0.0f64);
-    let mut main_scroll_height = use_signal(|| 0.0f64);
-    let mut main_viewport_top = use_signal(|| 0.0f64);
-    use_context_provider(|| MainScroll {
-        top: main_scroll_top,
-        height: main_scroll_height,
-        viewport_top: main_viewport_top,
-    });
+    // The main scroller's position comes from a passive JS listener, not an
+    // `onscroll` handler (see `use_main_scroll_provider`).
+    let _main_scroll: MainScroll = use_main_scroll_provider();
+    // Covers in lists load from a local route, cached off the main thread.
+    #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+    crate::offline_art::use_cover_art_handler();
     // The inner transport signals, taken once. Reading the outer AudioState
     // signal would re-render the shell on every playback tick, because the
     // native controllers write through `audio_state.write()`.
@@ -1038,23 +1036,6 @@ pub fn AppShell() -> Element {
                 }
                 main {
                     class: "rs-main main-scroll",
-                    onmounted: move |evt| async move {
-                        if let Ok(rect) = evt.get_client_rect().await {
-                            main_viewport_top.set(rect.origin.y);
-                            main_scroll_height.set(rect.size.height);
-                        }
-                    },
-                    onscroll: move |evt| {
-                        // Quantised so windowed lists re-render per 32px, not per event.
-                        let top = (evt.scroll_top() / 32.0).floor() * 32.0;
-                        if top != *main_scroll_top.peek() {
-                            main_scroll_top.set(top);
-                        }
-                        let height = evt.client_height() as f64;
-                        if (height - *main_scroll_height.peek()).abs() > 1.0 {
-                            main_scroll_height.set(height);
-                        }
-                    },
                     if offline_mode_enabled {
                         div { class: "rs-banner", role: "status", "data-testid": "offline-banner",
                             Icon { name: "offline".to_string(), class: "rs-ic".to_string() }

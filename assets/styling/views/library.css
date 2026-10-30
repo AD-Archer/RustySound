@@ -77,6 +77,16 @@
 
 .rs-library-covers__cell {
   min-width: 0;
+  /* A paged grid grows to thousands of tiles. Tiles far off screen skip
+     style, layout and paint until they come near; the remembered height
+     keeps the scroll length steady. */
+  content-visibility: auto;
+  contain-intrinsic-block-size: auto 240px;
+}
+
+/* Placeholder tiles while the next page loads: still, no shimmer. */
+.rs-library-covers__ghost .rs-skel {
+  animation: none;
 }
 
 .rs-library-tile {
