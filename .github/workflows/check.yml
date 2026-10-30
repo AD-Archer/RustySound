@@ -1,0 +1,64 @@
+name: Check
+
+# Compiles every platform and runs the unit tests on pull requests into main.
+# Dependabot's patch and minor updates are merged by the second job, and only
+# after these checks pass; major updates wait for a person.
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: check
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-apple-ios
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: macOS desktop
+        run: cargo check --locked --features desktop --no-default-features
+
+      - name: Web
+        run: cargo check --locked --target wasm32-unknown-unknown
+
+      - name: iOS
+        run: cargo check --locked --target aarch64-apple-ios --features mobile --no-default-features
+
+      - name: Unit tests
+        run: cargo test --locked --features desktop --no-default-features
+
+  dependabot-merge:
+    name: merge dependabot update
+    needs: check
+    if: github.event_name == 'pull_request' && github.event.pull_request.user.login == 'dependabot[bot]'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - id: meta
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # A merge commit, never a squash, to keep the history as it is.
+      - name: Merge
+        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        run: gh pr merge --merge "$PR_URL"
+        env:
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
