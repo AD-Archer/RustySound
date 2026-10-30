@@ -33,6 +33,7 @@ mod track_menu;
 mod track_menu_host;
 mod track_row;
 mod virtual_list;
+mod window_drag;
 
 pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
@@ -62,6 +63,7 @@ pub use track_menu::{SongChange, TrackMenu, TrackMenuController, TrackMenuReques
 pub use track_menu_host::TrackMenuHost;
 pub use track_row::TrackRow;
 pub use virtual_list::{MainScroll, VirtualList};
+pub use window_drag::WindowDragRegion;
 
 // The player bar lives with the rest of the player code; re-exported so the
 // kit is one import.

@@ -115,6 +115,16 @@ body {
   outline-offset: 2px;
 }
 
+/* Containers focused from code so keyboard and screen-reader focus lands in
+   them (Now Playing, menus, sheets: tabindex="-1") never draw a ring. They
+   are not tab stops, and WebKit counts a programmatic focus as
+   :focus-visible, which outlined the whole Now Playing sheet. Their
+   controls keep their own rings. */
+:where(.rs-app) [tabindex="-1"]:focus,
+:where(.rs-app) [tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
 .rs-app input,
 .rs-app textarea {
   caret-color: var(--accent);
@@ -125,34 +135,38 @@ body {
   opacity: 1;
 }
 
-.rs-app * {
+/* Scrollbars. Apple platforms keep the system's overlay scrollbars: any
+   ::-webkit-scrollbar rule (and scrollbar-color/-width in WebKit) switches
+   WKWebView to classic always-on bars with a permanent gutter. Elsewhere a
+   thin themed bar reads better than the platform default on the dark stage. */
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) * {
   scrollbar-width: thin;
   scrollbar-color: var(--scroll-thumb) transparent;
 }
 
-::-webkit-scrollbar {
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
 }
 
-::-webkit-scrollbar-track {
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-track {
   background: transparent;
 }
 
-::-webkit-scrollbar-thumb {
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
   border: 3px solid transparent;
   border-radius: 5px;
   background-clip: padding-box;
 }
 
-::-webkit-scrollbar-thumb:hover {
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-thumb:hover {
   background: var(--scroll-thumb-hover);
   border: 3px solid transparent;
   background-clip: padding-box;
 }
 
-::-webkit-scrollbar-corner {
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-corner {
   background: transparent;
 }
 

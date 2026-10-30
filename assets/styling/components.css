@@ -31,6 +31,8 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  /* The player bar sizes itself to the content column, not the window. */
+  container: rs-content / inline-size;
 }
 
 .rs-main {
@@ -57,6 +59,43 @@
 
 .rs-outlet {
   min-height: 100%;
+}
+
+/* ---- macOS window chrome ------------------------------------------------
+   The desktop window has a transparent, title-less titlebar over a
+   full-size content view (main.rs), like Music, Notes and Finder. The
+   content column starts below a --titlebar-h band, the sidebar's first item
+   clears the traffic lights, and both bands drag the window
+   (WindowDragRegion). Other platforms keep --titlebar-h at 0. */
+.rs-app {
+  --titlebar-h: 0px;
+}
+
+.rs-app[data-platform="macos"][data-layout="wide"] {
+  --titlebar-h: 28px;
+}
+
+.rs-app[data-platform="macos"][data-layout="wide"] .rs-content {
+  padding-top: var(--titlebar-h);
+}
+
+.rs-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
+  /* Above Now Playing (99/100) so the window can still be moved while it is
+     open; below menus and sheets (210+). */
+  z-index: 101;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Under Now Playing: the sheet's top-left controls overlap this band. */
+.rs-drag--sidebar {
+  height: var(--sidebar-top);
+  z-index: 1;
 }
 
 /* A view: page material.
@@ -1757,15 +1796,21 @@
 /* ---- Sidebar (wide) --------------------------------------------------- */
 
 .rs-sidebar {
+  --sidebar-top: calc(var(--safe-top) + 16px);
   position: relative;
   display: flex;
   flex-direction: column;
   min-height: 0;
   height: 100%;
   overflow-y: auto;
-  padding: calc(var(--safe-top) + 16px) 10px 12px;
+  padding: var(--sidebar-top) 10px 12px;
   background: var(--sidebar-bg);
   border-right: 1px solid var(--line);
+}
+
+/* The first item sits below the traffic lights, as in Notes and Music. */
+.rs-app[data-platform="macos"] .rs-sidebar {
+  --sidebar-top: 52px;
 }
 
 .rs-side__grp {
@@ -1938,9 +1983,12 @@
   bottom: 16px;
   z-index: 50;
   display: grid;
-  grid-template-columns: minmax(180px, 290px) minmax(0, 1fr) auto;
+  /* Now playing | transport + progress | extras. The middle never shrinks
+     below its content (so the times cannot run into the extras); the
+     container queries below take items out as the column narrows. */
+  grid-template-columns: minmax(150px, 1fr) minmax(min-content, 1.7fr) auto;
   align-items: center;
-  gap: 24px;
+  gap: 20px;
   height: var(--bar-h);
   padding: 0 14px 0 10px;
   border-radius: var(--r-bar);
@@ -1969,10 +2017,17 @@ button.rs-bar__art {
   overflow: hidden;
 }
 
+/* The artist keeps its width; the album gets what is left. */
 .rs-bar__artists {
   display: inline-flex;
+  flex: 0 1 auto;
   align-items: center;
   gap: 4px;
+  min-width: 0;
+}
+
+.rs-bar__album {
+  flex: 1 1 0;
   min-width: 0;
 }
 
@@ -2059,7 +2114,16 @@ button.rs-bar__art {
 
 .rs-bar__progress {
   flex: 1;
-  min-width: 80px;
+  min-width: 56px;
+}
+
+.rs-bar .rs-time {
+  min-width: 40px;
+}
+
+/* Wraps controls the narrowest bars drop (see the container queries). */
+.rs-bar__optional {
+  display: contents;
 }
 
 .rs-bar__rt {
@@ -2081,6 +2145,7 @@ button.rs-bar__art {
 }
 
 .rs-bar__fmt {
+  flex: none;
   margin-right: 6px;
   padding: 1px 5px;
   border: 1px solid var(--stage-badge-line);
@@ -2155,22 +2220,32 @@ button.rs-bar__art {
   color: var(--stage-muted);
 }
 
-@media (max-width: 1180px) {
+/* Narrower content columns drop extras first, then rarely used controls,
+   so the title and artist stay readable down to the 900px minimum window.
+   Everything dropped here is also in Now Playing and the Playback menu. */
+@container rs-content (max-width: 1220px) {
   .rs-bar__fmt { display: none; }
 }
 
-@media (max-width: 1040px) {
-  .rs-bar {
-    grid-template-columns: minmax(140px, 220px) minmax(0, 1fr) auto;
-    gap: 16px;
-  }
-  .rs-bar__vol { width: 56px; }
-  .rs-bar__wide-only { display: none; }
+@container rs-content (max-width: 1080px) {
+  .rs-bar__vol { display: none; }
 }
 
-@media (max-width: 900px) {
-  .rs-bar .rs-time { display: none; }
-  .rs-bar { left: 12px; right: 12px; }
+@container rs-content (max-width: 920px) {
+  .rs-bar { gap: 16px; padding-right: 10px; }
+  .rs-bar__wide-only { display: none; }
+  .rs-bar__album,
+  .rs-bar__album-sep { display: none; }
+}
+
+@container rs-content (max-width: 780px) {
+  .rs-bar { left: 12px; right: 12px; gap: 12px; }
+  .rs-bar__optional { display: none; }
+}
+
+/* The sidebar gives up a little width in small windows. */
+@media (max-width: 1100px) {
+  .rs-app[data-layout="wide"] { --sidebar-w: 208px; }
 }
 
 /* Playback error note, floating above the player. */

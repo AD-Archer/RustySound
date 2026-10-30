@@ -5,6 +5,8 @@ mod cache;
 mod cache_service;
 mod components;
 mod db;
+#[cfg(feature = "desktop")]
+mod desktop_window;
 mod diagnostics;
 mod offline_art;
 mod offline_audio;
@@ -100,7 +102,7 @@ fn desktop_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
 fn main() {
     #[cfg(feature = "desktop")]
     {
-        use dioxus::desktop::{Config, WindowBuilder};
+        use dioxus::desktop::Config;
         #[cfg(target_os = "linux")]
         {
             // Linux WebKit can stutter on some Wayland/driver combinations.
@@ -110,7 +112,7 @@ fn main() {
             }
         }
 
-        let mut window = WindowBuilder::new().with_title("RustySound");
+        let mut window = desktop_window::main_window();
         if let Some(icon) = desktop_app_icon() {
             window = window.with_window_icon(Some(icon.clone()));
 
@@ -135,6 +137,10 @@ fn main() {
 
         config = config
             .with_window(window)
+            // The stock index titles the page "Dioxus app"; Mission Control and
+            // the web inspector show document.title.
+            .with_custom_index(DESKTOP_INDEX_HTML.to_string())
+            .with_on_window(|window, _| desktop_window::keep_on_screen(&window))
             // Set native WebView background before HTML/CSS load to avoid startup white flash.
             .with_background_color((9, 9, 11, 255))
             // Keep this explicit on Linux to avoid known DMA-BUF rendering glitches.
@@ -164,10 +170,24 @@ fn main() {
     dioxus::launch(App);
 }
 
+/// dioxus-desktop's index page with our title and language.
+#[cfg(feature = "desktop")]
+const DESKTOP_INDEX_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>RustySound</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    </head>
+    <body>
+        <div id="main"></div>
+    </body>
+</html>
+"#;
+
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
     use dioxus::desktop::muda::{
-        accelerator::{Accelerator, Code, CMD_OR_CTRL},
+        accelerator::{Accelerator, Code, Modifiers, CMD_OR_CTRL},
         Menu, MenuItem, PredefinedMenuItem, Submenu,
     };
 
@@ -218,59 +238,78 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         ])
         .expect("failed to build macOS edit menu");
 
+    // Same items and order as the sidebar (Queue lives under Library there).
+    let go_item = |id: &str, label: &str, code: Code| {
+        MenuItem::with_id(id, label, true, Some(Accelerator::new(Some(CMD_OR_CTRL), code)))
+    };
     let go_menu = Submenu::new("Go", true);
     go_menu
         .append_items(&[
-            &MenuItem::with_id(
-                "rustysound-go-home",
-                "Home",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit1)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-search",
-                "Search",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyL)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-albums",
-                "Albums",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit2)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-artists",
-                "Artists",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit3)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-playlists",
-                "Playlists",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit4)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-songs",
-                "Songs",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit5)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-queue",
-                "Queue",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit6)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-downloads",
-                "Downloads",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit7)),
-            ),
+            &go_item("rustysound-go-home", "Home", Code::Digit1),
+            &go_item("rustysound-go-search", "Search", Code::KeyL),
+            &PredefinedMenuItem::separator(),
+            &go_item("rustysound-go-playlists", "Playlists", Code::Digit2),
+            &go_item("rustysound-go-artists", "Artists", Code::Digit3),
+            &go_item("rustysound-go-albums", "Albums", Code::Digit4),
+            &go_item("rustysound-go-songs", "Songs", Code::Digit5),
+            &go_item("rustysound-go-favorites", "Favorites", Code::Digit6),
+            &go_item("rustysound-go-downloads", "Downloads", Code::Digit7),
+            &PredefinedMenuItem::separator(),
+            &go_item("rustysound-go-radio", "Radio", Code::Digit8),
+            &go_item("rustysound-go-stats", "Stats", Code::Digit9),
+            &PredefinedMenuItem::separator(),
+            &go_item("rustysound-go-queue", "Queue", Code::Digit0),
         ])
         .expect("failed to build macOS Go menu");
+
+    // Playback drives the player bar's own buttons (by id, through the app),
+    // so it behaves exactly like clicking them. Space stays with the page's
+    // key handler (it must not fire while typing); ⌘→ / ⌘← are taken by the
+    // menu before the page sees them, so they never double-fire.
+    let playback_menu = Submenu::new("Playback", true);
+    playback_menu
+        .append_items(&[
+            &MenuItem::with_id(
+                "rustysound-play-pause",
+                "Play/Pause",
+                true,
+                Some(Accelerator::new(None, Code::Space)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "rustysound-next",
+                "Next",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowRight)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-previous",
+                "Previous",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowLeft)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "rustysound-shuffle",
+                "Shuffle",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyS)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-repeat",
+                "Repeat",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyR)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "rustysound-now-playing",
+                "Now Playing",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyN)),
+            ),
+        ])
+        .expect("failed to build macOS Playback menu");
 
     let window_menu = Submenu::new("Window", true);
     window_menu
@@ -285,7 +324,7 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         .expect("failed to build macOS window menu");
     window_menu.set_as_windows_menu_for_nsapp();
 
-    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &window_menu])
+    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &playback_menu, &window_menu])
         .expect("failed to attach macOS menu items");
 
     menu
@@ -293,6 +332,9 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
 
 #[component]
 fn App() -> Element {
+    #[cfg(feature = "desktop")]
+    desktop_window::use_window_geometry_persistence();
+
     rsx! {
         document::Title { "RustySound" }
         // Favicon and icons
