@@ -131,14 +131,14 @@ pub(super) fn WidePlayer() -> Element {
                                             separator_class: "rs-bar__sep".to_string(),
                                         }
                                         if let Some(album) = song.album.clone().filter(|a| !a.trim().is_empty()) {
-                                            span { class: "rs-bar__sep", aria_hidden: "true", "·" }
-                                            span { class: "rs-truncate", "{album}" }
+                                            span { class: "rs-bar__sep rs-bar__album-sep", aria_hidden: "true", "·" }
+                                            span { class: "rs-truncate rs-bar__album", title: "{album}", "{album}" }
                                         }
                                     }
                                 }
                             }
                             if !radio {
-                                FavoriteButton {}
+                                span { class: "rs-bar__optional", FavoriteButton {} }
                             }
                         }
                     }
@@ -153,11 +153,11 @@ pub(super) fn WidePlayer() -> Element {
             }
             div { class: "rs-bar__mid",
                 div { class: "rs-bar__transport",
-                    ShuffleButton {}
+                    span { class: "rs-bar__optional", ShuffleButton {} }
                     PrevButton {}
                     PlayPauseButton { size: ControlSize::Bar }
                     NextButton { size: ControlSize::Bar }
-                    RepeatButton {}
+                    span { class: "rs-bar__optional", RepeatButton {} }
                 }
                 PlaybackTime { class: "rs-time--end".to_string() }
                 PlaybackProgress { class: "rs-bar__progress".to_string() }
@@ -167,7 +167,7 @@ pub(super) fn WidePlayer() -> Element {
                 if let Some(badge) = song.as_ref().and_then(format_badge) {
                     span { class: "rs-bar__fmt", "{badge}" }
                 }
-                RatingButton {}
+                span { class: "rs-bar__optional", RatingButton {} }
                 AddToMenuButton {}
                 IconButton {
                     icon: "lyrics".to_string(),

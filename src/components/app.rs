@@ -5,7 +5,7 @@ use crate::components::ui::env::{
 };
 use crate::components::ui::{
     LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
-    TrackMenuHost, TrackMenuRequest,
+    TrackMenuHost, TrackMenuRequest, WindowDragRegion,
 };
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, view_instance_key, AddIntent, AddMenuController,
@@ -113,6 +113,53 @@ window.__rsFindShortcut = handler;
 document.addEventListener("keydown", handler);
 await new Promise(() => {});
 "#;
+
+/// Route for a macOS menu item id (app menu, Edit > Find, Go).
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn menu_route(id: &str) -> Option<AppView> {
+    Some(match id {
+        "rustysound-open-settings" => AppView::SettingsView {},
+        "rustysound-go-home" => AppView::HomeView {},
+        "rustysound-go-search" | "rustysound-find" => AppView::SearchView {},
+        "rustysound-go-albums" => AppView::Albums {},
+        "rustysound-go-artists" => AppView::ArtistsView {},
+        "rustysound-go-playlists" => AppView::PlaylistsView {},
+        "rustysound-go-songs" => AppView::SongsView {},
+        "rustysound-go-queue" => AppView::QueueView {},
+        "rustysound-go-downloads" => AppView::DownloadsView {},
+        "rustysound-go-favorites" => AppView::FavoritesView {},
+        "rustysound-go-radio" => AppView::RadioView {},
+        "rustysound-go-stats" => AppView::StatsView {},
+        _ => return None,
+    })
+}
+
+/// Player button pressed by a Playback menu item.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn playback_menu_button(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "rustysound-play-pause" => "play-pause-btn",
+        "rustysound-next" => "next-btn",
+        "rustysound-previous" => "prev-btn",
+        "rustysound-shuffle" => "shuffle-btn",
+        "rustysound-repeat" => "repeat-btn",
+        _ => return None,
+    })
+}
+
+/// Clicks a player bar button by id (the ids MediaSession presses), so menu
+/// items run exactly the bar's actions. Falls back to the Now Playing copy
+/// (`np-<id>`) when the bar's button is not mounted.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn press_player_button(id: &str) {
+    let _ = document::eval(&format!(
+        r#"(() => {{
+  const button = document.getElementById("{id}") || document.getElementById("np-{id}");
+  if (button && !button.disabled) button.click();
+  return true;
+}})();"#
+    ));
+}
 
 fn loading_progress_percent(progress: f32) -> u32 {
     (progress.clamp(0.0, 1.0) * 100.0).round() as u32
@@ -315,36 +362,40 @@ pub fn AppShell() -> Element {
     #[cfg(all(feature = "desktop", target_os = "macos"))]
     {
         let navigation = navigation.clone();
-        use_muda_event_handler(move |event| match event.id().as_ref() {
-            "rustysound-open-settings" => {
-                navigation.navigate_to(AppView::SettingsView {});
+        let add_menu = add_menu.clone();
+        let song_details = song_details.clone();
+        let track_menu = use_context::<TrackMenuController>();
+        use_muda_event_handler(move |event| {
+            let id = event.id().as_ref();
+            if let Some(button) = playback_menu_button(id) {
+                press_player_button(button);
+                return;
             }
-            "rustysound-go-home" => {
-                navigation.navigate_to(AppView::HomeView {});
+            if id == "rustysound-now-playing" {
+                let mut song_details = song_details.clone();
+                if song_details.current().is_open {
+                    song_details.close();
+                } else if let Some(song) = now_playing.peek().clone() {
+                    song_details.open(song);
+                }
+                return;
             }
-            "rustysound-go-search" | "rustysound-find" => {
-                navigation.navigate_to(AppView::SearchView {});
+            let Some(target) = menu_route(id) else {
+                return;
+            };
+            // Menu navigation happens over whatever is open: close Now
+            // Playing and the shell's sheets and menus so the new page is
+            // not hidden. Page-local menus unmount with the old page.
+            let (mut song_details, mut add_menu, mut track_menu) =
+                (song_details.clone(), add_menu.clone(), track_menu);
+            song_details.close();
+            add_menu.close();
+            track_menu.close();
+            let focus_search = matches!(target, AppView::SearchView {});
+            navigation.navigate_to(target);
+            if focus_search {
                 focus_global_search_input();
             }
-            "rustysound-go-albums" => {
-                navigation.navigate_to(AppView::Albums {});
-            }
-            "rustysound-go-artists" => {
-                navigation.navigate_to(AppView::ArtistsView {});
-            }
-            "rustysound-go-playlists" => {
-                navigation.navigate_to(AppView::PlaylistsView {});
-            }
-            "rustysound-go-songs" => {
-                navigation.navigate_to(AppView::SongsView {});
-            }
-            "rustysound-go-queue" => {
-                navigation.navigate_to(AppView::QueueView {});
-            }
-            "rustysound-go-downloads" => {
-                navigation.navigate_to(AppView::DownloadsView {});
-            }
-            _ => {}
         });
     }
 
@@ -1125,6 +1176,9 @@ pub fn AppShell() -> Element {
             }
 
             div { class: "rs-content",
+                if !compact {
+                    WindowDragRegion { class: "rs-drag--content".to_string() }
+                }
                 main {
                     class: "rs-main main-scroll",
                     onmounted: move |evt| async move {

@@ -201,9 +201,11 @@ pub async fn fetch_lyrics_with_fallback(
     let normalized_provider_order = normalize_lyrics_provider_selection(provider_order);
     let scoped_cache_key = lyrics_cache_key(query, &normalized_provider_order, timeout_seconds);
     let query_cache_key = lyrics_query_cache_key(query);
-    let scoped_persistent_cache_key = format!("lyrics:result:{scoped_cache_key}");
-    let query_persistent_cache_key = format!("lyrics:result:{query_cache_key}");
-    let miss_cache_key = format!("lyrics:miss:{scoped_cache_key}");
+    // v2: results cached before the stricter Genius matching and header
+    // stripping (2026-10) could be another song's lyrics or carry page junk.
+    let scoped_persistent_cache_key = format!("lyrics:v2:result:{scoped_cache_key}");
+    let query_persistent_cache_key = format!("lyrics:v2:result:{query_cache_key}");
+    let miss_cache_key = format!("lyrics:v2:miss:{scoped_cache_key}");
 
     if let Ok(cache) = LYRICS_SUCCESS_CACHE.lock() {
         if let Some(cached) = cache.get(&scoped_cache_key).cloned() {
@@ -921,6 +923,9 @@ struct GeniusSongResult {
     url: String,
     #[serde(default)]
     primary_artist: Option<GeniusArtist>,
+    /// Every credited artist ("Howard Ashman & Alan Menken").
+    #[serde(default)]
+    artist_names: String,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1052,6 +1057,8 @@ async fn fetch_from_genius(
         .await
         .map_err(|error| error.to_string())?;
 
+    // Only hits whose title and artist really match: a wrong song's lyrics
+    // are worse than "No lyrics".
     let best_url = payload
         .response
         .sections
@@ -1065,12 +1072,18 @@ async fn fetch_from_genius(
                 .as_ref()
                 .map(|artist| artist.name.clone())
                 .unwrap_or_default();
-            let score = score_match(&hit.result.title, &artist, None, query);
-            if hit.result.url.trim().is_empty() {
-                None
+            let credited = if hit.result.artist_names.trim().is_empty() {
+                artist.clone()
             } else {
-                Some((hit.result.url, score))
+                hit.result.artist_names.clone()
+            };
+            if hit.result.url.trim().is_empty()
+                || !genius_hit_matches(&hit.result.title, &credited, query)
+            {
+                return None;
             }
+            let score = score_match(&hit.result.title, &artist, None, query);
+            Some((hit.result.url, score))
         })
         .max_by(|(_, left_score), (_, right_score)| left_score.cmp(right_score))
         .map(|(url, _)| url);
@@ -1292,69 +1305,390 @@ fn strip_lrc_metadata(raw: &str) -> String {
         .join("\n")
 }
 
+/// Plain lyrics from a Genius song page.
+///
+/// The lyrics sit in one or more `data-lyrics-container="true"` elements
+/// (split around ads). Each container also holds page furniture that is not
+/// lyrics: the header ("2 Contributors", "Translations", "<Title> Lyrics",
+/// the "Read More" description) and in-read ads, all marked
+/// `data-exclude-from-selection="true"`. Containers nest further elements
+/// (annotation links, italics), so the walk tracks depth instead of stopping
+/// at the first `</div>`.
 #[cfg(not(target_arch = "wasm32"))]
 fn extract_genius_lyrics(html: &str) -> Option<String> {
-    let mut captured = Vec::<String>::new();
-    let mut remaining = html;
+    const MARKER: &str = "data-lyrics-container=\"true\"";
+    let mut blocks = Vec::<String>::new();
+    let mut cursor = 0usize;
 
-    while let Some(index) = remaining.find("data-lyrics-container=\"true\"") {
-        let segment = &remaining[index..];
-        let Some(content_start) = segment.find('>') else {
+    while let Some(found) = html[cursor..].find(MARKER) {
+        let marker_at = cursor + found;
+        let Some(tag_end) = html[marker_at..].find('>') else {
             break;
         };
-        let after_start = &segment[content_start + 1..];
-        let Some(content_end) = after_start.find("</div>") else {
-            break;
-        };
+        let body_start = marker_at + tag_end + 1;
+        let (raw_text, consumed) = genius_container_text(&html[body_start..]);
+        let block = clean_genius_text(&decode_html_entities(&raw_text));
+        if !block.is_empty() {
+            blocks.push(block);
+        }
+        cursor = body_start + consumed.max(1);
+    }
 
-        let raw_block = &after_start[..content_end];
-        let normalized = raw_block
-            .replace("<br/>", "\n")
-            .replace("<br />", "\n")
-            .replace("<br>", "\n");
-        let text = decode_html_entities(&strip_html_tags(&normalized));
-        let text = text.trim();
-        if !text.is_empty() {
-            captured.push(text.to_string());
+    // Containers split wherever the ads go; a blank line only where the next
+    // one opens a new section ("[Chorus]").
+    let mut joined = String::new();
+    for block in &blocks {
+        if !joined.is_empty() {
+            joined.push_str(if block.starts_with('[') { "\n\n" } else { "\n" });
+        }
+        joined.push_str(block);
+    }
+    let joined = clean_genius_text(&joined);
+    (!joined.is_empty()).then_some(joined)
+}
+
+/// Text of one lyrics container whose opening tag has been consumed: `<br>`
+/// becomes a newline and excluded subtrees are dropped. Returns the text and
+/// the number of bytes up to and including the container's closing tag.
+#[cfg(not(target_arch = "wasm32"))]
+fn genius_container_text(body: &str) -> (String, usize) {
+    let mut out = String::new();
+    // The container itself is open.
+    let mut depth = 1usize;
+    // Depth of the excluded element being skipped, if any.
+    let mut skip_from: Option<usize> = None;
+    let mut index = 0usize;
+
+    while index < body.len() {
+        let rest = &body[index..];
+        if !rest.starts_with('<') {
+            let next = rest.find('<').unwrap_or(rest.len());
+            if skip_from.is_none() {
+                out.push_str(&rest[..next]);
+            }
+            index += next;
+            continue;
         }
 
-        remaining = &after_start[content_end + 6..];
+        if rest.starts_with("<!--") {
+            index += rest.find("-->").map(|end| end + 3).unwrap_or(rest.len());
+            continue;
+        }
+
+        let Some(tag_len) = rest.find('>') else {
+            break;
+        };
+        let tag = &rest[1..tag_len];
+        index += tag_len + 1;
+
+        if let Some(closing) = tag.strip_prefix('/') {
+            if is_void_html_element(&html_tag_name(closing)) {
+                continue;
+            }
+            depth = depth.saturating_sub(1);
+            if skip_from.is_some_and(|open_depth| depth < open_depth) {
+                skip_from = None;
+            }
+            if depth == 0 {
+                return (out, index);
+            }
+            continue;
+        }
+
+        let name = html_tag_name(tag);
+        if name == "br" {
+            if skip_from.is_none() {
+                out.push('\n');
+            }
+            continue;
+        }
+        if tag.ends_with('/') || is_void_html_element(&name) || name.starts_with('!') {
+            continue;
+        }
+        if name == "script" || name == "style" {
+            // Raw text: jump past the matching close tag.
+            let close = format!("</{name}");
+            let after = &body[index..];
+            index += after
+                .find(&close)
+                .and_then(|at| after[at..].find('>').map(|end| at + end + 1))
+                .unwrap_or(after.len());
+            continue;
+        }
+
+        depth += 1;
+        if skip_from.is_none() && is_genius_excluded_tag(tag) {
+            skip_from = Some(depth);
+        }
     }
 
-    if captured.is_empty() {
-        None
-    } else {
-        Some(captured.join("\n"))
-    }
+    (out, body.len())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn strip_html_tags(input: &str) -> String {
-    let mut output = String::with_capacity(input.len());
-    let mut in_tag = false;
+fn html_tag_name(tag: &str) -> String {
+    tag.trim_start()
+        .split(|c: char| c.is_whitespace() || c == '/' || c == '>')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase()
+}
 
-    for character in input.chars() {
-        match character {
-            '<' => in_tag = true,
-            '>' => in_tag = false,
-            _ if !in_tag => output.push(character),
-            _ => {}
+#[cfg(not(target_arch = "wasm32"))]
+fn is_void_html_element(name: &str) -> bool {
+    matches!(
+        name,
+        "area" | "base" | "br" | "col" | "embed" | "hr" | "img" | "input" | "link" | "meta"
+            | "source" | "track" | "wbr"
+    )
+}
+
+/// Page furniture inside a lyrics container.
+#[cfg(not(target_arch = "wasm32"))]
+fn is_genius_excluded_tag(tag: &str) -> bool {
+    tag.contains("data-exclude-from-selection=\"true\"")
+        || tag.contains("LyricsHeader__")
+        || tag.contains("ContributorsCreditSong__")
+        || tag.contains("SongBioPreview__")
+        || tag.contains("InreadContainer__")
+        || tag.contains("RightSidebar__")
+        || tag.contains("RecommendedSongs__")
+}
+
+/// Line-level cleanup for text that slipped past the markup filter (older
+/// page layouts): a leading "N Contributors…<Title> Lyrics" header, the
+/// "You might also like" block, and the trailing "123Embed".
+#[cfg(not(target_arch = "wasm32"))]
+fn clean_genius_text(text: &str) -> String {
+    let mut lines = text
+        .lines()
+        .map(|line| line.trim().to_string())
+        .collect::<Vec<_>>();
+
+    // Header junk at the very top.
+    while let Some(first) = lines.iter().position(|line| !line.is_empty()) {
+        let line = &lines[first];
+        if is_genius_header_line(line) {
+            lines.remove(first);
+        } else {
+            break;
         }
     }
 
+    lines.retain(|line| !line.eq_ignore_ascii_case("You might also like"));
+
+    if let Some(last) = lines.iter().rposition(|line| !line.is_empty()) {
+        let stripped = strip_genius_embed_suffix(&lines[last]);
+        lines[last] = stripped;
+    }
+
+    // Collapse runs of blank lines to one and trim the ends.
+    let mut out = Vec::<String>::new();
+    for line in lines {
+        if line.is_empty() && out.last().is_none_or(|prev: &String| prev.is_empty()) {
+            continue;
+        }
+        out.push(line);
+    }
+    while out.last().is_some_and(|line| line.is_empty()) {
+        out.pop();
+    }
+    out.join("\n")
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn is_genius_header_line(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    let digits = lower.chars().take_while(|c| c.is_ascii_digit()).count();
+    let after_count = lower[digits..].trim_start();
+    (digits > 0 && after_count.starts_with("contributor"))
+        || lower == "translations"
+        || lower == "read more"
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn strip_genius_embed_suffix(line: &str) -> String {
+    let Some(head) = line.strip_suffix("Embed") else {
+        return line.to_string();
+    };
+    let head = head.trim_end_matches(|c: char| c.is_ascii_digit());
+    // "You might also like12Embed" and "Lyrics…Embed" variants.
+    let head = head
+        .strip_suffix("You might also like")
+        .unwrap_or(head)
+        .trim_end();
+    head.to_string()
+}
+
+/// Named entities Genius emits plus every numeric (`&#39;`, `&#x27;`) one.
+#[cfg(not(target_arch = "wasm32"))]
+fn decode_html_entities(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut rest = input;
+    while let Some(amp) = rest.find('&') {
+        output.push_str(&rest[..amp]);
+        let after = &rest[amp + 1..];
+        let Some(semi) = after.find(';').filter(|&semi| semi > 0 && semi <= 10) else {
+            output.push('&');
+            rest = after;
+            continue;
+        };
+        let entity = &after[..semi];
+        let decoded = match entity {
+            "amp" => Some('&'),
+            "quot" => Some('"'),
+            "apos" => Some('\''),
+            "lt" => Some('<'),
+            "gt" => Some('>'),
+            "nbsp" => Some(' '),
+            _ => entity
+                .strip_prefix("#x")
+                .or_else(|| entity.strip_prefix("#X"))
+                .and_then(|hex| u32::from_str_radix(hex, 16).ok())
+                .or_else(|| entity.strip_prefix('#').and_then(|dec| dec.parse::<u32>().ok()))
+                .and_then(char::from_u32),
+        };
+        match decoded {
+            Some(character) => {
+                output.push(character);
+                rest = &after[semi + 1..];
+            }
+            None => {
+                output.push('&');
+                rest = after;
+            }
+        }
+    }
+    output.push_str(rest);
     output
 }
 
+/// Whether a Genius search hit is the song being played. Genius search is
+/// full-text, so its top hit for an obscure song is often a different song
+/// entirely; showing those lyrics is worse than showing none. The main
+/// titles (bracketed versions and "feat." credits removed) must agree, and
+/// when the song has an artist, the hit's artist must share its name words.
 #[cfg(not(target_arch = "wasm32"))]
-fn decode_html_entities(input: &str) -> String {
-    input
-        .replace("&amp;", "&")
-        .replace("&quot;", "\"")
-        .replace("&#39;", "'")
-        .replace("&#x27;", "'")
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&nbsp;", " ")
+fn genius_hit_matches(hit_title: &str, hit_artist: &str, query: &LyricsQuery) -> bool {
+    let wanted_title = main_title_words(&query.title);
+    let found_title = main_title_words(hit_title);
+    if wanted_title.is_empty() || found_title.is_empty() {
+        return false;
+    }
+    if word_similarity(&wanted_title, &found_title) < GENIUS_MIN_TITLE_SIMILARITY {
+        return false;
+    }
+
+    let wanted_artist = artist_words(&query.artist);
+    if wanted_artist.is_empty() {
+        return true;
+    }
+    let found_artist = artist_words(hit_artist);
+    !found_artist.is_empty()
+        && artist_overlap(&wanted_artist, &found_artist) >= GENIUS_MIN_ARTIST_OVERLAP
+}
+
+/// Dice similarity of the main title words.
+#[cfg(not(target_arch = "wasm32"))]
+const GENIUS_MIN_TITLE_SIMILARITY: f64 = 0.8;
+/// Share of the shorter artist name's words found in the other.
+#[cfg(not(target_arch = "wasm32"))]
+const GENIUS_MIN_ARTIST_OVERLAP: f64 = 0.6;
+
+/// Lowercase words with accents folded and punctuation dropped.
+#[cfg(not(target_arch = "wasm32"))]
+fn match_words(value: &str) -> Vec<String> {
+    let folded = value
+        .chars()
+        .map(|c| match c {
+            'à' | 'á' | 'â' | 'ã' | 'ä' | 'å' | 'À' | 'Á' | 'Â' | 'Ã' | 'Ä' | 'Å' => 'a',
+            'ç' | 'Ç' => 'c',
+            'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
+            'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
+            'ñ' | 'Ñ' => 'n',
+            'ò' | 'ó' | 'ô' | 'õ' | 'ö' | 'ø' | 'Ò' | 'Ó' | 'Ô' | 'Õ' | 'Ö' | 'Ø' => 'o',
+            'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
+            'ý' | 'ÿ' | 'Ý' => 'y',
+            '’' | '\'' => '\0',
+            other if other.is_alphanumeric() => other,
+            _ => ' ',
+        })
+        .filter(|c| *c != '\0')
+        .collect::<String>()
+        .to_lowercase();
+    folded.split_whitespace().map(str::to_string).collect()
+}
+
+/// Title words before any "(…)", "[…]", " - …" version suffix or "feat."
+/// credit, so "Song (Remastered 2011)" and "Song - Live" compare as "Song".
+#[cfg(not(target_arch = "wasm32"))]
+fn main_title_words(title: &str) -> Vec<String> {
+    let mut main = title;
+    for cut in ['(', '['] {
+        if let Some(at) = main.find(cut).filter(|&at| at > 0) {
+            main = &main[..at];
+        }
+    }
+    if let Some(at) = main.find(" - ").filter(|&at| at > 0) {
+        main = &main[..at];
+    }
+    let lower = main.to_lowercase();
+    for credit in [" feat.", " feat ", " ft.", " featuring "] {
+        if let Some(at) = lower.find(credit).filter(|&at| at > 0) {
+            if main.is_char_boundary(at) {
+                main = &main[..at];
+            }
+            break;
+        }
+    }
+    match_words(main)
+}
+
+/// Artist name words without joiners and articles ("The", "&", "and", "x",
+/// "feat."), so "Jay-Z & Kanye West" and "JAY-Z" share "jay z".
+#[cfg(not(target_arch = "wasm32"))]
+fn artist_words(artist: &str) -> Vec<String> {
+    match_words(artist)
+        .into_iter()
+        .filter(|word| {
+            !matches!(
+                word.as_str(),
+                "the" | "and" | "x" | "feat" | "ft" | "featuring" | "with" | "vs"
+            )
+        })
+        .collect()
+}
+
+/// Sørensen–Dice coefficient over word multisets.
+#[cfg(not(target_arch = "wasm32"))]
+fn word_similarity(left: &[String], right: &[String]) -> f64 {
+    if left.is_empty() || right.is_empty() {
+        return 0.0;
+    }
+    let mut unmatched = right.to_vec();
+    let mut shared = 0usize;
+    for word in left {
+        if let Some(at) = unmatched.iter().position(|other| other == word) {
+            unmatched.swap_remove(at);
+            shared += 1;
+        }
+    }
+    (2 * shared) as f64 / (left.len() + right.len()) as f64
+}
+
+/// Share of the shorter name's words that appear in the longer one.
+#[cfg(not(target_arch = "wasm32"))]
+fn artist_overlap(left: &[String], right: &[String]) -> f64 {
+    let (short, long) = if left.len() <= right.len() {
+        (left, right)
+    } else {
+        (right, left)
+    };
+    if short.is_empty() {
+        return 0.0;
+    }
+    let shared = short.iter().filter(|word| long.contains(word)).count();
+    shared as f64 / short.len() as f64
 }
 
 fn compact_whitespace(value: &str) -> String {
@@ -1378,4 +1712,123 @@ fn normalize_for_match(value: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod genius_tests {
+    use super::*;
+
+    const CURRENT_PAGE: &str = include_str!("fixtures/genius_page_current.html");
+    const LEGACY_PAGE: &str = include_str!("fixtures/genius_page_legacy.html");
+
+    fn query(title: &str, artist: &str) -> LyricsQuery {
+        LyricsQuery {
+            title: title.to_string(),
+            artist: artist.to_string(),
+            album: String::new(),
+            duration_seconds: None,
+        }
+    }
+
+    #[test]
+    fn current_layout_drops_header_ads_and_sidebar() {
+        let lyrics = extract_genius_lyrics(CURRENT_PAGE).expect("lyrics");
+        assert_eq!(
+            lyrics,
+            "[Verse 1]\n\
+             Lanterns over the water\n\
+             Paper crowns for a sleeping daughter\n\
+             We don't wake her, we don't say\n\
+             Kingdoms hollow as the day\n\
+             \n\
+             [Chorus]\n\
+             Oh, the hollow, oh, the hollow & the hum\n\
+             Every echo says \"come home\"\n\
+             \n\
+             [Verse 2]\n\
+             Salt on the window, it\u{2019}s late\n\
+             We carry the kingdom by weight\n\
+             \n\
+             [Outro]\n\
+             Hollow, hollow"
+        );
+        for junk in [
+            "Contributors",
+            "Hollow Kingdom Lyrics",
+            "Read More",
+            "Advertisement",
+            "You might also like",
+            "Other Song",
+            "How to Format",
+            "not this",
+        ] {
+            assert!(!lyrics.contains(junk), "leaked {junk:?}");
+        }
+    }
+
+    #[test]
+    fn legacy_layout_strips_text_header_and_embed() {
+        let lyrics = extract_genius_lyrics(LEGACY_PAGE).expect("lyrics");
+        assert_eq!(
+            lyrics,
+            "[Verse]\n\
+             Sand in the hourglass, sand in my shoe\n\
+             Moon on the dunes and the dunes on the moon\n\
+             \n\
+             [Chorus]\n\
+             Ride, ride, ride till the morning\n\
+             \n\
+             [Outro]\n\
+             And the wind keeps the time"
+        );
+    }
+
+    #[test]
+    fn page_without_lyrics_gives_none() {
+        assert_eq!(extract_genius_lyrics("<html><body><p>Nope</p></body></html>"), None);
+        let empty = r#"<div data-lyrics-container="true"><div data-exclude-from-selection="true">3 Contributors</div></div>"#;
+        assert_eq!(extract_genius_lyrics(empty), None);
+    }
+
+    #[test]
+    fn entities_decode_named_and_numeric() {
+        assert_eq!(
+            decode_html_entities("Rock &amp; Roll &#x27;n&#39; &#8220;soul&#8221; &bogus; 5 &lt; 6 & co"),
+            "Rock & Roll 'n' \u{201c}soul\u{201d} &bogus; 5 < 6 & co"
+        );
+    }
+
+    #[test]
+    fn unrelated_genius_hit_is_rejected() {
+        // The smoke test's mock song matched a Broadway demo on Genius.
+        let wanted = query("Hollow Kingdom", "The Hollow Voyagers");
+        assert!(!genius_hit_matches("Arabian Nights (Demo)", "Howard Ashman & Alan Menken", &wanted));
+        // Same title, different artist.
+        assert!(!genius_hit_matches("Hollow Kingdom", "Someone Else", &wanted));
+        // Same artist, a different song that shares one word.
+        assert!(!genius_hit_matches("Hollow", "The Hollow Voyagers", &wanted));
+        assert!(!genius_hit_matches("Kingdom Come", "The Hollow Voyagers", &wanted));
+    }
+
+    #[test]
+    fn real_variants_of_the_song_are_accepted() {
+        let wanted = query("Hollow Kingdom", "The Hollow Voyagers");
+        assert!(genius_hit_matches("Hollow Kingdom", "The Hollow Voyagers", &wanted));
+        assert!(genius_hit_matches("Hollow Kingdom (Remastered 2011)", "Hollow Voyagers", &wanted));
+        assert!(genius_hit_matches("Hollow Kingdom - Live", "The Hollow Voyagers & Friends", &wanted));
+        assert!(genius_hit_matches("Hollow Kingdom (feat. Someone)", "The Hollow Voyagers", &wanted));
+
+        let accented = query("Déjà Vu", "Beyoncé feat. Jay-Z");
+        assert!(genius_hit_matches("Deja Vu", "Beyoncé", &accented));
+        let duo = query("Arabian Nights", "Alan Menken");
+        assert!(genius_hit_matches("Arabian Nights (Demo)", "Howard Ashman & Alan Menken", &duo));
+    }
+
+    #[test]
+    fn missing_artist_matches_on_title_alone() {
+        let wanted = query("Hollow Kingdom", "");
+        assert!(genius_hit_matches("Hollow Kingdom", "Anyone", &wanted));
+        assert!(!genius_hit_matches("Arabian Nights", "Anyone", &wanted));
+        assert!(!genius_hit_matches("Hollow Kingdom", "Anyone", &query("", "Anyone")));
+    }
 }

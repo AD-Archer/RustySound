@@ -1,6 +1,7 @@
 //! Sidebar for the wide layout.
 
 use crate::api::ServerConfig;
+use crate::components::ui::WindowDragRegion;
 use crate::components::{AppView, Icon, Navigation, SongDetailsController};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -95,6 +96,7 @@ pub fn Sidebar() -> Element {
 
     rsx! {
         aside { class: "rs-sidebar", aria_label: "Sidebar",
+            WindowDragRegion { class: "rs-drag--sidebar".to_string() }
             nav { aria_label: "Main",
                 for (heading, items) in groups {
                     div { class: "rs-side__grp",
