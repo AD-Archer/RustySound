@@ -1,12 +1,18 @@
-//! Library tab: the grouped list of library areas plus "Recently Added".
-//! Minimal phase-1 version built from the kit; phase 2 (agent E) owns it.
+//! Library tab: the grouped list of library areas plus a "Recently Added"
+//! shelf. Also the parent of the pieces the Library views share.
+
+pub(super) mod hero;
+pub(super) mod playlist_sheets;
+pub(super) mod shared;
+pub(super) mod tiles;
 
 use crate::api::{Album, NavidromeClient, ServerConfig};
-use crate::components::ui::{Artwork, InsetList, ListInset, ListRow, SectionHeader, Skeleton};
+use crate::components::ui::{InsetList, ListInset, ListRow, SectionHeader};
 use crate::components::{AppView, HomeFeedState, Navigation};
 use dioxus::prelude::*;
+use tiles::AlbumTile;
 
-const RECENT_LIMIT: usize = 8;
+const RECENT_LIMIT: usize = 12;
 
 #[component]
 pub fn LibraryView() -> Element {
@@ -57,47 +63,49 @@ pub fn LibraryView() -> Element {
     ];
 
     rsx! {
-        div { class: "rs-view rs-view--narrow", "data-testid": "library",
+        div { class: "rs-view rs-library-home", "data-testid": "library",
             div { class: "rs-page-head",
                 h1 { class: "rs-large-title", "Library" }
             }
 
-            InsetList { inset: ListInset::Icon, label: "Library".to_string(),
-                for (label, icon, testid, target) in areas {
-                    ListRow {
-                        key: "{testid}",
-                        title: label.to_string(),
-                        icon: icon.to_string(),
-                        chevron: true,
-                        compact: true,
-                        testid: testid.to_string(),
-                        onclick: go(target),
+            div { class: "rs-library-home__lists",
+                InsetList { inset: ListInset::Icon, label: "Library".to_string(),
+                    for (label, icon, testid, target) in areas {
+                        ListRow {
+                            key: "{testid}",
+                            title: label.to_string(),
+                            icon: icon.to_string(),
+                            chevron: true,
+                            compact: true,
+                            testid: testid.to_string(),
+                            onclick: go(target),
+                        }
                     }
                 }
-            }
 
-            InsetList { inset: ListInset::Icon, label: "More".to_string(),
-                for (label, icon, testid, target) in more {
-                    ListRow {
-                        key: "{testid}",
-                        title: label.to_string(),
-                        icon: icon.to_string(),
-                        chevron: true,
-                        compact: true,
-                        testid: testid.to_string(),
-                        onclick: go(target),
+                InsetList { inset: ListInset::Icon, label: "More".to_string(),
+                    for (label, icon, testid, target) in more {
+                        ListRow {
+                            key: "{testid}",
+                            title: label.to_string(),
+                            icon: icon.to_string(),
+                            chevron: true,
+                            compact: true,
+                            testid: testid.to_string(),
+                            onclick: go(target),
+                        }
                     }
                 }
-            }
 
-            InsetList { inset: ListInset::Icon, label: "Settings".to_string(),
-                ListRow {
-                    title: "Settings".to_string(),
-                    icon: "settings".to_string(),
-                    chevron: true,
-                    compact: true,
-                    testid: "settings-open".to_string(),
-                    onclick: go(AppView::SettingsView {}),
+                InsetList { inset: ListInset::Icon, label: "Settings".to_string(),
+                    ListRow {
+                        title: "Settings".to_string(),
+                        icon: "settings".to_string(),
+                        chevron: true,
+                        compact: true,
+                        testid: "settings-open".to_string(),
+                        onclick: go(AppView::SettingsView {}),
+                    }
                 }
             }
 
@@ -109,30 +117,27 @@ pub fn LibraryView() -> Element {
                     on_action: go(AppView::Albums {}),
                 }
                 match recent() {
-                    None => rsx! { Skeleton { rows: 4 } },
+                    None => rsx! {
+                        div { class: "rs-library-shelf", aria_busy: "true", aria_label: "Loading",
+                            for index in 0..4 {
+                                div { key: "{index}", class: "rs-library-shelf__cell",
+                                    div { class: "rs-skel rs-library-tile__skel" }
+                                    div { class: "rs-skel", style: "width:70%;height:12px;margin-top:8px" }
+                                }
+                            }
+                        }
+                    },
                     Some(albums) if albums.is_empty() => rsx! {
                         p { class: "rs-list-foot", "Nothing new on your server yet." }
                     },
                     Some(albums) => rsx! {
-                        InsetList { label: "Recently Added".to_string(),
+                        div { class: "rs-library-shelf", role: "list", aria_label: "Recently Added",
                             for album in albums {
-                                ListRow {
+                                div {
                                     key: "{album.server_id}:{album.id}",
-                                    title: album.name.clone(),
-                                    subtitle: album.artist.clone(),
-                                    detail: album.year.map(|y| y.to_string()),
-                                    leading: rsx! {
-                                        Artwork {
-                                            cover_art: album.cover_art.clone(),
-                                            server_id: album.server_id.clone(),
-                                            size_px: 44,
-                                            placeholder: "album".to_string(),
-                                        }
-                                    },
-                                    onclick: go(AppView::AlbumDetailView {
-                                        album_id: album.id.clone(),
-                                        server_id: album.server_id.clone(),
-                                    }),
+                                    class: "rs-library-shelf__cell",
+                                    role: "listitem",
+                                    AlbumTile { album: album.clone() }
                                 }
                             }
                         }

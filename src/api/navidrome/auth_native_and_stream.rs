@@ -213,7 +213,9 @@ impl NavidromeClient {
             let bitrate = json_pick_u32(&value, &["bitrate"]);
             let starred = match json_pick_bool(&value, &["starred", "isStarred"]) {
                 Some(true) => Some("native".to_string()),
-                _ => json_pick_string(&value, &["starredAt", "starred"]),
+                // `starred: false` must not fall through to the string read ("false").
+                Some(false) => None,
+                None => json_pick_string(&value, &["starredAt", "starred"]),
             };
             let user_rating =
                 json_pick_u32(&value, &["userRating", "user_rating", "rating"]).map(|value| {
