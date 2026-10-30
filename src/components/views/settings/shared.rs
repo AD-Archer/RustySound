@@ -245,7 +245,7 @@ pub(super) fn ActionRow(
                 aria_busy: if busy { "true" } else { "false" },
                 onclick: move |evt| onclick.call(evt),
                 if busy {
-                    span { class: "rs-spinner", aria_hidden: "true" }
+                    span { class: "rs-spinner rs-spinner--page", aria_hidden: "true" }
                 } else if let Some(name) = icon.clone() {
                     Icon { name, class: "rs-ic rs-ic--sm".to_string() }
                 }

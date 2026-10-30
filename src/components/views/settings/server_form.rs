@@ -358,7 +358,7 @@ pub(super) fn ServerSheet(
                             }
                         },
                         TestState::Testing => rsx! {
-                            span { class: "rs-spinner", aria_hidden: "true" }
+                            span { class: "rs-spinner rs-spinner--page", aria_hidden: "true" }
                             span { "Testing connection…" }
                         },
                         TestState::Passed(message) => rsx! {
@@ -381,7 +381,9 @@ pub(super) fn ServerSheet(
                         label: "Test Connection".to_string(),
                         icon: "server".to_string(),
                         variant: PillVariant::Quiet,
-                        disabled: !complete || testing,
+                        // Not disabled while testing: disabling the focused button would drop
+                        // focus out of the sheet (Escape stops working). run_test ignores repeats.
+                        disabled: !complete,
                         testid: "server-test".to_string(),
                         onclick: run_test,
                     }

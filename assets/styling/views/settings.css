@@ -2,3 +2,880 @@
    View-specific styles only. Use tokens from tokens.css; do not restyle kit
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-settings- to keep them out of the kit namespace. */
+
+/* ==========================================================================
+   Switch (kit component ui/switch.rs). Lives here until the coordinator moves
+   it into components.css.
+   ========================================================================== */
+
+.rs-switch {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--seg-trough);
+  cursor: pointer;
+  transition: background-color var(--dur-med) var(--ease-out);
+}
+
+.rs-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 0 0 .5px rgba(0, 0, 0, .06);
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.rs-switch[aria-checked="true"] {
+  background: var(--ok);
+}
+
+.rs-switch[aria-checked="true"] .rs-switch__knob {
+  transform: translateX(20px);
+}
+
+.rs-switch:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.rs-app[data-layout="wide"] .rs-switch {
+  width: 40px;
+  height: 24px;
+}
+
+.rs-app[data-layout="wide"] .rs-switch__knob {
+  width: 20px;
+  height: 20px;
+}
+
+.rs-app[data-layout="wide"] .rs-switch[aria-checked="true"] .rs-switch__knob {
+  transform: translateX(16px);
+}
+
+/* ==========================================================================
+   Page structure
+   ========================================================================== */
+
+.rs-settings {
+  position: relative;
+  /* Secondary text pulled toward ink. Plain --muted is 4.07:1 on the light
+     page background and 3.9:1 on the selected-row tint (axe, WCAG AA). */
+  --settings-muted: color-mix(in srgb, var(--muted) 70%, var(--ink));
+}
+
+.rs-settings .rs-settings-foot,
+.rs-settings .rs-settings-group,
+.rs-settings .rs-settings-row__sub,
+.rs-settings .rs-settings-nav__sub,
+.rs-settings .rs-settings-server__status {
+  color: var(--settings-muted);
+}
+
+.rs-settings-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* Compact: a pushed detail page. */
+.rs-settings-back {
+  margin: 0 0 var(--sp-2) -8px;
+}
+
+.rs-settings-back__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: var(--touch);
+  padding: 0 8px 0 2px;
+  color: var(--accent-text);
+  font-size: var(--fs-title);
+}
+
+.rs-settings--compact .rs-settings-detail-title {
+  margin: 0 0 var(--sp-6);
+}
+
+/* Wide: section list on the left, detail on the right. */
+.rs-settings-split {
+  display: grid;
+  grid-template-columns: minmax(240px, 300px) minmax(0, 1fr);
+  gap: var(--sp-9);
+  align-items: start;
+}
+
+.rs-settings-split__nav {
+  position: sticky;
+  top: 0;
+}
+
+.rs-settings-split__title {
+  margin: var(--sp-2) 4px var(--sp-6);
+}
+
+.rs-settings-split__detail {
+  min-width: 0;
+  max-width: 680px;
+}
+
+.rs-settings--wide .rs-settings-detail-title {
+  margin: var(--sp-2) 4px var(--sp-6);
+}
+
+/* The section list. */
+.rs-settings-nav .rs-list + .rs-list {
+  margin-top: var(--sp-7);
+}
+
+.rs-settings-nav__row--on {
+  background: var(--tint-strong);
+}
+
+.rs-settings-nav__row--on .rs-row__title {
+  font-weight: var(--fw-semibold);
+}
+
+.rs-settings-nav__sub {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+
+/* Group headings and footnotes. */
+.rs-settings-group {
+  margin: var(--sp-8) 16px var(--sp-3);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-regular);
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.rs-settings-detail-title + .rs-settings-group,
+.rs-settings-detail-title + * > .rs-settings-group:first-child {
+  margin-top: 0;
+}
+
+.rs-settings-foot {
+  margin: var(--sp-3) 16px 0;
+  max-width: 62ch;
+  line-height: var(--lh-sub);
+}
+
+.rs-settings-foot a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rs-settings-gap {
+  margin-top: var(--sp-7);
+}
+
+/* ==========================================================================
+   Rows
+   ========================================================================== */
+
+.rs-settings-row {
+  gap: var(--sp-5);
+  padding-left: 16px;
+}
+
+.rs-settings-row__title {
+  display: block;
+  font-weight: var(--fw-regular);
+}
+
+.rs-settings-row__sub {
+  display: block;
+  margin-top: 1px;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--muted);
+}
+
+/* Number field: right-aligned, tabular, on the segmented trough. */
+.rs-settings-num {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+
+.rs-settings-num input {
+  width: 86px;
+  height: 32px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: var(--seg-trough);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.rs-settings-num input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Wide enough for "days", so fields in one group line up whatever the unit. */
+.rs-settings-num__unit {
+  min-width: 2.5em;
+  text-align: left;
+}
+
+/* Select: iOS "menu" style, muted value with a chevron. */
+.rs-settings-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  max-width: 55%;
+  color: var(--muted);
+}
+
+.rs-settings-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  max-width: 100%;
+  height: 32px;
+  padding: 0 22px 0 8px;
+  border: 0;
+  border-radius: var(--r-btn);
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--fs-body);
+  text-align: right;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.rs-settings-select select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 0;
+}
+
+.rs-settings-select svg {
+  position: absolute;
+  right: 4px;
+  pointer-events: none;
+}
+
+@media (hover: hover) {
+  .rs-settings-select select:hover { color: var(--ink); background: var(--tint); }
+}
+
+/* Button rows. */
+.rs-settings-action {
+  gap: var(--sp-4);
+  padding-left: 16px;
+  color: var(--accent-text);
+}
+
+.rs-settings-action__label {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-settings-action--danger {
+  color: var(--danger);
+}
+
+/* base.css `.rs-app button { color: inherit }` (0,1,1) outranks a single class,
+   so the button colours need the .rs-app prefix to show. */
+.rs-app .rs-settings-action { color: var(--accent-text); }
+.rs-app .rs-settings-action--danger { color: var(--danger); }
+.rs-app .rs-settings-back__btn { color: var(--accent-text); }
+.rs-app .rs-settings-danger-pill { color: #fff; }
+
+.rs-settings-action:disabled {
+  opacity: .5;
+  cursor: default;
+}
+
+.rs-settings-action:disabled:hover {
+  background: transparent;
+}
+
+/* Usage meter: flat, not glossy (gloss is for playback progress only). */
+.rs-settings-meter {
+  display: block;
+  height: 6px;
+  margin-top: 7px;
+  overflow: hidden;
+  border-radius: 3px;
+  background: var(--seg-trough);
+}
+
+.rs-settings-meter__fill {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--accent);
+  transition: width var(--dur-med) var(--ease-out);
+}
+
+/* Usage rows line up with the other rows and the meter spans the row. */
+.rs-settings-usage {
+  gap: var(--sp-5);
+  padding-left: 16px;
+}
+
+.rs-settings-usage .rs-row__meta {
+  flex: 1;
+}
+
+.rs-settings-usage .rs-row__detail {
+  align-self: flex-start;
+  padding-top: 1px;
+}
+
+/* Volume row. */
+.rs-settings-volume {
+  gap: var(--sp-5);
+  padding-left: 16px;
+}
+
+.rs-settings-volume__icon {
+  flex: none;
+  color: var(--muted);
+}
+
+.rs-settings-volume__track {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-settings-volume__value {
+  min-width: 4ch;
+  text-align: right;
+}
+
+/* Lyrics provider order. */
+.rs-settings-providers {
+  counter-reset: none;
+}
+
+.rs-settings-providers__n {
+  width: 18px;
+  flex: none;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+/* ==========================================================================
+   Servers
+   ========================================================================== */
+
+.rs-settings-server {
+  gap: var(--sp-3);
+  padding-left: 16px;
+}
+
+.rs-settings-server__dot {
+  width: 12px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  align-self: flex-start;
+  padding-top: 8px;
+}
+
+.rs-settings-server .rs-row__meta {
+  margin-left: 4px;
+}
+
+.rs-settings-server__status {
+  white-space: normal;
+}
+
+.rs-settings-server .rs-switch {
+  margin-left: var(--sp-2);
+}
+
+/* ==========================================================================
+   Forms (server sheet, Discovery accounts)
+   ========================================================================== */
+
+.rs-settings-form {
+  padding-bottom: var(--sp-2);
+}
+
+.rs-settings-fields + .rs-settings-fields,
+.rs-settings-foot + .rs-settings-fields {
+  margin-top: var(--sp-6);
+}
+
+.rs-settings-field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--touch);
+  padding: 0 8px 0 16px;
+}
+
+.rs-settings-field > label,
+.rs-settings-field > span:first-child {
+  width: 92px;
+  flex: none;
+  color: var(--ink);
+}
+
+.rs-settings-field input {
+  flex: 1;
+  min-width: 0;
+  height: var(--touch);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--fs-body);
+  outline: none;
+}
+
+.rs-settings-field:focus-within {
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+/* The row shows focus; beat base.css `.rs-app :focus-visible` on the input itself. */
+.rs-app .rs-settings-field input:focus-visible {
+  outline: none;
+}
+
+.rs-settings-field--switch {
+  justify-content: space-between;
+}
+
+.rs-settings-field--switch > span:first-child {
+  width: auto;
+}
+
+.rs-settings-field--test {
+  padding-right: 8px;
+}
+
+.rs-settings-field__test {
+  flex: none;
+}
+
+.rs-app[data-layout="compact"] .rs-settings-field > label {
+  width: 84px;
+}
+
+/* Test outcome lines. */
+.rs-settings-test {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  min-height: 22px;
+  margin: var(--sp-5) 16px 0;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--muted);
+}
+
+.rs-settings-test:empty {
+  min-height: 0;
+  margin: 0;
+}
+
+.rs-settings-test--inline {
+  margin-top: var(--sp-3);
+}
+
+.rs-settings-test__ok,
+.rs-settings-test__err {
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-weight: var(--fw-medium);
+}
+
+.rs-settings-test__ok svg,
+.rs-settings-test__err svg {
+  flex: none;
+  margin-top: 1px;
+}
+
+.rs-settings-test__ok {
+  color: color-mix(in srgb, var(--ok) 72%, var(--ink));
+}
+
+.rs-settings-test__err {
+  color: var(--danger);
+}
+
+.rs-settings-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin-top: var(--sp-6);
+}
+
+.rs-settings-form__actions--start {
+  justify-content: flex-start;
+  margin: var(--sp-5) 16px 0;
+}
+
+.rs-app[data-layout="compact"] .rs-settings-form .rs-settings-form__actions > * {
+  flex: 1;
+}
+
+.rs-settings-confirm {
+  max-width: 46ch;
+  color: var(--muted);
+  line-height: var(--lh-body);
+}
+
+.rs-settings-danger-pill {
+  background: var(--danger);
+  color: #fff;
+}
+
+@media (hover: hover) {
+  .rs-settings-danger-pill:hover { background: color-mix(in srgb, var(--danger) 86%, #000); }
+}
+
+/* ==========================================================================
+   Appearance
+   ========================================================================== */
+
+.rs-settings-themes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-5);
+}
+
+.rs-settings-swatch {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  min-width: 0;
+  padding: 0;
+  text-align: left;
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.rs-settings-swatch__preview {
+  overflow: hidden;
+  border-radius: var(--r-list);
+  border: 1px solid var(--line);
+  background: var(--page);
+  transition: box-shadow var(--dur-fast), border-color var(--dur-fast);
+}
+
+.rs-settings-swatch[aria-checked="true"] .rs-settings-swatch__preview {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+@media (hover: hover) {
+  .rs-settings-swatch:hover .rs-settings-swatch__preview { border-color: var(--muted); }
+}
+
+.rs-settings-swatch__stage {
+  position: relative;
+  height: 54px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  background: var(--stage-bg);
+  perspective: 120px;
+}
+
+.rs-settings-swatch__cover {
+  width: 24px;
+  height: 24px;
+  border-radius: 1px;
+  background: linear-gradient(135deg, var(--accent-hi), var(--accent) 55%, var(--accent-lo));
+}
+
+.rs-settings-swatch__cover--l {
+  background: linear-gradient(135deg, #5a5d63, #2a2b2f);
+  transform: rotateY(55deg) scale(.85);
+}
+
+.rs-settings-swatch__cover--r {
+  background: linear-gradient(135deg, #3a3c41, #1c1c1e);
+  transform: rotateY(-55deg) scale(.85);
+}
+
+.rs-settings-swatch__cover--c {
+  width: 30px;
+  height: 30px;
+  box-shadow: 0 4px 10px rgba(0, 0, 0, .5);
+}
+
+.rs-settings-swatch__page {
+  padding: 6px;
+  background: var(--page);
+}
+
+.rs-settings-swatch__row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.rs-settings-swatch__thumb {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.rs-settings-swatch__lines {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rs-settings-swatch__lines span {
+  display: block;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--ink);
+  opacity: .75;
+}
+
+.rs-settings-swatch__lines span + span {
+  width: 60%;
+  background: var(--muted);
+  opacity: .7;
+}
+
+.rs-settings-swatch__play {
+  width: 10px;
+  height: 10px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--tint-strong);
+  box-shadow: inset 0 0 0 3px var(--accent);
+}
+
+.rs-settings-swatch__track {
+  height: 3px;
+  margin: 6px 2px 1px;
+  border-radius: 2px;
+  background: var(--seg-trough);
+}
+
+.rs-settings-swatch__track span {
+  display: block;
+  width: 45%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent);
+}
+
+.rs-settings-swatch__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0 2px;
+}
+
+.rs-settings-swatch__name {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: var(--fw-semibold);
+}
+
+.rs-settings-swatch__tick {
+  width: 18px;
+  height: 18px;
+}
+
+.rs-settings-swatch__blurb {
+  font-size: var(--fs-foot);
+  line-height: var(--lh-sub);
+  color: var(--muted);
+}
+
+.rs-settings-css__input {
+  display: block;
+  width: 100%;
+  min-height: 160px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  background: var(--surface);
+  color: var(--ink);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: var(--fs-sub);
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.rs-settings-css__input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rs-settings-log {
+  margin-top: var(--sp-5);
+  min-height: 220px;
+}
+
+/* ==========================================================================
+   Toast
+   ========================================================================== */
+
+.rs-settings-toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 24px);
+  z-index: 225;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.rs-app[data-layout="compact"] .rs-settings-toast-host {
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
+}
+
+.rs-app[data-layout="compact"][data-player="on"] .rs-settings-toast-host {
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 24px);
+}
+
+.rs-app[data-layout="wide"][data-player="on"] .rs-settings-toast-host {
+  bottom: calc(var(--bar-h) + 40px);
+}
+
+.rs-settings-toast {
+  display: inline-block;
+  padding: 7px 14px;
+  border-radius: var(--r-pill);
+  background: var(--stage-base);
+  color: var(--stage-ink);
+  border: 1px solid var(--stage-line);
+  box-shadow: var(--stage-shadow);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  animation: rs-settings-toast-in var(--dur-med) var(--ease-out);
+}
+
+@keyframes rs-settings-toast-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ==========================================================================
+   First run: the welcome stage
+   ========================================================================== */
+
+.rs-firstrun {
+  min-height: 100dvh;
+  display: flex;
+  background: var(--stage-base);
+}
+
+/* Compact: run the stage under the tab bar (and over .rs-main's bottom padding),
+   so no strip of page colour shows between the stage and the bar. */
+.rs-app[data-layout="compact"] .rs-firstrun {
+  min-height: 100dvh;
+  margin-bottom: calc(-1 * (var(--tabbar-h) + var(--safe-bottom) + 16px));
+}
+
+.rs-app[data-layout="compact"] .rs-firstrun__stage {
+  padding-bottom: calc(48px + var(--tabbar-h) + var(--safe-bottom));
+}
+
+.rs-firstrun__stage {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  min-height: 100%;
+  padding: calc(var(--safe-top) + 32px) var(--gutter) 48px;
+}
+
+.rs-firstrun__inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-5);
+  max-width: 420px;
+  text-align: center;
+  animation: rs-settings-rise .6s var(--ease-out) both;
+}
+
+.rs-firstrun__mark {
+  width: 72px;
+  height: 72px;
+  border-radius: 16px;
+  box-shadow: var(--stage-shadow);
+  -webkit-box-reflect: below 4px linear-gradient(transparent 60%, rgba(255, 255, 255, .18));
+}
+
+.rs-firstrun__title {
+  margin-top: var(--sp-6);
+  font-family: var(--font-display);
+  font-size: var(--fs-large);
+  line-height: var(--lh-large);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-firstrun__line {
+  max-width: 32ch;
+  color: var(--stage-muted);
+  font-size: var(--fs-title);
+  line-height: 1.4;
+  text-wrap: balance;
+}
+
+.rs-firstrun__actions {
+  margin-top: var(--sp-7);
+}
+
+.rs-firstrun__note {
+  margin-top: var(--sp-2);
+  color: var(--stage-faint);
+  font-size: var(--fs-sub);
+}
+
+@keyframes rs-settings-rise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-firstrun__inner,
+  .rs-settings-toast { animation: none; }
+  .rs-switch,
+  .rs-switch__knob,
+  .rs-settings-meter__fill { transition: none; }
+}

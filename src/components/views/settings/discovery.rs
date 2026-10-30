@@ -189,8 +189,13 @@ fn TestButton(label: String, testid: String, running: bool, onclick: EventHandle
             class: "rs-pill rs-pill--mini rs-settings-field__test",
             aria_label: "{label}",
             "data-testid": "{testid}",
-            disabled: running,
-            onclick: move |evt| onclick.call(evt),
+            // aria-disabled, not disabled, so the focused button keeps focus while it runs.
+            aria_disabled: if running { "true" } else { "false" },
+            onclick: move |evt| {
+                if !running {
+                    onclick.call(evt);
+                }
+            },
             if running { "Testing…" } else { "Test" }
         }
     }
@@ -204,7 +209,7 @@ fn CheckResult(id: String, check: Check) -> Element {
             match check {
                 Check::Idle => rsx! {},
                 Check::Running => rsx! {
-                    span { class: "rs-spinner", aria_hidden: "true" }
+                    span { class: "rs-spinner rs-spinner--page", aria_hidden: "true" }
                     span { "Testing…" }
                 },
                 Check::Done(Ok(message)) => rsx! {

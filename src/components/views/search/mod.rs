@@ -214,7 +214,7 @@ pub fn SearchView() -> Element {
                         },
                     }
                     if busy {
-                        span { class: "rs-spinner rs-search-spin", aria_hidden: "true" }
+                        span { class: "rs-spinner rs-spinner--page rs-search-spin", aria_hidden: "true" }
                     }
                     if !text.is_empty() {
                         IconButton {
