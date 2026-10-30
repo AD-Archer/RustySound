@@ -2,9 +2,9 @@
 //! `None` when there isn't enough real data for an honest mix. Pure.
 
 use super::library::ArtistSeed;
-use super::reasons::{freshness_label, join_names, length_label};
+use super::reasons::{freshness_label, join_names, length_label, similar_reason};
 use super::rewind::{cutoff_days_for_months, is_rewind_candidate, DEFAULT_REWIND_MONTHS, MIN_SONG_PLAYS};
-use super::types::{CoverRef, Mix, MixKind};
+use super::types::{CoverRef, DiscoverSong, Mix, MixKind, ReasonKind};
 use super::util::{normalize_name, SeededRng};
 use crate::api::models::{Album, Song};
 use std::collections::{HashMap, HashSet};
@@ -18,6 +18,8 @@ pub const DISCOVERY_SIZE: usize = 25;
 pub const DEEP_CUTS_SIZE: usize = 30;
 pub const REWIND_SIZE: usize = 40;
 pub const RADIO_SIZE: usize = 30;
+/// Home's "Songs you might like" shelf.
+pub const SONGS_LIKE_SIZE: usize = 20;
 
 /// Inputs shared by every generator for one day.
 #[derive(Debug, Clone)]
@@ -239,6 +241,50 @@ pub fn build_artist_radio(ctx: &MixContext, seed: &ArtistSeed, songs: Vec<Song>)
     )
 }
 
+/// "Songs you might like": songs from each seed's similar-songs list, minus
+/// the seed artists' own songs and songs already played [`HEAVY_PLAYS`]+
+/// times; ≤ 2 per artist, round-robin across seeds so each gets a turn, then
+/// shuffled with the day's seed. Each song says which artist it came through.
+pub fn select_songs_like(
+    ctx: &MixContext,
+    lists: &[(ArtistSeed, Vec<Song>)],
+    limit: usize,
+) -> Vec<DiscoverSong> {
+    let seed_names: HashSet<String> = lists.iter().map(|(s, _)| normalize_name(&s.name)).collect();
+    let longest = lists.iter().map(|(_, l)| l.len()).max().unwrap_or(0);
+    let mut seen = HashSet::new();
+    let mut per_artist: HashMap<String, usize> = HashMap::new();
+    let mut picks = Vec::new();
+    for i in 0..longest {
+        for (seed, list) in lists {
+            let Some(song) = list.get(i) else {
+                continue;
+            };
+            let artist = normalize_name(song.artist.as_deref().unwrap_or(""));
+            if song.play_count.unwrap_or(0) >= HEAVY_PLAYS
+                || seed_names.contains(&artist)
+                || !seen.insert(song_key(song))
+            {
+                continue;
+            }
+            let count = per_artist.entry(artist).or_insert(0);
+            if *count >= 2 {
+                continue;
+            }
+            *count += 1;
+            picks.push(DiscoverSong {
+                song: song.clone(),
+                reason: similar_reason(&seed.name),
+                kind: ReasonKind::SimilarTo,
+                because_artist: Some(seed.name.clone()),
+            });
+        }
+    }
+    ctx.rng("songs-like").shuffle(&mut picks);
+    picks.truncate(limit);
+    picks
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -352,6 +398,32 @@ mod tests {
         let mix = build_rewind_mix(&ctx(4), &songs).unwrap();
         assert_eq!(mix.song_count, 9);
         assert_eq!(mix.length_label, "30 min");
+    }
+
+    #[test]
+    fn songs_like_skip_seeds_heavy_plays_and_repeats() {
+        let seeds = [seed("Mira Okafor"), seed("Junie Marlow")];
+        let lists: Vec<(ArtistSeed, Vec<Song>)> = seeds.iter().cloned().zip(similar_lists()).collect();
+        let picks = select_songs_like(&ctx(1), &lists, 50);
+        assert!(!picks.is_empty());
+        assert!(picks.iter().all(|p| p.song.play_count.unwrap() < HEAVY_PLAYS));
+        assert!(picks.iter().all(|p| p.song.artist.as_deref() != Some("Mira Okafor")));
+        let mut counts = HashMap::new();
+        for p in &picks {
+            *counts.entry(p.song.artist.clone()).or_insert(0) += 1;
+        }
+        assert!(counts.values().all(|&n| n <= 2), "≤ 2 per artist");
+        let ids: HashSet<&str> = picks.iter().map(|p| p.song.id.as_str()).collect();
+        assert_eq!(ids.len(), picks.len(), "no repeats");
+        // The reason names the seed the song came through.
+        let first_x = picks.iter().find(|p| p.song.id.starts_with('x')).unwrap();
+        assert_eq!(first_x.reason, "Similar to Mira Okafor");
+        assert_eq!(first_x.because_artist.as_deref(), Some("Mira Okafor"));
+        assert_eq!(first_x.kind, ReasonKind::SimilarTo);
+        // Deterministic for a seed, capped by the limit.
+        assert_eq!(picks, select_songs_like(&ctx(1), &lists, 50));
+        assert_eq!(select_songs_like(&ctx(1), &lists, 5).len(), 5);
+        assert!(select_songs_like(&ctx(1), &[], 5).is_empty());
     }
 
     #[test]

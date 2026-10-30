@@ -246,28 +246,4 @@ impl NavidromeClient {
         self.invalidate_playlist_cache();
         Ok(())
     }
-
-    #[cfg_attr(not(target_arch = "wasm32"), allow(dead_code))]
-    pub async fn create_similar_playlist(
-        &self,
-        seed_song_id: &str,
-        name: Option<&str>,
-        count: u32,
-    ) -> Result<Option<String>, String> {
-        let songs = self.get_similar_songs2(seed_song_id, count).await?;
-        let mut song_ids: Vec<String> = songs.iter().map(|s| s.id.clone()).collect();
-        if song_ids.is_empty() {
-            song_ids.push(seed_song_id.to_string());
-        }
-        let playlist_name = name
-            .filter(|n| !n.trim().is_empty())
-            .map(|n| n.to_string())
-            .unwrap_or_else(|| "Similar Mix".to_string());
-        self.create_playlist(
-            &playlist_name,
-            Some("Auto-generated from similar songs"),
-            &song_ids,
-        )
-        .await
-    }
 }

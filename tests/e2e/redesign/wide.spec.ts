@@ -55,6 +55,29 @@ test.describe("wide layout", () => {
     await expect.poll(name).toBe(first);
   });
 
+  test("Home shelves fill the content width and page with the arrows", async ({ connected: page }) => {
+    await gotoReady(page, "/");
+    const shelf = tid(page, "shelf-new");
+    await expect(shelf).toBeVisible();
+    const row = shelf.locator(".rs-shelf__row");
+    const width = page.viewportSize()!.width;
+    // Cards reach the right edge of the window (less the page gutter): no empty right side.
+    const cards = row.locator("[role='listitem']");
+    const boxes = await cards.evaluateAll((els) => els.map((e) => e.getBoundingClientRect()).map((r) => ({ left: r.left, right: r.right })));
+    const visible = boxes.filter((b) => b.right <= width + 1);
+    expect(visible.length, "whole cards on screen").toBeGreaterThanOrEqual(5);
+    expect(width - Math.max(...visible.map((b) => b.right)), "gap at the right").toBeLessThan(48);
+    // The stage spans the content width too.
+    const stage = await page.locator(".rs-home__stage").boundingBox();
+    expect(width - (stage!.x + stage!.width)).toBeLessThan(2);
+    // Next pages the shelf; Previous comes back.
+    const scrollLeft = () => row.evaluate((el) => el.scrollLeft);
+    await shelf.getByRole("button", { name: /^Next/ }).click();
+    await expect.poll(scrollLeft).toBeGreaterThan(100);
+    await shelf.getByRole("button", { name: /^Previous/ }).click();
+    await expect.poll(scrollLeft).toBeLessThan(2);
+  });
+
   test("right-click on a track row opens the track menu with every action", async ({ connected: page, mock }) => {
     await openAlbum(page, mock);
     await tid(page, "track-row").first().click({ button: "right" });

@@ -10,11 +10,6 @@ use crate::db::ArtworkDownloadPreference;
 use crate::storage::app_cache_dir;
 use serde::{Deserialize, Serialize};
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(target_os = "macos", target_os = "linux")
-))]
-use base64::{engine::general_purpose, Engine as _};
 #[cfg(not(target_arch = "wasm32"))]
 use once_cell::sync::Lazy;
 #[cfg(not(target_arch = "wasm32"))]
@@ -23,9 +18,12 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 #[cfg(all(
     not(target_arch = "wasm32"),
-    not(any(target_os = "macos", target_os = "linux"))
+    not(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))
 ))]
 use std::path::Path;
+
+#[cfg(any(test, all(feature = "desktop", any(target_os = "macos", target_os = "linux"))))]
+pub(crate) mod protocol;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -92,6 +90,7 @@ pub struct DownloadCacheRefreshReport {
     pub artwork_refreshed: usize,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DownloadIndexEntry {
     pub server_id: String,
@@ -111,6 +110,7 @@ pub struct DownloadIndexEntry {
     pub updated_at_ms: u64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DownloadCollectionEntry {
     pub kind: String,
@@ -128,6 +128,7 @@ pub struct DownloadCollectionEntry {
     pub updated_at_ms: u64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 impl DownloadCollectionEntry {
     pub fn effective_total_song_count(&self) -> usize {
         if self.total_song_count > 0 {
@@ -151,6 +152,7 @@ impl DownloadCollectionEntry {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct DownloadCollectionMembershipEntry {
     pub kind: String,
@@ -161,6 +163,7 @@ pub struct DownloadCollectionMembershipEntry {
     pub updated_at_ms: u64,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ActiveDownloadEntry {
     pub server_id: String,
@@ -250,7 +253,7 @@ fn audio_cache_file_path(song: &Song) -> Option<PathBuf> {
 
 #[cfg(all(
     not(target_arch = "wasm32"),
-    not(any(target_os = "macos", target_os = "linux"))
+    not(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))
 ))]
 fn path_to_file_url(path: &Path) -> String {
     let normalized = path.to_string_lossy().replace('\\', "/");
@@ -325,49 +328,6 @@ fn remove_audio_cache_files_by_ids(server_id: &str, song_id: &str) -> usize {
     }
 
     removed
-}
-
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(target_os = "macos", target_os = "linux")
-))]
-fn audio_mime_type(song: &Song) -> &'static str {
-    if let Some(content_type) = song.content_type.as_deref() {
-        let normalized = content_type
-            .split(';')
-            .next()
-            .unwrap_or_default()
-            .trim()
-            .to_ascii_lowercase();
-        if normalized.starts_with("audio/") {
-            return match normalized.as_str() {
-                "audio/mpeg" => "audio/mpeg",
-                "audio/flac" => "audio/flac",
-                "audio/ogg" => "audio/ogg",
-                "audio/mp4" => "audio/mp4",
-                "audio/aac" => "audio/aac",
-                "audio/wav" => "audio/wav",
-                "audio/x-wav" => "audio/wav",
-                _ => "audio/mpeg",
-            };
-        }
-    }
-
-    match song
-        .suffix
-        .as_deref()
-        .unwrap_or_default()
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "flac" => "audio/flac",
-        "ogg" | "oga" => "audio/ogg",
-        "m4a" | "mp4" => "audio/mp4",
-        "aac" => "audio/aac",
-        "wav" => "audio/wav",
-        _ => "audio/mpeg",
-    }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -565,27 +525,24 @@ fn prune_audio_cache(max_size_mb: u32) {
     }
 }
 
-#[cfg(all(
-    not(target_arch = "wasm32"),
-    any(target_os = "macos", target_os = "linux")
-))]
+/// URL the player loads for a downloaded song, or `None` when it isn't cached.
+///
+/// macOS and Linux desktop play through the webview, which can't read
+/// `file://` from the app page, so they get a URL served by
+/// [`protocol`] with HTTP Range support. iOS (AVPlayer) and Windows
+/// (MediaPlayer) open the file URL directly.
+#[cfg(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))]
 pub fn cached_audio_url(song: &Song) -> Option<String> {
     let path = audio_cache_file_path(song)?;
-    if !path.exists() {
+    if fs::metadata(&path).ok()?.len() == 0 {
         return None;
     }
-    let bytes = fs::read(path).ok()?;
-    if bytes.is_empty() {
-        return None;
-    }
-    let encoded = general_purpose::STANDARD.encode(bytes);
-    let mime = audio_mime_type(song);
-    Some(format!("data:{mime};base64,{encoded}"))
+    protocol::url_for_cached_file(&path)
 }
 
 #[cfg(all(
     not(target_arch = "wasm32"),
-    not(any(target_os = "macos", target_os = "linux"))
+    not(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))
 ))]
 pub fn cached_audio_url(song: &Song) -> Option<String> {
     let path = audio_cache_file_path(song)?;
@@ -594,11 +551,6 @@ pub fn cached_audio_url(song: &Song) -> Option<String> {
     } else {
         None
     }
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn cached_audio_url(_song: &Song) -> Option<String> {
-    None
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -647,11 +599,6 @@ pub fn list_downloaded_entries() -> Vec<DownloadIndexEntry> {
     let mut entries = purge_index_missing_files();
     entries.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
     entries
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn list_downloaded_entries() -> Vec<DownloadIndexEntry> {
-    Vec::new()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -850,21 +797,11 @@ pub fn list_downloaded_collection_memberships() -> Vec<DownloadCollectionMembers
     load_collection_membership_index()
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn list_downloaded_collection_memberships() -> Vec<DownloadCollectionMembershipEntry> {
-    Vec::new()
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 pub fn list_downloaded_collections() -> Vec<DownloadCollectionEntry> {
     let mut entries = load_collection_index();
     entries.sort_by(|left, right| right.updated_at_ms.cmp(&left.updated_at_ms));
     entries
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn list_downloaded_collections() -> Vec<DownloadCollectionEntry> {
-    Vec::new()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -985,11 +922,6 @@ pub async fn sync_downloaded_collection_metadata(servers: &[ServerConfig]) -> us
     synced
 }
 
-#[cfg(target_arch = "wasm32")]
-pub async fn sync_downloaded_collection_metadata(_servers: &[ServerConfig]) -> usize {
-    0
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 fn push_active_download(song: &Song) {
     let key_server_id = song.server_id.trim();
@@ -1034,11 +966,6 @@ pub fn list_active_downloads() -> Vec<ActiveDownloadEntry> {
     let mut snapshot = downloads.clone();
     snapshot.sort_by(|left, right| left.started_at_ms.cmp(&right.started_at_ms));
     snapshot
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn list_active_downloads() -> Vec<ActiveDownloadEntry> {
-    Vec::new()
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1309,11 +1236,6 @@ pub fn remove_downloaded_song(server_id: &str, song_id: &str) -> usize {
     remove_download_index_keys(&keys)
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn remove_downloaded_song(_server_id: &str, _song_id: &str) -> usize {
-    0
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 pub fn remove_downloaded_collection(kind: &str, server_id: &str, collection_id: &str) -> usize {
     if kind.trim().is_empty() || server_id.trim().is_empty() || collection_id.trim().is_empty() {
@@ -1338,11 +1260,6 @@ pub fn remove_downloaded_collection(kind: &str, server_id: &str, collection_id: 
     });
     save_collection_membership_index(&membership_index);
     before.saturating_sub(index.len())
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn remove_downloaded_collection(_kind: &str, _server_id: &str, _collection_id: &str) -> usize {
-    0
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1390,15 +1307,6 @@ pub fn remove_downloaded_album(server_id: &str, collection_id: &str, fallback_na
     let removed = remove_download_index_keys(&keys);
     let _ = remove_downloaded_collection("album", server_id, collection_id);
     removed
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn remove_downloaded_album(
-    _server_id: &str,
-    _collection_id: &str,
-    _fallback_name: &str,
-) -> usize {
-    0
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1534,11 +1442,6 @@ pub fn prune_download_cache(max_count: u32, max_size_mb: u32) -> usize {
     }
 
     removed
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn prune_download_cache(_max_count: u32, _max_size_mb: u32) -> usize {
-    0
 }
 
 #[cfg(not(target_arch = "wasm32"))]

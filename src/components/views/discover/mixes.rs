@@ -1,15 +1,15 @@
-//! "Mixes for you": generated mixes as list rows with a play button and a
-//! "…" menu (Play, Shuffle, Add to Queue, Save as Playlist).
+//! Generated mixes on the Playlists shelf. Tapping a mix card plays it; its
+//! "…" menu has Play, Shuffle, Add to Queue and Save as Playlist (re-saving
+//! replaces the earlier copy).
 
 use super::actions::{use_player, Player, Toast};
+use super::cards::{songs_label, CARD_ART_PX};
 use super::saved::{parse_saved, remembered, save_mix, saved_message, serialize_saved};
-use super::DiscoverData;
-use crate::api::discovery::{Mix, MixKind};
+use super::offserver::OffServerMenu;
+use super::shelf::Card;
+use crate::api::discovery::{Mix, OffServerItem};
 use crate::api::{QueueSourceKind, ServerConfig};
-use crate::components::ui::{
-    use_layout, ArtworkMosaic, IconButton, IconButtonSize, InsetList, ListInset, Skeleton,
-};
-use crate::components::Icon;
+use crate::components::ui::{ActionMenu, Artwork, MenuAction};
 use crate::db::{save_settings, AppSettings};
 use dioxus::prelude::*;
 
@@ -20,12 +20,9 @@ fn play_mix(player: Player, toast: Toast, mix: &Mix, shuffle: bool) {
     }
 }
 
+/// "25 songs · 1 hr 38 min".
 fn count_label(mix: &Mix) -> String {
-    let songs = if mix.song_count == 1 {
-        "1 song".to_string()
-    } else {
-        format!("{} songs", mix.song_count)
-    };
+    let songs = songs_label(mix.song_count);
     if mix.length_label.is_empty() {
         songs
     } else {
@@ -33,129 +30,138 @@ fn count_label(mix: &Mix) -> String {
     }
 }
 
-/// The mix list for "For You". Skeleton while loading, a quiet note when empty.
-#[component]
-pub fn MixList(wide: bool) -> Element {
-    let data = use_context::<DiscoverData>();
-    let mut menu = use_signal(|| None::<(usize, Option<(f64, f64)>)>);
-    let mixes = data.mixes.read();
-    let Some(section) = mixes.as_ref() else {
-        return rsx! {
-            Skeleton { rows: 4 }
-        };
-    };
-    if section.mixes.is_empty() {
-        return rsx! {
-            InsetList { inset: ListInset::Text, label: "Mixes for you".to_string(),
-                li { class: "rs-discover__quiet", "Mixes show up once you've played some music." }
-            }
-        };
+/// The "…" menu Home shows, if any. Menus mount once at Home's root (not
+/// inside a shelf's list markup), so only one is open at a time.
+#[derive(Clone, PartialEq)]
+pub enum HomeMenu {
+    Mix(Mix),
+    OffServer(OffServerItem),
+}
+
+/// Context handle for Home's card menus.
+#[derive(Clone, Copy)]
+pub struct HomeMenus(pub Signal<Option<(HomeMenu, Option<(f64, f64)>)>>);
+
+impl HomeMenus {
+    pub fn open(&self, menu: HomeMenu, anchor: Option<(f64, f64)>) {
+        let mut signal = self.0;
+        signal.set(Some((menu, anchor)));
     }
-    let open = menu().and_then(|(index, anchor)| section.mixes.get(index).cloned().map(|m| (m, anchor)));
-    rsx! {
-        InsetList { label: "Mixes for you".to_string(), testid: "mix-list".to_string(),
-            for (index, mix) in section.mixes.iter().enumerate() {
-                MixRow {
-                    key: "{mix.id}",
-                    mix: mix.clone(),
-                    wide,
-                    on_menu: move |anchor| menu.set(Some((index, anchor))),
-                }
-            }
-        }
-        if let Some((mix, anchor)) = open {
-            MixMenu { key: "{mix.id}", mix, anchor, on_close: move |_| menu.set(None) }
+
+    pub fn close(&self) {
+        let mut signal = self.0;
+        if signal.peek().is_some() {
+            signal.set(None);
         }
     }
 }
 
-/// One mix: tap the row or the play button to play; "…" opens the menu.
+/// Mounts the open card menu (at Home's root).
 #[component]
-fn MixRow(mix: Mix, wide: bool, on_menu: EventHandler<Option<(f64, f64)>>) -> Element {
+pub fn HomeMenuHost() -> Element {
+    let menus = use_context::<HomeMenus>();
+    let Some((menu, anchor)) = (menus.0)() else {
+        return rsx! {};
+    };
+    let on_close = move |_| menus.close();
+    match menu {
+        HomeMenu::Mix(mix) => rsx! {
+            MixMenu { key: "{mix.id}", mix, anchor, on_close }
+        },
+        HomeMenu::OffServer(item) => rsx! {
+            OffServerMenu { key: "{item.id}", item, anchor, on_close }
+        },
+    }
+}
+
+/// One mix: a 2×2 mosaic, the name, a small "Mix" tag and the counts.
+#[component]
+pub fn MixCard(mix: Mix) -> Element {
     let player = use_player();
     let toast = use_context::<Toast>();
+    let menus = use_context::<HomeMenus>();
     let covers: Vec<(String, String)> = mix
         .covers
         .iter()
         .map(|c| (c.server_id.clone(), c.cover_art.clone()))
         .collect();
-    let fresh = mix.kind == MixKind::Discovery && !mix.freshness.is_empty();
-    let counts = count_label(&mix);
     let play = {
         let mix = mix.clone();
         move |_| play_mix(player, toast, &mix, false)
     };
+    let for_menu = mix.clone();
     rsx! {
-        li { "data-testid": "mix-row",
-            div { class: "rs-row rs-discover-mix",
-                button {
-                    r#type: "button",
-                    class: "rs-discover-mix__main",
-                    // No aria-label: the visible name, blurb and counts are the
-                    // accessible name (axe label-content-name-mismatch).
-                    onclick: play.clone(),
-                    ArtworkMosaic { covers, size_px: 44 }
-                    span { class: "rs-row__meta",
-                        span { class: "rs-row__title",
-                            span { "{mix.name}" }
-                            if fresh && wide {
-                                span { class: "rs-discover-mix__fresh", "{mix.freshness}" }
-                            } else if fresh {
-                                span {
-                                    class: "rs-row__fresh",
-                                    role: "img",
-                                    aria_label: "{mix.freshness}",
-                                }
-                            }
-                        }
-                        span { class: "rs-row__sub", style: "display:block", "{mix.blurb}" }
-                        if !wide {
-                            span { class: "rs-row__sub rs-discover__num", style: "display:block", "{counts}" }
-                        }
-                    }
-                }
-                if wide {
-                    span { class: "rs-row__detail", "{counts}" }
-                }
-                button {
-                    r#type: "button",
-                    class: "rs-playbtn",
-                    aria_label: "Play {mix.name}",
-                    title: "Play",
-                    onclick: play,
-                    Icon { name: "play".to_string(), class: "rs-ic rs-ic--xs".to_string() }
-                }
-                IconButton {
-                    icon: "more-horizontal".to_string(),
-                    label: format!("More for {}", mix.name),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    testid: "mix-more".to_string(),
-                    onclick: move |evt: MouseEvent| {
-                        let point = evt.client_coordinates();
-                        let anchor = (point.x > 0.0 || point.y > 0.0).then_some((point.x, point.y));
-                        on_menu.call(anchor);
-                    },
+        Card {
+            title: mix.name.clone(),
+            // Short enough to fit beside the tag; the length is in the menu.
+            subtitle: songs_label(mix.song_count),
+            reason: Some(mix.blurb.clone()),
+            tag: Some("Mix".to_string()),
+            testid: "mix-card".to_string(),
+            art: rsx! {
+                MixArt { covers }
+            },
+            onclick: play,
+            on_menu: move |anchor| menus.open(HomeMenu::Mix(for_menu.clone()), anchor),
+        }
+    }
+}
+
+/// A mix's art, filling the card: a 2×2 mosaic of its first four album
+/// covers, or one cover when it has fewer.
+#[component]
+fn MixArt(covers: Vec<(String, String)>) -> Element {
+    if covers.len() < 4 {
+        let first = covers.first().cloned();
+        return rsx! {
+            Artwork {
+                server_id: first.as_ref().map(|c| c.0.clone()).unwrap_or_default(),
+                cover_art: first.map(|c| c.1),
+                size_px: CARD_ART_PX,
+                fill: true,
+                placeholder: "playlist".to_string(),
+            }
+        };
+    }
+    rsx! {
+        div { class: "rs-hcard__mosaic",
+            for (server_id, cover) in covers.into_iter().take(4) {
+                Artwork {
+                    key: "{server_id}:{cover}",
+                    server_id,
+                    cover_art: Some(cover),
+                    size_px: CARD_ART_PX / 2,
+                    fill: true,
+                    placeholder: "album".to_string(),
                 }
             }
         }
     }
 }
 
-/// The mix's action menu: a bottom sheet on compact, a popover on wide.
+/// The mix's "…" menu (kit `ActionMenu`: a sheet on compact, a popover on wide).
 #[component]
 fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> Element {
-    let layout = use_layout();
     let player = use_player();
     let toast = use_context::<Toast>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let settings = use_context::<Signal<AppSettings>>();
-
-    let act = {
-        let mix = mix.clone();
-        move |action: &'static str| {
-            on_close.call(());
-            match action {
+    let actions = vec![
+        MenuAction::new("play", "Play", "play"),
+        MenuAction::new("shuffle", "Shuffle", "shuffle"),
+        MenuAction::new("queue", "Add to Queue", "add-to-queue"),
+        MenuAction::new("save", "Save as Playlist", "playlist"),
+    ];
+    let title = mix.name.clone();
+    rsx! {
+        ActionMenu {
+            title: Some(title),
+            message: Some(count_label(&mix)),
+            actions,
+            anchor,
+            testid: "mix-menu".to_string(),
+            on_close: move |_| on_close.call(()),
+            on_action: move |key: String| match key.as_str() {
                 "play" => play_mix(player, toast, &mix, false),
                 "shuffle" => play_mix(player, toast, &mix, true),
                 "queue" => match player.enqueue(mix.songs.clone()) {
@@ -163,100 +169,8 @@ fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> 
                     Err(message) => toast.show(message, true),
                 },
                 _ => save_to_playlist(mix.clone(), servers, settings, toast),
-            }
-        }
-    };
-    let items: [(&str, &str, &str); 4] = [
-        ("play", "Play", "play"),
-        ("shuffle", "Shuffle", "shuffle"),
-        ("queue", "Add to Queue", "add-to-queue"),
-        ("save", "Save as Playlist", "playlist"),
-    ];
-    let covers: Vec<(String, String)> = mix
-        .covers
-        .iter()
-        .map(|c| (c.server_id.clone(), c.cover_art.clone()))
-        .collect();
-
-    let card = rsx! {
-        div {
-            class: "rs-menu",
-            class: if !layout.is_compact() { "rs-menu--popover" },
-            style: if !layout.is_compact() { Some(popover_style(anchor)) } else { None },
-            role: "menu",
-            aria_label: "{mix.name}",
-            tabindex: "-1",
-            "data-testid": "mix-menu",
-            onmounted: move |evt| async move {
-                let _ = evt.set_focus(true).await;
             },
-            onkeydown: move |evt| {
-                if evt.key() == Key::Escape {
-                    evt.prevent_default();
-                    on_close.call(());
-                }
-            },
-            div { class: "rs-menu__head",
-                ArtworkMosaic { covers, size_px: 44 }
-                div { class: "rs-menu__head-meta",
-                    div { class: "rs-menu__head-title", "{mix.name}" }
-                    div { class: "rs-menu__head-sub", "{count_label(&mix)}" }
-                }
-            }
-            div { class: "rs-menu__gap", aria_hidden: "true" }
-            for (action, label, icon) in items {
-                button {
-                    key: "{action}",
-                    r#type: "button",
-                    class: "rs-menu__item",
-                    role: "menuitem",
-                    "data-testid": "mix-menu-{action}",
-                    onclick: {
-                        let act = act.clone();
-                        move |_| act(action)
-                    },
-                    "{label}"
-                    Icon { name: icon.to_string(), class: "rs-ic".to_string() }
-                }
-            }
         }
-    };
-
-    if layout.is_compact() {
-        return rsx! {
-            div { class: "rs-scrim", aria_hidden: "true", onclick: move |_| on_close.call(()) }
-            div { class: "rs-sheet rs-sheet--menu", role: "dialog", aria_label: "{mix.name}",
-                {card}
-                div { class: "rs-menu",
-                    button {
-                        r#type: "button",
-                        class: "rs-menu__item rs-menu__cancel",
-                        onclick: move |_| on_close.call(()),
-                        "Cancel"
-                    }
-                }
-            }
-        };
-    }
-    rsx! {
-        {card}
-        div {
-            class: "rs-scrim rs-scrim--clear",
-            aria_hidden: "true",
-            onclick: move |_| on_close.call(()),
-        }
-    }
-}
-
-/// Popover position: left of the "…" button, kept inside the window.
-fn popover_style(anchor: Option<(f64, f64)>) -> String {
-    match anchor {
-        Some((x, y)) => format!(
-            "left:clamp(8px, {:.0}px, calc(100vw - 278px));top:clamp(8px, {:.0}px, calc(100dvh - 300px))",
-            x - 262.0,
-            y + 10.0
-        ),
-        None => "left:50%;top:50%;transform:translate(-50%,-50%)".to_string(),
     }
 }
 

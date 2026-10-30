@@ -1,32 +1,77 @@
-/* views/discover.css: owned by phase-2 agent D (Discover).
-   View-specific styles only. Use tokens from tokens.css; do not restyle kit
-   classes from components.css (ask the coordinator instead). Prefix view
-   classes with rs-discover- to keep them out of the kit namespace. */
+/* views/discover.css: Home (route "/", views/discover/**).
+   View-specific styles only. Colours come from tokens.css; kit classes are
+   only positioned here (inside .rs-home__flow), never restyled. View classes
+   use the rs-home / rs-shelf / rs-hcard prefixes. */
+
+/* ==========================================================================
+   LAYOUT TOKENS
+   Cards per screen: ~2.3 on compact (the next card peeks in); on wide the
+   column count steps up with the window so shelves fill the content width.
+   The wide content width is the window minus the sidebar (--sidebar-w).
+   ========================================================================== */
+
+.rs-home {
+  --shelf-pad: var(--gutter);
+  --shelf-gap: 12px;
+  --card-cols: 2.3;
+  --card-gaps: calc(2 * var(--shelf-gap));
+}
+
+.rs-home--wide {
+  --shelf-pad: var(--gutter-wide);
+  --shelf-gap: 16px;
+  --card-cols: 3;
+  --card-gaps: calc(2 * var(--shelf-gap));
+}
+
+@media (min-width: 960px) {
+  .rs-home--wide { --card-cols: 4; --card-gaps: calc(3 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1196px) {
+  .rs-home--wide { --card-cols: 5; --card-gaps: calc(4 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1396px) {
+  .rs-home--wide { --card-cols: 6; --card-gaps: calc(5 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1596px) {
+  .rs-home--wide { --card-cols: 7; --card-gaps: calc(6 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1796px) {
+  .rs-home--wide { --card-cols: 8; --card-gaps: calc(7 * var(--shelf-gap)); }
+}
+
+@media (min-width: 2036px) {
+  .rs-home--wide { --card-cols: 9; --card-gaps: calc(8 * var(--shelf-gap)); }
+}
 
 /* ==========================================================================
    STAGE
    ========================================================================== */
 
-.rs-discover__stage {
+.rs-home__stage {
   position: relative;
   padding: calc(var(--safe-top) + 10px) 0 18px;
 }
 
-.rs-discover__stage--wide {
-  padding: 0 0 24px;
+.rs-home__stage--wide {
+  padding: 0 0 22px;
 }
 
-.rs-discover__bar {
+.rs-home__bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: var(--sp-4);
   padding: 6px var(--gutter) 0;
 }
 
-.rs-discover__title {
-  margin: 0;
+.rs-home__title {
+  flex: 1;
   min-width: 0;
+  margin: 0;
   font-family: var(--font-display);
   font-size: var(--fs-large);
   line-height: var(--lh-large);
@@ -34,13 +79,12 @@
   letter-spacing: var(--track-title);
 }
 
-.rs-discover__stage--wide .rs-discover__bar {
+.rs-home__stage--wide .rs-home__bar {
   height: 52px;
-  padding: 0 16px 0 var(--gutter-wide);
+  padding: 0 12px 0 var(--gutter-wide);
 }
 
-.rs-discover__stage--wide .rs-discover__title {
-  flex: 1;
+.rs-home__stage--wide .rs-home__title {
   font-family: inherit;
   font-size: var(--fs-title);
   line-height: var(--lh-title);
@@ -48,79 +92,92 @@
   letter-spacing: var(--track-tight);
 }
 
-/* A search "field" on the stage toolbar that opens Search (wide). */
-.rs-discover__search {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  width: 240px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--stage-field-line);
-  border-radius: var(--r-btn);
-  background: var(--stage-field);
-  color: var(--stage-muted);
-  font-size: var(--fs-sub);
-  text-align: left;
-  cursor: text;
-}
-
-.rs-discover__search span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-@media (hover: hover) {
-  .rs-discover__search:hover { border-color: var(--stage-badge-line); }
-}
-
-/* Server status pill: opens Settings. */
-.rs-discover__server {
+/* Server status: a dot and the name in plain text. Opens Settings. */
+.rs-home__server {
   display: inline-flex;
   flex: none;
   align-items: center;
   gap: 7px;
-  max-width: min(52vw, 260px);
-  min-height: 30px;
-  padding: 5px 12px 5px 10px;
-  border: 1px solid var(--stage-field-line);
-  border-radius: var(--r-pill);
-  background: var(--stage-field);
-  color: color-mix(in srgb, var(--stage-ink) 87%, var(--stage-muted));
+  max-width: min(50vw, 260px);
+  min-height: var(--touch);
+  padding: 0 4px;
+  color: var(--stage-muted);
   font-size: var(--fs-sub);
   cursor: pointer;
-  transition: border-color var(--dur-fast);
+  transition: color var(--dur-fast);
 }
 
 @media (hover: hover) {
-  .rs-discover__server:hover { border-color: var(--stage-badge-line); }
+  .rs-home__server:hover { color: var(--stage-ink); }
 }
 
-.rs-discover__server-name {
+.rs-home__server-name {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.rs-discover__server-count {
+.rs-home__server-count {
   flex: none;
-  color: var(--stage-muted);
   font-variant-numeric: tabular-nums;
 }
 
-.rs-discover__stage-actions {
-  display: flex;
-  justify-content: center;
-  margin-top: var(--sp-3);
+/* Cover Flow with the play button beside the centred caption. The kit's
+   caption and scrubber are only placed on this grid, not restyled. */
+.rs-home__flow {
+  display: grid;
+  grid-template-columns: minmax(52px, 1fr) minmax(0, max-content) minmax(52px, 1fr);
+  align-items: center;
+  column-gap: var(--sp-4);
 }
 
-.rs-discover__stage--wide .rs-discover__stage-actions {
-  margin-top: var(--sp-5);
+.rs-home__flow > .rs-flow {
+  grid-column: 1 / -1;
+  grid-row: 1;
 }
 
-.rs-discover__stage-empty {
+.rs-home__flow > .rs-flow-caption {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  padding-inline: 0;
+}
+
+.rs-home__flow > .rs-flow-scrub {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+/* A round icon button (not a pill): the stage's own translucent material. */
+.rs-home__play {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: start;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .14);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background-color var(--dur-fast), scale var(--dur-fast);
+}
+
+.rs-home__play svg {
+  margin-left: 2px;
+}
+
+@media (hover: hover) {
+  .rs-home__play:hover { background: rgba(255, 255, 255, .24); }
+}
+
+.rs-home__play:active {
+  scale: .94;
+}
+
+.rs-home__stage-empty {
   max-width: 420px;
   margin: 0 auto;
   padding: 56px 32px 48px;
@@ -129,11 +186,11 @@
   color: var(--stage-muted);
 }
 
-.rs-discover__stage-empty p {
+.rs-home__stage-empty p {
   margin: 0;
 }
 
-.rs-discover__stage-empty .rs-discover__stage-empty-title {
+.rs-home__stage-empty .rs-home__stage-empty-title {
   margin-bottom: var(--sp-2);
   font-size: 16px;
   font-weight: var(--fw-semibold);
@@ -141,35 +198,35 @@
 }
 
 /* Loading placeholder with the flow + caption footprint. */
-.rs-discover__flow-skel {
+.rs-home__flow-skel {
   --cover: 148px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   gap: 10px;
-  height: calc(var(--cover) + 32px + 54px + 40px);
+  height: calc(var(--cover) + 32px + 54px);
   margin-top: var(--sp-5);
 }
 
-.rs-discover__flow-skel--wide {
-  height: calc(var(--cover) + 40px + 54px + 30px + 44px);
+.rs-home__flow-skel--wide {
+  height: calc(var(--cover) + 40px + 54px + 26px);
   margin-top: 18px;
 }
 
-.rs-discover__flow-skel-cover,
-.rs-discover__flow-skel-side {
+.rs-home__flow-skel-cover,
+.rs-home__flow-skel-side {
   border-radius: var(--r-cover);
   background: linear-gradient(90deg, #17181a 0%, #24252a 50%, #17181a 100%);
   background-size: 200% 100%;
   animation: rs-shimmer 1.4s linear infinite;
 }
 
-.rs-discover__flow-skel-cover {
+.rs-home__flow-skel-cover {
   width: var(--cover);
   height: var(--cover);
 }
 
-.rs-discover__flow-skel-side {
+.rs-home__flow-skel-side {
   width: calc(var(--cover) * .28);
   height: calc(var(--cover) * .86);
   margin-top: calc(var(--cover) * .07);
@@ -177,7 +234,7 @@
 }
 
 /* Pull-to-refresh hint (compact). */
-.rs-discover__pull {
+.rs-home__pull {
   position: absolute;
   top: calc(var(--safe-top) + 4px);
   left: 50%;
@@ -194,8 +251,8 @@
   pointer-events: none;
 }
 
-.rs-discover__pull--busy svg,
-.rs-discover__spin svg {
+.rs-home__pull--busy svg,
+.rs-home__spin svg {
   animation: rs-spin .9s linear infinite;
 }
 
@@ -203,170 +260,314 @@
    PAGE
    ========================================================================== */
 
-.rs-discover__page {
-  padding: 0 var(--gutter) var(--sp-4);
+.rs-home__page {
+  padding: 2px 0 var(--sp-8);
 }
 
-.rs-discover--wide .rs-discover__page {
-  padding: 20px var(--gutter-wide) var(--sp-4);
-}
-
-.rs-discover__controls {
-  margin: 14px 0;
-}
-
-.rs-discover--wide .rs-discover__controls {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--sp-6);
-  margin: 0;
-}
-
-.rs-discover__keys {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin: 0;
-  font-size: var(--fs-foot);
+.rs-home__note {
+  margin: 0 var(--shelf-pad);
+  font-size: var(--fs-sub);
   color: var(--muted);
-  white-space: nowrap;
 }
 
-.rs-discover__keys kbd {
-  min-width: 20px;
-  height: 20px;
-  display: inline-grid;
-  place-items: center;
-  padding: 0 4px;
-  border: 1px solid var(--line);
-  border-bottom-width: 2px;
-  border-radius: 5px;
-  background: var(--surface);
+.rs-home__note--top {
+  margin-top: var(--sp-6);
+}
+
+/* Plain accent text action ("Open Settings"): no box. */
+.rs-home__link {
+  padding: 0;
   font: inherit;
-  font-size: var(--fs-cap);
-  font-weight: var(--fw-semibold);
-}
-
-.rs-discover__note {
-  margin: 0 4px 14px;
-  font-size: var(--fs-sub);
-  color: var(--muted);
-}
-
-.rs-discover--wide .rs-discover__note {
-  margin-top: 14px;
-}
-
-.rs-discover__cols {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  align-items: start;
-  gap: 28px;
-  margin-top: 18px;
-}
-
-.rs-discover__cols > .rs-discover__col > .rs-hd:first-child {
-  margin-top: 0;
-}
-
-/* Below ~1100px the two columns get too narrow for the rows. */
-@media (max-width: 1100px) {
-  .rs-discover__cols {
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0;
-  }
-
-  .rs-discover__cols > .rs-discover__col + .rs-discover__col > .rs-hd:first-child {
-    margin-top: var(--sp-7);
-  }
-}
-
-/* A quiet one-line note inside an inset list (empty sections). */
-.rs-discover__quiet {
-  padding: 14px 16px;
-  font-size: var(--fs-sub);
-  color: var(--muted);
-}
-
-/* ---- Rewind window ----------------------------------------------------- */
-
-.rs-discover__window {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: var(--sp-3) var(--sp-5);
-  margin: 0 0 var(--sp-2);
-}
-
-.rs-discover--wide .rs-discover__window {
-  margin-top: 18px;
-}
-
-.rs-discover__window-note {
-  margin: 0;
-  font-size: var(--fs-sub);
-  color: var(--muted);
-}
-
-/* ---- Mix rows ---------------------------------------------------------- */
-
-.rs-discover-mix {
-  gap: var(--sp-3);
-  padding-block: 0;
-}
-
-.rs-app[data-layout="wide"] .rs-discover-mix {
-  padding-block: 0;
-}
-
-.rs-discover-mix__main {
-  flex: 1;
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  min-height: var(--row-h);
-  padding: 7px var(--sp-2) 7px 0;
-  color: inherit;
-  text-align: left;
+  font-weight: var(--fw-medium);
+  color: var(--accent-text);
   cursor: pointer;
 }
 
-.rs-app[data-layout="wide"] .rs-discover-mix__main {
-  min-height: var(--row-h-wide);
+@media (hover: hover) {
+  .rs-home__link:hover { text-decoration: underline; }
 }
 
-.rs-discover-mix:has(.rs-discover-mix__main:active) {
-  background: var(--tint-strong);
+/* ==========================================================================
+   SHELF
+   ========================================================================== */
+
+.rs-shelf {
+  margin-top: var(--sp-7);
+}
+
+.rs-home--wide .rs-shelf {
+  margin-top: 26px;
+}
+
+.rs-shelf__hd {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: 32px;
+  margin: 0 var(--shelf-pad) var(--sp-4);
+}
+
+.rs-home--wide .rs-shelf__hd {
+  margin-right: calc(var(--shelf-pad) - 6px);
+}
+
+.rs-shelf__title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-title3);
+  line-height: var(--lh-title3);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-home--wide .rs-shelf__title {
+  font-size: 19px;
+}
+
+/* The Rewind window: a small segmented control beside the title. */
+.rs-shelf__control {
+  flex: none;
+  margin-left: auto;
+}
+
+.rs-shelf__control .rs-seg__btn {
+  height: 24px;
+  padding: 0 9px;
+  font-size: var(--fs-foot);
+}
+
+.rs-shelf__arrows {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.rs-shelf__control + .rs-shelf__arrows {
+  margin-left: 0;
+}
+
+.rs-shelf__row {
+  --card-w: calc((100% - var(--card-gaps)) / var(--card-cols));
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--card-w);
+  gap: var(--shelf-gap);
+  padding: 0 var(--shelf-pad) 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--shelf-pad);
+  scrollbar-width: none;
+}
+
+.rs-shelf__row::-webkit-scrollbar {
+  display: none;
+}
+
+/* ==========================================================================
+   CARD
+   Square art, then title, subtitle and an optional quiet reason line. The
+   card is a size container so the overlay and "…" can sit relative to the
+   art's bottom edge (100cqw = the card's width = the art's height).
+   ========================================================================== */
+
+.rs-hcard {
+  position: relative;
+  min-width: 0;
+  container-type: inline-size;
+  scroll-snap-align: start;
+}
+
+.rs-hcard__main {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0 0 2px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+}
+
+.rs-hcard__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--r-thumb);
+  background: var(--surface);
+}
+
+.rs-hcard__art--round {
+  border-radius: 50%;
+}
+
+/* A hairline so pale covers don't melt into the page. */
+.rs-hcard__art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent);
+  pointer-events: none;
+}
+
+/* A mix's 2×2 mosaic. */
+.rs-hcard__mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+.rs-hcard__mosaic .rs-art {
+  border-radius: 0;
+}
+
+.rs-hcard__main:active .rs-hcard__art {
+  scale: .98;
 }
 
 @media (hover: hover) {
-  .rs-discover-mix:hover { background: var(--tint); }
+  .rs-hcard__main:hover .rs-hcard__art img { filter: brightness(.93); }
 }
 
-.rs-discover-mix__fresh {
-  flex: none;
-  font-size: var(--fs-cap);
-  font-weight: var(--fw-semibold);
-  color: var(--accent-text);
+.rs-hcard__title,
+.rs-hcard__sub-text,
+.rs-hcard__why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.rs-discover__num {
-  font-variant-numeric: tabular-nums;
+.rs-hcard__title {
+  margin-top: 7px;
+  font-size: var(--fs-callout);
+  line-height: 18px;
+  font-weight: var(--fw-medium);
 }
 
-/* ---- Off-server rows --------------------------------------------------- */
+.rs-hcard__sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--fs-sub);
+  line-height: 17px;
+  color: var(--muted);
+}
 
-.rs-discover-off {
-  gap: var(--sp-4);
+.rs-hcard__tag {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: .02em;
+}
+
+.rs-hcard__why {
+  font-size: var(--fs-foot);
+  line-height: 16px;
+  color: var(--muted);
+}
+
+/* Room for the "…" beside the title. */
+.rs-hcard--menu .rs-hcard__title,
+.rs-hcard--menu .rs-hcard__sub {
+  padding-right: 26px;
+}
+
+.rs-hcard__more {
+  position: absolute;
+  top: calc(100cqw + 2px);
+  right: -7px;
+}
+
+/* Round icon button over the art's corner (play an album, preview). */
+.rs-hcard__play {
+  position: absolute;
+  top: calc(100cqw - 44px);
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .58);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  cursor: pointer;
+  transition: opacity var(--dur-fast), background-color var(--dur-fast), scale var(--dur-fast);
+}
+
+.rs-hcard__play svg {
+  margin-left: 2px;
+}
+
+.rs-hcard__play--on {
+  background: var(--accent-fill);
+}
+
+.rs-hcard__play--on svg {
+  margin-left: 0;
+}
+
+.rs-hcard__play:active {
+  scale: .92;
+}
+
+@media (hover: hover) {
+  .rs-hcard__play:hover { background: rgba(0, 0, 0, .78); }
+  .rs-hcard__play--on:hover { background: var(--accent-fill); }
+}
+
+/* Album cards: the play button shows on hover or keyboard focus (wide). */
+.rs-hcard__play--hover {
+  opacity: 0;
+}
+
+.rs-hcard:hover .rs-hcard__play--hover,
+.rs-hcard__play--hover:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .rs-hcard__play--hover { display: none; }
+}
+
+/* Loading cards. */
+.rs-shelf--loading .rs-hcard__art {
+  background: none;
+}
+
+.rs-hcard__skel-line {
+  width: 80%;
+  height: 11px;
+  margin-top: 9px;
+}
+
+.rs-hcard__skel-line--short {
+  width: 55%;
+  margin-top: 6px;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rs-discover__pull--busy svg,
-  .rs-discover__spin svg,
-  .rs-discover__flow-skel-cover,
-  .rs-discover__flow-skel-side {
+  .rs-home__pull--busy svg,
+  .rs-home__spin svg,
+  .rs-home__flow-skel-cover,
+  .rs-home__flow-skel-side {
     animation: none;
+  }
+
+  .rs-hcard__main:active .rs-hcard__art,
+  .rs-hcard__play:active,
+  .rs-home__play:active {
+    scale: none;
   }
 }

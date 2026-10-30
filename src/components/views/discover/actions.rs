@@ -1,6 +1,6 @@
-//! Playback and feedback helpers shared by the Discover sections.
+//! Playback and feedback helpers shared by the Home shelves.
 
-use crate::api::{QueueSourceKind, Song};
+use crate::api::{Album, NavidromeClient, QueueSourceKind, ServerConfig, Song};
 use crate::components::audio_manager::{assign_collection_queue_meta, normalize_manual_queue_songs};
 use crate::components::ui::env::sleep_ms;
 use crate::components::IsPlayingSignal;
@@ -100,6 +100,28 @@ impl Player {
     }
 }
 
+/// Load `album`'s songs and play them from the top. Errors go to the toast.
+/// The task runs on Home's scope, so it survives the card unmounting.
+pub fn play_album(player: Player, toast: Toast, servers: Signal<Vec<ServerConfig>>, album: Album) {
+    let server = servers.peek().iter().find(|s| s.id == album.server_id).cloned();
+    let Some(server) = server else {
+        toast.show("That album's server isn't connected.", true);
+        return;
+    };
+    toast.spawn(async move {
+        match NavidromeClient::new(server).get_album(&album.id).await {
+            Ok((_, songs)) if !songs.is_empty() => {
+                let source = format!("{}::{}", album.server_id, album.id);
+                if let Err(message) = player.play(songs, QueueSourceKind::Album, source, false) {
+                    toast.show(message, true);
+                }
+            }
+            Ok(_) => toast.show(format!("“{}” has no playable songs.", album.name), true),
+            Err(_) => toast.show(format!("Couldn't load “{}”.", album.name), true),
+        }
+    });
+}
+
 /// A short status message ("Saved “Deep Cuts”").
 #[derive(Clone, PartialEq)]
 pub struct Notice {
@@ -107,7 +129,7 @@ pub struct Notice {
     pub error: bool,
 }
 
-/// The Discover toast. Shown by [`NoticeCapsule`]; hides itself after 3.2 s.
+/// The Home toast. Shown by [`NoticeCapsule`]; hides itself after 3.2 s.
 /// Also the handle for tasks that must outlive the row or menu that started
 /// them (see [`Toast::spawn`]).
 #[derive(Clone, Copy)]
@@ -118,7 +140,7 @@ pub struct Toast {
 }
 
 impl Toast {
-    /// Create in the Discover view's scope (as a context provider's init).
+    /// Create in the Home view's scope (as a context provider's init).
     pub fn new() -> Self {
         Self {
             notice: Signal::new(None),
@@ -127,8 +149,8 @@ impl Toast {
         }
     }
 
-    /// Spawn on the Discover view's scope: the task survives the row or menu
-    /// that started it unmounting, and still stops when Discover unmounts.
+    /// Spawn on the Home view's scope: the task survives the card or menu
+    /// that started it unmounting, and still stops when Home unmounts.
     pub fn spawn(&self, fut: impl std::future::Future<Output = ()> + 'static) -> Task {
         Runtime::current().spawn(self.scope, fut)
     }

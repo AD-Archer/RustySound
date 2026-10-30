@@ -376,6 +376,7 @@ async fn read_icy_now_playing_from_url(stream_url: &str) -> Result<Option<IcyNow
     Ok(None)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn parse_icy_metadata_block(block: &[u8]) -> Option<IcyNowPlaying> {
     let raw = String::from_utf8_lossy(block).replace('\0', "");
     let raw = raw.trim();
@@ -408,6 +409,7 @@ fn parse_icy_metadata_block(block: &[u8]) -> Option<IcyNowPlaying> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_icy_field(raw: &str, field: &str) -> Option<String> {
     let single = format!("{field}='");
     if let Some(start) = raw.find(&single) {
