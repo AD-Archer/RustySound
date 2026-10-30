@@ -121,23 +121,50 @@ pub struct ScanStatusPayload {
     pub seconds_remaining: Option<u64>,
     #[serde(rename = "secondsElapsed")]
     pub seconds_elapsed: Option<u64>,
+    // Standard Subsonic fields (what Navidrome actually sends).
+    #[serde(default)]
+    pub scanning: Option<bool>,
+    #[serde(default)]
+    pub count: Option<u64>,
+    #[serde(default, rename = "folderCount")]
+    pub folder_count: Option<u64>,
+    #[serde(default, rename = "lastScan")]
+    pub last_scan: Option<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct ScanStatus {
     pub status: String,
     pub current_task: Option<String>,
     pub seconds_remaining: Option<u64>,
     pub seconds_elapsed: Option<u64>,
+    /// Subsonic `scanning`. When the server sends no `status`, `status` is
+    /// derived from it ("scanning" / "idle").
+    pub scanning: Option<bool>,
+    /// Songs in the library (Subsonic `count`).
+    pub count: Option<u64>,
+    pub folder_count: Option<u64>,
+    /// ISO 8601 time of the last finished scan.
+    pub last_scan: Option<String>,
 }
 
 impl ScanStatusPayload {
     fn into_status(self) -> ScanStatus {
+        let derived = self
+            .scanning
+            .map(|on| if on { "scanning" } else { "idle" }.to_string());
         ScanStatus {
-            status: self.status.unwrap_or_else(|| "unknown".to_string()),
+            status: self
+                .status
+                .or(derived)
+                .unwrap_or_else(|| "unknown".to_string()),
             current_task: self.current_task,
             seconds_remaining: self.seconds_remaining,
             seconds_elapsed: self.seconds_elapsed,
+            scanning: self.scanning,
+            count: self.count,
+            folder_count: self.folder_count,
+            last_scan: self.last_scan,
         }
     }
 }
