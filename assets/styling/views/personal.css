@@ -2,3 +2,443 @@
    View-specific styles only. Use tokens from tokens.css; do not restyle kit
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-personal- to keep them out of the kit namespace. */
+
+/* ---- Page head actions ------------------------------------------------- */
+
+.rs-personal-head-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-right: -6px;
+}
+
+/* A toolbar under the page head: segmented control, then tools. */
+.rs-personal-bar {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  margin-bottom: var(--sp-6);
+}
+
+.rs-app[data-layout="wide"] .rs-personal-bar {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-bar .rs-seg {
+  width: 320px;
+  flex: none;
+}
+
+.rs-personal-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-width: 0;
+}
+
+.rs-personal-tools .rs-field {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-tools .rs-field {
+  width: 260px;
+  flex: none;
+}
+
+.rs-personal-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-6);
+}
+
+/* ---- Rows with a sibling "…" button (no nested buttons) ----------------- */
+
+.rs-personal-row {
+  display: flex;
+  align-items: center;
+  padding-right: 4px;
+  -webkit-touch-callout: none;
+}
+
+.rs-personal-row > .rs-row {
+  flex: 1;
+  min-width: 0;
+  padding-right: 4px;
+}
+
+.rs-personal-row--playing .rs-row__title {
+  color: var(--accent-text);
+}
+
+.rs-personal-tnum,
+.rs-personal-row .rs-row__sub {
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-personal-live {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--accent-text);
+}
+
+.rs-personal-live > span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Text-only action rows inside an inset list (Play, Delete…). */
+.rs-personal-action {
+  color: var(--accent-text);
+}
+
+.rs-personal-action--danger {
+  color: var(--danger);
+}
+
+/* ---- Cover grid (Favorites albums / artists) --------------------------- */
+
+.rs-personal-covers {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(144px, 1fr));
+  gap: var(--sp-7) var(--sp-6);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-covers {
+  grid-template-columns: repeat(auto-fill, minmax(168px, 1fr));
+  gap: var(--sp-8) var(--sp-7);
+}
+
+.rs-personal-covers--round {
+  grid-template-columns: repeat(auto-fill, minmax(104px, 1fr));
+}
+
+.rs-app[data-layout="wide"] .rs-personal-covers--round {
+  grid-template-columns: repeat(auto-fill, minmax(136px, 1fr));
+}
+
+.rs-personal-tile {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+  text-align: left;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.rs-personal-tile__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: var(--r-art);
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 4px 14px rgba(0, 0, 0, .08);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.rs-personal-covers--round .rs-personal-tile {
+  align-items: center;
+  text-align: center;
+}
+
+.rs-personal-covers--round .rs-personal-tile__art {
+  border-radius: 50%;
+}
+
+.rs-personal-tile:active .rs-personal-tile__art {
+  transform: scale(.97);
+}
+
+.rs-personal-tile__title,
+.rs-personal-tile__sub {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-personal-tile__title {
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-medium);
+}
+
+.rs-personal-tile__sub {
+  margin-top: -4px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  .rs-personal-tile:hover .rs-personal-tile__title { color: var(--accent-text); }
+}
+
+/* Infinite-scroll sentinel and its spinner. */
+.rs-personal-more {
+  display: grid;
+  place-items: center;
+  min-height: 56px;
+}
+
+/* ---- Downloads ---------------------------------------------------------- */
+
+.rs-personal-card {
+  margin-bottom: var(--sp-7);
+  padding: 14px 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+}
+
+.rs-personal-card__top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-5);
+}
+
+.rs-personal-card__label {
+  font-weight: var(--fw-semibold);
+}
+
+.rs-personal-card__value {
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rs-personal-meter {
+  height: 6px;
+  margin: 10px 0 10px;
+  border-radius: 3px;
+  background: var(--seg-trough);
+  overflow: hidden;
+}
+
+.rs-personal-meter > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--accent);
+}
+
+.rs-personal-counts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2) var(--sp-6);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-personal-counts b {
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+/* iOS-style switch inside a list row. */
+.rs-personal-switch {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  flex: none;
+  border-radius: 16px;
+  background: var(--seg-trough);
+  transition: background-color var(--dur-fast);
+}
+
+.rs-personal-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, .18), 0 0 0 .5px rgba(0, 0, 0, .06);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.rs-personal-switch--on {
+  background: var(--accent);
+}
+
+.rs-personal-switch--on::after {
+  transform: translateX(20px);
+}
+
+.rs-app[data-layout="wide"] .rs-personal-switch {
+  width: 38px;
+  height: 22px;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-switch::after {
+  width: 18px;
+  height: 18px;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-switch--on::after {
+  transform: translateX(16px);
+}
+
+.rs-personal-status {
+  min-height: 18px;
+}
+
+/* Collection sheet header. */
+.rs-personal-sheet-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  margin: var(--sp-2) 0 var(--sp-6);
+}
+
+.rs-personal-sheet-head__meta {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-personal-sheet-head__meta strong {
+  display: block;
+  margin-bottom: 2px;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  color: var(--ink);
+}
+
+.rs-personal-sheet-pills {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-4);
+  margin-bottom: var(--sp-6);
+}
+
+/* ---- Radio form --------------------------------------------------------- */
+
+.rs-personal-form {
+  margin-bottom: var(--sp-5);
+}
+
+.rs-personal-field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--touch);
+  padding: 0 16px;
+}
+
+.rs-personal-field > span {
+  width: 92px;
+  flex: none;
+  font-weight: var(--fw-medium);
+}
+
+.rs-personal-field :is(input, select) {
+  flex: 1;
+  min-width: 0;
+  height: var(--touch);
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  outline: none;
+}
+
+.rs-personal-field input::placeholder {
+  color: var(--faint);
+}
+
+.rs-personal-field:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: var(--r-list);
+}
+
+.rs-personal-hint {
+  margin: 0 4px var(--sp-6);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-personal-error {
+  margin: 0 4px var(--sp-5);
+  font-size: var(--fs-sub);
+  color: var(--danger);
+}
+
+/* ---- Random: a small stage band ---------------------------------------- */
+
+.rs-personal-band {
+  padding: calc(var(--safe-top) + 8px) 0 var(--sp-5);
+}
+
+/* The wide shell pads every .rs-view (it outranks .rs-view--flush), so the
+   band pulls itself back to the edges and the page body drops its own inset. */
+.rs-app[data-layout="wide"] .rs-personal-band {
+  margin: -24px calc(-1 * var(--gutter-wide)) 0;
+  padding-top: var(--sp-7);
+}
+
+.rs-personal-band__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: 4px var(--gutter) 0;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-band__head {
+  padding-inline: var(--gutter-wide);
+}
+
+.rs-personal-band__empty {
+  display: grid;
+  place-items: center;
+  height: 236px;
+  color: var(--stage-muted);
+  font-size: var(--fs-sub);
+}
+
+.rs-personal-page {
+  padding: var(--sp-7) var(--gutter) 24px;
+}
+
+.rs-app[data-layout="wide"] .rs-personal-page {
+  padding: var(--sp-8) 0 0;
+}
+
+.rs-personal-foot {
+  display: flex;
+  justify-content: center;
+  margin-top: var(--sp-6);
+}
+
+/* ---- Stats -------------------------------------------------------------- */
+
+.rs-personal-stats {
+  display: grid;
+  gap: 0 var(--sp-8);
+}
+
+.rs-app[data-layout="wide"] .rs-personal-stats--two {
+  grid-template-columns: 1fr 1fr;
+  align-items: start;
+}

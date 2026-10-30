@@ -7,6 +7,7 @@
 // The kit is consumed by phase-2 views; until they land, parts are unused.
 #![allow(dead_code, unused_imports)]
 
+mod action_menu;
 mod artwork;
 mod artwork_mosaic;
 mod cover_flow;
@@ -15,6 +16,7 @@ pub mod env;
 mod icon_button;
 mod inset_list;
 mod list_row;
+mod long_press;
 mod pill_button;
 mod playback;
 mod progress_track;
@@ -30,6 +32,7 @@ mod track_menu_host;
 mod track_row;
 mod virtual_list;
 
+pub use action_menu::{ActionMenu, MenuAction};
 pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
 pub use cover_flow::{CoverFlow, CoverFlowItem};
@@ -40,6 +43,7 @@ pub use env::{
 pub use icon_button::{IconButton, IconButtonSize};
 pub use inset_list::{InsetList, ListInset};
 pub use list_row::ListRow;
+pub use long_press::{use_long_press, LongPress};
 pub use pill_button::{PillButton, PillVariant};
 pub use playback::{MiniProgressLine, PlaybackProgress, PlaybackTime};
 pub use progress_track::{ProgressTrack, TrackVariant};
