@@ -106,15 +106,8 @@ icon = [
     "assets/favicon.icns",
 ]
 
-# The list of files to include in the bundle
-resources = [
-    "assets/styling/*",
-    "assets/*.png",
-    "assets/*.svg",
-    "assets/*.ico",
-    "assets/*.icns",
-    "assets/*.webmanifest",
-]
+# No extra bundle resources: icons and the web manifest are bundled through asset!(),
+# and the native builds compile the styles in (src/styles.rs).
 
 # macOS specific settings
 [bundle.macos]
