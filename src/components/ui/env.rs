@@ -127,6 +127,20 @@ pub fn platform_name() -> &'static str {
     }
 }
 
+/// The 96px app mark as a `data:` URI, for `<img src>`. Inlined because
+/// desktop builds don't resolve `asset!` paths for images (they showed broken).
+pub fn app_mark_src() -> &'static str {
+    static MARK: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    MARK.get_or_init(|| {
+        use base64::Engine;
+        let png = include_bytes!("../../../assets/favicon-96x96.png");
+        format!(
+            "data:image/png;base64,{}",
+            base64::engine::general_purpose::STANDARD.encode(png)
+        )
+    })
+}
+
 /// Maps a stored theme name (including the 11 retired ones) to a Stage theme.
 pub fn stage_theme(raw: &str) -> &'static str {
     match raw.trim().to_ascii_lowercase().as_str() {

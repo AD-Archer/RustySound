@@ -10,7 +10,6 @@ use crate::components::ui::{Button, Stage};
 use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 
-const MARK: Asset = asset!("/assets/favicon-96x96.png");
 
 #[component]
 pub fn FirstRun() -> Element {
@@ -25,7 +24,7 @@ pub fn FirstRun() -> Element {
                 div { class: "rs-firstrun__inner",
                     img {
                         class: "rs-firstrun__mark",
-                        src: MARK,
+                        src: crate::components::ui::env::app_mark_src(),
                         alt: "",
                         width: "72",
                         height: "72",

@@ -883,7 +883,6 @@ pub(super) async fn share_screenshot_lyrics_image(
 }
 
 
-pub(super) const RUSTYSOUND_MARK: Asset = asset!("/assets/favicon-96x96.png");
 pub(super) const HTML2CANVAS_BUNDLE: &str = include_str!("../../../../assets/vendor/html2canvas.min.js");
 
 pub(super) fn format_timestamp(seconds: f64) -> String {

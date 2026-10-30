@@ -165,7 +165,6 @@ fn loading_progress_percent(progress: f32) -> u32 {
     (progress.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
-const BOOT_MARK: Asset = asset!("/assets/favicon-96x96.png");
 
 /// Full-screen stage overlay shown while the app boots or warms its caches.
 #[component]
@@ -187,7 +186,7 @@ fn BootOverlay(
             div { class: "rs-boot__inner",
                 img {
                     class: "rs-boot__mark",
-                    src: BOOT_MARK,
+                    src: crate::components::ui::env::app_mark_src(),
                     alt: "",
                     width: "64",
                     height: "64",

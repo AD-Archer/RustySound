@@ -3,7 +3,7 @@
 
 use super::shot::{choose_theme, ShotStyle, SHOT_CARD_ID};
 use super::shot_share::{
-    screenshot_shot_text_colors, ScreenshotShotTheme, ScreenshotTextPalette, RUSTYSOUND_MARK,
+    screenshot_shot_text_colors, ScreenshotShotTheme, ScreenshotTextPalette,
 };
 use crate::components::Icon;
 use crate::db::AppSettings;
@@ -125,7 +125,7 @@ pub(super) fn ShotCard(
                     }
                 }
                 div { class: "rs-player-shotcard__foot",
-                    img { class: "rs-player-shotcard__mark", src: RUSTYSOUND_MARK, alt: "RustySound" }
+                    img { class: "rs-player-shotcard__mark", src: crate::components::ui::env::app_mark_src(), alt: "RustySound" }
                     div {
                         p { class: "rs-player-shotcard__brand", style: "color:{colors.footer_primary}", "RustySound" }
                         p { class: "rs-player-shotcard__tag", style: "color:{colors.footer_secondary}", "Shared lyrics" }
