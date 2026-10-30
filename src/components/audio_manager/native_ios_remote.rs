@@ -1270,40 +1270,111 @@ fn set_now_playing_bool(dict: *mut Object, key: *mut Object, value: bool) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn make_now_playing_artwork(artwork_url: &str) -> Option<*mut Object> {
+unsafe extern "C" {
+    /// The main dispatch queue (`dispatch_get_main_queue()` is a macro for its address).
+    static _dispatch_main_q: u8;
+    fn dispatch_async_f(
+        queue: *const u8,
+        context: *mut std::ffi::c_void,
+        work: extern "C" fn(*mut std::ffi::c_void),
+    );
+    fn dispatch_after_f(
+        when: u64,
+        queue: *const u8,
+        context: *mut std::ffi::c_void,
+        work: extern "C" fn(*mut std::ffi::c_void),
+    );
+    fn dispatch_time(when: u64, delta: i64) -> u64;
+}
+
+/// A fetched cover on its way to the main thread: the artwork key it was
+/// requested for and a retained `UIImage`.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+struct FetchedArtwork {
+    key: String,
+    image: usize,
+}
+
+/// Fetches `url` on a background thread, then installs the image as the
+/// lock-screen artwork on the main thread if `key` is still current.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn fetch_now_playing_artwork(url: String, key: String) {
+    let spawned = std::thread::Builder::new()
+        .name("rs-artwork".into())
+        .spawn(move || {
+            let image = objc::rc::autoreleasepool(|| unsafe { load_artwork_image(&url) });
+            let Some(image) = image else {
+                ios_diag_log("player.artwork", "failed to cache now-playing artwork");
+                return;
+            };
+            let job = Box::new(FetchedArtwork { key, image: image as usize });
+            unsafe {
+                dispatch_async_f(
+                    &_dispatch_main_q,
+                    Box::into_raw(job).cast(),
+                    install_fetched_artwork,
+                );
+            }
+        });
+    if spawned.is_err() {
+        ios_diag_log("player.artwork", "could not start artwork thread");
+    }
+}
+
+/// Main-queue half of [`fetch_now_playing_artwork`].
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+extern "C" fn install_fetched_artwork(context: *mut std::ffi::c_void) {
+    let job = unsafe { Box::from_raw(context.cast::<FetchedArtwork>()) };
+    let mut guard = match IOS_AUDIO_PLAYER.try_lock() {
+        Ok(guard) => guard,
+        Err(std::sync::TryLockError::Poisoned(poisoned)) => poisoned.into_inner(),
+        Err(std::sync::TryLockError::WouldBlock) => {
+            // Another thread is using the player; try again shortly rather
+            // than block the main thread.
+            unsafe {
+                dispatch_after_f(
+                    dispatch_time(0, 50_000_000),
+                    &_dispatch_main_q,
+                    Box::into_raw(job).cast(),
+                    install_fetched_artwork,
+                );
+            }
+            return;
+        }
+    };
+    let image = job.image as *mut Object;
+    if let Some(player) = guard.as_mut() {
+        player.install_artwork(&job.key, image);
+    }
+    drop(guard);
+    unsafe {
+        let _: () = msg_send![image, release];
+    }
+}
+
+/// Downloads and decodes a cover. Blocking: never call on the main thread.
+/// Returns a retained `UIImage`.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+unsafe fn load_artwork_image(artwork_url: &str) -> Option<*mut Object> {
     unsafe {
         let url_str = ns_string(artwork_url)?;
-        let url_cls = class!(NSURL);
-        let url: *mut Object = msg_send![url_cls, URLWithString: url_str];
+        let url: *mut Object = msg_send![class!(NSURL), URLWithString: url_str];
         let _: () = msg_send![url_str, release];
         if url.is_null() {
             return None;
         }
 
-        let data_cls = class!(NSData);
-        let data: *mut Object = msg_send![data_cls, dataWithContentsOfURL: url];
+        let data: *mut Object = msg_send![class!(NSData), dataWithContentsOfURL: url];
         if data.is_null() {
             return None;
         }
 
-        let image_cls = class!(UIImage);
-        let image: *mut Object = msg_send![image_cls, imageWithData: data];
+        let image: *mut Object = msg_send![class!(UIImage), imageWithData: data];
         if image.is_null() {
             return None;
         }
-
-        let artwork_cls = class!(MPMediaItemArtwork);
-        let artwork_alloc: *mut Object = msg_send![artwork_cls, alloc];
-        if artwork_alloc.is_null() {
-            return None;
-        }
-
-        let artwork: *mut Object = msg_send![artwork_alloc, initWithImage: image];
-        if artwork.is_null() {
-            None
-        } else {
-            Some(artwork)
-        }
+        let _: *mut Object = msg_send![image, retain];
+        Some(image)
     }
 }
 
