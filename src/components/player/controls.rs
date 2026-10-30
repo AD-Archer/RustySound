@@ -5,6 +5,16 @@ use crate::components::audio_manager::{
 use crate::components::{
     ios_diag_log, seek_to, AddIntent, AddMenuController, AudioState, Icon, PlaybackPositionSignal,
 };
+
+/// Visual size of a transport control.
+#[derive(Clone, Copy, PartialEq, Default)]
+pub(super) enum ControlSize {
+    /// 34px buttons in the wide player bar.
+    #[default]
+    Bar,
+    /// 44px touch targets in the compact mini player.
+    Mini,
+}
 use crate::db::{AppSettings, RepeatMode};
 use dioxus::prelude::*;
 
@@ -17,7 +27,6 @@ pub(super) fn BookmarkButton() -> Element {
     let playback_position = use_context::<PlaybackPositionSignal>().0;
     let saving = use_signal(|| false);
     let saved = use_signal(|| false);
-    let base_class = "flex items-center justify-center";
 
     {
         let now_playing = now_playing.clone();
@@ -68,18 +77,16 @@ pub(super) fn BookmarkButton() -> Element {
         button {
             id: "bookmark-btn",
             r#type: "button",
+            class: "rs-iconbtn rs-iconbtn--quiet",
+            aria_label: "Save bookmark",
+            title: "Save bookmark",
+            aria_pressed: if saved() { "true" } else { "false" },
             disabled: !has_song || saving() || is_live_radio,
-            class: if saved() { format!(
-                "{base_class} p-1.5 sm:p-2 text-emerald-400 hover:text-emerald-300 transition-colors",
-            ) } else { format!("{base_class} p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors") },
             onclick: on_save,
             if saving() {
-                Icon { name: "loader".to_string(), class: "w-5 h-5".to_string() }
+                span { class: "rs-spinner", aria_hidden: "true" }
             } else {
-                Icon {
-                    name: "bookmark".to_string(),
-                    class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
-                }
+                Icon { name: "bookmark".to_string(), class: "rs-ic rs-ic--sm".to_string() }
             }
         }
     }
@@ -143,37 +150,45 @@ pub(super) fn RatingButton() -> Element {
     };
 
     rsx! {
-        div { class: "relative",
+        div { class: "rs-rate",
             button {
                 id: "rating-btn",
                 r#type: "button",
+                class: "rs-iconbtn rs-iconbtn--quiet",
+                class: if current_rating > 0 { "rs-iconbtn--rated" },
+                aria_label: if current_rating > 0 { format!("Rating: {current_rating} of 5") } else { "Rate".to_string() },
+                title: "Rate",
+                aria_haspopup: "true",
+                aria_expanded: if rating_open() { "true" } else { "false" },
                 disabled: !has_song,
-                class: if current_rating > 0 { "p-1.5 sm:p-2 text-amber-400 hover:text-amber-300 transition-colors" } else { "p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors" },
                 onclick: move |_| rating_open.set(!rating_open()),
-                Icon {
-                    name: if current_rating > 0 { "star-filled".to_string() } else { "star".to_string() },
-                    class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
+                Icon { name: "rating".to_string(), class: "rs-ic".to_string() }
+                if current_rating > 0 {
+                    span { class: "rs-rate__value num", "{current_rating}" }
                 }
             }
             if rating_open() && has_song {
-                div { class: "absolute bottom-12 left-1/2 -translate-x-1/2 bg-zinc-900/95 border border-zinc-800 rounded-xl px-3 py-2 shadow-xl flex items-center gap-2",
+                div { class: "rs-rate__pop", role: "group", aria_label: "Rating",
                     for value in 1..=5 {
                         button {
                             r#type: "button",
-                            class: if value <= current_rating { "text-amber-400 hover:text-amber-300 transition-colors" } else { "text-zinc-500 hover:text-zinc-300 transition-colors" },
+                            class: "rs-iconbtn",
+                            class: if value <= current_rating { "rs-iconbtn--rated" },
+                            aria_label: "{value} star",
+                            aria_pressed: if value == current_rating { "true" } else { "false" },
                             onclick: {
                                 let on_rate = on_rate.clone();
                                 move |_| on_rate(value)
                             },
                             Icon {
                                 name: if value <= current_rating { "star-filled".to_string() } else { "star".to_string() },
-                                class: "w-4 h-4".to_string(),
+                                class: "rs-ic rs-ic--sm".to_string(),
                             }
                         }
                     }
                     button {
                         r#type: "button",
-                        class: "ml-1 text-xs text-zinc-400 hover:text-white transition-colors",
+                        class: "rs-rate__clear",
                         onclick: {
                             let on_rate = on_rate.clone();
                             move |_| on_rate(0)
@@ -188,7 +203,7 @@ pub(super) fn RatingButton() -> Element {
 
 /// Play/Pause button - completely isolated component
 #[component]
-pub(super) fn PlayPauseButton() -> Element {
+pub(super) fn PlayPauseButton(#[props(default)] size: ControlSize) -> Element {
     let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let playing = is_playing();
 
@@ -196,7 +211,9 @@ pub(super) fn PlayPauseButton() -> Element {
         button {
             id: "play-pause-btn",
             r#type: "button",
-            class: "w-10 h-10 rounded-full bg-white flex items-center justify-center hover:scale-105 transition-transform shadow-lg",
+            class: "rs-iconbtn rs-iconbtn--play",
+            aria_label: if playing { "Pause" } else { "Play" },
+            title: if playing { "Pause" } else { "Play" },
             onclick: move |_| {
                 let current = is_playing();
                 eprintln!(
@@ -210,16 +227,12 @@ pub(super) fn PlayPauseButton() -> Element {
                 );
                 is_playing.set(!current);
             },
-            if playing {
-                Icon {
-                    name: "pause".to_string(),
-                    class: "w-5 h-5 text-black".to_string(),
-                }
-            } else {
-                Icon {
-                    name: "play".to_string(),
-                    class: "w-5 h-5 text-black ml-0.5".to_string(),
-                }
+            Icon {
+                name: if playing { "pause".to_string() } else { "play".to_string() },
+                class: match size {
+                    ControlSize::Bar => "rs-ic rs-ic--lg".to_string(),
+                    ControlSize::Mini => "rs-ic rs-ic--md".to_string(),
+                },
             }
         }
     }
@@ -227,7 +240,11 @@ pub(super) fn PlayPauseButton() -> Element {
 
 /// Previous button - completely isolated component
 #[component]
-pub(super) fn PrevButton() -> Element {
+pub(super) fn PrevButton(
+    /// Keep `prev-btn` in the DOM for MediaSession without showing it.
+    #[props(default)]
+    hidden: bool,
+) -> Element {
     let mut queue_index = use_context::<Signal<usize>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
@@ -243,8 +260,11 @@ pub(super) fn PrevButton() -> Element {
             id: "prev-btn",
             r#type: "button",
             disabled: is_radio,
-            class: if is_radio { "p-2 sm:p-2.5 text-zinc-600 cursor-not-allowed flex items-center justify-center" } else { "p-2 sm:p-2.5 text-zinc-300 hover:text-white transition-colors flex items-center justify-center" },
-            style: "min-width: 44px; min-height: 44px;",
+            class: if hidden { "rs-sr-only" } else { "rs-iconbtn" },
+            tabindex: if hidden { Some("-1") } else { None },
+            aria_hidden: if hidden { Some("true") } else { None },
+            aria_label: "Previous",
+            title: "Previous",
             onclick: move |_| {
                 if is_radio {
                     return;
@@ -272,14 +292,14 @@ pub(super) fn PrevButton() -> Element {
                     }
                 }
             },
-            Icon { name: "prev".to_string(), class: "w-5 h-5 sm:w-6 sm:h-6".to_string() }
+            Icon { name: "prev".to_string(), class: "rs-ic rs-ic--md".to_string() }
         }
     }
 }
 
 /// Next button - completely isolated component
 #[component]
-pub(super) fn NextButton() -> Element {
+pub(super) fn NextButton(#[props(default)] size: ControlSize) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
     let mut queue_index = use_context::<Signal<usize>>();
@@ -299,8 +319,9 @@ pub(super) fn NextButton() -> Element {
             id: "next-btn",
             r#type: "button",
             disabled: is_radio,
-            class: if is_radio { "p-2 sm:p-2.5 text-zinc-600 cursor-not-allowed flex items-center justify-center" } else { "p-2 sm:p-2.5 text-zinc-300 hover:text-white transition-colors flex items-center justify-center" },
-            style: "min-width: 44px; min-height: 44px;",
+            class: "rs-iconbtn",
+            aria_label: "Next",
+            title: "Next",
             onclick: move |_| {
                 if is_radio {
                     return;
@@ -391,7 +412,13 @@ pub(super) fn NextButton() -> Element {
                     is_playing.set(false);
                 }
             },
-            Icon { name: "next".to_string(), class: "w-5 h-5 sm:w-6 sm:h-6".to_string() }
+            Icon {
+                name: "next".to_string(),
+                class: match size {
+                    ControlSize::Bar => "rs-ic rs-ic--md".to_string(),
+                    ControlSize::Mini => "rs-ic rs-ic--lg".to_string(),
+                },
+            }
         }
     }
 }
@@ -407,12 +434,14 @@ pub(super) fn RepeatButton() -> Element {
         button {
             id: "repeat-btn",
             r#type: "button",
-            class: match mode {
-                RepeatMode::Off => "p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors",
-                RepeatMode::All | RepeatMode::One => {
-                    "p-1.5 sm:p-2 text-emerald-400 hover:text-emerald-300 transition-colors"
-                }
+            class: "rs-iconbtn rs-iconbtn--quiet",
+            aria_label: match mode {
+                RepeatMode::Off => "Repeat: off",
+                RepeatMode::All => "Repeat: all",
+                RepeatMode::One => "Repeat: one",
             },
+            title: "Repeat",
+            aria_pressed: if mode == RepeatMode::Off { "false" } else { "true" },
             onclick: move |_| {
                 let next = match repeat_mode() {
                     RepeatMode::Off => RepeatMode::All,
@@ -433,7 +462,7 @@ pub(super) fn RepeatButton() -> Element {
                     RepeatMode::One => "repeat-1".to_string(),
                     _ => "repeat".to_string(),
                 },
-                class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
+                class: "rs-ic rs-ic--sm".to_string(),
             }
         }
     }
@@ -469,15 +498,13 @@ pub(super) fn AddToMenuButton() -> Element {
             id: "add-menu-btn",
             r#type: "button",
             disabled: !has_song,
-            class: if has_song {
-                "p-1.5 sm:p-2 text-zinc-300 hover:text-white transition-colors"
-            } else {
-                "p-1.5 sm:p-2 text-zinc-600 cursor-not-allowed"
-            },
+            class: "rs-iconbtn rs-iconbtn--quiet",
+            aria_label: "Add to queue or playlist",
+            title: "Add to queue or playlist",
             onclick: on_open_add_menu,
             Icon {
                 name: "playlist".to_string(),
-                class: "w-4 h-4 sm:w-5 sm:h-5".to_string(),
+                class: "rs-ic rs-ic--sm".to_string(),
             }
         }
     }
@@ -497,7 +524,10 @@ pub(super) fn ShuffleButton() -> Element {
         button {
             id: "shuffle-btn",
             r#type: "button",
-            class: if enabled { "p-1.5 sm:p-2 text-emerald-400 hover:text-emerald-300 transition-colors" } else { "p-1.5 sm:p-2 text-zinc-400 hover:text-white transition-colors" },
+            class: "rs-iconbtn rs-iconbtn--quiet",
+            aria_label: "Shuffle",
+            title: "Shuffle",
+            aria_pressed: if enabled { "true" } else { "false" },
             onclick: move |_| {
                 let next = !shuffle_enabled();
                 eprintln!(
@@ -523,7 +553,7 @@ pub(super) fn ShuffleButton() -> Element {
                     let _ = crate::db::save_settings(settings_snapshot).await;
                 });
             },
-            Icon { name: "shuffle".to_string(), class: "w-4 h-4 sm:w-5 sm:h-5".to_string() }
+            Icon { name: "shuffle".to_string(), class: "rs-ic rs-ic--sm".to_string() }
         }
     }
 }

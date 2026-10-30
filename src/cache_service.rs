@@ -55,6 +55,7 @@ fn can_cache(include_images: bool) -> bool {
     config.enabled && (!include_images || config.cache_images_enabled)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 pub fn is_enabled(include_images: bool) -> bool {
     can_cache(include_images)
 }

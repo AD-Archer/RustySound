@@ -3,8 +3,8 @@
     // One-time setup: create audio element and attach listeners.
     {
         let servers = servers.clone();
-        let mut now_playing = now_playing.clone();
-        let mut is_playing = is_playing.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
         let queue = queue.clone();
         let queue_index = queue_index.clone();
         let repeat_mode = repeat_mode.clone();
@@ -21,10 +21,34 @@
             };
             ensure_web_media_session_shortcuts();
 
+            // First-tap fix. The interaction flag used to be set by bubbling
+            // listeners on `document`. Dioxus handles events on its root
+            // element, below `document`, and its effects run in the microtask
+            // checkpoint right after that listener returns. So on the first
+            // tap the playback effect saw "no interaction yet", forced
+            // `is_playing` back to false, and only then did the document
+            // listener set the flag. Capture-phase listeners on `window` run
+            // before any Dioxus handler, so the flag is set by the time the
+            // effect asks. The same listener unlocks the audio element inside
+            // the gesture for engines that gate `play()` per element.
+            if let Some(win) = window() {
+                let unlock_cb = Closure::wrap(Box::new(move || {
+                    let first = USER_INTERACTED.with(|c| !c.replace(true));
+                    if first {
+                        web_unlock_audio_element();
+                    }
+                }) as Box<dyn FnMut()>);
+                for event in ["pointerdown", "mousedown", "touchstart", "keydown", "click"] {
+                    let _ = win.add_event_listener_with_callback_and_bool(
+                        event,
+                        unlock_cb.as_ref().unchecked_ref(),
+                        true,
+                    );
+                }
+                unlock_cb.forget();
+            }
+
             if let Some(doc) = window().and_then(|w| w.document()) {
-                let click_cb = Closure::wrap(
-                    Box::new(move || USER_INTERACTED.with(|c| c.set(true))) as Box<dyn FnMut()>,
-                );
                 let key_cb = Closure::wrap(Box::new(move |event: KeyboardEvent| {
                     USER_INTERACTED.with(|c| c.set(true));
                     if let Some(action) = shortcut_action_from_key(&event) {
@@ -37,27 +61,16 @@
                         }
                     }
                 }) as Box<dyn FnMut(KeyboardEvent)>);
-                let touch_cb = Closure::wrap(
-                    Box::new(move || USER_INTERACTED.with(|c| c.set(true))) as Box<dyn FnMut()>,
-                );
-                let _ = doc
-                    .add_event_listener_with_callback("click", click_cb.as_ref().unchecked_ref());
                 let _ = doc
                     .add_event_listener_with_callback("keydown", key_cb.as_ref().unchecked_ref());
-                let _ = doc.add_event_listener_with_callback(
-                    "touchstart",
-                    touch_cb.as_ref().unchecked_ref(),
-                );
-                click_cb.forget();
                 key_cb.forget();
-                touch_cb.forget();
             }
 
             let mut current_time_signal = audio_state.peek().current_time;
             let mut duration_signal = audio_state.peek().duration;
             let mut playback_error_signal = audio_state.peek().playback_error;
             let mut playback_pos = playback_position.clone();
-            let mut queue = queue.clone();
+            let queue = queue.clone();
             let mut queue_index = queue_index.clone();
             let mut now_playing = now_playing.clone();
             let mut is_playing = is_playing.clone();

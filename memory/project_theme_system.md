@@ -1,34 +1,21 @@
 ---
 name: Theme system architecture
-description: How the CSS variable theming framework works and how to add new themes
+description: How themes and appearance work (token CSS, no Tailwind) and how to add a theme
 type: project
 ---
 
-RustySound has a full theming system as of 2026-04-02.
+RustySound styles everything with token-based CSS. Tailwind, `app.css` and the 11 class-override themes were removed in the Stage redesign (2026-10).
 
 **Core files:**
-- `assets/styling/themes.css` — theme import entrypoint (ordered `@import`s)
-- `assets/styling/themes/shared/base.css` — global variable-driven rules, dynamic accent mapping, and shared layout/chrome baselines
-- `assets/styling/themes/<theme>/theme.css` — one folder per theme (`rusty`, `spot`, `fruit`, `navi`, `y2k`, `aero`, `aqua`, `material`, `fluent`, `hig`)
-- `assets/styling/app.css` — custom classes now use `var(--rs-*)` tokens
-- `src/main.rs` — inlines the split theme files for desktop, and loads `themes.css` (the import entrypoint) for web; both paths apply theme styles before `app.css` in `GlobalStyles`
-- `src/components/app.rs` — sets `data-theme="{active_theme}"` attribute on the root `.app-container` div
-- `src/components/views/settings.rs` — "Appearance" tab with `ThemeCard` component for visual picking
-- `src/db/mod.rs` — `AppSettings.theme` field (default: `"rusty"`)
+- `assets/styling/tokens.css`: every colour, radius, size and motion token. Themes are token sets selected by `[data-theme="stage" | "graphite" | "tape"]`; appearance by `[data-appearance="system" | "light" | "dark"]`.
+- `assets/styling/base.css`: reset, typography, focus ring, scrollbars, platform tweaks.
+- `assets/styling/components.css`: the UI kit (`src/components/ui/**`), classes prefixed `rs-`.
+- `assets/styling/views/*.css`: one file per view area.
+- `src/styles.rs`: the single stylesheet registry (`include_str!` on desktop/iOS, `asset!` links on web).
+- `src/components/ui/env.rs`: `stage_theme()` maps stored theme names, including the retired ones, to a Stage theme at read time.
 
-**Core themes:** `rusty` (default, emerald), `spot` (Spotify-green), `fruit` (Apple Music red), `navi` (deep navy, sky-blue)
+**Custom CSS:** `AppSettings.custom_css`, injected live from `app.rs`. Editable in Settings → Appearance.
 
-**Experimental themes:** `y2k` (hot magenta, monospace, neon), `aero` (Frutiger Aero, ocean cyan), `aqua` (macOS Aqua, pinstripe), `material` (Material You, purple), `fluent` (Windows 11, Mica), `hig` (Apple HIG, OLED black)
-
-**Custom CSS:** `AppSettings.custom_css` — injected live via `use_effect` in `app.rs` using `document::eval`. Editable in Settings → Appearance tab.
-
-**How to create a new theme:**
-1. Create `assets/styling/themes/your-name/theme.css`
-2. Add your `[data-theme="your-name"]` variable block and any per-theme utility/structure/chrome overrides there
-3. Add an `@import` entry for your file in `assets/styling/themes.css`
-4. Add a `ThemeCard` entry in the Appearance tab grid in `settings.rs`
-5. Done — no Rust recompile needed for CSS-only changes in web mode; desktop needs rebuild
-
-**Why:** `data-theme` on the root container scopes all `[data-theme="x"] .tw-class` overrides without touching component code. CSS variables propagate through all descendants automatically.
-
-**How to apply:** `app_settings().theme` drives it; changing the signal updates the DOM attribute reactively.
+**How to add a theme:**
+1. Add a `[data-theme="name"]` block (light) and dark blocks (explicit `[data-appearance="dark"]` and the `prefers-color-scheme` copy) in `tokens.css`. Keep text tokens at 4.5:1 or better.
+2. Map the name in `stage_theme()` and add it to the theme picker in Settings → Appearance.

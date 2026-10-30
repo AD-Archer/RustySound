@@ -1,0 +1,37 @@
+{
+  "similarartists": {
+    "artist": [
+      {
+        "name": "Sonny & Cher",
+        "mbid": "3d6e4b6d-2700-458c-9722-9021965a8164",
+        "match": "1",
+        "url": "https://www.last.fm/music/Sonny+&+Cher",
+        "image": [
+          { "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png", "size": "small" },
+          { "#text": "https://lastfm.freetls.fastly.net/i/u/300x300/2a96cbd8b46e442fc41c2b86b821562f.png", "size": "extralarge" }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Cyndi Lauper",
+        "mbid": "",
+        "match": "0.882",
+        "url": "https://www.last.fm/music/Cyndi+Lauper",
+        "image": [
+          { "#text": "https://lastfm.freetls.fastly.net/i/u/34s/real.png", "size": "small" },
+          { "#text": "https://lastfm.freetls.fastly.net/i/u/300x300/real.png", "size": "extralarge" },
+          { "#text": "", "size": "mega" }
+        ],
+        "streamable": "0"
+      },
+      {
+        "name": "Bonnie Tyler",
+        "match": 0.71,
+        "url": "https://www.last.fm/music/Bonnie+Tyler",
+        "image": [],
+        "streamable": "0"
+      }
+    ],
+    "@attr": { "artist": "Cher" }
+  }
+}

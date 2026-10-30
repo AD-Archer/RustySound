@@ -9,3 +9,9 @@ linker = "/usr/bin/clang"
 
 [target.x86_64-apple-darwin]
 linker = "/usr/bin/clang"
+
+# The precompiled std carries DWARF that the wasm-opt bundled with dx cannot
+# read, which made it abort and ship an unoptimised web bundle. Drop debug
+# sections at link time for the web target only.
+[target.wasm32-unknown-unknown]
+rustflags = ["-C", "link-arg=--strip-debug"]

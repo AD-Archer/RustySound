@@ -12,6 +12,8 @@ pub enum AppView {
     HomeView {},
     #[route("/search")]
     SearchView {},
+    #[route("/library")]
+    LibraryView {},
     #[route("/songs")]
     SongsView {},
     #[route("/albums")]
@@ -52,10 +54,12 @@ pub enum AppView {
     },
 }
 
+#[allow(dead_code)]
 pub fn view_label(view: &AppView) -> &'static str {
     match view {
         AppView::HomeView {} => "Home",
         AppView::SearchView {} => "Search",
+        AppView::LibraryView {} => "Library",
         AppView::SongsView {} => "Songs",
         AppView::Albums {} => "Albums",
         AppView::AlbumsWithGenre { .. } => "Albums",
@@ -79,6 +83,7 @@ pub fn view_instance_key(view: &AppView) -> String {
     match view {
         AppView::HomeView {} => "home".to_string(),
         AppView::SearchView {} => "search".to_string(),
+        AppView::LibraryView {} => "library".to_string(),
         AppView::SongsView {} => "songs".to_string(),
         AppView::Albums {} => "albums".to_string(),
         AppView::AlbumsWithGenre { genre } => format!("albums:{genre}"),

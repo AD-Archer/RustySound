@@ -118,16 +118,18 @@ pub(crate) async fn resolve_artist_id_for_name(
     None
 }
 
+/// Artist names as links. Multi-artist strings ("A; B", "A • B") become one
+/// link per artist; a single artist uses `fallback_artist_id` directly,
+/// others are resolved by name on click. The default classes are the Stage
+/// ones (`rs-library-names`, styled in library.css); callers may pass their own.
 #[component]
 pub fn ArtistNameLinks(
     artist_text: String,
     server_id: String,
     fallback_artist_id: Option<String>,
-    #[props(default = "inline-flex max-w-full min-w-0 items-center gap-1".to_string())]
-    container_class: String,
-    #[props(default = "inline-flex max-w-fit truncate text-left hover:text-emerald-400 transition-colors".to_string())]
-    button_class: String,
-    #[props(default = "text-zinc-500".to_string())] separator_class: String,
+    #[props(default = "rs-library-names".to_string())] container_class: String,
+    #[props(default = "rs-library-names__link".to_string())] button_class: String,
+    #[props(default = "rs-library-names__sep".to_string())] separator_class: String,
 ) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let navigation = use_context::<Navigation>();
@@ -148,6 +150,7 @@ pub fn ArtistNameLinks(
             for (index , artist_name) in artist_parts.iter().enumerate() {
                 button {
                     key: "{index}-{artist_name}",
+                    r#type: "button",
                     class: "{button_class}",
                     onclick: {
                         let navigation = navigation.clone();
@@ -213,7 +216,7 @@ pub fn ArtistNameLinks(
                     "{artist_name}"
                 }
                 if index + 1 < artist_parts.len() {
-                    span { class: "{separator_class}", "•" }
+                    span { class: "{separator_class}", aria_hidden: "true", "·" }
                 }
             }
         }

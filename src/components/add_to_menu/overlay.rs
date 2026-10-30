@@ -216,15 +216,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         })
     };
 
-    let on_close = {
-        let mut controller = controller.clone();
-        move |_: MouseEvent| controller.close()
-    };
-
-    let on_backdrop_close = {
-        let mut controller = controller.clone();
-        move |_: MouseEvent| controller.close()
-    };
 
     let on_preview_song = Rc::new({
         let queue_index = queue_index.clone();
@@ -310,12 +301,23 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         }
     };
 
+    // Same rules as the track menu's Play Next / Add to Queue: an empty,
+    // idle player starts playing the first added song.
     let enqueue_items =
-        |mut queue: Signal<Vec<Song>>, queue_index: Signal<usize>, items: Vec<Song>, mode: &str| {
+        move |mut queue: Signal<Vec<Song>>, mut queue_index: Signal<usize>, items: Vec<Song>, mode: &str| {
             let items = normalize_manual_queue_songs(items);
+            let (mut now_playing, mut is_playing) = (now_playing, is_playing);
+            if now_playing.peek().is_none() && queue.peek().is_empty() {
+                let first = items.first().cloned();
+                queue.set(items);
+                queue_index.set(0);
+                now_playing.set(first);
+                is_playing.set(true);
+                return;
+            }
             queue.with_mut(|q| match mode {
                 "next" => {
-                    let insert_at = queue_index().saturating_add(1).min(q.len());
+                    let insert_at = queue_index.peek().saturating_add(1).min(q.len());
                     for (idx, song) in items.into_iter().enumerate() {
                         q.insert(insert_at + idx, song);
                     }
@@ -328,7 +330,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
         make_add_to_queue,
         make_add_to_playlist,
         create_playlist,
-        on_open_playlist_picker,
         on_create_similar,
         on_quick_add_suggestion,
     ) = include!("overlay_actions.rs");

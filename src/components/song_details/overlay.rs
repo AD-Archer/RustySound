@@ -1,324 +1,249 @@
-// Full-screen song-details overlay split into state setup and RSX layout chunks.
+//! Now Playing: a full-screen stage sheet (compact) or a large stage overlay
+//! (wide). Only the tree for the current layout is mounted.
+//!
+//! Perf: nothing in this file reads the playback position or the queue. The
+//! root re-renders when the sheet opens/closes, the song changes or the
+//! layout flips. Position readers are the kit leaves inside `transport.rs`
+//! and the active-line memo in `lyrics/lines.rs`; queue readers are the art
+//! strip and Up Next.
+
+use super::actions::is_live_song;
+use super::art::NowPlayingArt;
+use super::meta::{NowPlayingExtras, NowPlayingMeta};
+use super::panels::NowPlayingPanels;
+use super::transport::{NowPlayingScrubber, NowPlayingTransport};
+use super::types::{SongDetailsController, SongDetailsTab};
+use crate::api::Song;
+use crate::components::ui::env::sleep_ms;
+use crate::components::ui::{use_layout, IconButton};
+use crate::components::{AppView, Navigation};
+use dioxus::prelude::*;
+
+/// Drag distance (px) past which releasing the sheet dismisses it.
+const DISMISS_PX: f64 = 110.0;
+/// Matches the slide-down animation in player.css.
+const CLOSE_ANIMATION_MS: u64 = 240;
+
 #[component]
 pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let add_menu = use_context::<AddMenuController>();
-    let queue = use_context::<Signal<Vec<Song>>>();
-    let queue_index = use_context::<Signal<usize>>();
     let now_playing = use_context::<Signal<Option<Song>>>();
-    let sidebar_open = use_context::<SidebarOpenSignal>().0;
-    let app_settings = use_context::<Signal<AppSettings>>();
-    let audio_state = use_context::<Signal<AudioState>>();
-    let create_queue_busy = use_signal(|| false);
-    let lyrics_search_title = use_signal(|| None::<String>);
-    let lyrics_query_override = use_signal(|| None::<LyricsQuery>);
-    let lyrics_candidate_search_term = use_signal(|| None::<String>);
-    let lyrics_candidate_refresh_nonce = use_signal(|| 0u64);
-    let lyrics_refresh_nonce = use_signal(|| 0u64);
-    let lyrics_auto_retry_for_song = use_signal(|| None::<String>);
-    let lrclib_upgrade_auto_retry_for_song = use_signal(|| None::<String>);
-    let last_synced_lyrics_for_song = use_signal(|| None::<(String, LyricsResult)>);
-    let last_song_key = use_signal(|| None::<String>);
+    let layout = use_layout();
+    let closing = use_signal(|| false);
 
     let state = controller.current();
-    let selected_song = state.song.clone();
-    let selected_song_key = selected_song
-        .as_ref()
-        .map(|song| format!("{}:{}", song.server_id, song.id));
-
-    {
-        let mut controller = controller.clone();
-        let now_playing = now_playing.clone();
-        use_effect(move || {
-            let state = controller.current();
-            if !state.is_open {
-                return;
-            }
-
-            let Some(now_song) = now_playing() else {
-                return;
-            };
-
-            let should_follow = state.song.as_ref() != Some(&now_song);
-
-            if should_follow {
-                controller.open(now_song);
-            }
-        });
-    }
-
-    {
-        let mut lyrics_search_title = lyrics_search_title.clone();
-        let mut lyrics_query_override = lyrics_query_override.clone();
-        let mut lyrics_candidate_search_term = lyrics_candidate_search_term.clone();
-        let mut lyrics_auto_retry_for_song = lyrics_auto_retry_for_song.clone();
-        let mut lrclib_upgrade_auto_retry_for_song = lrclib_upgrade_auto_retry_for_song.clone();
-        let mut last_synced_lyrics_for_song = last_synced_lyrics_for_song.clone();
-        let selected_song_key = selected_song_key.clone();
-        let mut last_song_key = last_song_key.clone();
-        use_effect(move || {
-            if last_song_key() != selected_song_key {
-                last_song_key.set(selected_song_key.clone());
-                lyrics_auto_retry_for_song.set(None);
-                lrclib_upgrade_auto_retry_for_song.set(None);
-                last_synced_lyrics_for_song.set(None);
-                lyrics_search_title.set(None);
-                lyrics_query_override.set(None);
-                lyrics_candidate_search_term.set(None);
-            }
-        });
-    }
-
-    let related_resource = {
-        let controller = controller.clone();
-        use_resource(move || {
-            let song = controller.current().song;
-            let servers_snapshot = servers();
-            async move { load_related_songs(song, servers_snapshot).await }
-        })
-    };
-
-    let lyrics_resource = {
-        let controller = controller.clone();
-        let app_settings = app_settings.clone();
-        let lyrics_query_override = lyrics_query_override.clone();
-        let lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
-        use_resource(move || {
-            let song = controller.current().song;
-            let settings = app_settings();
-            let query_override = lyrics_query_override();
-            let _refresh_nonce = lyrics_refresh_nonce();
-            async move {
-                let Some(song) = song else {
-                    return Err("No song selected.".to_string());
-                };
-                let query = query_override.unwrap_or_else(|| LyricsQuery::from_song(&song));
-                fetch_first_available_lyrics(
-                    query,
-                    settings.lyrics_provider_order.clone(),
-                    settings.lyrics_request_timeout_secs,
-                )
-                .await
-            }
-        })
-    };
-
-    {
-        let selected_song_key = selected_song_key.clone();
-        let mut lyrics_auto_retry_for_song = lyrics_auto_retry_for_song.clone();
-        let mut lyrics_resource = lyrics_resource.clone();
-        let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
-        use_effect(move || {
-            let latest_lyrics_result = lyrics_resource();
-            let Some(song_key) = selected_song_key.clone() else {
-                return;
-            };
-
-            let Some(Err(_)) = latest_lyrics_result else {
-                return;
-            };
-
-            if lyrics_auto_retry_for_song() == Some(song_key.clone()) {
-                return;
-            }
-
-            lyrics_auto_retry_for_song.set(Some(song_key));
-            lyrics_refresh_nonce.set(lyrics_refresh_nonce().saturating_add(1));
-            lyrics_resource.restart();
-        });
-    }
-
-    let lyrics_candidates_resource = {
-        let controller = controller.clone();
-        let app_settings = app_settings.clone();
-        let lyrics_candidate_search_term = lyrics_candidate_search_term.clone();
-        let lyrics_candidate_refresh_nonce = lyrics_candidate_refresh_nonce.clone();
-        use_resource(move || {
-            let song = controller.current().song;
-            let settings = app_settings();
-            let search_term = lyrics_candidate_search_term();
-            let _refresh_nonce = lyrics_candidate_refresh_nonce();
-            async move {
-                let Some(song) = song else {
-                    return Ok(Vec::<LyricsSearchCandidate>::new());
-                };
-                let Some(search_term) = search_term
-                    .as_ref()
-                    .map(|value| value.trim().to_string())
-                    .filter(|value| !value.is_empty())
-                else {
-                    return Ok(Vec::<LyricsSearchCandidate>::new());
-                };
-                let mut query = LyricsQuery::from_song(&song);
-                query.title = search_term;
-                search_lyrics_candidates(
-                    &query,
-                    &settings.lyrics_provider_order,
-                    settings.lyrics_request_timeout_secs,
-                )
-                .await
-            }
-        })
-    };
-    let lrclib_upgrade_resource = {
-        let controller = controller.clone();
-        let app_settings = app_settings.clone();
-        let lyrics_query_override = lyrics_query_override.clone();
-        let lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
-        use_resource(move || {
-            let song = controller.current().song;
-            let settings = app_settings();
-            let query_override = lyrics_query_override();
-            let _refresh_nonce = lyrics_refresh_nonce();
-            async move {
-                if settings.lyrics_unsynced_mode {
-                    return Ok(None);
-                }
-                let Some(song) = song else {
-                    return Ok(None);
-                };
-                let query = query_override.unwrap_or_else(|| LyricsQuery::from_song(&song));
-                match fetch_lyrics_with_fallback(
-                    &query,
-                    &["lrclib".to_string()],
-                    settings.lyrics_request_timeout_secs,
-                )
-                .await
-                {
-                    Ok(result) => Ok(Some(result)),
-                    Err(err) => Err(err),
-                }
-            }
-        })
-    };
-    {
-        let selected_song_key = selected_song_key.clone();
-        let mut last_synced_lyrics_for_song = last_synced_lyrics_for_song.clone();
-        let lrclib_upgrade_resource = lrclib_upgrade_resource.clone();
-        use_effect(move || {
-            let Some(song_key) = selected_song_key.clone() else {
-                return;
-            };
-            let Some(Ok(Some(upgrade))) = lrclib_upgrade_resource() else {
-                return;
-            };
-            if upgrade.synced_lines.is_empty() {
-                return;
-            }
-            let should_update = last_synced_lyrics_for_song()
-                .as_ref()
-                .map(|(cached_key, cached)| cached_key != &song_key || cached != &upgrade)
-                .unwrap_or(true);
-            if should_update {
-                last_synced_lyrics_for_song.set(Some((song_key, upgrade)));
-            }
-        });
-    }
-    {
-        let selected_song_key = selected_song_key.clone();
-        let app_settings = app_settings.clone();
-        let mut lrclib_upgrade_resource = lrclib_upgrade_resource.clone();
-        let mut lrclib_upgrade_auto_retry_for_song = lrclib_upgrade_auto_retry_for_song.clone();
-        let mut lyrics_refresh_nonce = lyrics_refresh_nonce.clone();
-        use_effect(move || {
-            if app_settings().lyrics_unsynced_mode {
-                return;
-            }
-
-            let latest_upgrade_result = lrclib_upgrade_resource();
-            let Some(song_key) = selected_song_key.clone() else {
-                return;
-            };
-
-            let Some(Err(_)) = latest_upgrade_result else {
-                return;
-            };
-
-            if lrclib_upgrade_auto_retry_for_song() == Some(song_key.clone()) {
-                return;
-            }
-
-            lrclib_upgrade_auto_retry_for_song.set(Some(song_key));
-            lyrics_refresh_nonce.set(lyrics_refresh_nonce().saturating_add(1));
-            lrclib_upgrade_resource.restart();
-        });
-    }
-
     if !state.is_open {
         return rsx! {};
     }
-
-    let Some(song) = selected_song else {
+    let Some(song) = now_playing().or(state.song.clone()) else {
         return rsx! {};
     };
-    let is_live_stream = is_live_song(&song);
+    let tab = state.tab_chosen.then_some(state.active_tab);
 
-    let settings = app_settings();
-    let sync_lyrics = !settings.lyrics_unsynced_mode;
-    let cached_synced_lyrics = last_synced_lyrics_for_song().and_then(|(song_key, lyrics)| {
-        if selected_song_key.as_ref() == Some(&song_key) {
-            Some(lyrics)
-        } else {
-            None
+    if layout.is_compact() {
+        rsx! {
+            CompactNowPlaying { song, tab, controller, closing }
         }
-    });
-    let selected_lyrics = pick_display_lyrics(
-        sync_lyrics,
-        lyrics_resource(),
-        lrclib_upgrade_resource(),
-        cached_synced_lyrics,
-    );
-
-    let desktop_tab = match state.active_tab {
-        SongDetailsTab::Details => SongDetailsTab::Lyrics,
-        other => other,
-    };
-
-    let cover_url = song_cover_url(&song, &servers(), 700);
-
-    let queue_snapshot = queue();
-    let current_queue_index = queue_index();
-    let up_next = queue_snapshot
-        .into_iter()
-        .enumerate()
-        .filter(|(index, _)| *index > current_queue_index)
-        .take(60)
-        .collect::<Vec<_>>();
-
-    let current_time = (audio_state().current_time)();
-    let offset_seconds = settings.lyrics_offset_ms as f64 / 1000.0;
-    let mini_lyrics_preview = build_mini_lyrics_preview(
-        selected_lyrics.clone(),
-        sync_lyrics,
-        current_time,
-        offset_seconds,
-    );
-
-    let song_title = if song.title.trim().is_empty() {
-        "Unknown Song".to_string()
     } else {
-        song.title.clone()
-    };
-    let on_open_song_actions = {
-        let mut add_menu = add_menu.clone();
-        let song = song.clone();
-        move |_| {
-            add_menu.open(AddIntent::from_song(song.clone()));
+        rsx! {
+            WideNowPlaying { song, tab, controller, closing }
         }
-    };
-
-    {
-        let mut controller = controller.clone();
-        use_effect(move || {
-            if !is_live_stream {
-                return;
-            }
-            if controller.current().active_tab == SongDetailsTab::Queue {
-                controller.set_tab(SongDetailsTab::Lyrics);
-            }
-        });
     }
+}
 
+/// "Playing from" line above the cover.
+fn context_label(song: &Song) -> String {
+    if is_live_song(song) {
+        return "Internet Radio".to_string();
+    }
+    song.album
+        .clone()
+        .filter(|album| !album.trim().is_empty())
+        .unwrap_or_else(|| "Now Playing".to_string())
+}
 
-    include!("overlay_view.rs")
+fn dismiss(mut controller: SongDetailsController, mut closing: Signal<bool>) {
+    if *closing.peek() {
+        return;
+    }
+    closing.set(true);
+    spawn(async move {
+        sleep_ms(CLOSE_ANIMATION_MS).await;
+        controller.close();
+        closing.set(false);
+    });
+}
+
+/// Close chevron, context label, and a shortcut to the full queue page.
+#[component]
+fn SheetBar(label: String, controller: SongDetailsController, closing: Signal<bool>) -> Element {
+    let navigation = use_context::<Navigation>();
+    rsx! {
+        div { class: "rs-player-np__bar",
+            IconButton {
+                icon: "chevron-down".to_string(),
+                label: "Close Now Playing".to_string(),
+                quiet: true,
+                testid: "now-playing-close".to_string(),
+                onclick: move |_| dismiss(controller.clone(), closing),
+            }
+            span { class: "rs-player-np__ctx", "{label}" }
+            IconButton {
+                icon: "queue".to_string(),
+                label: "Open Queue".to_string(),
+                quiet: true,
+                onclick: {
+                    let mut controller = controller.clone();
+                    move |_| {
+                        controller.close();
+                        navigation.navigate_to(AppView::QueueView {});
+                    }
+                },
+            }
+        }
+    }
+}
+
+#[component]
+fn CompactNowPlaying(
+    song: Song,
+    tab: Option<SongDetailsTab>,
+    controller: SongDetailsController,
+    closing: Signal<bool>,
+) -> Element {
+    // Swipe-down to dismiss: (start y, start x) while a drag is armed, and
+    // the current downward offset. Only written while dragging.
+    let mut drag_start = use_signal(|| None::<(f64, f64)>);
+    let mut drag_dy = use_signal(|| 0.0f64);
+    let dy = drag_dy();
+    let style = if dy > 0.0 {
+        format!("transform:translateY({dy:.0}px);transition:none")
+    } else {
+        String::new()
+    };
+    let label = context_label(&song);
+
+    rsx! {
+        div {
+            class: "rs-stage rs-player-np rs-player-np--compact",
+            class: if closing() { "rs-player-np--closing" },
+            style: "{style}",
+            role: "dialog",
+            aria_modal: "true",
+            aria_label: "Now Playing",
+            tabindex: "-1",
+            "data-testid": "now-playing",
+            onmounted: move |evt| async move {
+                let _ = evt.set_focus(true).await;
+            },
+            onkeydown: {
+                let controller = controller.clone();
+                move |evt: KeyboardEvent| {
+                    if evt.key() == Key::Escape {
+                        evt.prevent_default();
+                        dismiss(controller.clone(), closing);
+                    }
+                }
+            },
+            onpointermove: move |evt| {
+                let Some((y0, x0)) = *drag_start.peek() else {
+                    return;
+                };
+                let point = evt.client_coordinates();
+                let (dy, dx) = (point.y - y0, (point.x - x0).abs());
+                if dy > 6.0 && dy > dx {
+                    drag_dy.set(dy);
+                } else if *drag_dy.peek() != 0.0 && dy <= 0.0 {
+                    drag_dy.set(0.0);
+                }
+            },
+            onpointerup: {
+                let controller = controller.clone();
+                move |_| {
+                    if drag_start.peek().is_none() {
+                        return;
+                    }
+                    drag_start.set(None);
+                    let travelled = *drag_dy.peek();
+                    drag_dy.set(0.0);
+                    if travelled > DISMISS_PX {
+                        dismiss(controller.clone(), closing);
+                    }
+                }
+            },
+            onpointercancel: move |_| {
+                drag_start.set(None);
+                drag_dy.set(0.0);
+            },
+
+            div {
+                class: "rs-player-np__grip",
+                onpointerdown: move |evt| {
+                    let point = evt.client_coordinates();
+                    drag_start.set(Some((point.y, point.x)));
+                },
+                div { class: "rs-player-np__grab", aria_hidden: "true" }
+                SheetBar { label, controller: controller.clone(), closing }
+                NowPlayingArt { song: song.clone(), wide: false }
+            }
+            NowPlayingMeta { song: song.clone() }
+            NowPlayingScrubber { song: song.clone() }
+            NowPlayingTransport { song: song.clone() }
+            NowPlayingPanels { song: song.clone(), tab, wide: false }
+        }
+    }
+}
+
+#[component]
+fn WideNowPlaying(
+    song: Song,
+    tab: Option<SongDetailsTab>,
+    controller: SongDetailsController,
+    closing: Signal<bool>,
+) -> Element {
+    let label = context_label(&song);
+    rsx! {
+        div {
+            class: "rs-player-np-scrim",
+            class: if closing() { "rs-player-np-scrim--closing" },
+            aria_hidden: "true",
+            onclick: {
+                let controller = controller.clone();
+                move |_| dismiss(controller.clone(), closing)
+            },
+        }
+        div {
+            class: "rs-stage rs-player-np rs-player-np--wide",
+            class: if closing() { "rs-player-np--closing" },
+            role: "dialog",
+            aria_modal: "true",
+            aria_label: "Now Playing",
+            tabindex: "-1",
+            "data-testid": "now-playing",
+            onmounted: move |evt| async move {
+                let _ = evt.set_focus(true).await;
+            },
+            onkeydown: {
+                let controller = controller.clone();
+                move |evt: KeyboardEvent| {
+                    if evt.key() == Key::Escape {
+                        evt.prevent_default();
+                        dismiss(controller.clone(), closing);
+                    }
+                }
+            },
+            SheetBar { label, controller: controller.clone(), closing }
+            div { class: "rs-player-np__cols",
+                div { class: "rs-player-np__left",
+                    NowPlayingArt { song: song.clone(), wide: true }
+                    NowPlayingMeta { song: song.clone() }
+                    NowPlayingScrubber { song: song.clone() }
+                    NowPlayingTransport { song: song.clone() }
+                    NowPlayingExtras { song: song.clone() }
+                }
+                div { class: "rs-player-np__right",
+                    NowPlayingPanels { song: song.clone(), tab, wide: true }
+                }
+            }
+        }
+    }
 }

@@ -1,0 +1,58 @@
+{
+ "payload": {
+  "releases": [
+   {
+    "artist_credit_name": "Archive",
+    "artist_mbids": [
+     "bd513de0-e42f-425e-ae46-817d7bc5fb1c"
+    ],
+    "caa_id": 46313988299,
+    "caa_release_mbid": "28a0632f-f091-4c00-a03c-41093e2c4062",
+    "confidence": 210,
+    "listen_count": 0,
+    "release_date": "2026-09-29",
+    "release_group_mbid": "1a2512f5-2af5-44ff-94dd-8b739f5cb3f9",
+    "release_group_primary_type": "EP",
+    "release_group_secondary_type": null,
+    "release_mbid": "28a0632f-f091-4c00-a03c-41093e2c4062",
+    "release_name": "Not In My Name",
+    "release_tags": []
+   },
+   {
+    "artist_credit_name": "Kodomo",
+    "artist_mbids": [
+     "b6e58f81-0454-4be9-97ef-7b2347979ae0"
+    ],
+    "caa_id": 46382783289,
+    "caa_release_mbid": "398a0b54-c9b3-4c85-bcf8-86daeaca8b90",
+    "confidence": 83,
+    "listen_count": 0,
+    "release_date": "2026-09-29",
+    "release_group_mbid": "698df125-9822-4da7-b34f-f0688fb35df1",
+    "release_group_primary_type": "Album",
+    "release_group_secondary_type": "Remix",
+    "release_mbid": "398a0b54-c9b3-4c85-bcf8-86daeaca8b90",
+    "release_name": "Sisu (Remixes)",
+    "release_tags": []
+   },
+   {
+    "artist_credit_name": "A Perfect Circle",
+    "artist_mbids": [
+     "078a9376-3c04-4280-b7d7-b20e158f345d"
+    ],
+    "caa_id": 46388064975,
+    "caa_release_mbid": "5ea8bcbe-5c5f-47c8-9190-cf1b53e0694c",
+    "confidence": 10,
+    "listen_count": 0,
+    "release_date": "2026-09-29",
+    "release_group_mbid": "abfa2525-9ca5-4a4b-8345-44294e14c0c2",
+    "release_group_primary_type": "Single",
+    "release_group_secondary_type": null,
+    "release_mbid": "5ea8bcbe-5c5f-47c8-9190-cf1b53e0694c",
+    "release_name": "To Whom It May Concern",
+    "release_tags": []
+   }
+  ],
+  "user_id": "rob"
+ }
+}

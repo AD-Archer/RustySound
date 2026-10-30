@@ -1,24 +1,26 @@
 use crate::api::*;
-use crate::cache_service::{
-    apply_settings as apply_cache_settings, get_json as cache_get_json, put_json as cache_put_json,
-    remove_by_prefix as cache_remove_prefix,
+use crate::cache_service::apply_settings as apply_cache_settings;
+use crate::components::ui::env::{
+    appearance_attr, platform_name, stage_theme, use_layout_provider,
 };
-use crate::components::views::home_layout::HomeFeedLoadProfile;
+use crate::components::ui::{
+    LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
+    TrackMenuHost, TrackMenuRequest, WindowDragRegion,
+};
 use crate::components::{
-    ios_audio_log_snapshot, ios_diag_log, view_instance_key, view_label, AddIntent,
-    AddMenuController, AddToMenuOverlay, AppView, AudioController, AudioState, HomeRefreshSignal,
-    Icon, IsPlayingSignal, Navigation, PlaybackPositionSignal, Player, PreviewPlaybackSignal,
-    SeekRequestSignal, ShuffleEnabledSignal, Sidebar, SidebarOpenSignal, SongDetailsController,
-    SongDetailsOverlay, SongDetailsState, VolumeSignal,
+    ios_audio_log_snapshot, ios_diag_log, view_instance_key, AddIntent, AddMenuController,
+    AddToMenuOverlay, AppView, AudioController, AudioState, Icon,
+    IsPlayingSignal, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
+    ShuffleEnabledSignal, SongDetailsController, SongDetailsOverlay,
+    SongDetailsState, VolumeSignal,
 };
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
     save_servers, save_settings, save_temporary_queue_snapshot, AppSettings, PlaybackState,
     QueueItem, TemporaryQueueSnapshot,
 };
-use crate::diagnostics::{log_perf, PerfTimer};
 use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
-use chrono::{DateTime, NaiveDateTime, Utc};
+use chrono::Utc;
 #[cfg(target_arch = "wasm32")]
 use dioxus::core::{Runtime, RuntimeGuard};
 #[cfg(all(feature = "desktop", target_os = "macos"))]
@@ -41,78 +43,7 @@ const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
 const HISTORY_SWIPE_VERTICAL_SLOP: f64 = 72.0;
 #[cfg(target_arch = "wasm32")]
 const HISTORY_SWIPE_EDGE_ZONE: f64 = 28.0;
-const HOME_INIT_QUICK_PICK_LIMIT_STANDARD: usize = 72;
-const HOME_INIT_SECTION_BASE_COUNT_STANDARD: usize = 9;
-const HOME_INIT_SECTION_LOAD_STEP_STANDARD: usize = 6;
-const HOME_INIT_SECTION_FETCH_LIMIT_STANDARD: usize = 180;
-const HOME_INIT_WARMUP_FLAG_CACHE_HOURS: u32 = 24 * 365;
 const AUTO_DOWNLOAD_POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
-
-#[derive(Debug, Clone, Copy)]
-struct HomeInitFetchBudget {
-    quick_pick_limit: usize,
-    section_base_count: usize,
-    section_load_step: usize,
-    section_cache_count: usize,
-    section_fetch_limit: usize,
-    random_fetch_limit: usize,
-    album_preview_limit: u32,
-}
-
-fn home_init_fetch_budget(profile: HomeFeedLoadProfile) -> HomeInitFetchBudget {
-    match profile {
-        HomeFeedLoadProfile::Conservative => {
-            let section_base_count = 6usize;
-            let section_load_step = 4usize;
-            let section_fetch_limit = 60usize;
-            HomeInitFetchBudget {
-                quick_pick_limit: 24,
-                section_base_count,
-                section_load_step,
-                section_cache_count: section_fetch_limit,
-                section_fetch_limit,
-                random_fetch_limit: section_fetch_limit,
-                album_preview_limit: section_base_count as u32,
-            }
-        }
-        HomeFeedLoadProfile::Standard => {
-            let section_base_count = HOME_INIT_SECTION_BASE_COUNT_STANDARD;
-            let section_load_step = HOME_INIT_SECTION_LOAD_STEP_STANDARD;
-            let section_fetch_limit = HOME_INIT_SECTION_FETCH_LIMIT_STANDARD;
-            HomeInitFetchBudget {
-                quick_pick_limit: HOME_INIT_QUICK_PICK_LIMIT_STANDARD,
-                section_base_count,
-                section_load_step,
-                section_cache_count: section_fetch_limit,
-                section_fetch_limit,
-                random_fetch_limit: section_fetch_limit,
-                album_preview_limit: section_base_count as u32,
-            }
-        }
-        HomeFeedLoadProfile::Super => {
-            let section_base_count = 12usize;
-            let section_load_step = 8usize;
-            let section_fetch_limit = 360usize;
-            HomeInitFetchBudget {
-                quick_pick_limit: 144,
-                section_base_count,
-                section_load_step,
-                section_cache_count: section_fetch_limit,
-                section_fetch_limit,
-                random_fetch_limit: section_fetch_limit,
-                album_preview_limit: section_base_count as u32,
-            }
-        }
-    }
-}
-
-fn home_init_profile_from_settings(settings: &AppSettings) -> HomeFeedLoadProfile {
-    HomeFeedLoadProfile::from_storage(&settings.home_feed_load_profile)
-}
-
-fn home_init_profile_cache_key(profile: HomeFeedLoadProfile) -> &'static str {
-    profile.as_storage()
-}
 
 fn queue_snapshot_signature(
     queue: &[Song],
@@ -139,43 +70,153 @@ fn queue_snapshot_signature(
     signature
 }
 
-#[cfg(all(feature = "desktop", target_os = "macos"))]
+/// Focuses (and selects) the Search field once the Search view has mounted.
+/// Polls briefly, because the route change renders a frame or two later.
 fn focus_global_search_input() {
     let _ = document::eval(
         r#"
 (() => {
-  setTimeout(() => {
+  let tries = 0;
+  const attempt = () => {
     const input = document.getElementById("global-search-input");
     if (input && typeof input.focus === "function") {
       input.focus();
-      if (typeof input.select === "function") {
-        input.select();
-      }
+      if (typeof input.select === "function") input.select();
+      return;
     }
-  }, 50);
+    if (++tries < 40) setTimeout(attempt, 25);
+  };
+  attempt();
   return true;
 })();
         "#,
     );
 }
 
+/// Keydown listener for the Find shortcut: Cmd+F on Apple platforms, Ctrl+F
+/// elsewhere. Multi-line editors (textarea, contenteditable) keep the key.
+/// The script never resolves, so its channel stays open for `dioxus.send`.
+const FIND_SHORTCUT_JS: &str = r#"
+const isApple = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
+if (window.__rsFindShortcut) document.removeEventListener("keydown", window.__rsFindShortcut);
+const handler = (event) => {
+  if (!event || event.defaultPrevented || event.isComposing) return;
+  if ((event.key || "").toLowerCase() !== "f" || event.altKey || event.shiftKey) return;
+  const primary = isApple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  if (!primary) return;
+  const target = event.target;
+  if (target && target.closest && target.closest("textarea, [contenteditable]:not([contenteditable='false'])")) return;
+  event.preventDefault();
+  dioxus.send(true);
+};
+window.__rsFindShortcut = handler;
+document.addEventListener("keydown", handler);
+await new Promise(() => {});
+"#;
+
+/// Route for a macOS menu item id (app menu, Edit > Find, Go).
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn menu_route(id: &str) -> Option<AppView> {
+    Some(match id {
+        "rustysound-open-settings" => AppView::SettingsView {},
+        "rustysound-go-home" => AppView::HomeView {},
+        "rustysound-go-search" | "rustysound-find" => AppView::SearchView {},
+        "rustysound-go-albums" => AppView::Albums {},
+        "rustysound-go-artists" => AppView::ArtistsView {},
+        "rustysound-go-playlists" => AppView::PlaylistsView {},
+        "rustysound-go-songs" => AppView::SongsView {},
+        "rustysound-go-queue" => AppView::QueueView {},
+        "rustysound-go-downloads" => AppView::DownloadsView {},
+        "rustysound-go-favorites" => AppView::FavoritesView {},
+        "rustysound-go-radio" => AppView::RadioView {},
+        "rustysound-go-stats" => AppView::StatsView {},
+        _ => return None,
+    })
+}
+
+/// Player button pressed by a Playback menu item.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn playback_menu_button(id: &str) -> Option<&'static str> {
+    Some(match id {
+        "rustysound-play-pause" => "play-pause-btn",
+        "rustysound-next" => "next-btn",
+        "rustysound-previous" => "prev-btn",
+        "rustysound-shuffle" => "shuffle-btn",
+        "rustysound-repeat" => "repeat-btn",
+        _ => return None,
+    })
+}
+
+/// Clicks a player bar button by id (the ids MediaSession presses), so menu
+/// items run exactly the bar's actions. Falls back to the Now Playing copy
+/// (`np-<id>`) when the bar's button is not mounted.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+fn press_player_button(id: &str) {
+    let _ = document::eval(&format!(
+        r#"(() => {{
+  const button = document.getElementById("{id}") || document.getElementById("np-{id}");
+  if (button && !button.disabled) button.click();
+  return true;
+}})();"#
+    ));
+}
+
 fn loading_progress_percent(progress: f32) -> u32 {
     (progress.clamp(0.0, 1.0) * 100.0).round() as u32
 }
 
+
+/// Full-screen stage overlay shown while the app boots or warms its caches.
 #[component]
-fn LoadingProgressBar(progress: f32, stage: String) -> Element {
+fn BootOverlay(
+    title: String,
+    message: String,
+    progress: f32,
+    stage: String,
+    logs: Vec<String>,
+    testid: String,
+) -> Element {
     let percent = loading_progress_percent(progress);
     rsx! {
-        div { class: "w-full space-y-2",
-            div { class: "flex items-center justify-between gap-3 text-xs text-zinc-500",
-                p { class: "truncate text-left", "{stage}" }
-                p { class: "shrink-0 font-medium text-zinc-400", "{percent}%" }
-            }
-            div { class: "h-2 overflow-hidden rounded-full bg-zinc-800/80",
-                div {
-                    class: "h-full rounded-full bg-gradient-to-r from-emerald-500 via-emerald-400 to-teal-300 transition-[width] duration-500 ease-out",
-                    style: format!("width: {percent}%;"),
+        div {
+            class: "rs-boot",
+            role: "status",
+            aria_live: "polite",
+            "data-testid": "{testid}",
+            div { class: "rs-boot__inner",
+                img {
+                    class: "rs-boot__mark",
+                    src: crate::components::ui::env::app_mark_src(),
+                    alt: "",
+                    width: "64",
+                    height: "64",
+                }
+                h1 { class: "rs-boot__title", "{title}" }
+                p { class: "rs-boot__msg", "{message}" }
+                div { class: "rs-boot__progress",
+                    div {
+                        class: "rs-track",
+                        role: "progressbar",
+                        aria_label: "{title}",
+                        aria_valuemin: "0",
+                        aria_valuemax: "100",
+                        aria_valuenow: "{percent}",
+                        div {
+                            class: "rs-track__fill rs-boot__fill",
+                            style: "width:{percent}%",
+                        }
+                    }
+                    div { class: "rs-boot__meta",
+                        span { class: "rs-truncate", "{stage}" }
+                        span { class: "num", "{percent}%" }
+                    }
+                }
+                if !logs.is_empty() {
+                    div { class: "rs-boot__log",
+                        for (index, line) in logs.iter().enumerate() {
+                            div { key: "{index}", "{line}" }
+                        }
+                    }
                 }
             }
         }
@@ -192,445 +233,6 @@ fn normalize_volume(mut value: f64) -> f64 {
         passes += 1;
     }
     value.clamp(0.0, 1.0)
-}
-
-fn home_init_warmup_cache_key(
-    active_servers: &[ServerConfig],
-    profile: HomeFeedLoadProfile,
-) -> String {
-    let mut ids: Vec<String> = active_servers
-        .iter()
-        .map(|server| server.id.clone())
-        .collect();
-    ids.sort();
-    format!(
-        "view:home:warmup:v3:{}:{}",
-        home_init_profile_cache_key(profile),
-        ids.join("|")
-    )
-}
-
-fn home_init_cache_prefix(active_servers: &[ServerConfig], profile: HomeFeedLoadProfile) -> String {
-    let mut ids: Vec<String> = active_servers
-        .iter()
-        .map(|server| server.id.clone())
-        .collect();
-    ids.sort();
-    format!(
-        "view:home:v4:{}:{}",
-        home_init_profile_cache_key(profile),
-        ids.join("|")
-    )
-}
-
-#[derive(Clone)]
-pub struct HomeFeedState {
-    pub recent_albums: Signal<Option<Vec<Album>>>,
-    pub most_played_albums: Signal<Option<Vec<Album>>>,
-    pub recently_played_songs: Signal<Option<Vec<Song>>>,
-    pub most_played_songs: Signal<Option<Vec<Song>>>,
-    pub random_songs: Signal<Option<Vec<Song>>>,
-    pub quick_picks: Signal<Option<Vec<Song>>>,
-    pub warmup_enabled: Signal<bool>,
-    pub progress: Signal<f32>,
-    pub status: Signal<Option<String>>,
-}
-
-#[derive(Debug, Default, Clone)]
-struct CachedHomeFeedSnapshot {
-    recent_albums: Option<Vec<Album>>,
-    most_played_albums: Option<Vec<Album>>,
-    recent_songs: Option<Vec<Song>>,
-    most_played_songs: Option<Vec<Song>>,
-    random_songs: Option<Vec<Song>>,
-    quick_picks: Option<Vec<Song>>,
-}
-
-impl CachedHomeFeedSnapshot {
-    fn has_full_snapshot(&self) -> bool {
-        self.recent_albums.is_some()
-            && self.most_played_albums.is_some()
-            && self.recent_songs.is_some()
-            && self.most_played_songs.is_some()
-            && self.random_songs.is_some()
-            && self.quick_picks.is_some()
-    }
-}
-
-#[derive(Debug, Default, Clone)]
-struct HomeFeedSnapshot {
-    recent_albums: Vec<Album>,
-    most_played_albums: Vec<Album>,
-    recent_songs: Vec<Song>,
-    most_played_songs: Vec<Song>,
-    random_songs: Vec<Song>,
-    quick_picks: Vec<Song>,
-}
-
-impl HomeFeedSnapshot {
-    fn summary(&self) -> HomeInitSummary {
-        HomeInitSummary {
-            recent_albums: self.recent_albums.len(),
-            most_played_albums: self.most_played_albums.len(),
-            recent_songs: self.recent_songs.len(),
-            most_played_songs: self.most_played_songs.len(),
-            random_songs: self.random_songs.len(),
-            quick_picks: self.quick_picks.len(),
-        }
-    }
-}
-
-fn load_cached_home_feed_snapshot(
-    active_servers: &[ServerConfig],
-    profile: HomeFeedLoadProfile,
-) -> CachedHomeFeedSnapshot {
-    let cache_prefix = home_init_cache_prefix(active_servers, profile);
-    CachedHomeFeedSnapshot {
-        recent_albums: cache_get_json::<Vec<Album>>(&format!("{cache_prefix}:recent_albums")),
-        most_played_albums: cache_get_json::<Vec<Album>>(&format!(
-            "{cache_prefix}:most_played_albums"
-        )),
-        recent_songs: cache_get_json::<Vec<Song>>(&format!("{cache_prefix}:recent_songs")),
-        most_played_songs: cache_get_json::<Vec<Song>>(&format!(
-            "{cache_prefix}:most_played_songs"
-        )),
-        random_songs: cache_get_json::<Vec<Song>>(&format!("{cache_prefix}:random_songs")),
-        quick_picks: cache_get_json::<Vec<Song>>(&format!("{cache_prefix}:quick_picks")),
-    }
-}
-
-fn apply_cached_home_feed_snapshot(home_feed: &HomeFeedState, snapshot: &CachedHomeFeedSnapshot) {
-    let mut recent_albums = home_feed.recent_albums;
-    let mut most_played_albums = home_feed.most_played_albums;
-    let mut recently_played_songs = home_feed.recently_played_songs;
-    let mut most_played_songs = home_feed.most_played_songs;
-    let mut random_songs = home_feed.random_songs;
-    let mut quick_picks = home_feed.quick_picks;
-
-    recent_albums.set(snapshot.recent_albums.clone());
-    most_played_albums.set(snapshot.most_played_albums.clone());
-    recently_played_songs.set(snapshot.recent_songs.clone());
-    most_played_songs.set(snapshot.most_played_songs.clone());
-    random_songs.set(snapshot.random_songs.clone());
-    quick_picks.set(snapshot.quick_picks.clone());
-    ios_diag_log(
-        "home.feed.apply",
-        &format!(
-            "cached recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
-            snapshot
-                .recent_albums
-                .as_ref()
-                .map(|items| items.len().to_string())
-                .unwrap_or_else(|| "miss".to_string()),
-            snapshot
-                .most_played_albums
-                .as_ref()
-                .map(|items| items.len().to_string())
-                .unwrap_or_else(|| "miss".to_string()),
-            snapshot
-                .recent_songs
-                .as_ref()
-                .map(|items| items.len().to_string())
-                .unwrap_or_else(|| "miss".to_string()),
-            snapshot
-                .most_played_songs
-                .as_ref()
-                .map(|items| items.len().to_string())
-                .unwrap_or_else(|| "miss".to_string()),
-            snapshot
-                .random_songs
-                .as_ref()
-                .map(|items| items.len().to_string())
-                .unwrap_or_else(|| "miss".to_string()),
-            snapshot
-                .quick_picks
-                .as_ref()
-                .map(|items| items.len().to_string())
-                .unwrap_or_else(|| "miss".to_string()),
-        ),
-    );
-}
-
-fn apply_home_feed_snapshot(home_feed: &HomeFeedState, snapshot: &HomeFeedSnapshot) {
-    let mut recent_albums = home_feed.recent_albums;
-    let mut most_played_albums = home_feed.most_played_albums;
-    let mut recently_played_songs = home_feed.recently_played_songs;
-    let mut most_played_songs = home_feed.most_played_songs;
-    let mut random_songs = home_feed.random_songs;
-    let mut quick_picks = home_feed.quick_picks;
-
-    recent_albums.set(Some(snapshot.recent_albums.clone()));
-    most_played_albums.set(Some(snapshot.most_played_albums.clone()));
-    recently_played_songs.set(Some(snapshot.recent_songs.clone()));
-    most_played_songs.set(Some(snapshot.most_played_songs.clone()));
-    random_songs.set(Some(snapshot.random_songs.clone()));
-    quick_picks.set(Some(snapshot.quick_picks.clone()));
-    let summary = snapshot.summary();
-    ios_diag_log(
-        "home.feed.apply",
-        &format!(
-            "fresh recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
-            summary.recent_albums,
-            summary.most_played_albums,
-            summary.recent_songs,
-            summary.most_played_songs,
-            summary.random_songs,
-            summary.quick_picks
-        ),
-    );
-}
-
-fn set_empty_home_feed_snapshot(home_feed: &HomeFeedState) {
-    let mut recent_albums = home_feed.recent_albums;
-    let mut most_played_albums = home_feed.most_played_albums;
-    let mut recently_played_songs = home_feed.recently_played_songs;
-    let mut most_played_songs = home_feed.most_played_songs;
-    let mut random_songs = home_feed.random_songs;
-    let mut quick_picks = home_feed.quick_picks;
-
-    recent_albums.set(Some(Vec::new()));
-    most_played_albums.set(Some(Vec::new()));
-    recently_played_songs.set(Some(Vec::new()));
-    most_played_songs.set(Some(Vec::new()));
-    random_songs.set(Some(Vec::new()));
-    quick_picks.set(Some(Vec::new()));
-    ios_diag_log(
-        "home.feed.apply",
-        "set empty Home feed snapshot for no-server state",
-    );
-}
-
-fn home_init_has_cached_payload(
-    active_servers: &[ServerConfig],
-    profile: HomeFeedLoadProfile,
-) -> bool {
-    load_cached_home_feed_snapshot(active_servers, profile).has_full_snapshot()
-}
-
-fn home_init_is_warmed(active_servers: &[ServerConfig], profile: HomeFeedLoadProfile) -> bool {
-    let warmup_key = home_init_warmup_cache_key(active_servers, profile);
-    let has_warmup_flag = cache_get_json::<bool>(&warmup_key).unwrap_or(false);
-    let has_cached_payload = home_init_has_cached_payload(active_servers, profile);
-
-    if has_warmup_flag && !has_cached_payload {
-        ios_diag_log(
-            "home.init.gate",
-            "warmup flag present but cached payload missing; rerunning warmup",
-        );
-    }
-
-    has_warmup_flag && has_cached_payload
-}
-
-fn home_init_server_signature(
-    active_servers: &[ServerConfig],
-    profile: HomeFeedLoadProfile,
-) -> String {
-    let mut signature_parts: Vec<String> = active_servers
-        .iter()
-        .map(|server| format!("{}|{}|{}", server.id, server.url, server.username))
-        .collect();
-    signature_parts.sort();
-    format!(
-        "{}::{}",
-        home_init_profile_cache_key(profile),
-        signature_parts.join("||")
-    )
-}
-
-fn home_init_song_key(song: &Song) -> String {
-    format!("{}::{}", song.server_id, song.id)
-}
-
-fn parse_home_init_played_timestamp(value: &str) -> Option<i64> {
-    if let Ok(parsed) = DateTime::parse_from_rfc3339(value) {
-        return Some(parsed.timestamp());
-    }
-
-    for format in [
-        "%Y-%m-%dT%H:%M:%S%.f",
-        "%Y-%m-%dT%H:%M:%S",
-        "%Y-%m-%d %H:%M:%S%.f",
-        "%Y-%m-%d %H:%M:%S",
-    ] {
-        if let Ok(parsed) = NaiveDateTime::parse_from_str(value, format) {
-            return Some(parsed.and_utc().timestamp());
-        }
-    }
-
-    None
-}
-
-fn compare_home_init_optional_i64_desc(
-    left: Option<i64>,
-    right: Option<i64>,
-) -> std::cmp::Ordering {
-    match (left, right) {
-        (Some(l), Some(r)) => r.cmp(&l),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    }
-}
-
-fn compare_home_init_optional_u32_desc(
-    left: Option<u32>,
-    right: Option<u32>,
-) -> std::cmp::Ordering {
-    match (left, right) {
-        (Some(l), Some(r)) => r.cmp(&l),
-        (Some(_), None) => std::cmp::Ordering::Less,
-        (None, Some(_)) => std::cmp::Ordering::Greater,
-        (None, None) => std::cmp::Ordering::Equal,
-    }
-}
-
-fn compare_home_init_song_title(left: &Song, right: &Song) -> std::cmp::Ordering {
-    left.title.to_lowercase().cmp(&right.title.to_lowercase())
-}
-
-fn sort_home_init_songs(songs: &mut [Song], sort: NativeSongSortField) {
-    songs.sort_by(|left, right| {
-        let left_played = left
-            .played
-            .as_deref()
-            .and_then(parse_home_init_played_timestamp);
-        let right_played = right
-            .played
-            .as_deref()
-            .and_then(parse_home_init_played_timestamp);
-
-        match sort {
-            NativeSongSortField::PlayDate => {
-                compare_home_init_optional_i64_desc(left_played, right_played)
-                    .then_with(|| {
-                        compare_home_init_optional_u32_desc(left.play_count, right.play_count)
-                    })
-                    .then_with(|| compare_home_init_song_title(left, right))
-            }
-            NativeSongSortField::PlayCount => {
-                compare_home_init_optional_u32_desc(left.play_count, right.play_count)
-                    .then_with(|| compare_home_init_optional_i64_desc(left_played, right_played))
-                    .then_with(|| compare_home_init_song_title(left, right))
-            }
-        }
-    });
-}
-
-fn dedupe_home_init_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
-    let mut seen = std::collections::HashSet::<String>::new();
-    let mut output = Vec::<Song>::new();
-    for song in songs {
-        let key = home_init_song_key(&song);
-        if seen.insert(key) {
-            output.push(song);
-        }
-        if output.len() >= limit {
-            break;
-        }
-    }
-    output
-}
-
-fn merge_home_init_song_lists(
-    primary: Vec<Song>,
-    supplemental: Vec<Song>,
-    limit: usize,
-) -> Vec<Song> {
-    let mut merged = primary;
-    merged.extend(supplemental);
-    dedupe_home_init_songs(merged, limit)
-}
-
-async fn fetch_home_init_albums_for_servers(
-    active_servers: &[ServerConfig],
-    album_type: &str,
-    limit: u32,
-) -> Vec<Album> {
-    let mut albums = Vec::<Album>::new();
-    for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
-        let mut fetched = client
-            .get_albums(album_type, limit, 0)
-            .await
-            .unwrap_or_default();
-        if fetched.is_empty() {
-            home_init_fetch_yield().await;
-            fetched = client
-                .get_albums(album_type, limit, 0)
-                .await
-                .unwrap_or_default();
-        }
-        albums.append(&mut fetched);
-        if albums.len() >= limit as usize {
-            break;
-        }
-        home_init_fetch_yield().await;
-    }
-    albums.truncate(limit as usize);
-    albums
-}
-
-async fn fetch_home_init_random_songs_for_servers(
-    active_servers: &[ServerConfig],
-    limit: u32,
-) -> Vec<Song> {
-    let mut songs = Vec::<Song>::new();
-    for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
-        let mut fetched = client.get_random_songs(limit).await.unwrap_or_default();
-        if fetched.is_empty() {
-            home_init_fetch_yield().await;
-            fetched = client.get_random_songs(limit).await.unwrap_or_default();
-        }
-        songs.append(&mut fetched);
-        if songs.len() >= limit as usize {
-            break;
-        }
-        home_init_fetch_yield().await;
-    }
-    dedupe_home_init_songs(songs, limit as usize)
-}
-
-async fn fetch_home_init_sorted_songs_for_servers(
-    active_servers: &[ServerConfig],
-    sort: NativeSongSortField,
-    limit: u32,
-) -> Vec<Song> {
-    if active_servers.is_empty() {
-        return Vec::new();
-    }
-
-    let per_server_song_target = ((limit as usize).max(30) / active_servers.len()).max(20);
-    let mut songs = Vec::<Song>::new();
-    for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
-        let mut fetched = client
-            .get_native_songs(sort, NativeSortOrder::Desc, 0, per_server_song_target)
-            .await
-            .unwrap_or_default();
-        if fetched.is_empty() {
-            home_init_fetch_yield().await;
-            fetched = client
-                .get_native_songs(sort, NativeSortOrder::Desc, 0, per_server_song_target)
-                .await
-                .unwrap_or_default();
-        }
-        songs.append(&mut fetched);
-        home_init_fetch_yield().await;
-    }
-
-    sort_home_init_songs(&mut songs, sort);
-    dedupe_home_init_songs(songs, limit as usize)
-}
-#[cfg(not(target_arch = "wasm32"))]
-async fn home_init_fetch_yield() {
-    tokio::task::yield_now().await;
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn home_init_fetch_yield() {
-    gloo_timers::future::TimeoutFuture::new(0).await;
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -654,254 +256,6 @@ async fn auto_download_poll_sleep() {
 #[cfg(target_arch = "wasm32")]
 async fn auto_download_poll_sleep() {
     gloo_timers::future::TimeoutFuture::new(AUTO_DOWNLOAD_POLL_INTERVAL_MS as u32).await;
-}
-
-#[derive(Debug, Default, Clone, Copy)]
-struct HomeInitSummary {
-    recent_albums: usize,
-    most_played_albums: usize,
-    recent_songs: usize,
-    most_played_songs: usize,
-    random_songs: usize,
-    quick_picks: usize,
-}
-
-async fn initialize_home_cache(
-    active_servers: &[ServerConfig],
-    persist_cache: bool,
-    profile: HomeFeedLoadProfile,
-    mut progress: Signal<f32>,
-    mut status: Signal<Option<String>>,
-) -> HomeFeedSnapshot {
-    let init_start = PerfTimer::now();
-    let budget = home_init_fetch_budget(profile);
-    let warmup_key = home_init_warmup_cache_key(active_servers, profile);
-
-    let cache_prefix = home_init_cache_prefix(active_servers, profile);
-    let recent_cache_key = format!("{cache_prefix}:recent_albums");
-    let most_played_album_cache_key = format!("{cache_prefix}:most_played_albums");
-    let recent_song_cache_key = format!("{cache_prefix}:recent_songs");
-    let most_played_song_cache_key = format!("{cache_prefix}:most_played_songs");
-    let random_song_cache_key = format!("{cache_prefix}:random_songs");
-    let quick_pick_cache_key = format!("{cache_prefix}:quick_picks");
-
-    eprintln!(
-        "[app-init] starting home cache warmup for {} server(s) with profile={} (base={} step={} fetch={})",
-        active_servers.len(),
-        home_init_profile_cache_key(profile),
-        budget.section_base_count,
-        budget.section_load_step,
-        budget.section_fetch_limit
-    );
-    let mut set_stage = |progress_value: f32, message: &str| {
-        progress.set(progress_value.clamp(0.0, 1.0));
-        status.set(Some(message.to_string()));
-    };
-    set_stage(0.08, "Fetching recently played songs");
-    ios_diag_log(
-        "home.init",
-        &format!("start warmup servers={}", active_servers.len()),
-    );
-
-    let pool_size = (budget.section_fetch_limit * 3).max(budget.random_fetch_limit * 2);
-    ios_diag_log(
-        "home.init",
-        &format!(
-            "fetch native recent songs limit={}",
-            budget.section_fetch_limit
-        ),
-    );
-    let mut recent_played = fetch_home_init_sorted_songs_for_servers(
-        active_servers,
-        NativeSongSortField::PlayDate,
-        budget.section_fetch_limit as u32,
-    )
-    .await;
-
-    set_stage(0.18, "Fetching most played songs");
-    ios_diag_log(
-        "home.init",
-        &format!(
-            "fetch native most played songs limit={}",
-            budget.section_fetch_limit
-        ),
-    );
-    let mut most_played_song_items = fetch_home_init_sorted_songs_for_servers(
-        active_servers,
-        NativeSongSortField::PlayCount,
-        budget.section_fetch_limit as u32,
-    )
-    .await;
-
-    set_stage(0.28, "Fetching random songs");
-    ios_diag_log(
-        "home.init",
-        &format!("fetch random fallback song pool size={pool_size}"),
-    );
-    let song_pool =
-        fetch_home_init_random_songs_for_servers(active_servers, pool_size as u32).await;
-    let random_song_items = dedupe_home_init_songs(song_pool.clone(), budget.random_fetch_limit);
-
-    if recent_played.len() < budget.section_fetch_limit {
-        let mut fallback_recent = song_pool.clone();
-        sort_home_init_songs(&mut fallback_recent, NativeSongSortField::PlayDate);
-        recent_played =
-            merge_home_init_song_lists(recent_played, fallback_recent, budget.section_fetch_limit);
-    }
-
-    if most_played_song_items.len() < budget.section_fetch_limit {
-        let mut fallback_most_played = song_pool;
-        sort_home_init_songs(&mut fallback_most_played, NativeSongSortField::PlayCount);
-        most_played_song_items = merge_home_init_song_lists(
-            most_played_song_items,
-            fallback_most_played,
-            budget.section_fetch_limit,
-        );
-    }
-
-    let recent_cached: Vec<Song> = recent_played
-        .iter()
-        .take(budget.section_cache_count)
-        .cloned()
-        .collect();
-    let most_played_cached: Vec<Song> = most_played_song_items
-        .iter()
-        .take(budget.section_cache_count)
-        .cloned()
-        .collect();
-    if persist_cache {
-        let _ = cache_put_json(recent_song_cache_key.clone(), &recent_cached, Some(3));
-        let _ = cache_put_json(
-            most_played_song_cache_key.clone(),
-            &most_played_cached,
-            Some(6),
-        );
-        let _ = cache_put_json(random_song_cache_key.clone(), &random_song_items, Some(2));
-    }
-    ios_diag_log(
-        "home.init",
-        &format!(
-            "song sections cached recent={} most_played={} random={} (native recent={} native most_played={})",
-            recent_played.len(),
-            most_played_song_items.len(),
-            random_song_items.len(),
-            recent_played
-                .iter()
-                .filter(|song| song.played.is_some())
-                .count(),
-            most_played_song_items
-                .iter()
-                .filter(|song| song.play_count.is_some())
-                .count()
-        ),
-    );
-    set_stage(0.42, "Song sections cached");
-    home_init_fetch_yield().await;
-
-    set_stage(0.58, "Building Home quick picks");
-    ios_diag_log("home.init", "building quick picks");
-    let mut quick = dedupe_home_init_songs(most_played_song_items.clone(), budget.quick_pick_limit);
-    if quick.is_empty() {
-        quick = dedupe_home_init_songs(random_song_items.clone(), budget.quick_pick_limit);
-    }
-    if quick.is_empty() {
-        quick = fetch_home_init_random_songs_for_servers(
-            active_servers,
-            budget.quick_pick_limit as u32,
-        )
-        .await;
-    }
-    if persist_cache {
-        let _ = cache_put_json(quick_pick_cache_key, &quick, Some(3));
-    }
-    ios_diag_log(
-        "home.init",
-        &format!("quick picks cached count={}", quick.len()),
-    );
-    set_stage(0.7, "Quick picks cached");
-    home_init_fetch_yield().await;
-
-    set_stage(0.82, "Fetching recent albums");
-    ios_diag_log("home.init", "fetching recent albums");
-    let recent_albums =
-        fetch_home_init_albums_for_servers(active_servers, "newest", budget.album_preview_limit)
-            .await;
-    if persist_cache {
-        let _ = cache_put_json(recent_cache_key, &recent_albums, Some(6));
-    }
-    ios_diag_log(
-        "home.init",
-        &format!("recent albums cached count={}", recent_albums.len()),
-    );
-    set_stage(0.9, "Recent albums cached");
-    home_init_fetch_yield().await;
-
-    set_stage(0.96, "Fetching most played albums");
-    ios_diag_log("home.init", "fetching most played albums");
-    let most_played_albums = fetch_home_init_albums_for_servers(
-        active_servers,
-        "frequent",
-        budget.section_fetch_limit as u32,
-    )
-    .await;
-    let most_played_cached: Vec<Album> = most_played_albums
-        .iter()
-        .take(budget.section_cache_count)
-        .cloned()
-        .collect();
-    if persist_cache {
-        let _ = cache_put_json(most_played_album_cache_key, &most_played_cached, Some(6));
-        let _ = cache_put_json(warmup_key, &true, Some(HOME_INIT_WARMUP_FLAG_CACHE_HOURS));
-    }
-
-    let snapshot = HomeFeedSnapshot {
-        recent_albums,
-        most_played_albums,
-        recent_songs: recent_played,
-        most_played_songs: most_played_song_items,
-        random_songs: random_song_items,
-        quick_picks: quick,
-    };
-    let summary = snapshot.summary();
-
-    log_perf(
-        "app.home_init.total",
-        init_start,
-        &format!(
-            "servers={} recent_albums={} frequent_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
-            active_servers.len(),
-            summary.recent_albums,
-            summary.most_played_albums,
-            summary.recent_songs,
-            summary.most_played_songs,
-            summary.random_songs,
-            summary.quick_picks
-        ),
-    );
-    eprintln!(
-        "[app-init] home cache warmup complete | recent_albums={} frequent_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
-        summary.recent_albums,
-        summary.most_played_albums,
-        summary.recent_songs,
-        summary.most_played_songs,
-        summary.random_songs,
-        summary.quick_picks
-    );
-    ios_diag_log(
-        "home.init",
-        &format!(
-            "complete recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={}",
-            summary.recent_albums,
-            summary.most_played_albums,
-            summary.recent_songs,
-            summary.most_played_songs,
-            summary.random_songs,
-            summary.quick_picks
-        ),
-    );
-    set_stage(1.0, "Home cache ready");
-
-    snapshot
 }
 
 #[component]
@@ -928,20 +282,33 @@ pub fn AppShell() -> Element {
     let mut repeat_mode = use_signal(|| RepeatMode::Off);
     let mut auto_download_bootstrap_done = use_signal(|| false);
     let mut auto_download_poll_generation = use_signal(|| 0u64);
-    let mut home_init_in_progress = use_signal(|| false);
-    let home_init_status = use_signal(|| None::<String>);
-    let home_init_progress = use_signal(|| 0.0f32);
-    let mut home_init_signature = use_signal(|| None::<String>);
-    let mut home_init_generation = use_signal(|| 0u64);
-    let home_manual_refresh_generation = use_signal(|| 0u64);
-    let mut home_manual_refresh_applied = use_signal(|| 0u64);
     let mut startup_bootstrap_progress = use_signal(|| 0.0f32);
     let mut startup_bootstrap_status = use_signal(|| "Initializing database".to_string());
     let mut ios_loading_log_lines = use_signal(Vec::<String>::new);
     let mut ios_loading_log_poll_generation = use_signal(|| 0u64);
     let audio_state = use_signal(AudioState::default);
     let preview_playback = use_signal(|| false);
-    let sidebar_open = use_signal(|| false);
+    // Resize-aware layout; only flips re-render the shell.
+    let layout_signal = use_layout_provider();
+    use_context_provider(|| LayoutSignal(layout_signal));
+    let track_menu_request = use_signal(|| None::<TrackMenuRequest>);
+    let track_menu_change = use_signal(|| None::<SongChange>);
+    use_context_provider(|| TrackMenuController::new(track_menu_request, track_menu_change));
+    let mut main_scroll_top = use_signal(|| 0.0f64);
+    let mut main_scroll_height = use_signal(|| 0.0f64);
+    let mut main_viewport_top = use_signal(|| 0.0f64);
+    use_context_provider(|| MainScroll {
+        top: main_scroll_top,
+        height: main_scroll_height,
+        viewport_top: main_viewport_top,
+    });
+    // The inner transport signals, taken once. Reading the outer AudioState
+    // signal would re-render the shell on every playback tick, because the
+    // native controllers write through `audio_state.write()`.
+    let (transport_loading_signal, transport_label_signal) = use_hook(move || {
+        let state = audio_state.peek();
+        (state.is_transport_loading, state.transport_loading_label)
+    });
     use_effect({
         let current_view = current_view.clone();
         move || {
@@ -983,17 +350,6 @@ pub fn AppShell() -> Element {
     let add_menu = AddMenuController::new(add_menu_intent.clone());
     let song_details_state = use_signal(SongDetailsState::default);
     let song_details = SongDetailsController::new(song_details_state.clone());
-    let mut home_feed = HomeFeedState {
-        recent_albums: use_signal(|| None::<Vec<Album>>),
-        most_played_albums: use_signal(|| None::<Vec<Album>>),
-        recently_played_songs: use_signal(|| None::<Vec<Song>>),
-        most_played_songs: use_signal(|| None::<Vec<Song>>),
-        random_songs: use_signal(|| None::<Vec<Song>>),
-        quick_picks: use_signal(|| None::<Vec<Song>>),
-        warmup_enabled: use_signal(|| true),
-        progress: home_init_progress,
-        status: home_init_status,
-    };
 
     // Provide state via context
     use_context_provider(|| servers);
@@ -1001,51 +357,67 @@ pub fn AppShell() -> Element {
     use_context_provider(|| navigation.clone());
     use_context_provider(|| add_menu.clone());
     use_context_provider(|| song_details.clone());
-    use_context_provider(|| home_feed.clone());
-    use_context_provider(|| HomeRefreshSignal(home_manual_refresh_generation));
 
     #[cfg(all(feature = "desktop", target_os = "macos"))]
     {
         let navigation = navigation.clone();
-        use_muda_event_handler(move |event| match event.id().as_ref() {
-            "rustysound-open-settings" => {
-                navigation.navigate_to(AppView::SettingsView {});
+        let add_menu = add_menu.clone();
+        let song_details = song_details.clone();
+        let track_menu = use_context::<TrackMenuController>();
+        use_muda_event_handler(move |event| {
+            let id = event.id().as_ref();
+            if let Some(button) = playback_menu_button(id) {
+                press_player_button(button);
+                return;
             }
-            "rustysound-go-home" => {
-                navigation.navigate_to(AppView::HomeView {});
+            if id == "rustysound-now-playing" {
+                let mut song_details = song_details.clone();
+                if song_details.current().is_open {
+                    song_details.close();
+                } else if let Some(song) = now_playing.peek().clone() {
+                    song_details.open(song);
+                }
+                return;
             }
-            "rustysound-go-search" => {
-                navigation.navigate_to(AppView::SearchView {});
+            let Some(target) = menu_route(id) else {
+                return;
+            };
+            // Menu navigation happens over whatever is open: close Now
+            // Playing and the shell's sheets and menus so the new page is
+            // not hidden. Page-local menus unmount with the old page.
+            let (mut song_details, mut add_menu, mut track_menu) =
+                (song_details.clone(), add_menu.clone(), track_menu);
+            song_details.close();
+            add_menu.close();
+            track_menu.close();
+            let focus_search = matches!(target, AppView::SearchView {});
+            navigation.navigate_to(target);
+            if focus_search {
                 focus_global_search_input();
             }
-            "rustysound-go-albums" => {
-                navigation.navigate_to(AppView::Albums {});
-            }
-            "rustysound-go-artists" => {
-                navigation.navigate_to(AppView::ArtistsView {});
-            }
-            "rustysound-go-playlists" => {
-                navigation.navigate_to(AppView::PlaylistsView {});
-            }
-            "rustysound-go-songs" => {
-                navigation.navigate_to(AppView::SongsView {});
-            }
-            "rustysound-go-queue" => {
-                navigation.navigate_to(AppView::QueueView {});
-            }
-            "rustysound-go-downloads" => {
-                navigation.navigate_to(AppView::DownloadsView {});
-            }
-            _ => {}
+        });
+    }
+
+    // Cmd+F / Ctrl+F jumps to Search from anywhere (the macOS menu's Find item
+    // does the same through muda when it gets the key first).
+    {
+        let navigation = navigation.clone();
+        use_effect(move || {
+            let navigation = navigation.clone();
+            spawn(async move {
+                let mut shortcut = document::eval(FIND_SHORTCUT_JS);
+                while shortcut.recv::<bool>().await.is_ok() {
+                    navigation.navigate_to(AppView::SearchView {});
+                    focus_global_search_input();
+                }
+            });
         });
     }
 
     #[cfg(target_arch = "wasm32")]
     let nav_for_swipe = navigation.clone();
-    #[cfg(target_arch = "wasm32")]
-    let sidebar_open_for_swipe = sidebar_open.clone();
 
-    // Browser-only: queue cover-art image requests to avoid provider/CDN rate-limit bursts.
+    // Browser-only: queue bulk cover-art prefetches to avoid provider/CDN rate-limit bursts.
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         let _ = js_sys::eval(
@@ -1110,7 +482,6 @@ pub fn AppShell() -> Element {
       active += 1;
       current.loading = true;
 
-      if (!img.getAttribute('loading')) originalSetAttribute.call(img, 'loading', 'lazy');
       if (!img.getAttribute('decoding')) originalSetAttribute.call(img, 'decoding', 'async');
       if (!img.getAttribute('fetchpriority')) originalSetAttribute.call(img, 'fetchpriority', 'low');
 
@@ -1153,19 +524,14 @@ pub fn AppShell() -> Element {
     }
   }
 
+  // Only bulk prefetches (Settings cache warm-up) go through the queue. On-screen
+  // images load directly: Artwork marks them lazy, and queuing them let offscreen
+  // or unmounted images hold every slot until the timeout, leaving grids blank.
   window.__rustyCoverArtEnqueue = (url) => {
     if (!isCoverArtUrl(url)) return false;
     const img = new Image();
     enqueue(img, url, true, true);
     return true;
-  };
-
-  Element.prototype.setAttribute = function(name, value) {
-    if (this instanceof HTMLImageElement && name === 'src' && isCoverArtUrl(value)) {
-      enqueue(this, value, true, false);
-      return;
-    }
-    return originalSetAttribute.call(this, name, value);
   };
 })();
             "#,
@@ -1183,12 +549,11 @@ pub fn AppShell() -> Element {
         let mut swipe_start = swipe_start.clone();
         let mut swipe_hint = swipe_hint.clone();
         let nav = nav_for_swipe.clone();
-        let sidebar_open_for_swipe = sidebar_open_for_swipe.clone();
 
         let runtime_down = runtime.clone();
         let down_cb = Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
             let _guard = RuntimeGuard::new(runtime_down.clone());
-            if e.pointer_type() != "touch" || sidebar_open_for_swipe() {
+            if e.pointer_type() != "touch" {
                 swipe_start.set(None);
                 swipe_hint.set(None);
                 return;
@@ -1317,11 +682,26 @@ pub fn AppShell() -> Element {
         let _ = document::eval(&js);
     });
     use_context_provider(|| SeekRequestSignal(seek_request));
-    use_context_provider(|| SidebarOpenSignal(sidebar_open));
     use_context_provider(|| PreviewPlaybackSignal(preview_playback));
     use_context_provider(|| ShuffleEnabledSignal(shuffle_enabled));
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
+
+    // Mirror theme, appearance and platform onto <html> so the page background,
+    // overscroll area and scrollbars follow the theme too. data-layout lives on
+    // .rs-app only (no CSS reads it from <html>). `lang` covers the desktop and
+    // iOS webviews, whose index page has none; the web index.html sets it too.
+    use_effect(move || {
+        let (theme, appearance) = {
+            let settings = app_settings.read();
+            (stage_theme(&settings.theme), appearance_attr(&settings))
+        };
+        let js = format!(
+            "(function(){{var r=document.documentElement;r.lang='en';r.setAttribute('data-theme','{theme}');r.setAttribute('data-appearance','{appearance}');r.setAttribute('data-platform','{}');}})();",
+            platform_name()
+        );
+        let _ = document::eval(&js);
+    });
 
     // Initialize database and load saved state on mount
     use_effect(move || {
@@ -1394,271 +774,14 @@ pub fn AppShell() -> Element {
         });
     });
 
-    // Warm Home cache whenever the active server set changes.
-    use_effect(move || {
-        if !db_initialized() || !settings_loaded() {
-            return;
-        }
-
-        let settings_snapshot = app_settings();
-        let cache_enabled = settings_snapshot.cache_enabled;
-        let home_profile = home_init_profile_from_settings(&settings_snapshot);
-        if settings_snapshot.offline_mode {
-            ios_diag_log("home.init.gate", "skip warmup: offline mode enabled");
-            home_init_in_progress.set(false);
-            home_feed.progress.set(1.0);
-            home_feed.status.set(Some(
-                "Offline mode: using cached Home data only".to_string(),
-            ));
-            home_init_signature.set(None);
-            return;
-        }
-
-        let active_servers: Vec<ServerConfig> = servers()
-            .into_iter()
-            .filter(|server| server.active)
-            .collect();
-        if active_servers.is_empty() {
-            ios_diag_log("home.init.gate", "skip warmup: no active servers");
-            home_init_in_progress.set(false);
-            home_feed.warmup_enabled.set(false);
-            home_feed.progress.set(1.0);
-            home_feed.status.set(Some("No active servers".to_string()));
-            set_empty_home_feed_snapshot(&home_feed);
-            home_init_signature.set(None);
-            return;
-        }
-
-        let manual_refresh_generation = home_manual_refresh_generation();
-        let manual_refresh_requested = manual_refresh_generation != home_manual_refresh_applied();
-        if manual_refresh_requested {
-            home_manual_refresh_applied.set(manual_refresh_generation);
-            home_init_signature.set(None);
-            if cache_enabled {
-                let cache_prefix = home_init_cache_prefix(&active_servers, home_profile);
-                let warmup_cache_key = home_init_warmup_cache_key(&active_servers, home_profile);
-                let mut removed_entries = cache_remove_prefix(&format!("{cache_prefix}:"));
-                removed_entries += cache_remove_prefix(&warmup_cache_key);
-                for server in &active_servers {
-                    for album_type in [
-                        "newest",
-                        "frequent",
-                        "recent",
-                        "alphabeticalByName",
-                        "highest",
-                        "random",
-                    ] {
-                        removed_entries += cache_remove_prefix(&format!(
-                            "api:getAlbumList2:v1:{}:{}:",
-                            server.id, album_type
-                        ));
-                    }
-                }
-                ios_diag_log(
-                    "home.init.gate",
-                    &format!(
-                        "manual refresh invalidated cache entries={removed_entries} active_servers={} profile={}",
-                        active_servers.len(),
-                        home_init_profile_cache_key(home_profile)
-                    ),
-                );
-            }
-            ios_diag_log(
-                "home.init.gate",
-                &format!(
-                    "manual refresh requested generation={manual_refresh_generation}; bypassing warmup gate profile={}",
-                    home_init_profile_cache_key(home_profile)
-                ),
-            );
-        }
-
-        let warmup_key = home_init_warmup_cache_key(&active_servers, home_profile);
-        let warmup_enabled = if cache_enabled {
-            cache_get_json::<bool>(&warmup_key).unwrap_or(true)
-        } else {
-            true
-        };
-        home_feed.warmup_enabled.set(warmup_enabled);
-
-        if cache_enabled {
-            let cached_snapshot = load_cached_home_feed_snapshot(&active_servers, home_profile);
-            apply_cached_home_feed_snapshot(&home_feed, &cached_snapshot);
-            ios_diag_log(
-                "home.feed.cache",
-                &format!(
-                    "profile={} recent_albums={} most_played_albums={} recent_songs={} most_played_songs={} random_songs={} quick_picks={} full_cache_hit={}",
-                    home_init_profile_cache_key(home_profile),
-                    cached_snapshot
-                        .recent_albums
-                        .as_ref()
-                        .map(|items| items.len().to_string())
-                        .unwrap_or_else(|| "miss".to_string()),
-                    cached_snapshot
-                        .most_played_albums
-                        .as_ref()
-                        .map(|items| items.len().to_string())
-                        .unwrap_or_else(|| "miss".to_string()),
-                    cached_snapshot
-                        .recent_songs
-                        .as_ref()
-                        .map(|items| items.len().to_string())
-                        .unwrap_or_else(|| "miss".to_string()),
-                    cached_snapshot
-                        .most_played_songs
-                        .as_ref()
-                        .map(|items| items.len().to_string())
-                        .unwrap_or_else(|| "miss".to_string()),
-                    cached_snapshot
-                        .random_songs
-                        .as_ref()
-                        .map(|items| items.len().to_string())
-                        .unwrap_or_else(|| "miss".to_string()),
-                    cached_snapshot
-                        .quick_picks
-                        .as_ref()
-                        .map(|items| items.len().to_string())
-                        .unwrap_or_else(|| "miss".to_string()),
-                    cached_snapshot.has_full_snapshot()
-                ),
-            );
-
-            match (
-                cached_snapshot.recent_albums.as_ref().map(Vec::len),
-                cached_snapshot.most_played_albums.as_ref().map(Vec::len),
-            ) {
-                (Some(recent_count), Some(most_played_count)) => {
-                    home_feed.progress.set(1.0);
-                    home_feed.status.set(Some(format!(
-                        "Home ready from cache (recent {} | most played {})",
-                        recent_count, most_played_count
-                    )));
-                }
-                (Some(recent_count), None) => {
-                    home_feed.progress.set(0.56);
-                    home_feed.status.set(Some(format!(
-                        "Recent albums cached ({recent_count}), fetching most played albums"
-                    )));
-                }
-                (None, Some(most_played_count)) => {
-                    home_feed.progress.set(0.32);
-                    home_feed.status.set(Some(format!(
-                        "Most played albums cached ({most_played_count}), fetching recent albums"
-                    )));
-                }
-                (None, None) => {
-                    home_feed.progress.set(0.08);
-                    home_feed.status.set(Some("Loading Home feed".to_string()));
-                }
-            }
-        } else {
-            home_feed.recent_albums.set(None);
-            home_feed.most_played_albums.set(None);
-            home_feed.recently_played_songs.set(None);
-            home_feed.most_played_songs.set(None);
-            home_feed.random_songs.set(None);
-            home_feed.quick_picks.set(None);
-            home_feed.progress.set(0.08);
-            home_feed
-                .status
-                .set(Some("Cache disabled: loading Home feed live".to_string()));
-            ios_diag_log(
-                "home.feed.cache",
-                "cache disabled: skipping persistent Home cache hydrate",
-            );
-        }
-
-        let signature = home_init_server_signature(&active_servers, home_profile);
-        if !manual_refresh_requested && home_init_signature().as_deref() == Some(signature.as_str())
-        {
-            ios_diag_log("home.init.gate", "skip warmup: signature unchanged");
-            return;
-        }
-
-        home_init_signature.set(Some(signature));
-        if !manual_refresh_requested
-            && cache_enabled
-            && home_init_is_warmed(&active_servers, home_profile)
-        {
-            ios_diag_log("home.init.gate", "skip warmup: cache already warmed");
-            home_init_in_progress.set(false);
-            home_feed.progress.set(1.0);
-            return;
-        }
-
-        home_init_generation.with_mut(|generation| *generation = generation.saturating_add(1));
-        let generation = *home_init_generation.peek();
-
-        home_init_in_progress.set(true);
-        home_feed.progress.set(0.04);
-        home_feed.status.set(Some(if manual_refresh_requested {
-            "Refreshing Home feed".to_string()
-        } else if cache_enabled {
-            format!(
-                "Starting Home cache warmup ({})",
-                home_init_profile_cache_key(home_profile)
-            )
-        } else {
-            format!(
-                "Loading Home feed live ({})",
-                home_init_profile_cache_key(home_profile)
-            )
-        }));
-        ios_diag_log(
-            "home.init.gate",
-            &format!(
-                "starting warmup generation={} active_servers={} manual_refresh={manual_refresh_requested} profile={}",
-                generation,
-                active_servers.len(),
-                home_init_profile_cache_key(home_profile)
-            ),
-        );
-
-        let mut home_init_in_progress = home_init_in_progress.clone();
-        let mut home_init_status = home_init_status.clone();
-        let mut home_init_progress = home_init_progress.clone();
-        let home_feed = home_feed.clone();
-        let home_init_generation = home_init_generation.clone();
-        spawn(async move {
-            let snapshot = initialize_home_cache(
-                &active_servers,
-                cache_enabled,
-                home_profile,
-                home_init_progress.clone(),
-                home_init_status.clone(),
-            )
-            .await;
-
-            if *home_init_generation.peek() != generation {
-                ios_diag_log(
-                    "home.init.gate",
-                    &format!("discard warmup generation={} (superseded)", generation),
-                );
-                return;
-            }
-
-            apply_home_feed_snapshot(&home_feed, &snapshot);
-            home_init_in_progress.set(false);
-            let summary = snapshot.summary();
-            home_init_progress.set(1.0);
-            home_init_status.set(Some(format!(
-                "Home ready (recent albums {} | most played albums {})",
-                summary.recent_albums, summary.most_played_albums
-            )));
-            ios_diag_log(
-                "home.init.gate",
-                &format!("warmup generation={} finished", generation),
-            );
-        });
-    });
-
-    // While startup/home-init overlays are visible, keep a short iOS log tail fresh.
+    // While the startup overlay is visible, keep a short iOS log tail fresh.
     use_effect(move || {
         if !cfg!(all(not(target_arch = "wasm32"), target_os = "ios")) {
             ios_loading_log_lines.set(Vec::new());
             return;
         }
 
-        let should_poll = !db_initialized() || !settings_loaded() || home_init_in_progress();
+        let should_poll = !db_initialized() || !settings_loaded();
 
         if !should_poll {
             ios_loading_log_lines.set(Vec::new());
@@ -1905,55 +1028,67 @@ pub fn AppShell() -> Element {
         }
     });
 
-    // Auto-save playback position periodically
+    // Auto-save playback position periodically.
+    // Runs on every position tick, so it must stay cheap: it reads the queue
+    // length (no clone) and only builds the queue list when it actually saves.
     use_effect(move || {
-        let song = now_playing();
         let pos = playback_position();
-        let q = queue();
         let idx = queue_index();
         let previewing = preview_playback();
+        let ready = db_initialized();
+        let queue_len = queue.read().len();
+        let song_key = now_playing
+            .read()
+            .as_ref()
+            .map(|song| (song.id.clone(), song.server_id.clone()));
 
-        if db_initialized() && song.is_some() && !previewing {
-            let current = song.as_ref().expect("checked is_some");
-            let song_id = current.id.clone();
-            let server_id = current.server_id.clone();
-            let position_ms = (pos.max(0.0) * 1000.0).round() as u64;
-            let queue_len = q.len();
-
-            let should_save = match last_playback_save() {
-                Some((prev_song_id, prev_server_id, prev_pos_ms, prev_idx, prev_queue_len)) => {
-                    prev_song_id != song_id
-                        || prev_server_id != server_id
-                        || prev_idx != idx
-                        || prev_queue_len != queue_len
-                        || position_ms.abs_diff(prev_pos_ms) >= 1500
-                }
-                None => true,
-            };
-
-            if !should_save {
-                return;
-            }
-
-            last_playback_save.set(Some((song_id, server_id, position_ms, idx, queue_len)));
-
-            let state = PlaybackState {
-                song_id: song.as_ref().map(|s| s.id.clone()),
-                server_id: song.as_ref().map(|s| s.server_id.clone()),
-                position: pos,
-                queue: q
-                    .iter()
-                    .map(|s| QueueItem {
-                        song_id: s.id.clone(),
-                        server_id: s.server_id.clone(),
-                    })
-                    .collect(),
-                queue_index: idx,
-            };
-            spawn(async move {
-                let _ = save_playback_state(state).await;
-            });
+        if !ready || previewing {
+            return;
         }
+        let Some((song_id, server_id)) = song_key else {
+            return;
+        };
+        let position_ms = (pos.max(0.0) * 1000.0).round() as u64;
+
+        let should_save = match &*last_playback_save.peek() {
+            Some((prev_song_id, prev_server_id, prev_pos_ms, prev_idx, prev_queue_len)) => {
+                *prev_song_id != song_id
+                    || *prev_server_id != server_id
+                    || *prev_idx != idx
+                    || *prev_queue_len != queue_len
+                    || position_ms.abs_diff(*prev_pos_ms) >= 1500
+            }
+            None => true,
+        };
+        if !should_save {
+            return;
+        }
+
+        last_playback_save.set(Some((
+            song_id.clone(),
+            server_id.clone(),
+            position_ms,
+            idx,
+            queue_len,
+        )));
+
+        let state = PlaybackState {
+            song_id: Some(song_id),
+            server_id: Some(server_id),
+            position: pos,
+            queue: queue
+                .peek()
+                .iter()
+                .map(|s| QueueItem {
+                    song_id: s.id.clone(),
+                    server_id: s.server_id.clone(),
+                })
+                .collect(),
+            queue_index: idx,
+        };
+        spawn(async move {
+            let _ = save_playback_state(state).await;
+        });
     });
 
     // Save temporary queue snapshots so queue can be restored after tab/app close.
@@ -1977,7 +1112,7 @@ pub fn AppShell() -> Element {
             clamped_queue_index,
             now_playing_snapshot.as_ref(),
         );
-        if signature == last_queue_snapshot_signature() {
+        if signature == *last_queue_snapshot_signature.peek() {
             return;
         }
         last_queue_snapshot_signature.set(signature);
@@ -1989,7 +1124,7 @@ pub fn AppShell() -> Element {
             queue: queue_snapshot,
             queue_index: clamped_queue_index,
             now_playing: now_playing_snapshot,
-            playback_position: playback_position().max(0.0),
+            playback_position: playback_position.peek().max(0.0),
         };
 
         spawn(async move {
@@ -1997,169 +1132,123 @@ pub fn AppShell() -> Element {
         });
     });
 
-    let view = use_route::<AppView>();
-    let sidebar_signal = sidebar_open.clone();
-    let song_details_open = song_details_state().is_open;
+    let layout = layout_signal();
+    let compact = layout.is_compact();
     let is_startup_bootstrapping = !db_initialized() || !settings_loaded();
-    let is_home_initializing = home_init_in_progress() && matches!(&view, AppView::HomeView {});
-    let startup_bootstrap_status_text = startup_bootstrap_status();
-    let startup_bootstrap_progress_value = startup_bootstrap_progress();
-    let home_init_status_text = home_init_status()
-        .unwrap_or_else(|| "Caching songs and albums for Home to avoid cold loads.".to_string());
-    let home_init_progress_value = home_init_progress();
     let show_ios_loading_logs = cfg!(all(not(target_arch = "wasm32"), target_os = "ios"));
-    let ios_loading_logs_preview = ios_loading_log_lines();
-    let offline_mode_enabled = app_settings().offline_mode;
-    let transport_loading_state = audio_state();
-    let is_transport_loading = (transport_loading_state.is_transport_loading)();
-    let transport_loading_label = (transport_loading_state.transport_loading_label)()
-        .unwrap_or_else(|| "Loading playback...".to_string());
-    let show_transport_loading_overlay =
-        is_transport_loading && !is_startup_bootstrapping && !is_home_initializing;
-    let app_container_class = if sidebar_open() {
-        "app-container sidebar-open-mobile flex min-h-screen text-white overflow-hidden"
+    let boot_logs = if show_ios_loading_logs && is_startup_bootstrapping {
+        ios_loading_log_lines()
     } else {
-        "app-container flex min-h-screen text-white overflow-hidden"
+        Vec::new()
     };
+    let (offline_mode_enabled, theme_attr, appearance) = {
+        let settings = app_settings.read();
+        (
+            settings.offline_mode,
+            stage_theme(&settings.theme),
+            appearance_attr(&settings),
+        )
+    };
+    let is_transport_loading = transport_loading_signal();
+    let show_transport_loading_overlay =
+        is_transport_loading && !is_startup_bootstrapping;
+    let transport_loading_label = if show_transport_loading_overlay {
+        transport_label_signal().unwrap_or_else(|| "Loading playback…".to_string())
+    } else {
+        String::new()
+    };
+    let has_song = now_playing.read().is_some();
+    let player_on = !compact || has_song;
     let swipe_hint_state = swipe_hint();
-    let active_theme = {
-        let t = app_settings().theme;
-        if t.is_empty() || t == "dark" {
-            "rusty".to_string()
-        } else {
-            t
-        }
-    };
 
     rsx! {
         div {
-            "data-theme": "{active_theme}",
-            div {
-                class: "{app_container_class}",
-                if sidebar_open() && !song_details_open {
-                    div {
-                        class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-30 2xl:hidden",
-                        onclick: {
-                            let mut sidebar_open = sidebar_open.clone();
-                            move |_| sidebar_open.set(false)
-                        },
-                    }
+            class: "rs-app",
+            "data-platform": platform_name(),
+            "data-theme": theme_attr,
+            "data-appearance": appearance,
+            "data-layout": layout.attr(),
+            "data-player": if player_on { "on" } else { "off" },
+
+            if !compact {
+                Sidebar {}
+            }
+
+            div { class: "rs-content",
+                if !compact {
+                    WindowDragRegion { class: "rs-drag--content".to_string() }
                 }
-
-                // Sidebar
-                Sidebar { sidebar_open: sidebar_signal, overlay_mode: false }
-
-                // Main content area + player
-                div { class: "flex-1 min-h-0 flex flex-col overflow-hidden",
-                    header { class: "mobile-safe-top 2xl:hidden border-b border-zinc-800/60 bg-zinc-950/80 backdrop-blur-xl",
-                        div { class: "flex items-center justify-between px-4 py-3",
-                            div { class: "flex items-center gap-1",
-                                button {
-                                    class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                    aria_label: "Open menu",
-                                    onclick: {
-                                        let mut sidebar_open = sidebar_open.clone();
-                                        move |_| sidebar_open.set(true)
-                                    },
-                                    Icon {
-                                        name: "menu".to_string(),
-                                        class: "w-5 h-5".to_string(),
-                                    }
-                                }
-                            }
-                            div { class: "flex flex-col items-center text-center",
-                                span { class: "text-xs uppercase tracking-widest text-zinc-500",
-                                    "RustySound"
-                                }
-                                span { class: "text-sm font-semibold text-white", "{view_label(&view)}" }
+                main {
+                    class: "rs-main main-scroll",
+                    onmounted: move |evt| async move {
+                        if let Ok(rect) = evt.get_client_rect().await {
+                            main_viewport_top.set(rect.origin.y);
+                            main_scroll_height.set(rect.size.height);
+                        }
+                    },
+                    onscroll: move |evt| {
+                        // Quantised so windowed lists re-render per 32px, not per event.
+                        let top = (evt.scroll_top() / 32.0).floor() * 32.0;
+                        if top != *main_scroll_top.peek() {
+                            main_scroll_top.set(top);
+                        }
+                        let height = evt.client_height() as f64;
+                        if (height - *main_scroll_height.peek()).abs() > 1.0 {
+                            main_scroll_height.set(height);
+                        }
+                    },
+                    if offline_mode_enabled {
+                        div { class: "rs-banner", role: "status", "data-testid": "offline-banner",
+                            Icon { name: "offline".to_string(), class: "rs-ic".to_string() }
+                            div { class: "rs-banner__text",
+                                p { class: "rs-banner__title", "Offline mode is on" }
+                                p { class: "rs-banner__sub", "Only downloaded and cached music is available." }
                             }
                             button {
-                                class: "p-2 rounded-lg text-zinc-300 hover:text-white hover:bg-zinc-800/60 transition-colors",
-                                aria_label: "Open queue",
-                                onclick: {
-                                    let nav = navigation.clone();
-                                    move |_| nav.navigate_to(AppView::QueueView {})
+                                r#type: "button",
+                                class: "rs-btn rs-btn--tinted rs-btn--small",
+                                onclick: move |_| {
+                                    let mut settings = app_settings();
+                                    if !settings.offline_mode {
+                                        return;
+                                    }
+                                    settings.offline_mode = false;
+                                    apply_cache_settings(&settings);
+                                    let settings_clone = settings.clone();
+                                    app_settings.set(settings);
+                                    spawn(async move {
+                                        let _ = save_settings(settings_clone).await;
+                                    });
                                 },
-                                Icon {
-                                    name: "bars".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
+                                "Go Online"
                             }
                         }
                     }
-
-                    // Main scrollable content
-                    main {
-                        class: "flex-1 min-h-0 overflow-y-auto main-scroll",
-                        div {
-                            class: "page-shell",
-                            if offline_mode_enabled {
-                                div { class: "mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3 flex flex-wrap items-center justify-between gap-3",
-                                    div {
-                                        p { class: "text-sm font-medium text-amber-200", "Offline mode is currently enabled." }
-                                        p { class: "text-xs text-amber-100/80", "Only downloaded and cached content is available." }
-                                    }
-                                    button {
-                                        class: "px-3 py-2 rounded-lg border border-amber-400/60 text-amber-100 hover:text-white hover:border-amber-300 transition-colors text-sm",
-                                        onclick: {
-                                            let mut app_settings = app_settings.clone();
-                                            move |_| {
-                                                let mut settings = app_settings();
-                                                if !settings.offline_mode {
-                                                    return;
-                                                }
-                                                settings.offline_mode = false;
-                                                apply_cache_settings(&settings);
-                                                let settings_clone = settings.clone();
-                                                app_settings.set(settings);
-                                                spawn(async move {
-                                                    let _ = save_settings(settings_clone).await;
-                                                });
-                                            }
-                                        },
-                                        "Disable Offline Mode"
-                                    }
-                                }
-                            }
-                            div {
-                                key: "{outlet_key}",
-                                Outlet::<AppView> {}
-                            }
-                        }
+                    div { key: "{outlet_key}", class: "rs-outlet",
+                        Outlet::<AppView> {}
                     }
-                    Player {}
                 }
+                PlayerBar {}
+            }
+
+            if compact {
+                TabBar {}
             }
 
             if let Some((direction, progress)) = swipe_hint_state {
                 if progress > 0.0 {
                     div {
-                        class: if direction > 0 {
-                            "swipe-hint swipe-hint--back 2xl:hidden"
-                        } else {
-                            "swipe-hint swipe-hint--forward 2xl:hidden"
-                        },
-                        style: if direction > 0 {
-                            format!(
-                                "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
-                                0.2 + progress.min(1.0) * 0.8,
-                                -12.0 + progress.min(1.0) * 12.0,
-                                0.86 + progress.min(1.0) * 0.18
-                            )
-                        } else {
-                            format!(
-                                "opacity: {}; transform: translateY(-50%) translateX({}px) scale({});",
-                                0.2 + progress.min(1.0) * 0.8,
-                                12.0 - progress.min(1.0) * 12.0,
-                                0.86 + progress.min(1.0) * 0.18
-                            )
-                        },
-                        div {
-                            class: "w-10 h-10 rounded-full border border-emerald-400/50 bg-zinc-950/80 text-emerald-300 shadow-lg backdrop-blur flex items-center justify-center",
-                            Icon {
-                                name: "arrow-left".to_string(),
-                                class: if direction > 0 { "w-5 h-5".to_string() } else { "w-5 h-5 rotate-180".to_string() },
-                            }
+                        class: if direction > 0 { "rs-swipe-hint rs-swipe-hint--back" } else { "rs-swipe-hint rs-swipe-hint--forward" },
+                        aria_hidden: "true",
+                        style: format!(
+                            "opacity:{:.2};transform:translateY(-50%) translateX({:.1}px) scale({:.2});",
+                            0.2 + progress.min(1.0) * 0.8,
+                            if direction > 0 { -12.0 + progress.min(1.0) * 12.0 } else { 12.0 - progress.min(1.0) * 12.0 },
+                            0.86 + progress.min(1.0) * 0.18
+                        ),
+                        Icon {
+                            name: if direction > 0 { "chevron-left".to_string() } else { "chevron-right".to_string() },
+                            class: "rs-ic".to_string(),
                         }
                     }
                 }
@@ -2169,87 +1258,23 @@ pub fn AppShell() -> Element {
 
             SongDetailsOverlay { controller: song_details.clone() }
 
-            if song_details_open {
-                if sidebar_open() {
-                    div {
-                        class: "fixed inset-0 bg-black/60 backdrop-blur-sm z-[115]",
-                        onclick: {
-                            let mut sidebar_open = sidebar_open.clone();
-                            move |_| sidebar_open.set(false)
-                        },
-                    }
-                }
-                Sidebar { sidebar_open: sidebar_open, overlay_mode: true }
-            }
+            TrackMenuHost {}
 
             if show_transport_loading_overlay {
-                div { class: "fixed inset-0 z-[205] bg-zinc-950/70 backdrop-blur-sm flex items-center justify-center px-6 pointer-events-none",
-                    div { class: "max-w-sm text-center space-y-3 rounded-2xl border border-zinc-700/70 bg-zinc-900/85 px-6 py-5 shadow-2xl",
-                        div { class: "flex items-center justify-center",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                            }
-                        }
-                        h2 { class: "text-lg font-semibold text-white", "Loading Audio" }
-                        p { class: "text-sm text-zinc-300", "{transport_loading_label}" }
-                    }
+                div { class: "rs-capsule", role: "status", "data-testid": "transport-loading",
+                    span { class: "rs-spinner", aria_hidden: "true" }
+                    span { class: "rs-truncate", "{transport_loading_label}" }
                 }
             }
 
             if is_startup_bootstrapping {
-                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
-                    div { class: "max-w-md text-center space-y-3",
-                        div { class: "flex items-center justify-center",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                            }
-                        }
-                        h2 { class: "text-lg font-semibold text-white", "Preparing RustySound" }
-                        p { class: "text-sm text-zinc-400",
-                            "Loading servers and settings, then warming local cache for faster navigation."
-                        }
-                        LoadingProgressBar {
-                            progress: startup_bootstrap_progress_value,
-                            stage: startup_bootstrap_status_text,
-                        }
-                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
-                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
-                                for line in ios_loading_logs_preview.iter() {
-                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            if is_home_initializing {
-                div { class: "fixed inset-0 z-[210] bg-zinc-950/95 backdrop-blur-sm flex items-center justify-center px-6",
-                    div { class: "max-w-md text-center space-y-3",
-                        div { class: "flex items-center justify-center",
-                            Icon {
-                                name: "loader".to_string(),
-                                class: "w-8 h-8 text-emerald-400 animate-spin".to_string(),
-                            }
-                        }
-                        h2 { class: "text-lg font-semibold text-white", "App initializing, please wait" }
-                        p { class: "text-sm text-zinc-400", "{home_init_status_text}" }
-                        LoadingProgressBar {
-                            progress: home_init_progress_value,
-                            stage: home_init_status_text.clone(),
-                        }
-                        if show_ios_loading_logs && !ios_loading_logs_preview.is_empty() {
-                            div { class: "mt-3 text-left rounded-lg border border-zinc-700/70 bg-zinc-900/70 p-2 max-h-44 overflow-y-auto",
-                                p { class: "text-[10px] uppercase tracking-wide text-zinc-500 mb-1", "iOS Loading Log" }
-                                for line in ios_loading_logs_preview.iter() {
-                                    p { class: "text-[11px] leading-tight text-zinc-300 font-mono break-all", "{line}" }
-                                }
-                            }
-                        }
-                    }
+                BootOverlay {
+                    title: "Starting RustySound".to_string(),
+                    message: "Loading your servers and settings.".to_string(),
+                    progress: startup_bootstrap_progress(),
+                    stage: startup_bootstrap_status(),
+                    logs: boot_logs.clone(),
+                    testid: "boot-overlay".to_string(),
                 }
             }
 
