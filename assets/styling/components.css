@@ -1270,6 +1270,22 @@
   color: var(--muted);
 }
 
+/* The song that's playing: the whole row carries an accent wash, not just the
+   title, so it reads at a glance in any list (and on the Now Playing stage). */
+.rs-trow--playing {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.rs-trow--playing.rs-trow--pressed,
+.rs-trow--playing:active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* Secondary text on the wash keeps 4.5:1. */
+.rs-trow--playing :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) {
+  color: var(--muted-strong);
+}
+
 .rs-trow--playing .rs-trow__title {
   color: var(--accent-text);
   font-weight: var(--fw-semibold);

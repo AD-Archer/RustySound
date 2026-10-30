@@ -106,6 +106,23 @@ pub fn QueueView() -> Element {
         spawn(prefetch_lyrics(head));
     });
 
+    // Open on the playing song: once, when the page mounts, and only when it
+    // isn't already in view near the top. Later song changes don't move the page.
+    use_hook(move || {
+        let current = *player.queue_index.peek();
+        if current > 3 {
+            let _ = document::eval(&format!(
+                "requestAnimationFrame(() => requestAnimationFrame(() => {{\
+                   const main = document.querySelector('.rs-main');\
+                   const list = document.querySelector('.rs-player-queue [data-testid=\"queue-list\"]');\
+                   if (!main || !list) return;\
+                   const top = list.getBoundingClientRect().top - main.getBoundingClientRect().top + main.scrollTop;\
+                   main.scrollTop = Math.max(0, top + {current} * {ROW_HEIGHT} - main.clientHeight * 0.25);\
+                 }}));"
+            ));
+        }
+    });
+
     let (count, seconds) = {
         let queue = player.queue.read();
         (queue.len(), queue.iter().map(|s| s.duration as u64).sum::<u64>())

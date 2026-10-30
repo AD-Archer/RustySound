@@ -47,7 +47,8 @@ test.describe("now playing", () => {
     await tid(now, "now-playing-panels").getByRole("button", { name: "Up Next" }).click();
     const list = tid(now, "queue-list");
     await expect(list).toBeVisible();
-    const rows = tid(list, "track-row");
+    // Starting on song 1 there's no history, so every row but the playing one is upcoming.
+    const rows = list.locator('[data-testid="track-row"]:not(.rs-trow--playing)');
     await expect(rows.first()).toBeVisible();
     const before = await rows.count();
     // Edit lives in the panel's "…" menu; while editing, Done is the one visible action.
@@ -62,6 +63,76 @@ test.describe("now playing", () => {
 
     await tid(now, "now-playing-panels").getByRole("button", { name: "Info" }).click();
     await expect(tid(now, "now-playing-info")).toContainText(mock.album.name);
+  });
+
+  test("Up Next shows played songs above the playing one, which is highlighted", async ({ connected: page, mock }) => {
+    await page.goto(`/album/${mock.album.id}/${MOCK_SERVER_ID}`);
+    await waitForAppReady(page);
+    await page.getByText(mock.albumSongs[2].title, { exact: true }).first().click();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain(`id=${mock.albumSongs[2].id}`);
+    const now = await openNowPlaying(page);
+    await tid(now, "now-playing-panels").getByRole("button", { name: "Up Next" }).click();
+    const list = tid(now, "queue-list");
+
+    // The two songs before it, in order, then the playing one, then what's next.
+    const history = list.locator(".rs-player-upnext__history [data-testid='track-row']");
+    await expect(history).toHaveCount(2);
+    await expect(history.nth(0)).toContainText(mock.albumSongs[0].title);
+    await expect(history.nth(1)).toContainText(mock.albumSongs[1].title);
+    const playing = list.locator(".rs-trow--playing");
+    await expect(playing).toHaveCount(1);
+    await expect(playing).toContainText(mock.albumSongs[2].title);
+    await expect(list.getByText("Up Next", { exact: true })).toBeVisible();
+
+    // The whole row is highlighted, not just the title.
+    const background = await playing.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(background).not.toBe("rgba(0, 0, 0, 0)");
+
+    // The panel opens on the playing song; the history is a scroll up.
+    await expect
+      .poll(() =>
+        list.evaluate((panel) => {
+          const label = panel.querySelector("[data-upnext-now]") as HTMLElement;
+          return Math.abs(label.getBoundingClientRect().top - panel.getBoundingClientRect().top);
+        }),
+      )
+      .toBeLessThan(24);
+
+    // Tapping a played song plays it.
+    await history.nth(0).locator(".rs-trow__main").click();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain(`id=${mock.albumSongs[0].id}`);
+  });
+
+  test("Cover Flow shows played songs on the left and next ones on the right", async ({ connected: page, mock }) => {
+    await page.goto(`/album/${mock.album.id}/${MOCK_SERVER_ID}`);
+    await waitForAppReady(page);
+    await page.getByText(mock.albumSongs[2].title, { exact: true }).first().click();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain(`id=${mock.albumSongs[2].id}`);
+    const now = await openNowPlaying(page);
+    await expect(tid(now, "now-playing-prev-cover")).toHaveCount(2);
+    await expect(tid(now, "now-playing-next-cover")).toHaveCount(3);
+    // Left of the big cover, nearest first in reading order.
+    const cover = await now.locator(".rs-player-flow__cover").boundingBox();
+    const prev = await tid(now, "now-playing-prev-cover").last().boundingBox();
+    expect(prev!.x).toBeLessThan(cover!.x);
+    await tid(now, "now-playing-prev-cover").getByRole("button", { name: `Go back to ${mock.albumSongs[1].title}` }).or(now.getByRole("button", { name: `Go back to ${mock.albumSongs[1].title}` })).first().click();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain(`id=${mock.albumSongs[1].id}`);
+  });
+
+  test("the queue page opens on the playing song, highlighted", async ({ connected: page, mock }) => {
+    const target = mock.albumSongs.length - 3;
+    await page.goto(`/album/${mock.album.id}/${MOCK_SERVER_ID}`);
+    await waitForAppReady(page);
+    await page.getByText(mock.albumSongs[target].title, { exact: true }).first().click();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain(`id=${mock.albumSongs[target].id}`);
+    // In-app, the way a listener gets there (a reload would drop the web queue).
+    const now = await openNowPlaying(page);
+    await now.getByRole("button", { name: "Open Queue" }).click();
+    const playing = page.locator(".rs-player-queue .rs-trow--playing");
+    await expect(playing).toContainText(mock.albumSongs[target].title);
+    await expect(playing).toBeInViewport();
+    const background = await playing.evaluate((el) => getComputedStyle(el).backgroundColor);
+    expect(background).not.toBe("rgba(0, 0, 0, 0)");
   });
 
   test("lyrics options: menu, search sheet", async ({ connected: page, mock }) => {

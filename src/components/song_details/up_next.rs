@@ -13,6 +13,8 @@ use dioxus::prelude::*;
 
 /// Rows shown in the panel; the queue page shows everything.
 const PANEL_LIMIT: usize = 100;
+/// How many already-played songs the panel shows above the current one.
+const HISTORY_LIMIT: usize = 50;
 /// Songs "Quick Create" adds.
 const QUICK_CREATE_COUNT: usize = 45;
 
@@ -130,8 +132,17 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
     }
 
     let current = (player.queue_index)();
-    let (upcoming, total) = {
+    let live = (player.is_playing)();
+    let (played, now, upcoming, total) = {
         let queue = player.queue.read();
+        let played: Vec<(usize, Song)> = queue
+            .iter()
+            .enumerate()
+            .take(current)
+            .skip(current.saturating_sub(HISTORY_LIMIT))
+            .map(|(i, s)| (i, s.clone()))
+            .collect();
+        let now = queue.get(current).cloned();
         let upcoming: Vec<(usize, Song)> = queue
             .iter()
             .enumerate()
@@ -139,10 +150,15 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
             .take(PANEL_LIMIT)
             .map(|(i, s)| (i, s.clone()))
             .collect();
-        (upcoming, queue.len())
+        (played, now, upcoming, queue.len())
     };
     let remaining = total.saturating_sub(current + 1);
     let editing_now = editing() && !upcoming.is_empty();
+
+    use_effect(move || {
+        let _ = (player.queue_index)();
+        let _ = document::eval(SCROLL_TO_NOW_JS);
+    });
 
     let quick_create = {
         let seed = song.clone();
@@ -185,6 +201,41 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                             menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                         },
                     }
+                }
+            }
+            // History and the current song: hidden while reordering, which
+            // only applies to what's still to come.
+            if !editing_now {
+                if !played.is_empty() {
+                    p { class: "rs-player-upnext__label", "Played" }
+                    div { class: "rs-player-upnext__history",
+                        InsetList { label: "Played".to_string(),
+                            for (index, entry) in played.iter().cloned() {
+                                TrackRow {
+                                    key: "{index}:{entry.server_id}:{entry.id}",
+                                    song: entry.clone(),
+                                    index,
+                                    on_play: move |_| player.play_index(index),
+                                }
+                            }
+                        }
+                    }
+                }
+                if let Some(entry) = now.clone() {
+                    p { class: "rs-player-upnext__label", "data-upnext-now": "true", "Now Playing" }
+                    InsetList { label: "Now Playing".to_string(),
+                        TrackRow {
+                            key: "{current}:{entry.server_id}:{entry.id}",
+                            song: entry.clone(),
+                            index: current,
+                            playing: true,
+                            live,
+                            on_play: move |_| player.play_index(current),
+                        }
+                    }
+                }
+                if !upcoming.is_empty() {
+                    p { class: "rs-player-upnext__label", "Up Next" }
                 }
             }
             if upcoming.is_empty() {
@@ -317,3 +368,14 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
         }
     }
 }
+
+/// Scrolls the Up Next panel so the "Now Playing" label sits at its top. Only
+/// the panel's own scroll position changes, never the page around it.
+const SCROLL_TO_NOW_JS: &str = r#"
+requestAnimationFrame(() => {
+  const panel = document.querySelector('.rs-player-upnext[data-testid="queue-list"]');
+  const now = panel && panel.querySelector('[data-upnext-now]');
+  if (!panel || !now) return;
+  panel.scrollTop += now.getBoundingClientRect().top - panel.getBoundingClientRect().top;
+});
+"#;
