@@ -2,3 +2,250 @@
    View-specific styles only. Use tokens from tokens.css; do not restyle kit
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-search- to keep them out of the kit namespace. */
+
+.rs-search-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The kit field draws the ring on :focus-within; base.css `.rs-app :focus-visible`
+   otherwise paints a second one on the input inside it. */
+.rs-app .rs-search-field input:focus-visible {
+  outline: none;
+}
+
+.rs-app[data-layout="wide"] .rs-search > * {
+  max-width: 980px;
+}
+
+/* The field stays reachable while results scroll under it. */
+.rs-search-bar {
+  position: sticky;
+  top: 0;
+  z-index: 5;
+  margin: 0 calc(var(--gutter) * -1) var(--sp-2);
+  padding: var(--sp-2) var(--gutter) var(--sp-4);
+  background: var(--page);
+}
+
+.rs-app[data-layout="wide"] .rs-search-bar {
+  margin-inline: 0;
+  padding-inline: 0;
+}
+
+.rs-search-field {
+  height: 40px;
+  padding-right: 4px;
+}
+
+.rs-search-field input {
+  font-size: 17px;
+}
+
+/* type="search" keeps WebKit's own searchfield box (a second, darker fill)
+   unless its appearance is reset. */
+.rs-app .rs-search-field input {
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  border-radius: 0;
+}
+
+.rs-search-field input::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.rs-search-spin {
+  width: 14px;
+  height: 14px;
+}
+
+.rs-search-body {
+  min-height: 40vh;
+}
+
+/* ---- Top hit ---------------------------------------------------------- */
+
+.rs-search-top {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+  width: 100%;
+  padding: 14px 16px 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast);
+}
+
+@media (hover: hover) {
+  .rs-search-top:hover { background: color-mix(in srgb, var(--accent) 6%, var(--surface)); }
+}
+
+.rs-search-top:active {
+  background: var(--tint-strong);
+}
+
+.rs-search-top__meta {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.rs-search-top__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-title2);
+  line-height: var(--lh-title2);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-search-top__kind {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-search-top__go {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--accent);
+}
+
+/* ---- Artists: round thumbs ------------------------------------------- */
+
+.rs-search-artists {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--sp-6) var(--sp-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-app[data-layout="wide"] .rs-search-artists {
+  grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+}
+
+.rs-search-artist {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 100%;
+  min-width: 0;
+  padding: 4px;
+  border-radius: var(--r-list);
+  color: var(--ink);
+  text-align: center;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .rs-search-artist:hover { background: var(--tint); }
+}
+
+.rs-search-artist__art {
+  width: 100%;
+  aspect-ratio: 1;
+  height: auto;
+  margin-bottom: var(--sp-3);
+}
+
+.rs-search-artist__name {
+  display: -webkit-box;
+  max-width: 100%;
+  overflow: hidden;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  line-height: var(--lh-sub);
+  overflow-wrap: anywhere;
+}
+
+.rs-search-artist__count {
+  font-size: var(--fs-foot);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---- Browse: genre tiles -------------------------------------------- */
+
+.rs-search-genres {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-app[data-layout="wide"] .rs-search-genres {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+}
+
+.rs-search-genre {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  width: 100%;
+  min-width: 0;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--dur-fast);
+}
+
+@media (hover: hover) {
+  .rs-search-genre:hover { background: var(--tint); }
+}
+
+.rs-search-genre:active {
+  background: var(--tint-strong);
+}
+
+.rs-search-genre__meta {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rs-search-genre__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-semibold);
+}
+
+.rs-search-genre__count {
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
