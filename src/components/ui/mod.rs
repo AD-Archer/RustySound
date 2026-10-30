@@ -37,9 +37,6 @@ mod virtual_list;
 pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
 pub use button::{Button, ButtonSize, ButtonVariant};
-// Temporary: views/discover/** still uses the old capsule API; it renders a
-// `Button`. Remove once the Home rebuild lands without it.
-pub use button::{PillButton, PillVariant};
 pub use cover_flow::{CoverFlow, CoverFlowItem};
 pub use empty_state::EmptyState;
 pub use env::{

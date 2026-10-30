@@ -10,7 +10,7 @@ use super::mixes::{HomeMenu, HomeMenus};
 use super::preview::{Preview, PreviewEnd};
 use super::shelf::{Card, Shelf, ShelfSkeleton};
 use crate::api::discovery::{OffServerItem, OffServerKind};
-use crate::components::ui::{Artwork, MenuPopover, MenuPopoverItem};
+use crate::components::ui::{Artwork, Menu, MenuItem};
 use crate::components::{AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -191,14 +191,14 @@ pub fn OffServerMenu(item: OffServerItem, anchor: Option<(f64, f64)>, on_close: 
     let find = item.external_url.as_deref().map(find_label).unwrap_or_default();
     let preview_item = item.clone();
     rsx! {
-        MenuPopover {
+        Menu {
             label: item.title.clone(),
             title: Some(format!("{} · {}", item.title, item.reason)),
             anchor,
             testid: "offserver-menu".to_string(),
             on_close: move |_| on_close.call(()),
             if item.preview_url.is_some() {
-                MenuPopoverItem {
+                MenuItem {
                     label: if previewing { "Stop Preview".to_string() } else { "Preview".to_string() },
                     icon: Some(if previewing { "pause".to_string() } else { "play".to_string() }),
                     testid: "offserver-menu-preview".to_string(),

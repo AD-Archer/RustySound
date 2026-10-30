@@ -9,7 +9,7 @@ use super::offserver::OffServerMenu;
 use super::shelf::Card;
 use crate::api::discovery::{Mix, OffServerItem};
 use crate::api::{QueueSourceKind, ServerConfig};
-use crate::components::ui::{ActionMenu, Artwork, MenuAction};
+use crate::components::ui::{Artwork, Menu, MenuAction};
 use crate::db::{save_settings, AppSettings};
 use dioxus::prelude::*;
 
@@ -139,7 +139,7 @@ fn MixArt(covers: Vec<(String, String)>) -> Element {
     }
 }
 
-/// The mix's "…" menu (kit `ActionMenu`: a sheet on compact, a popover on wide).
+/// The mix's "…" menu (kit `Menu`: a sheet on compact, a popover on wide).
 #[component]
 fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> Element {
     let player = use_player();
@@ -154,7 +154,7 @@ fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> 
     ];
     let title = mix.name.clone();
     rsx! {
-        ActionMenu {
+        Menu {
             title: Some(title),
             message: Some(count_label(&mix)),
             actions,
