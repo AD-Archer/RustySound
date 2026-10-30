@@ -241,6 +241,37 @@ pub fn build_artist_radio(ctx: &MixContext, seed: &ArtistSeed, songs: Vec<Song>)
     )
 }
 
+/// The `server_id` and `artist_id` inside an artist radio's id
+/// (`radio:<server_id>:<artist_id>`).
+pub fn radio_parts(id: &str) -> Option<(&str, &str)> {
+    let rest = id.strip_prefix("radio:")?;
+    let (server_id, artist_id) = rest.split_once(':')?;
+    (!server_id.is_empty() && !artist_id.is_empty()).then_some((server_id, artist_id))
+}
+
+/// URL slug for a mix page (`/mix/<slug>`). Fixed mixes keep their id
+/// ("discovery", "deep-cuts", "rewind"); an artist radio becomes
+/// `radio~<server_id>~<artist_id>`, so the link carries everything needed to
+/// rebuild it on another day. Round-trips through [`mix_id_from_slug`].
+pub fn mix_slug(id: &str) -> String {
+    match radio_parts(id) {
+        Some((server_id, artist_id)) => format!("radio~{server_id}~{artist_id}"),
+        None => id.to_string(),
+    }
+}
+
+/// The mix id for a `/mix/<slug>` segment. Also accepts a raw id.
+pub fn mix_id_from_slug(slug: &str) -> String {
+    let slug = slug.trim();
+    if let Some(rest) = slug.strip_prefix("radio~") {
+        // Server ids are UUIDs (no `~`); the artist id keeps any `~` it has.
+        if let Some((server_id, artist_id)) = rest.split_once('~') {
+            return format!("radio:{server_id}:{artist_id}");
+        }
+    }
+    slug.to_string()
+}
+
 /// "Songs you might like": songs from each seed's similar-songs list, minus
 /// the seed artists' own songs and songs already played [`HEAVY_PLAYS`]+
 /// times; ≤ 2 per artist, round-robin across seeds so each gets a turn, then
@@ -424,6 +455,20 @@ mod tests {
         assert_eq!(picks, select_songs_like(&ctx(1), &lists, 50));
         assert_eq!(select_songs_like(&ctx(1), &lists, 5).len(), 5);
         assert!(select_songs_like(&ctx(1), &[], 5).is_empty());
+    }
+
+    #[test]
+    fn mix_slugs_round_trip() {
+        for id in ["discovery", "deep-cuts", "rewind", "radio:s1:ar-Mira Okafor", "radio:3f2a-uuid:a~b"] {
+            assert_eq!(mix_id_from_slug(&mix_slug(id)), id, "{id}");
+        }
+        assert_eq!(mix_slug("radio:s1:ar-1"), "radio~s1~ar-1");
+        assert_eq!(mix_slug("discovery"), "discovery");
+        // A raw id in the URL works too.
+        assert_eq!(mix_id_from_slug("radio:s1:ar-1"), "radio:s1:ar-1");
+        assert_eq!(radio_parts("radio:s1:ar-1"), Some(("s1", "ar-1")));
+        assert_eq!(radio_parts("radio:s1:"), None);
+        assert_eq!(radio_parts("rewind"), None);
     }
 
     #[test]

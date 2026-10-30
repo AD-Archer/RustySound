@@ -511,6 +511,66 @@
   .rs-hcard__play--hover { display: none; }
 }
 
+/* ---- RustySound's mixes ----------------------------------------------
+   A mix is RustySound's, not one of the user's server playlists. Its card
+   art carries the app mark in the top-left corner (as generated playlists
+   do on other services) and its subtitle says "By RustySound"; the mix page
+   puts the mark with "Made by RustySound" right above the title. The mark is
+   decorative: the text says who made it. */
+.rs-mixmark {
+  display: block;
+  flex: none;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Scales with the card (the card is an inline-size container): 20px on a
+   320px-wide phone, up to 32px on wide windows. A dark disc behind it keeps
+   the orange mark legible on busy or orange covers. */
+.rs-mixmark--card {
+  position: absolute;
+  z-index: 1;
+  top: clamp(5px, 4cqw, 9px);
+  left: clamp(5px, 4cqw, 9px);
+  width: clamp(20px, 13cqw, 32px);
+  height: clamp(20px, 13cqw, 32px);
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .62);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+}
+
+.rs-mixmark--title {
+  width: 20px;
+  height: 20px;
+}
+
+.rs-mixpage__by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+  white-space: nowrap;
+}
+
+.rs-app[data-layout="wide"] .rs-mixmark--title {
+  width: 22px;
+  height: 22px;
+}
+
+/* The mosaic fills the hero's art box. */
+.rs-mixpage__art {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--r-art);
+}
+
 /* Loading cards. */
 .rs-shelf--loading .rs-hcard__art {
   background: none;

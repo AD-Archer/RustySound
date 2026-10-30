@@ -26,7 +26,7 @@ pub use artists::ArtistsView;
 pub use bookmarks::BookmarksView;
 pub use downloads::DownloadsView;
 pub use favorites::FavoritesView;
-pub use discover::HomeView;
+pub use discover::{HomeView, MixDetailView};
 pub use library::LibraryView;
 pub use playlist_detail::PlaylistDetailView;
 pub use playlists::PlaylistsView;

@@ -34,6 +34,7 @@ pub fn Sidebar() -> Element {
             (AppView::AlbumDetailView { .. }, AppView::Albums {}) => true,
             (AppView::ArtistDetailView { .. }, AppView::ArtistsView {}) => true,
             (AppView::PlaylistDetailView { .. }, AppView::PlaylistsView {}) => true,
+            (AppView::MixDetailView { .. }, AppView::HomeView {}) => true,
             (current, target) => current == target,
         }
     };
@@ -81,7 +82,7 @@ pub fn Sidebar() -> Element {
                 ("Artists", "artist", "nav-artists", AppView::ArtistsView {}),
                 ("Albums", "album", "nav-albums", AppView::Albums {}),
                 ("Songs", "music", "nav-songs", AppView::SongsView {}),
-                ("Favorites", "star", "nav-favorites", AppView::FavoritesView {}),
+                ("Favorites", "heart", "nav-favorites", AppView::FavoritesView {}),
                 ("Downloads", "download", "nav-downloads", AppView::DownloadsView {}),
             ],
         ),

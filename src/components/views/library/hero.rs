@@ -12,12 +12,14 @@ use dioxus::prelude::*;
 /// * `back_label` / `fallback`: back link text and where it goes when there
 ///   is no history. `on_more`: shows the "…" button.
 /// * `round`: artist variant (round art).
+/// * `eyebrow`: a small line above the title (a mix's "Made by RustySound").
 #[component]
 pub fn DetailHero(
     title: String,
     art: Element,
     back_label: String,
     fallback: AppView,
+    #[props(default)] eyebrow: Option<Element>,
     #[props(default)] subtitle: Option<Element>,
     #[props(default)] meta: Option<String>,
     #[props(default)] badge: Option<String>,
@@ -58,6 +60,9 @@ pub fn DetailHero(
             div { class: "rs-library-hero__body",
                 div { class: "rs-library-hero__art", class: if round { "rs-library-hero__art--round" }, {art} }
                 div { class: "rs-library-hero__text",
+                    if let Some(eyebrow) = eyebrow {
+                        div { class: "rs-library-hero__eyebrow", {eyebrow} }
+                    }
                     h1 { class: "rs-library-hero__title", "{title}" }
                     if let Some(sub) = subtitle {
                         div { class: "rs-library-hero__sub", {sub} }
