@@ -1,313 +1,244 @@
-// Render the add overlay, playlist picker, and suggestion UI.
+// The add-to sheet: kit Sheet (bottom sheet on compact, centred panel on
+// wide). Queue actions first, in the track menu's order (Play Next, Add to
+// Queue), then the playlist picker inline, then suggested additions.
 {
-    let render_playlist_picker = || {
-        let loading = playlists().is_none();
-        let available = playlists().unwrap_or_default();
-        let raw_filter = playlist_filter();
-        let trimmed_filter = raw_filter.trim().to_string();
-        let exact_match_exists = !trimmed_filter.is_empty()
-            && available
-                .iter()
-                .any(|playlist| playlist.name.trim().eq_ignore_ascii_case(trimmed_filter.as_str()));
-        let filter = trimmed_filter.to_lowercase();
-        let mut filtered: Vec<Playlist> = if filter.is_empty() {
-            available
-        } else {
-            available
-                .into_iter()
-                .filter(|p| p.name.to_lowercase().contains(&filter))
-                .collect()
-        };
-        let total_filtered = filtered.len();
-        let limit = 40usize;
-        let limited: Vec<Playlist> = filtered.drain(..).take(limit).collect();
-        let truncated = total_filtered > limited.len();
-        let servers_list = servers();
-        let can_create_from_search = playlist_guard.is_none()
-            && !loading
-            && !trimmed_filter.is_empty()
-            && !exact_match_exists;
-        rsx! {
-            div { class: "space-y-4",
-                h3 { class: "text-lg font-semibold text-white", "Add to playlist" }
-                input {
-                    class: "w-full px-3 py-2 rounded-lg bg-zinc-900/50 border border-zinc-800 text-white placeholder:text-zinc-600 focus:outline-none focus:border-emerald-500/50 focus:ring-2 focus:ring-emerald-500/20",
-                    placeholder: "Search playlists",
-                    value: playlist_filter,
-                    oninput: move |e| {
-                        let value = e.value();
-                        playlist_filter.set(value.clone());
-                        new_playlist_name.set(value);
+    let loading_playlists = playlists().is_none();
+    let available = playlists().unwrap_or_default();
+    let raw_filter = playlist_filter();
+    let trimmed_filter = raw_filter.trim().to_string();
+    let exact_match = !trimmed_filter.is_empty()
+        && available
+            .iter()
+            .any(|p| p.name.trim().eq_ignore_ascii_case(&trimmed_filter));
+    let needle = trimmed_filter.to_lowercase();
+    let filtered: Vec<Playlist> = available
+        .into_iter()
+        .filter(|p| needle.is_empty() || p.name.to_lowercase().contains(&needle))
+        .collect();
+    let total_filtered = filtered.len();
+    let limit = 40usize;
+    let shown: Vec<Playlist> = filtered.into_iter().take(limit).collect();
+    let can_create = playlist_guard.is_none() && !loading_playlists && !trimmed_filter.is_empty() && !exact_match;
+    let busy = is_processing();
+    let is_single_song = matches!(intent_for_display.target, AddTarget::Song(_));
+    let (head_cover, head_server) = match &intent_for_display.target {
+        AddTarget::Song(song) => (song.cover_art.clone(), song.server_id.clone()),
+        AddTarget::Songs(songs) => (
+            songs.first().and_then(|s| s.cover_art.clone()),
+            songs.first().map(|s| s.server_id.clone()).unwrap_or_default(),
+        ),
+        AddTarget::Album { server_id, .. } | AddTarget::Playlist { server_id, .. } => {
+            (None, server_id.clone())
+        }
+    };
+    let head_src = preview_cover().flatten();
+    let is_album = matches!(intent_for_display.target, AddTarget::Album { .. });
+    let kind = match &intent_for_display.target {
+        AddTarget::Song(_) => "Song".to_string(),
+        AddTarget::Songs(songs) => format!("{} songs", songs.len()),
+        AddTarget::Album { .. } => "Album".to_string(),
+        AddTarget::Playlist { .. } => "Playlist".to_string(),
+    };
+
+    rsx! {
+        Sheet {
+            label: format!("Add {}", intent.label),
+            testid: "add-menu".to_string(),
+            on_close: {
+                let mut controller = controller.clone();
+                move |_| controller.close()
+            },
+            div { class: "rs-player-addhead",
+                if is_album {
+                    button {
+                        r#type: "button",
+                        class: "rs-player-addhead__art",
+                        aria_label: "Open album",
+                        onclick: on_cover_click,
+                        Artwork { cover_art: head_cover.clone(), server_id: head_server.clone(), src: head_src.clone(), size_px: 52, placeholder: "album".to_string() }
+                    }
+                } else {
+                    Artwork { cover_art: head_cover.clone(), server_id: head_server.clone(), src: head_src.clone(), size_px: 52, placeholder: "playlist".to_string() }
+                }
+                div { class: "rs-player-addhead__meta",
+                    p { class: "rs-player-addhead__kind", "{kind}" }
+                    h2 { class: "rs-player-addhead__title", "{intent.label}" }
+                }
+                IconButton {
+                    icon: "x".to_string(),
+                    label: "Close".to_string(),
+                    quiet: true,
+                    size: IconButtonSize::Small,
+                    onclick: {
+                        let mut controller = controller.clone();
+                        move |_| controller.close()
                     },
                 }
-                if can_create_from_search {
+            }
+
+            if busy {
+                div { class: "rs-player-addnote", role: "status",
+                    span { class: "rs-spinner rs-spinner--page", aria_hidden: "true" }
+                    "{processing_label().unwrap_or_else(|| \"Working…\".to_string())}"
+                }
+            } else if let Some((ok, text)) = message() {
+                div {
+                    class: "rs-player-addnote",
+                    class: if ok { "rs-player-addnote--ok" } else { "rs-player-addnote--error" },
+                    role: "status",
+                    Icon { name: if ok { "check".to_string() } else { "info".to_string() }, class: "rs-ic rs-ic--sm".to_string() }
+                    "{text}"
+                }
+            }
+
+            ul { class: "rs-list rs-list--icons", aria_label: "Queue actions",
+                li {
                     button {
-                        class: if is_processing() { "w-full px-3 py-2 rounded-xl bg-emerald-500/60 text-white cursor-not-allowed text-sm flex items-center justify-center gap-2" } else { "w-full px-3 py-2 rounded-xl bg-emerald-500 text-white hover:bg-emerald-400 transition-colors text-sm flex items-center justify-center gap-2" },
-                        disabled: is_processing(),
-                        onclick: create_playlist,
-                        Icon {
-                            name: "plus".to_string(),
-                            class: "w-4 h-4".to_string(),
-                        }
-                        "Create \"{trimmed_filter}\""
+                        r#type: "button",
+                        class: "rs-row rs-row--compact",
+                        disabled: busy,
+                        "data-testid": "add-menu-play-next",
+                        onclick: make_add_to_queue("next"),
+                        span { class: "rs-row__lead", Icon { name: "play-next".to_string(), class: "rs-ic rs-ic--md".to_string() } }
+                        span { class: "rs-row__meta", span { class: "rs-row__title", span { "Play Next" } } }
                     }
                 }
-                if let Some(reason) = playlist_guard.clone() {
-                    div { class: "p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm",
-                        "{reason}"
+                li {
+                    button {
+                        r#type: "button",
+                        class: "rs-row rs-row--compact",
+                        disabled: busy,
+                        "data-testid": "add-menu-add-to-queue",
+                        onclick: make_add_to_queue("end"),
+                        span { class: "rs-row__lead", Icon { name: "add-to-queue".to_string(), class: "rs-ic rs-ic--md".to_string() } }
+                        span { class: "rs-row__meta", span { class: "rs-row__title", span { "Add to Queue" } } }
                     }
-                } else if loading {
-                    div { class: "flex items-center gap-2 text-sm text-zinc-400",
-                        Icon {
-                            name: "loader".to_string(),
-                            class: "w-4 h-4 animate-spin".to_string(),
-                        }
-                        "Loading playlists..."
-                    }
-                } else if limited.is_empty() {
-                    p { class: "text-sm text-zinc-400", "No user-created playlists found on the active server." }
-                } else {
-                    div { class: "max-h-56 overflow-y-auto space-y-2 pr-1",
-                        for playlist in limited {
-                            button {
-                                class: "w-full px-3 py-2 rounded-xl bg-zinc-900/50 border border-zinc-800 hover:border-emerald-500/60 hover:text-white text-left text-sm text-zinc-300 transition-colors flex items-center gap-3",
-                                onclick: make_add_to_playlist(playlist.id.clone()),
-                                if let Some(url) = playlist
-                                    .cover_art
-                                    .as_ref()
-                                    .and_then(|cover| {
-                                        servers_list
-                                            .iter()
-                                            .find(|s| s.id == playlist.server_id)
-                                            .map(|srv| {
-                                                NavidromeClient::new(srv.clone()).get_cover_art_url(cover, 80)
-                                            })
-                                    })
-                                {
-                                    img {
-                                        class: "w-10 h-10 rounded-md object-cover border border-zinc-800/80",
-                                        src: "{url}",
-                                        alt: "Playlist art",
-                                    }
-                                } else {
-                                    div { class: "w-10 h-10 rounded-md bg-zinc-800/70 border border-zinc-800/80 flex items-center justify-center",
-                                        Icon {
-                                            name: "playlist".to_string(),
-                                            class: "w-4 h-4 text-zinc-500".to_string(),
-                                        }
-                                    }
-                                }
-                                div { class: "min-w-0",
-                                    div { class: "font-medium truncate", "{playlist.name}" }
-                                    p { class: "text-xs text-zinc-500", "{playlist.song_count} songs" }
-                                }
-                            }
-                        }
-                        if truncated {
-                            p { class: "text-xs text-zinc-500 pt-1",
-                                "Showing first {limit} playlists"
+                }
+                if is_single_song {
+                    li {
+                        button {
+                            r#type: "button",
+                            class: "rs-row rs-row--compact",
+                            disabled: busy,
+                            "data-testid": "add-menu-similar-mix",
+                            onclick: on_create_similar,
+                            span { class: "rs-row__lead", Icon { name: "shuffle".to_string(), class: "rs-ic rs-ic--md".to_string() } }
+                            span { class: "rs-row__meta",
+                                span { class: "rs-row__title", span { "Create Similar Mix" } }
+                                span { class: "rs-row__sub", style: "display:block", "Replaces the queue with ~50 similar songs" }
                             }
                         }
                     }
                 }
             }
-        }
-    };
 
-    rsx! {
-        div {
-            class: "fixed inset-0 z-[95] flex items-end md:items-center justify-center bg-black/60 backdrop-blur-sm px-3 pb-20 md:pb-0 pt-3 md:pt-0",
-            onclick: on_backdrop_close,
-            div {
-                class: "w-full md:max-w-xl max-h-[82vh] overflow-y-auto bg-zinc-900/95 border border-zinc-800 rounded-2xl shadow-2xl p-5 space-y-5",
-                onclick: move |evt: MouseEvent| evt.stop_propagation(),
-                div { class: "flex items-center justify-between gap-3",
-                    div { class: "flex items-center gap-3 min-w-0",
-                        if let Some(Some(cover)) = preview_cover() {
-                            img {
-                                class: "w-12 h-12 rounded-lg object-cover border border-zinc-800/80 cursor-pointer",
-                                src: "{cover}",
-                                alt: "Cover",
-                                onclick: on_cover_click,
-                            }
-                        } else {
-                            div { class: "w-12 h-12 rounded-lg bg-zinc-800/70 border border-zinc-800/80 flex items-center justify-center",
-                                Icon {
-                                    name: "playlist".to_string(),
-                                    class: "w-5 h-5 text-zinc-500".to_string(),
+            SectionHeader { title: "Add to Playlist".to_string() }
+            if let Some(reason) = playlist_guard.clone() {
+                p { class: "rs-player-addnote rs-player-addnote--warn", "{reason}" }
+            } else {
+                label { class: "rs-field rs-player-search__field",
+                    Icon { name: "search".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                    input {
+                        r#type: "search",
+                        placeholder: "Find or name a playlist",
+                        aria_label: "Find or name a playlist",
+                        value: "{playlist_filter}",
+                        "data-testid": "add-menu-playlist-search",
+                        oninput: move |evt| {
+                            let value = evt.value();
+                            playlist_filter.set(value.clone());
+                            new_playlist_name.set(value);
+                        },
+                    }
+                }
+                ul { class: "rs-list", aria_label: "Playlists", "data-testid": "add-menu-playlists",
+                    if can_create {
+                        li {
+                            button {
+                                r#type: "button",
+                                class: "rs-row rs-row--compact",
+                                disabled: busy,
+                                "data-testid": "add-menu-create-playlist",
+                                onclick: create_playlist,
+                                span { class: "rs-row__lead", Icon { name: "plus".to_string(), class: "rs-ic rs-ic--md".to_string() } }
+                                span { class: "rs-row__meta",
+                                    span { class: "rs-row__title", span { "Create \u{201C}{trimmed_filter}\u{201D}" } }
                                 }
                             }
                         }
-                        div { class: "min-w-0",
-                            p { class: "text-xs uppercase tracking-wide text-zinc-500",
-                                "Add options"
-                            }
-                            h2 { class: "text-lg font-semibold text-white truncate",
-                                "{intent.label}"
-                            }
-                        }
                     }
-                    div { class: "flex items-center gap-2",
-                        button {
-                            class: if show_playlist_picker() { "px-3 py-1.5 rounded-lg bg-emerald-500 text-white text-sm font-medium" } else { "px-3 py-1.5 rounded-lg bg-zinc-800 text-zinc-200 hover:bg-zinc-700 transition-colors text-sm font-medium" },
-                            disabled: is_processing(),
-                            onclick: on_open_playlist_picker,
-                            "Add to playlist"
-                        }
-                        button {
-                            class: "p-2 rounded-lg text-zinc-400 hover:text-white hover:bg-zinc-800 transition-colors",
-                            onclick: on_close,
-                            Icon {
-                                name: "x".to_string(),
-                                class: "w-5 h-5".to_string(),
+                    if loading_playlists {
+                        li { div { class: "rs-row rs-row--compact rs-player-addrow__muted", "Loading playlists…" } }
+                    } else if shown.is_empty() && !can_create {
+                        li { div { class: "rs-row rs-row--compact rs-player-addrow__muted",
+                            if trimmed_filter.is_empty() { "No playlists of yours on this server yet." } else { "No matching playlists." }
+                        } }
+                    }
+                    for playlist in shown {
+                        li { key: "{playlist.id}",
+                            button {
+                                r#type: "button",
+                                class: "rs-row",
+                                disabled: busy,
+                                onclick: make_add_to_playlist(playlist.id.clone()),
+                                Artwork { cover_art: playlist.cover_art.clone(), server_id: playlist.server_id.clone(), size_px: 44, placeholder: "playlist".to_string() }
+                                span { class: "rs-row__meta",
+                                    span { class: "rs-row__title", span { "{playlist.name}" } }
+                                    span { class: "rs-row__sub", style: "display:block", "{playlist.song_count} songs" }
+                                }
                             }
                         }
                     }
                 }
-
-                if let Some((is_success, text)) = message() {
-                    div { class: if is_success { "p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/40 text-emerald-200 text-sm" } else { "p-3 rounded-lg bg-red-500/10 border border-red-500/40 text-red-200 text-sm" },
-                        "{text}"
-                    }
+                if total_filtered > limit {
+                    p { class: "rs-list-foot", "Showing the first {limit} playlists. Type to narrow." }
                 }
+            }
 
-                if is_processing() {
-                    div { class: "min-h-44 flex flex-col items-center justify-center gap-4 text-center",
-                        Icon {
-                            name: "loader".to_string(),
-                            class: "w-8 h-8 text-amber-300 animate-spin".to_string(),
-                        }
-                        p { class: "text-sm text-zinc-300",
-                            "{processing_label().unwrap_or_else(|| \"Working...\".to_string())}"
-                        }
-                        p { class: "text-xs text-zinc-500",
-                            "Please wait while RustySound builds your queue."
-                        }
-                    }
-                } else if show_playlist_picker() {
-                    {render_playlist_picker()}
+            if suggestion_destination().is_some() {
+                SectionHeader { title: "Suggested Additions".to_string() }
+                if suggestions_loading() {
+                    Skeleton { rows: 3 }
+                } else if suggestion_candidates().is_empty() {
+                    p { class: "rs-list-foot", "No similar songs found yet." }
                 } else {
-                    div { class: "space-y-3",
-                        div { class: "w-full grid grid-cols-1 sm:grid-cols-2 gap-2",
-                            button {
-                                class: "w-full flex items-center justify-between px-4 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors",
-                                onclick: make_add_to_queue("end"),
-                                disabled: is_processing(),
-                                span { "Add to queue (end)" }
-                                Icon {
-                                    name: "plus".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
-                            }
-                            button {
-                                class: "w-full flex items-center justify-between px-4 py-3 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 transition-colors",
-                                onclick: make_add_to_queue("next"),
-                                disabled: is_processing(),
-                                span { "Play next" }
-                                Icon {
-                                    name: "chevron-right".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
-                            }
-                        }
-                        if matches!(intent_for_display.target, AddTarget::Song(_)) {
-                            button {
-                                class: "w-full flex items-center justify-between px-4 py-3 rounded-xl bg-zinc-800 text-white hover:bg-zinc-700 transition-colors",
-                                onclick: on_create_similar,
-                                disabled: is_processing(),
-                                span { "Create similar mix" }
-                                Icon {
-                                    name: "shuffle".to_string(),
-                                    class: "w-5 h-5".to_string(),
-                                }
-                            }
-                        }
-                    }
-                    if let Some(reason) = playlist_guard {
-                        div { class: "p-3 rounded-lg bg-amber-500/10 border border-amber-500/40 text-amber-200 text-sm",
-                            "{reason}"
-                        }
-                    }
-                    if suggestion_destination().is_some() {
-                        div { class: "pt-3 border-t border-zinc-800 space-y-3",
-                            div { class: "flex items-center justify-between",
-                                h3 { class: "text-sm font-semibold text-zinc-200", "Suggested additions" }
-                                span { class: "text-xs text-zinc-500", "4 + 4 seed suggestions" }
-                            }
-                            p { class: "text-xs text-zinc-500",
-                                "Quick Add adds the song and refreshes this list with more similar picks."
-                            }
-                            if suggestions_loading() {
-                                div { class: "flex items-center gap-2 text-xs text-zinc-400",
-                                    Icon {
-                                        name: "loader".to_string(),
-                                        class: "w-4 h-4 animate-spin".to_string(),
+                    ul { class: "rs-list", aria_label: "Suggested additions",
+                        for song in suggestion_candidates() {
+                            li { key: "{song.server_id}:{song.id}",
+                                div { class: "rs-trow rs-trow--art rs-player-addrow",
+                                    Artwork { cover_art: song.cover_art.clone(), server_id: song.server_id.clone(), size_px: 44 }
+                                    div { class: "rs-trow__meta",
+                                        div { class: "rs-trow__title", "{song.title}" }
+                                        div { class: "rs-trow__sub", "{song.artist.clone().unwrap_or_else(|| \"Unknown Artist\".to_string())}" }
                                     }
-                                    "Loading suggestions..."
-                                }
-                            } else if suggestion_candidates().is_empty() {
-                                p { class: "text-xs text-zinc-500", "No similar songs found yet." }
-                            } else {
-                                div { class: "max-h-64 overflow-y-auto space-y-2 pr-1",
-                                    for song in suggestion_candidates() {
-                                        div {
-                                            class: "w-full p-3 rounded-xl bg-zinc-900/60 border border-zinc-800 hover:border-emerald-500/50 transition-colors",
-                                            div { class: "flex items-center justify-between gap-3",
-                                                div { class: "min-w-0",
-                                                    p { class: "text-sm text-white truncate", "{song.title}" }
-                                                    p { class: "text-xs text-zinc-500 truncate",
-                                                        "{song.artist.clone().unwrap_or_else(|| \"Unknown Artist\".to_string())}"
-                                                    }
-                                                }
-                                                div { class: "flex items-center gap-2",
-                                                    button {
-                                                        class: if preview_song_key()
-                                                            == Some(song_key(&song))
-                                                        {
-                                                            "px-2 py-1 rounded-lg border border-zinc-700 text-zinc-500 text-xs cursor-not-allowed"
-                                                        } else {
-                                                            "px-2 py-1 rounded-lg border border-zinc-700 text-zinc-300 hover:text-white hover:border-emerald-500/60 transition-colors text-xs"
-                                                        },
-                                                        title: "Play a short preview, then return to your current song",
-                                                        disabled: preview_song_key()
-                                                            == Some(song_key(&song)),
-                                                        onclick: {
-                                                            let song = song.clone();
-                                                            let on_preview_song = on_preview_song.clone();
-                                                            move |evt: MouseEvent| {
-                                                                evt.stop_propagation();
-                                                                on_preview_song(song.clone());
-                                                            }
-                                                        },
-                                                        if preview_song_key()
-                                                            == Some(song_key(&song))
-                                                        {
-                                                            "Previewing..."
-                                                        } else {
-                                                            "Preview"
-                                                        }
-                                                    }
-                                                    button {
-                                                        class: "px-2 py-1 rounded-lg bg-emerald-500/20 border border-emerald-500/40 text-emerald-300 text-xs hover:text-white hover:bg-emerald-500/30 transition-colors",
-                                                        onclick: {
-                                                            let song = song.clone();
-                                                            let mut on_quick_add_suggestion =
-                                                                on_quick_add_suggestion.clone();
-                                                            move |evt: MouseEvent| {
-                                                                evt.stop_propagation();
-                                                                on_quick_add_suggestion(song.clone())
-                                                            }
-                                                        },
-                                                        "Quick add"
-                                                    }
-                                                }
-                                            }
-                                        }
+                                    button {
+                                        r#type: "button",
+                                        class: "rs-pill rs-pill--mini",
+                                        title: "Play 12 seconds, then return to your song",
+                                        disabled: preview_song_key() == Some(song_key(&song)),
+                                        onclick: {
+                                            let song = song.clone();
+                                            let on_preview_song = on_preview_song.clone();
+                                            move |_| on_preview_song(song.clone())
+                                        },
+                                        if preview_song_key() == Some(song_key(&song)) { "Previewing…" } else { "Preview" }
+                                    }
+                                    button {
+                                        r#type: "button",
+                                        class: "rs-pill rs-pill--mini",
+                                        disabled: busy,
+                                        onclick: {
+                                            let song = song.clone();
+                                            let mut on_quick_add_suggestion = on_quick_add_suggestion.clone();
+                                            move |_| on_quick_add_suggestion(song.clone())
+                                        },
+                                        "Add"
                                     }
                                 }
                             }
                         }
                     }
+                    p { class: "rs-list-foot", "Add refreshes the list with more picks like it." }
                 }
             }
         }
