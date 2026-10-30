@@ -317,6 +317,12 @@ test-e2e *args:
 test-redesign *args:
     REDESIGN=1 ./node_modules/.bin/playwright test --config tests/playwright.config.ts {{args}}
 
+# Regenerate the README screenshots (docs/screenshots/*.webp) from the web release build.
+readme-shots:
+    mkdir -p docs/screenshots
+    SHOTS=1 ./node_modules/.bin/playwright test --config tests/playwright.config.ts --project=webkit-iphone --project=chromium-mac
+    for f in docs/screenshots/*.png; do cwebp -quiet -q 82 "$f" -o "${f%.png}.webp" && rm "$f"; done
+
 # Perf run on Chromium and WebKit at Mac size. Writes perf-*.json and perf-report.md into `out`;
 # pass compare=<dir of an earlier run> to add deltas.
 perf out="tests/.out/perf" compare="":
