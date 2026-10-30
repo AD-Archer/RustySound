@@ -19,6 +19,7 @@ mod shelves;
 mod stage;
 
 use crate::api::ServerConfig;
+use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{use_layout, MainScroll};
 use crate::db::AppSettings;
 use actions::{NoticeCapsule, Toast};
@@ -30,8 +31,10 @@ use preview::use_preview_provider;
 use shelves::{AlbumsLikeShelf, NewShelf, PlaylistsShelf, RewindShelf, SongsShelf};
 use stage::HomeStage;
 
-/// Pull distance (after damping) that triggers a refresh on compact.
+/// Pull distance (after damping) that triggers a refresh.
 pub const PULL_TRIGGER_PX: f64 = 64.0;
+/// A trackpad gesture ends after this long without wheel events.
+const WHEEL_IDLE_MS: u64 = 220;
 
 #[component]
 pub fn HomeView() -> Element {
@@ -45,6 +48,10 @@ pub fn HomeView() -> Element {
     let data = use_home_data(servers, settings);
     let mut pull = use_signal(|| 0.0f64);
     let mut pull_start = use_signal(|| None::<f64>);
+    // Trackpad pull on wide: counts only gestures that start at the top, so the
+    // momentum of a fast scroll up never refreshes by accident.
+    let mut wheel_gesture = use_signal(|| None::<bool>);
+    let mut wheel_events = use_signal(|| 0u64);
 
     // No server, or every server switched off: the first-run welcome handles both.
     if servers.read().is_empty() || data.active.read().is_empty() {
@@ -94,6 +101,46 @@ pub fn HomeView() -> Element {
             ontouchcancel: move |_| {
                 pull_start.set(None);
                 pull.set(0.0);
+            },
+            onwheel: move |evt| {
+                if !wide {
+                    return;
+                }
+                // A new gesture starts after a pause; it can pull only if it
+                // starts with the page already at the top.
+                let gesture = *wheel_gesture.peek();
+                let armed = match gesture {
+                    Some(armed) => armed,
+                    None => {
+                        let armed = at_top() && !*data.refreshing.peek();
+                        wheel_gesture.set(Some(armed));
+                        armed
+                    }
+                };
+                let event = *wheel_events.peek() + 1;
+                wheel_events.set(event);
+                spawn(async move {
+                    sleep_ms(WHEEL_IDLE_MS).await;
+                    if *wheel_events.peek() != event {
+                        return;
+                    }
+                    wheel_gesture.set(None);
+                    if *pull.peek() >= PULL_TRIGGER_PX {
+                        data.refresh();
+                    }
+                    if *pull.peek() != 0.0 {
+                        pull.set(0.0);
+                    }
+                });
+                let dy = evt.delta().strip_units().y;
+                if !armed || dy >= 0.0 {
+                    return;
+                }
+                let distance = ((*pull.peek() - dy * 0.35) / 4.0).floor() * 4.0;
+                let distance = distance.min(PULL_TRIGGER_PX * 1.5);
+                if distance != *pull.peek() {
+                    pull.set(distance);
+                }
             },
 
             HomeStage { wide, pull }

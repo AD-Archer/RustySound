@@ -169,7 +169,7 @@ fn default_discover_saved_mix_playlists() -> String {
 }
 
 fn default_discovery_offserver_enabled() -> bool {
-    true
+    false
 }
 
 fn default_discovery_previews_enabled() -> bool {
@@ -760,7 +760,7 @@ mod discovery_settings_tests {
         assert_eq!(settings.lastfm_api_key, "");
         assert_eq!(settings.lastfm_username, "");
         assert_eq!(settings.listenbrainz_username, "");
-        assert!(settings.discovery_offserver_enabled);
+        assert!(!settings.discovery_offserver_enabled);
         assert!(settings.discovery_previews_enabled);
         assert_eq!(settings.discover_rewind_months, 6);
         assert_eq!(settings.discover_saved_mix_playlists, "{}");

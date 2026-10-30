@@ -613,7 +613,8 @@ mod tests {
     #[test]
     fn settings_map_to_config() {
         let mut settings = AppSettings::default();
-        assert!(settings.discovery_offserver_enabled && settings.discovery_previews_enabled);
+        // Music from outside the server is opt-in.
+        assert!(!settings.discovery_offserver_enabled && settings.discovery_previews_enabled);
         settings.lastfm_api_key = "  ".into();
         settings.lastfm_username = " rj ".into();
         let config = DiscoveryConfig::from_settings(&settings);

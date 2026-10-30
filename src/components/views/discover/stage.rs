@@ -81,23 +81,9 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
         Stage {
             class: if wide { "rs-home__stage rs-home__stage--wide".to_string() } else { "rs-home__stage".to_string() },
             label: "Recently played".to_string(),
-            if !wide {
-                PullIndicator { pull, refreshing }
-            }
+            PullIndicator { pull, refreshing }
             div { class: "rs-home__bar",
                 h1 { class: "rs-home__title", "Home" }
-                if wide {
-                    IconButton {
-                        icon: "refresh-cw".to_string(),
-                        label: "Refresh Home".to_string(),
-                        quiet: true,
-                        size: IconButtonSize::Small,
-                        disabled: refreshing,
-                        class: if refreshing { "rs-home__spin".to_string() } else { String::new() },
-                        testid: "home-refresh".to_string(),
-                        onclick: move |_| data.refresh(),
-                    }
-                }
                 SettingsButton { wide }
             }
             match items() {
@@ -219,7 +205,9 @@ fn FlowSkeleton(cover_px: u32, wide: bool) -> Element {
 #[component]
 fn PullIndicator(pull: Signal<f64>, refreshing: bool) -> Element {
     let distance = pull();
-    if distance <= 0.0 && !refreshing {
+    // Only once a pull is clearly meant: a few pixels of overscroll while
+    // scrolling shouldn't flash the indicator.
+    if distance < super::PULL_TRIGGER_PX * 0.35 && !refreshing {
         return rsx! {};
     }
     let progress = (distance / super::PULL_TRIGGER_PX).min(1.0);
