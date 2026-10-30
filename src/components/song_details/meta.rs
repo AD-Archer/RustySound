@@ -35,7 +35,7 @@ pub(super) fn NowPlayingMeta(song: Song) -> Element {
             }
             if !radio {
                 IconButton {
-                    icon: if starred { "star-filled".to_string() } else { "star".to_string() },
+                    icon: if starred { "heart-filled".to_string() } else { "heart".to_string() },
                     label: if starred { "Favorited".to_string() } else { "Favorite".to_string() },
                     pressed: starred,
                     class: "rs-player-meta__star".to_string(),

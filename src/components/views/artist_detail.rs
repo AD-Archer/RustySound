@@ -335,8 +335,8 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     MenuItem {
-                        label: if starred() { "Unfavorite".to_string() } else { "Favorite".to_string() },
-                        icon: if starred() { "star-filled".to_string() } else { "star".to_string() },
+                        label: if starred() { "Remove from Favorites".to_string() } else { "Favorite".to_string() },
+                        icon: if starred() { "heart-filled".to_string() } else { "heart".to_string() },
                         testid: "artist-favorite".to_string(),
                         onclick: toggle_star,
                     }

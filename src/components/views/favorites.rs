@@ -255,7 +255,7 @@ pub fn FavoritesView() -> Element {
                 EmptyState {
                     icon: "server".to_string(),
                     title: "No servers connected".to_string(),
-                    message: "Add a Navidrome server to see the songs, albums and artists you've starred.".to_string(),
+                    message: "Add a Navidrome server to see the songs, albums and artists you've favorited.".to_string(),
                     Button {
                         label: "Add Server".to_string(),
                         onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
@@ -299,9 +299,9 @@ pub fn FavoritesView() -> Element {
                     Some((songs, albums, artists)) => match active_tab {
                         0 if songs == 0 => rsx! {
                             EmptyState {
-                                icon: "star".to_string(),
+                                icon: "heart".to_string(),
                                 title: "No favorite songs".to_string(),
-                                message: "Tap the star in a song's menu and it shows up here.".to_string(),
+                                message: "Tap Favorite (the heart) in a song’s menu and it shows up here.".to_string(),
                             }
                         },
                         0 => rsx! {
@@ -318,7 +318,7 @@ pub fn FavoritesView() -> Element {
                             EmptyState {
                                 icon: "album".to_string(),
                                 title: "No favorite albums".to_string(),
-                                message: "Star an album from its page to keep it here.".to_string(),
+                                message: "Choose Favorite in an album’s … menu to keep it here.".to_string(),
                             }
                         },
                         1 => rsx! {
@@ -356,7 +356,7 @@ pub fn FavoritesView() -> Element {
                             EmptyState {
                                 icon: "artist".to_string(),
                                 title: "No favorite artists".to_string(),
-                                message: "Star an artist from their page to keep them here.".to_string(),
+                                message: "Choose Favorite in an artist’s … menu to keep them here.".to_string(),
                             }
                         },
                         _ => rsx! {
@@ -405,7 +405,7 @@ pub fn FavoritesView() -> Element {
                                 MenuAction::new("shuffle", "Shuffle", "shuffle"),
                                 MenuAction::new("add", "Add to Playlist…", "playlist"),
                                 MenuAction::new("open", "Go to Album", "disc"),
-                                MenuAction::new("unfavorite", "Remove from Favorites", "star"),
+                                MenuAction::new("unfavorite", "Remove from Favorites", "heart-filled"),
                             ],
                         ),
                         TileMenu::Artist(artist, anchor) => (
@@ -413,7 +413,7 @@ pub fn FavoritesView() -> Element {
                             *anchor,
                             vec![
                                 MenuAction::new("open", "Go to Artist", "artist"),
-                                MenuAction::new("unfavorite", "Remove from Favorites", "star"),
+                                MenuAction::new("unfavorite", "Remove from Favorites", "heart-filled"),
                             ],
                         ),
                     };

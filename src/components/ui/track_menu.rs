@@ -483,7 +483,7 @@ pub fn TrackMenu(
                     "data-testid": "track-menu-favorite",
                     onclick: toggle_favorite,
                     Icon {
-                        name: if starred { "star-filled".to_string() } else { "star".to_string() },
+                        name: if starred { "heart-filled".to_string() } else { "heart".to_string() },
                         class: "rs-ic".to_string(),
                     }
                     if starred { "Favorited" } else { "Favorite" }
