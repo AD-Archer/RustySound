@@ -58,7 +58,7 @@ jobs:
         mv Cargo.toml.tmp Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - run: cargo install dioxus-cli --version 0.7.3 --locked
+    - run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build web app
       run: dx bundle --platform web --release
     - name: Prepare web assets
@@ -82,7 +82,7 @@ jobs:
           type=ref,event=branch
           type=ref,event=pr
           type=sha,prefix=sha-
-          type=raw,value=latest
+          type=raw,value=latest,enable=${{ github.ref == 'refs/heads/prod' }}
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
@@ -111,7 +111,7 @@ jobs:
         mv Cargo.toml.tmp Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - run: cargo install dioxus-cli --version 0.7.3 --locked
+    - run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build web app
       run: dx bundle --platform web --release
     - name: Prepare web assets for GitHub Pages
@@ -144,7 +144,7 @@ jobs:
         mv Cargo.toml.tmp Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - run: cargo install dioxus-cli --version 0.7.3 --locked
+    - run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build macOS + iOS bundles
       env:
         APP_VERSION: ${{ needs.version.outputs.semver }}
@@ -343,7 +343,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
-      run: cargo install dioxus-cli --version 0.7.3 --locked
+      run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Install Windows bundler tooling
       run: choco install nsis -y
     - name: Build Windows NSIS bundle
@@ -391,7 +391,7 @@ jobs:
           "cmake;3.22.1"
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
-      run: cargo install dioxus-cli --version 0.7.3 --locked
+      run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build Android release APKs (ARM64 + x86_64)
       run: |
         export ANDROID_AAPT2_FROM_MAVEN_OVERRIDE="$ANDROID_HOME/build-tools/34.0.0/aapt2"
