@@ -65,21 +65,23 @@ impl PlayerCtx {
         self.is_playing.set(next);
     }
 
-    /// Same as `prev-btn`.
+    /// Same as `prev-btn`: restart, or go back a song on a quick second
+    /// press (`player/skip_back.rs`).
     pub fn previous(&mut self) {
-        let idx = *self.queue_index.peek();
-        if idx == 0 {
-            return;
-        }
-        let song = self.queue.peek().get(idx - 1).cloned();
-        if let Some(song) = song {
-            let was_playing = *self.is_playing.peek();
-            self.queue_index.set(idx - 1);
-            self.now_playing.set(Some(song));
-            if was_playing {
-                self.is_playing.set(true);
-            }
-        }
+        let current_time = self.audio.peek().current_time;
+        crate::components::player::skip_back::press_skip_back(
+            crate::components::player::skip_back::SkipBackSignals {
+                queue: self.queue,
+                queue_index: self.queue_index,
+                now_playing: self.now_playing,
+                is_playing: self.is_playing,
+                repeat: self.repeat,
+                position: self.position,
+                current_time,
+            },
+            "now-playing.prev",
+            false,
+        );
     }
 
     /// Same as `next-btn`: repeat-one restarts, the end of the queue wraps

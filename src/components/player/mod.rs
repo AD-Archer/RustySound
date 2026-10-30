@@ -18,6 +18,7 @@ use dioxus::prelude::*;
 
 mod compact;
 mod controls;
+pub(crate) mod skip_back;
 mod wide;
 
 use compact::CompactPlayer;

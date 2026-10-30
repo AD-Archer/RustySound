@@ -238,21 +238,21 @@ pub(super) fn PlayPauseButton(#[props(default)] size: ControlSize) -> Element {
     }
 }
 
-/// Previous button - completely isolated component
+/// Previous button: restart, or go back a song on a quick second press
+/// (the rule lives in `skip_back.rs`). MediaSession, the macOS Playback menu
+/// and keyboard shortcuts press it by id.
 #[component]
 pub(super) fn PrevButton(
     /// Keep `prev-btn` in the DOM for MediaSession without showing it.
     #[props(default)]
     hidden: bool,
 ) -> Element {
-    let mut queue_index = use_context::<Signal<usize>>();
-    let queue = use_context::<Signal<Vec<Song>>>();
-    let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
-    let current_song = now_playing();
-    let is_radio = current_song
+    let signals = use_hook(super::skip_back::SkipBackSignals::from_context);
+    let now_playing = use_context::<Signal<Option<Song>>>();
+    let is_radio = now_playing
+        .read()
         .as_ref()
-        .map(|song| song.server_name == "Radio")
+        .map(crate::components::ui::env::is_radio_song)
         .unwrap_or(false);
 
     rsx! {
@@ -266,31 +266,7 @@ pub(super) fn PrevButton(
             aria_label: "Previous",
             title: "Previous",
             onclick: move |_| {
-                if is_radio {
-                    return;
-                }
-                let idx = queue_index();
-                let queue_list = queue();
-                if idx > 0 && !queue_list.is_empty() {
-                    let was_playing = *is_playing.peek();
-                    let next_idx = idx - 1;
-                    if let Some(song) = queue_list.get(next_idx).cloned() {
-                        ios_diag_log(
-                            "ui.control",
-                            &format!(
-                                "source=player.prev from_idx={idx} to_idx={next_idx} queue_len={} was_playing={} song_id={}",
-                                queue_list.len(),
-                                was_playing,
-                                song.id
-                            ),
-                        );
-                        queue_index.set(next_idx);
-                        now_playing.set(Some(song));
-                        if was_playing {
-                            is_playing.set(true);
-                        }
-                    }
-                }
+                super::skip_back::press_skip_back(signals, "player.prev", false);
             },
             Icon { name: "prev".to_string(), class: "rs-ic rs-ic--md".to_string() }
         }

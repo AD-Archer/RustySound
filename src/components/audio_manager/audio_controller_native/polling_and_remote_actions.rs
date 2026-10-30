@@ -310,7 +310,7 @@
                         let repeat = *repeat_mode.peek();
                         let shuffle = *shuffle_enabled.peek();
                         let servers_snapshot = servers.peek().clone();
-                        let resume_after_skip = if matches!(action, "next" | "previous") {
+                        let resume_after_skip = if matches!(action, "next" | "previous" | "previous_track") {
                             true
                         } else {
                             desired_playing_before_sync
@@ -385,37 +385,35 @@
                                     is_playing.set(false);
                                 }
                             }
-                            "previous" => {
+                            "previous" | "previous_track" => {
                                 suppress_ended_for_this_tick = true;
                                 if current_is_radio {
                                     continue;
                                 }
-                                let len = queue_snapshot.len();
-                                if len > 0 {
-                                    if idx > 0 {
-                                        if let Some(song) = queue_snapshot.get(idx - 1).cloned() {
-                                            queue_index.set(idx - 1);
-                                            now_playing.set(Some(song));
-                                            is_playing.set(resume_after_skip);
-                                        }
-                                    } else if repeat == RepeatMode::All {
-                                        let last_idx = len.saturating_sub(1);
-                                        if let Some(song) = queue_snapshot.get(last_idx).cloned() {
-                                            queue_index.set(last_idx);
-                                            now_playing.set(Some(song));
-                                            is_playing.set(resume_after_skip);
-                                        }
-                                    } else {
-                                        native_audio_command(serde_json::json!({
-                                            "type": "seek",
-                                            "position": 0.0
-                                        }));
-                                        if resume_after_skip {
-                                            native_audio_command(serde_json::json!({
-                                                "type": "play"
-                                            }));
-                                        }
-                                    }
+                                let current_time = audio_state.peek().current_time;
+                                let signals = crate::components::player::skip_back::SkipBackSignals {
+                                    queue,
+                                    queue_index,
+                                    now_playing,
+                                    is_playing,
+                                    repeat: repeat_mode,
+                                    position: playback_position,
+                                    current_time,
+                                };
+                                if action == "previous" {
+                                    // A raw press (media key, MediaSession, SMTC,
+                                    // keyboard): the shared skip-back rule decides.
+                                    crate::components::player::skip_back::press_skip_back(
+                                        signals,
+                                        "remote.previous",
+                                        resume_after_skip,
+                                    );
+                                } else {
+                                    // Already decided natively (iOS remote).
+                                    crate::components::player::skip_back::go_to_previous_track(
+                                        signals,
+                                        resume_after_skip,
+                                    );
                                 }
                             }
                             "ended" => {}

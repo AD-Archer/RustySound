@@ -637,15 +637,11 @@ fn ios_plan_take_transition(action: &str) -> Option<IosPlaybackPlanItem> {
                 None
             }
         }
-        "previous" => {
-            if current > 0 {
-                Some(current - 1)
-            } else if plan.repeat_mode == RepeatMode::All {
-                Some(len.saturating_sub(1))
-            } else {
-                None
-            }
-        }
+        "previous" => crate::components::player::skip_back::previous_index(
+            current,
+            len,
+            plan.repeat_mode,
+        ),
         _ => None,
     }?;
 
