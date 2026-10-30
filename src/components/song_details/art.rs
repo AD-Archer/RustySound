@@ -1,8 +1,11 @@
 //! The big cover with its reflection, the songs already played waiting to its
 //! left and the next ones to its right, rotated Cover Flow style. Tapping a
-//! side cover plays that song.
+//! side cover plays that song. On compact, swiping the big cover sideways
+//! steps one song (`gestures.js` moves the covers; this sets the data it
+//! reads).
 
-use super::actions::{is_live_song, use_player};
+use super::actions::{is_live_song, song_key, use_player};
+use super::gestures::song_token;
 use crate::api::Song;
 use crate::components::ui::Artwork;
 use dioxus::prelude::*;
@@ -43,6 +46,14 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
     let waiting = if radio { Vec::new() } else { waiting() };
     let played = if radio { Vec::new() } else { played() };
     let title = song.title.clone();
+    // Cover swipe (compact, gestures.js): which entry it starts on and which
+    // ways it can go. Off for radio and on wide.
+    let token = song_token((player.queue_index)(), &song_key(&song));
+    let swipe = !wide && !radio;
+    let (has_prev, has_next) = (!played.is_empty(), !waiting.is_empty());
+    // Compact side covers load the big cover's size, so the one a swipe
+    // brings to the middle is already the cached image.
+    let side_px = if wide { 240 } else { 320 };
 
     rsx! {
         div {
@@ -50,12 +61,18 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
             class: if wide { "rs-player-flow--wide" },
             role: "group",
             aria_label: "Now playing, played and up next",
+            "data-no-edge-swipe": "true",
+            "data-swipe-off": if !swipe { Some("true") } else { None },
+            "data-song-token": "{token}",
+            "data-has-prev": if has_prev { "true" } else { "false" },
+            "data-has-next": if has_next { "true" } else { "false" },
             // Farthest first on each side, so nearer covers paint over them.
             for (step, (index, prev)) in played.into_iter().enumerate().rev() {
                 button {
                     key: "{index}:{prev.server_id}:{prev.id}",
                     r#type: "button",
                     class: "rs-player-flow__side rs-player-flow__side--prev",
+                    class: if step == 0 { "rs-player-flow__side--near" },
                     style: "--i:{step}",
                     aria_label: "Go back to {prev.title}",
                     title: "{prev.title}",
@@ -68,7 +85,7 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
                     Artwork {
                         cover_art: prev.cover_art.clone(),
                         server_id: prev.server_id.clone(),
-                        size_px: 240,
+                        size_px: side_px,
                         fill: true,
                         hero: true,
                     }
@@ -79,6 +96,7 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
                     key: "{index}:{next.server_id}:{next.id}",
                     r#type: "button",
                     class: "rs-player-flow__side",
+                    class: if step == 0 { "rs-player-flow__side--near" },
                     style: "--i:{step}",
                     aria_label: "Skip to {next.title}",
                     title: "{next.title}",
@@ -91,7 +109,7 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
                     Artwork {
                         cover_art: next.cover_art.clone(),
                         server_id: next.server_id.clone(),
-                        size_px: 240,
+                        size_px: side_px,
                         fill: true,
                         hero: true,
                     }

@@ -31,14 +31,31 @@
 .rs-player-np .rs-iconbtn--quiet { color: var(--stage-muted); }
 .rs-player-np .rs-iconbtn--quiet[aria-pressed="true"] { color: var(--accent-hi); }
 
-/* Compact: full screen, slides up from the mini player, swipes down. */
+/* Compact: full screen, slides up from the mini player, swipes down from the
+   grabber. The sheet itself never scrolls (only the panel content does, in
+   the focused view). Its two states share one progress variable, --np-p:
+   0 is the full player, 1 the focused panel view. The class sets it; while a
+   finger drags, gestures.js sets it inline and data-np-drag turns the
+   transitions off. Everything that moves reads it, through transform and
+   opacity only. --np-panel-top (the panel's top in the full player),
+   --np-shift (how far that is below its focused place) and --np-mini-x/y/s
+   (the big cover's move onto the strip's cover) are measured by gestures.js. */
 .rs-player-np--compact {
+  --np-p: 0;
+  --np-dur: .3s;
+  --np-strip: 72px;
   inset: 0;
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* clip, not hidden: not even focus or scrollIntoView can scroll the sheet. */
+  overflow: clip;
+  overscroll-behavior: none;
+  touch-action: none;
   animation: rs-player-up .38s var(--ease-sheet);
   transition: transform var(--dur-med) var(--ease-out);
+}
+
+.rs-player-np--focused {
+  --np-p: 1;
 }
 
 .rs-player-np--closing {
@@ -88,6 +105,236 @@
   font-size: var(--fs-sub);
   font-weight: var(--fw-semibold);
   color: var(--stage-muted);
+}
+
+/* ---- Compact: full player and focused panel view ----------------------- */
+
+.rs-player-np__full {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The full player's pieces fade out in the first half of the move. */
+.rs-player-np--compact .rs-player-np__grab,
+.rs-player-np--compact .rs-player-np__bar {
+  opacity: calc(1 - var(--np-p) * 2);
+  transition: opacity var(--np-dur) var(--ease-out);
+}
+
+.rs-player-np--compact .rs-player-meta,
+.rs-player-np--compact .rs-player-scrub,
+.rs-player-np--compact .rs-player-transport {
+  opacity: calc(1 - var(--np-p) * 2);
+  transform: translateY(calc(var(--np-p) * -24px));
+  transition: opacity var(--np-dur) var(--ease-out), transform var(--np-dur) var(--ease-sheet);
+}
+
+.rs-player-np--focused .rs-player-np__full {
+  visibility: hidden;
+  transition: visibility 0s linear var(--np-dur);
+}
+
+/* The big cover shrinks onto the strip's cover, then hands over to it. */
+.rs-player-np--compact .rs-player-flow__cover {
+  transform:
+    translate(calc(var(--np-mini-x, -30vw) * var(--np-p)), calc(var(--np-mini-y, -20vh) * var(--np-p)))
+    scale(calc(1 + (var(--np-mini-s, .22) - 1) * var(--np-p)));
+  opacity: calc((1 - var(--np-p)) * 8);
+  transition: transform var(--np-dur) var(--ease-sheet), opacity .06s linear;
+}
+
+.rs-player-np--focused .rs-player-flow__cover {
+  transition: transform var(--np-dur) var(--ease-sheet), opacity .06s linear calc(var(--np-dur) - .04s);
+}
+
+/* Header strip of the focused view: small cover, title and artist,
+   play/pause. Tap or drag down to go back. */
+.rs-player-np__strip {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--safe-top) + var(--np-strip));
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--safe-top) calc(var(--safe-right) + 10px) 0 calc(var(--safe-left) + 16px);
+  touch-action: none;
+  opacity: calc(var(--np-p) * 2 - 1);
+  transform: translateY(calc((1 - var(--np-p)) * 10px));
+  visibility: hidden;
+  transition:
+    opacity var(--np-dur) var(--ease-out),
+    transform var(--np-dur) var(--ease-sheet),
+    visibility 0s linear var(--np-dur);
+}
+
+.rs-player-np--focused .rs-player-np__strip {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.rs-app .rs-player-np__strip-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-player-np__strip-art {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .45);
+  opacity: calc((var(--np-p) - .85) * 7);
+  transition: opacity .05s linear;
+}
+
+.rs-player-np--focused .rs-player-np__strip-art {
+  transition: opacity .06s linear calc(var(--np-dur) - .08s);
+}
+
+.rs-player-np__strip-art .rs-art {
+  border-radius: inherit;
+}
+
+.rs-player-np__strip-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rs-player-np__strip-title,
+.rs-player-np__strip-artist {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-player-np__strip-title {
+  font-size: var(--fs-body);
+  line-height: 20px;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+}
+
+.rs-player-np__strip-artist {
+  font-size: var(--fs-sub);
+  line-height: 18px;
+  color: var(--stage-muted);
+}
+
+.rs-player-np__strip .rs-player-np__strip-play {
+  flex: none;
+  color: var(--stage-ink);
+}
+
+/* The panel: under the transport in the full player (--np-panel-top), under
+   the strip in the focused view. At rest it has no transform, because the
+   menus and sheets the panels open are position: fixed inside it, and a
+   transform would become their containing block. It moves by transform
+   only while it moves: following a finger (--np-at is where the class puts
+   it, --np-p where the finger is), and in a short animation that
+   gestures.js starts on each switch (data-np-anim), from where it was
+   (--np-from, the finger's last place after a drag). */
+.rs-player-np--compact {
+  --np-at: 0;
+}
+
+.rs-player-np--focused {
+  --np-at: 1;
+}
+
+.rs-player-np--compact .rs-player-panels {
+  position: absolute;
+  z-index: 1;
+  top: var(--np-panel-top, 52dvh);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 0;
+  padding: 14px calc(var(--safe-right) + 20px) calc(var(--safe-bottom) + 8px) calc(var(--safe-left) + 24px);
+  transition: transform var(--np-dur) var(--ease-sheet);
+}
+
+.rs-player-np--focused .rs-player-panels {
+  top: calc(var(--safe-top) + var(--np-strip));
+}
+
+/* Raised from its full-player place, the short panel would leave a gap at
+   the bottom; while it moves, it reaches below the screen instead. */
+.rs-player-np--compact:not(.rs-player-np--focused):is([data-np-drag], [data-np-anim]) .rs-player-panels {
+  bottom: calc(-1 * var(--np-shift, 0px));
+}
+
+.rs-player-np--compact[data-np-drag] .rs-player-panels {
+  transform: translateY(calc(var(--np-shift, 0px) * (var(--np-at) - var(--np-p))));
+}
+
+.rs-player-np--compact[data-np-anim="up"] .rs-player-panels {
+  animation: rs-np-panel-up var(--np-dur) var(--ease-sheet);
+}
+
+.rs-player-np--compact[data-np-anim="down"] .rs-player-panels {
+  animation: rs-np-panel-down var(--np-dur) var(--ease-sheet);
+}
+
+@keyframes rs-np-panel-up {
+  from { transform: translateY(calc(var(--np-shift, 0px) * (1 - var(--np-from, 0)))); }
+  to { transform: none; }
+}
+
+@keyframes rs-np-panel-down {
+  from { transform: translateY(calc(var(--np-shift, 0px) * -1 * var(--np-from, 1))); }
+  to { transform: none; }
+}
+
+/* The full player's panel is a peek: a swipe up there opens the focused view
+   instead of scrolling. In the focused view the content scrolls. */
+.rs-player-np--compact :is(.rs-player-lyrics__lines, .rs-player-upnext, .rs-player-info) {
+  touch-action: none;
+}
+
+.rs-player-np--focused :is(.rs-player-lyrics__lines, .rs-player-upnext, .rs-player-info) {
+  touch-action: pan-y;
+}
+
+/* While a finger drags, everything sits where it says. */
+.rs-player-np--compact[data-np-drag] :is(
+  .rs-player-np__grab, .rs-player-np__bar, .rs-player-meta, .rs-player-scrub,
+  .rs-player-transport, .rs-player-flow__cover, .rs-player-np__strip,
+  .rs-player-np__strip-art, .rs-player-panels
+) {
+  transition: none;
+}
+
+.rs-player-np--compact[data-np-drag] :is(.rs-player-np__full, .rs-player-np__strip) {
+  visibility: visible;
+}
+
+/* Lyrics | Up Next | Info, and the expand chevron (compact). */
+.rs-player-panels__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.rs-player-panels__head .rs-seg {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-player-panels__expand {
+  flex: none;
+  margin-right: -6px;
 }
 
 /* Wide: the same stage as a large overlay; cover left, panels right. */
@@ -229,6 +476,103 @@
 
 .rs-player-flow .rs-art {
   border-radius: inherit;
+}
+
+/* Compact: the side covers fade with the rest of the full player. */
+.rs-app .rs-player-np--compact .rs-player-flow__side {
+  opacity: calc(1 - var(--np-p) * 2);
+  transition: transform var(--dur-flow) var(--ease-out), opacity var(--np-dur) var(--ease-out);
+}
+
+.rs-app .rs-player-np--compact[data-np-drag] .rs-player-flow__side {
+  transition: none;
+}
+
+/* ---- Cover swipe (compact) ---------------------------------------------
+   gestures.js sets data-swipe="next|prev" on the flow, and --sw (-1…1,
+   negative toward the next song) with --swa (its size). The big cover turns
+   away to the side, the near side cover turns in to the middle, and the
+   others move one place along, so the end of the turn looks exactly like
+   the next song's resting layout. data-swipe-phase: drag (follows the
+   finger), settle (springs back or finishes the turn), instant (the swap). */
+.rs-app .rs-player-flow[data-swipe] .rs-player-flow__cover {
+  transform:
+    translateX(calc(var(--np-cover) * .62 * var(--sw, 0)))
+    translateZ(calc(var(--np-cover) * -.35 * var(--swa, 0)))
+    rotateY(calc(-62deg * var(--sw, 0)));
+}
+
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side:not(.rs-player-flow__side--prev) {
+  transform:
+    translateX(calc(var(--np-cover) * (.62 + .26 * (var(--i) - var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(-62deg);
+}
+
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side--prev {
+  transform:
+    translateX(calc(var(--np-cover) * -1 * (.62 + .26 * (var(--i) + var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(62deg);
+}
+
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side--prev {
+  transform:
+    translateX(calc(var(--np-cover) * -1 * (.62 + .26 * (var(--i) - var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(62deg);
+}
+
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side:not(.rs-player-flow__side--prev) {
+  transform:
+    translateX(calc(var(--np-cover) * (.62 + .26 * (var(--i) + var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(-62deg);
+}
+
+/* The neighbour coming in: from its side place to the middle. */
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side--near:not(.rs-player-flow__side--prev) {
+  transform:
+    translateX(calc(var(--np-cover) * .62 * (1 - var(--swa, 0))))
+    translateZ(calc(var(--np-cover) * -.35 * (1 - var(--swa, 0))))
+    rotateY(calc(-62deg * (1 - var(--swa, 0))));
+}
+
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side--prev.rs-player-flow__side--near {
+  transform:
+    translateX(calc(var(--np-cover) * -.62 * (1 - var(--swa, 0))))
+    translateZ(calc(var(--np-cover) * -.35 * (1 - var(--swa, 0))))
+    rotateY(calc(62deg * (1 - var(--swa, 0))));
+}
+
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side--near:not(.rs-player-flow__side--prev)::after,
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side--prev.rs-player-flow__side--near::after {
+  opacity: calc(.4 * (1 - var(--swa, 0)));
+}
+
+/* Past halfway the incoming cover paints over the outgoing one. */
+.rs-app .rs-player-flow[data-swipe="next"][data-swipe-over] .rs-player-flow__side--near:not(.rs-player-flow__side--prev),
+.rs-app .rs-player-flow[data-swipe="prev"][data-swipe-over] .rs-player-flow__side--prev.rs-player-flow__side--near {
+  z-index: 101;
+}
+
+.rs-app .rs-player-flow[data-swipe-phase="drag"] :is(.rs-player-flow__cover, .rs-player-flow__side),
+.rs-app .rs-player-flow[data-swipe-phase="drag"] .rs-player-flow__side::after,
+.rs-app .rs-player-flow[data-swipe-phase="instant"] :is(.rs-player-flow__cover, .rs-player-flow__side),
+.rs-app .rs-player-flow[data-swipe-phase="instant"] .rs-player-flow__side::after {
+  transition: none;
+}
+
+.rs-app .rs-player-flow[data-swipe-phase="settle"] :is(.rs-player-flow__cover, .rs-player-flow__side) {
+  transition: transform .24s var(--ease-out);
+}
+
+.rs-app .rs-player-flow[data-swipe-phase="settle"] .rs-player-flow__side::after {
+  transition: opacity .24s var(--ease-out);
+}
+
+.rs-player-np--compact .rs-player-flow:not([data-swipe-off]) .rs-player-flow__cover {
+  cursor: grab;
 }
 
 /* ---- Title, artist, star, more ---------------------------------------- */

@@ -167,6 +167,27 @@ impl PlayerCtx {
         seek_to(target);
     }
 
+    /// One queue entry forward (`delta` 1) or back (-1), keeping the play
+    /// state. The cover swipe uses it: no skip-back restart rule, no wrap and
+    /// no queue growth, so one gesture moves exactly one song. False at an end.
+    pub fn step(&mut self, delta: isize) -> bool {
+        let index = *self.queue_index.peek();
+        let Some(target) = index.checked_add_signed(delta) else {
+            return false;
+        };
+        let song = self.queue.peek().get(target).cloned();
+        let Some(song) = song else {
+            return false;
+        };
+        let was_playing = *self.is_playing.peek();
+        self.queue_index.set(target);
+        self.now_playing.set(Some(song));
+        if was_playing {
+            self.is_playing.set(true);
+        }
+        true
+    }
+
     /// Jumps to queue entry `index` and plays it.
     pub fn play_index(&mut self, index: usize) {
         let song = self.queue.peek().get(index).cloned();

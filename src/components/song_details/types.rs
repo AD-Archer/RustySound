@@ -121,3 +121,8 @@ impl SongDetailsController {
         (self.state)()
     }
 }
+
+/// Compact Now Playing's focused panel view: the panel takes the screen
+/// under a compact header strip. Provided by the overlay; unused on wide.
+#[derive(Clone, Copy, PartialEq)]
+pub(crate) struct NowPlayingFocus(pub Signal<bool>);

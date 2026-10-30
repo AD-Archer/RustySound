@@ -10,11 +10,15 @@ use crate::components::song_details::actions::use_player;
 use crate::components::ui::env::sleep_ms;
 use crate::components::AudioState;
 use crate::db::AppSettings;
+use crate::components::song_details::types::NowPlayingFocus;
 use dioxus::prelude::*;
+use std::cell::Cell;
 use std::rc::Rc;
 
 /// After a manual scroll, auto-scroll waits this long.
 const MANUAL_HOLD_MS: f64 = 1800.0;
+/// The focused view's transition (`--np-dur` in player.css) plus a frame.
+const FOCUS_SETTLE_MS: u64 = 330;
 /// Scroll events within this window after our own scroll are ignored.
 const PROGRAMMATIC_MS: f64 = 700.0;
 
@@ -33,7 +37,9 @@ fn now_ms() -> f64 {
     }
 }
 
-/// Scrolls line `index` of list `dom_id` to 40% of the list's height.
+/// Scrolls line `index` of list `dom_id` to 40% of the list's height. On
+/// compact, the panel's place comes from the sheet's measurements; take them
+/// first if the sheet has only just mounted.
 fn center_line(dom_id: &str, index: usize, instant: bool) {
     let id = serde_json::to_string(dom_id).unwrap_or_default();
     let script = format!(
@@ -41,6 +47,8 @@ fn center_line(dom_id: &str, index: usize, instant: bool) {
   const c = document.getElementById({id});
   const l = document.getElementById({id} + "-line-{index}");
   if (!c || !l) return;
+  const sheet = c.closest(".rs-player-np--compact");
+  if (sheet && !sheet.style.getPropertyValue("--np-panel-top") && window.__rsNpGestures) window.__rsNpGestures.measure();
   const cr = c.getBoundingClientRect(), lr = l.getBoundingClientRect();
   const top = c.scrollTop + (lr.top - cr.top) - cr.height * 0.4 + lr.height / 2;
   const still = {instant} || matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -91,6 +99,31 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
             centered_once.set(true);
             programmatic_until.set(now_ms() + PROGRAMMATIC_MS);
             center_line(&dom_id, index, instant);
+        });
+    }
+
+    // Compact's focused view changes how much of the list shows: once the
+    // panel has moved, bring the active line back to its spot.
+    let focus = try_use_context::<NowPlayingFocus>();
+    let seen = use_hook(|| Rc::new(Cell::new(focus.map(|f| *f.0.peek()).unwrap_or(false))));
+    {
+        let dom_id = dom_id.clone();
+        use_effect(move || {
+            let Some(NowPlayingFocus(focus)) = focus else {
+                return;
+            };
+            let now = focus();
+            if seen.replace(now) == now {
+                return;
+            }
+            let dom_id = dom_id.clone();
+            spawn(async move {
+                sleep_ms(FOCUS_SETTLE_MS).await;
+                if let Some(index) = *active.peek() {
+                    programmatic_until.set(now_ms() + PROGRAMMATIC_MS);
+                    center_line(&dom_id, index, false);
+                }
+            });
         });
     }
 

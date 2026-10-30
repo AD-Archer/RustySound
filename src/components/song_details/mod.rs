@@ -3,10 +3,12 @@
 //!
 //! Module map:
 //! - `overlay`   the sheet (compact) or large overlay (wide); one tree only
-//! - `art`       big cover with reflection, up-next covers waiting to its right
+//! - `art`       big cover with reflection, played covers left, up-next right
 //! - `meta`      title, artist links, star, "…", rating stars, volume
 //! - `transport` glossy scrubber, times, format badge, transport buttons
 //! - `panels`    Lyrics | Up Next | Info segmented control
+//! - `strip`     compact focused view's header strip
+//! - `gestures`  compact panel focus swipe and cover swipe (`gestures.js`)
 //! - `lyrics/*`  lyrics source, lines, search sheet, Shot share mode
 //! - `up_next`   Up Next panel, queue edit rows, quick create, save queue
 //! - `info`      details list, related songs
@@ -15,11 +17,13 @@
 
 pub(crate) mod actions;
 mod art;
+mod gestures;
 mod info;
 mod lyrics;
 mod meta;
 mod overlay;
 mod panels;
+mod strip;
 mod transport;
 mod types;
 pub(crate) mod up_next;
