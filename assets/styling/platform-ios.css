@@ -1,0 +1,133 @@
+/* ==========================================================================
+   iOS (WKWebView) platform fixes. Loaded last; every rule is scoped to
+   [data-platform="ios"], so other platforms are unaffected.
+   Verified in the iOS 27 Simulator (see .redesign/phase3/S/).
+   ========================================================================== */
+
+/* ---- Stacking ----------------------------------------------------------
+   `-webkit-overflow-scrolling: touch` makes the scroll container a stacking
+   context on iOS WebKit, and the property is inherited. Every sheet, menu and
+   Now Playing rendered inside the main scroller was trapped under the tab bar
+   and mini player (their z-index only counted inside that context): the
+   server form's Test/Save buttons sat behind the tab bar. Momentum scrolling
+   is the default for overflow scrollers since iOS 13, so nothing is lost. */
+[data-platform="ios"] .rs-main {
+  -webkit-overflow-scrolling: auto;
+}
+
+/* ---- Text selection ----------------------------------------------------
+   Native apps don't let a long press select UI text (tab labels, row titles,
+   headings). Inputs stay editable; rules that opt back in on purpose (plain
+   lyrics) are more specific and still win. */
+[data-platform="ios"] .rs-app {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+[data-platform="ios"] .rs-app :is(input, textarea, select, [contenteditable="true"]) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* ---- Status bar --------------------------------------------------------
+   The page scrolls edge to edge, so scrolled content ran under the clock and
+   battery with nothing behind them. Give the status bar the system bar
+   material. Like a native bar it appears once content scrolls under it (no
+   hairline at rest). On views that open on the black stage (Home, album,
+   artist, playlist) it stays clear while the stage is under the status bar
+   and fades in as the stage scrolls away. Scroll-driven, no JS. */
+[data-platform="ios"] .rs-app {
+  timeline-scope: --rs-ios-main, --rs-ios-hero;
+}
+
+[data-platform="ios"] .rs-main {
+  scroll-timeline: --rs-ios-main block;
+}
+
+[data-platform="ios"] .rs-app::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto;
+  height: var(--safe-top);
+  z-index: 59; /* over content; under the tab bar (60), mini player, sheets */
+  pointer-events: none;
+  background: color-mix(in srgb, var(--page) 78%, transparent);
+  -webkit-backdrop-filter: blur(20px) saturate(1.8);
+  backdrop-filter: blur(20px) saturate(1.8);
+  box-shadow: 0 .5px 0 color-mix(in srgb, var(--line) 70%, transparent);
+}
+
+[data-platform="ios"] .rs-main > .rs-outlet > .rs-view > .rs-stage:first-child {
+  view-timeline: --rs-ios-hero block;
+  view-timeline-inset: var(--safe-top) 0;
+}
+
+[data-platform="ios"] .rs-app:has(.rs-main > .rs-outlet > .rs-view > .rs-stage:first-child)::before {
+  opacity: 0;
+}
+
+@supports (animation-timeline: view()) {
+  [data-platform="ios"] .rs-app::before {
+    animation: rs-ios-statusbar-in linear both;
+    animation-timeline: --rs-ios-main;
+    animation-range: 0 12px;
+  }
+
+  [data-platform="ios"] .rs-app:has(.rs-main > .rs-outlet > .rs-view > .rs-stage:first-child)::before {
+    animation: rs-ios-statusbar-in linear both;
+    animation-timeline: --rs-ios-hero;
+    animation-range: exit calc(100% - 24px) exit 100%;
+  }
+}
+
+@keyframes rs-ios-statusbar-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+/* ---- Rubber band -------------------------------------------------------
+   Pulling a stage view down past the top bounced the light page colour in
+   above the black stage. Paint the scroller's top half in the stage's top
+   colour; the bottom half stays the page, so overscroll at the end matches
+   the list. Content covers the scroller, so only overscroll shows it. */
+[data-platform="ios"] .rs-main:has(> .rs-outlet > .rs-view > .rs-stage:first-child) {
+  background: linear-gradient(to bottom, #1f2124 0 50%, transparent 50%);
+}
+
+/* ---- Dynamic Type ------------------------------------------------------
+   `-apple-system-body` follows the user's text size (17px at the default
+   Large), so 1rem tracks Dynamic Type. Each step of the type ramp scales from
+   its default size and is capped near the xxxLarge size, so accessibility
+   sizes stay usable without breaking fixed-height chrome. At the default
+   size every value equals the px token in tokens.css. Line heights become
+   ratios so bigger text doesn't overlap. */
+:root[data-platform="ios"] {
+  font: -apple-system-body;
+  --fs-large: clamp(28px, calc(34rem / 17), 44px);
+  --fs-title1: clamp(24px, calc(28rem / 17), 38px);
+  --fs-title2: clamp(19px, calc(22rem / 17), 31px);
+  --fs-title3: clamp(17px, calc(20rem / 17), 29px);
+  --fs-title: clamp(15px, calc(17rem / 17), 25px);
+  --fs-body: clamp(13px, calc(15rem / 17), 23px);
+  --fs-callout: clamp(12px, calc(14rem / 17), 22px);
+  --fs-sub: clamp(11px, calc(13rem / 17), 20px);
+  --fs-foot: clamp(11px, calc(12rem / 17), 19px);
+  --fs-cap: clamp(11px, calc(11rem / 17), 17px);
+  --lh-large: 1.2;
+  --lh-title1: 1.21;
+  --lh-title2: 1.23;
+  --lh-title3: 1.25;
+  --lh-title: 1.29;
+}
+
+/* The mini player and tab bar are fixed-height bars; like the system ones,
+   they keep their size. */
+[data-platform="ios"] .rs-mini {
+  --fs-body: 15px;
+  --fs-sub: 13px;
+}
+
+/* Shelf card captions had px line heights that clipped scaled text. */
+[data-platform="ios"] :is(.rs-hcard__title, .rs-hcard__sub, .rs-hcard__why) {
+  line-height: 1.3;
+}
