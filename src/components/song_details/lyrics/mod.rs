@@ -135,26 +135,29 @@ pub(crate) fn LyricsPanel(song: Song) -> Element {
             }
             {body}
         }
-        if menu_open() {
-            LyricsMenu {
-                can_shot: shot_enabled() && lyrics.is_some(),
-                on_close: move |_| menu_open.set(false),
-                on_search: move |_| {
-                    menu_open.set(false);
-                    search_open.set(true);
-                },
-                on_shot: move |_| {
-                    menu_open.set(false);
-                    shot_open.set(true);
-                },
+        // Modals opened from the panel: their Escape must not also close Now Playing.
+        div { class: "rs-player-modals", onkeydown: move |evt| evt.stop_propagation(),
+            if menu_open() {
+                LyricsMenu {
+                    can_shot: shot_enabled() && lyrics.is_some(),
+                    on_close: move |_| menu_open.set(false),
+                    on_search: move |_| {
+                        menu_open.set(false);
+                        search_open.set(true);
+                    },
+                    on_shot: move |_| {
+                        menu_open.set(false);
+                        shot_open.set(true);
+                    },
+                }
             }
-        }
-        if search_open() {
-            LyricsSearchSheet { default_title: song.title.clone(), on_close: move |_| search_open.set(false) }
-        }
-        if shot_open() {
-            if let Some(found) = lyrics.clone() {
-                LyricsShot { song: song.clone(), lyrics: found, sync, on_close: move |_| shot_open.set(false) }
+            if search_open() {
+                LyricsSearchSheet { default_title: song.title.clone(), on_close: move |_| search_open.set(false) }
+            }
+            if shot_open() {
+                if let Some(found) = lyrics.clone() {
+                    LyricsShot { song: song.clone(), lyrics: found, sync, on_close: move |_| shot_open.set(false) }
+                }
             }
         }
     }

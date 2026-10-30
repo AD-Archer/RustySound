@@ -124,7 +124,7 @@ fn CompactNowPlaying(
 
     rsx! {
         div {
-            class: "rs-player-np rs-player-np--compact",
+            class: "rs-stage rs-player-np rs-player-np--compact",
             class: if closing() { "rs-player-np--closing" },
             style: "{style}",
             role: "dialog",
@@ -212,7 +212,7 @@ fn WideNowPlaying(
             },
         }
         div {
-            class: "rs-player-np rs-player-np--wide",
+            class: "rs-stage rs-player-np rs-player-np--wide",
             class: if closing() { "rs-player-np--closing" },
             role: "dialog",
             aria_modal: "true",
