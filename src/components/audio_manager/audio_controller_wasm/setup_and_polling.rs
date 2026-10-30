@@ -3,8 +3,8 @@
     // One-time setup: create audio element and attach listeners.
     {
         let servers = servers.clone();
-        let mut now_playing = now_playing.clone();
-        let mut is_playing = is_playing.clone();
+        let now_playing = now_playing.clone();
+        let is_playing = is_playing.clone();
         let queue = queue.clone();
         let queue_index = queue_index.clone();
         let repeat_mode = repeat_mode.clone();
@@ -70,7 +70,7 @@
             let mut duration_signal = audio_state.peek().duration;
             let mut playback_error_signal = audio_state.peek().playback_error;
             let mut playback_pos = playback_position.clone();
-            let mut queue = queue.clone();
+            let queue = queue.clone();
             let mut queue_index = queue_index.clone();
             let mut now_playing = now_playing.clone();
             let mut is_playing = is_playing.clone();

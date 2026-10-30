@@ -68,15 +68,6 @@ pub fn cached_cover_art_data_url(server_id: &str, cover_art_id: &str, size: u32)
     Some(format!("data:image/jpeg;base64,{encoded}"))
 }
 
-#[cfg(target_arch = "wasm32")]
-pub fn cached_cover_art_data_url(
-    _server_id: &str,
-    _cover_art_id: &str,
-    _size: u32,
-) -> Option<String> {
-    None
-}
-
 #[cfg(not(target_arch = "wasm32"))]
 pub fn maybe_prefetch_cover_art(
     server_id: String,
@@ -117,13 +108,4 @@ pub fn maybe_prefetch_cover_art(
         let mut inflight = IN_FLIGHT_ART.lock().unwrap_or_else(|e| e.into_inner());
         inflight.remove(&inflight_key);
     });
-}
-
-#[cfg(target_arch = "wasm32")]
-pub fn maybe_prefetch_cover_art(
-    _server_id: String,
-    _cover_art_id: String,
-    _size: u32,
-    _remote_url: String,
-) {
 }

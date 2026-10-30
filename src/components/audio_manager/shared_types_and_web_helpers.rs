@@ -669,7 +669,7 @@ fn ios_plan_queue_stats() -> Option<(usize, usize)> {
     Some((index, len))
 }
 
-#[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "ios")))]
 fn ios_diag_now_ms() -> u128 {
     0
 }

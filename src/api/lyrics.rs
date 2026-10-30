@@ -3,9 +3,8 @@ use crate::cache_service::{
     get_json as cache_get_json, is_offline_mode, put_json as cache_put_json,
 };
 use once_cell::sync::Lazy;
-use reqwest::header::HeaderMap;
 #[cfg(not(target_arch = "wasm32"))]
-use reqwest::header::{HeaderValue, REFERER, USER_AGENT};
+use reqwest::header::{HeaderMap, HeaderValue, REFERER, USER_AGENT};
 use serde::Deserialize;
 use serde::Serialize;
 #[cfg(not(target_arch = "wasm32"))]
@@ -885,23 +884,27 @@ fn build_lrclib_result(response: LrclibResponse) -> Option<LyricsResult> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Deserialize)]
 struct GeniusSearchResponse {
     response: GeniusSearchPayload,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Deserialize)]
 struct GeniusSearchPayload {
     #[serde(default)]
     sections: Vec<GeniusSection>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Deserialize)]
 struct GeniusSection {
     #[serde(default)]
     hits: Vec<GeniusHit>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Deserialize)]
 struct GeniusHit {
     #[serde(default, rename = "type")]
@@ -909,6 +912,7 @@ struct GeniusHit {
     result: GeniusSongResult,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Deserialize)]
 struct GeniusSongResult {
     #[serde(default)]
@@ -919,6 +923,7 @@ struct GeniusSongResult {
     primary_artist: Option<GeniusArtist>,
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug, Clone, Deserialize)]
 struct GeniusArtist {
     #[serde(default)]
@@ -1102,29 +1107,25 @@ async fn fetch_from_genius(
     }))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn netease_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        headers.insert(
-            USER_AGENT,
-            HeaderValue::from_static("Mozilla/5.0 (RustySound Lyrics Client; +https://github.com)"),
-        );
-        headers.insert(REFERER, HeaderValue::from_static("https://music.163.com/"));
-        headers.insert("Origin", HeaderValue::from_static("https://music.163.com"));
-    }
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("Mozilla/5.0 (RustySound Lyrics Client; +https://github.com)"),
+    );
+    headers.insert(REFERER, HeaderValue::from_static("https://music.163.com/"));
+    headers.insert("Origin", HeaderValue::from_static("https://music.163.com"));
     headers
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn optional_browser_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        headers.insert(
-            USER_AGENT,
-            HeaderValue::from_static("Mozilla/5.0 (RustySound Lyrics Client; +https://github.com)"),
-        );
-    }
+    headers.insert(
+        USER_AGENT,
+        HeaderValue::from_static("Mozilla/5.0 (RustySound Lyrics Client; +https://github.com)"),
+    );
     headers
 }
 
@@ -1291,6 +1292,7 @@ fn strip_lrc_metadata(raw: &str) -> String {
         .join("\n")
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_genius_lyrics(html: &str) -> Option<String> {
     let mut captured = Vec::<String>::new();
     let mut remaining = html;
@@ -1326,6 +1328,7 @@ fn extract_genius_lyrics(html: &str) -> Option<String> {
     }
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn strip_html_tags(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut in_tag = false;
@@ -1342,6 +1345,7 @@ fn strip_html_tags(input: &str) -> String {
     output
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn decode_html_entities(input: &str) -> String {
     input
         .replace("&amp;", "&")
