@@ -2,11 +2,11 @@
 // Writes perf-<project>.json into RS_PERF_OUT (default tests/.out/perf); tests/perf/report.ts
 // turns those into markdown and can diff against an earlier run.
 import { execSync } from "node:child_process";
-import { mkdirSync, readFileSync, statSync, writeFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync, readdirSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { join } from "node:path";
 import type { BrowserContext, Page } from "@playwright/test";
-import { audioState, expect, isolateNetwork, seedServer, test, waitForAppReady, type MockFixtures } from "../support/fixtures";
+import { audioState, expect, isolateNetwork, MOCK_SERVER_ID, seedServer, test, waitForAppReady, type MockFixtures } from "../support/fixtures";
 import { MOCK_URL, REPO_ROOT, SCRATCH_OUT, WEB_DIR, WEB_URL } from "../support/env";
 import { FMC_SCRIPT_CONFIG, frameStats, instrument, longtaskStats, median, probeStats, round, type PerfWindow } from "./instrument";
 import { summariseTrace } from "./trace";
@@ -82,15 +82,29 @@ function metricDelta(before: Record<string, number>, after: Record<string, numbe
   };
 }
 
+const tid = (page: Page, id: string) => page.locator(`[data-testid="${id}"]`);
+
+/** Album detail by deep link (the phase-1 run reached it from Home; both end on the same screen). */
 async function openAlbum(page: Page, mock: MockFixtures) {
-  await page.goto("/");
+  await page.goto(`/album/${mock.album.id}/${MOCK_SERVER_ID}`);
   await waitForAppReady(page);
-  await page.getByText(mock.album.name, { exact: true }).first().click();
-  await expect(page.getByText(mock.albumSongs[0].title, { exact: true }).first()).toBeVisible();
+  await expect(tid(page, "track-row").first()).toBeVisible();
 }
 
+/**
+ * Song rows LOADED in the Songs view. The redesign windows the list (VirtualList keeps the
+ * full height but mounts only the rows near the viewport), so loaded rows = list height / row
+ * height. The pre-redesign view rendered every row.
+ */
 const rowCount = (page: Page) =>
   page.evaluate(() => {
+    const vlist = document.querySelector<HTMLElement>('[data-testid="song-list"]');
+    if (vlist) {
+      const inner = vlist.firstElementChild as HTMLElement | null;
+      const row = vlist.querySelector<HTMLElement>('[data-testid="track-row"]');
+      const h = row?.getBoundingClientRect().height || 58;
+      return inner ? Math.round(inner.getBoundingClientRect().height / h) : 0;
+    }
     const testid = document.querySelectorAll('[data-testid="track-row"]').length;
     if (testid) return testid;
     return document.querySelectorAll("main div.space-y-1 > div").length;
@@ -112,8 +126,14 @@ test.afterEach(async ({ browser }, testInfo) => {
   } catch {}
   let wasmBytes: number | null = null;
   try {
-    const f = readdirSync(join(WEB_DIR, "assets")).find((n) => n.endsWith(".wasm"));
-    if (f) wasmBytes = statSync(join(WEB_DIR, "assets", f)).size;
+    // dx keeps stale hashed files in assets/, so follow index.html → entry script → wasm.
+    const assets = join(WEB_DIR, "assets");
+    const entry = readFileSync(join(WEB_DIR, "index.html"), "utf8").match(/assets\/([\w.-]+\.js)/)?.[1];
+    const named = entry
+      ? [...readFileSync(join(assets, entry), "utf8").matchAll(/[\w-]+\.wasm/g)].map((m) => m[0]).find((n) => existsSync(join(assets, n)))
+      : undefined;
+    const f = named ?? readdirSync(assets).find((n) => n.endsWith(".wasm"));
+    if (f) wasmBytes = statSync(join(assets, f)).size;
   } catch {}
   const doc: Record<string, any> = {
     ...previous,
@@ -230,7 +250,7 @@ test("b1. main thread during playback, album queue (app idle)", async ({ connect
   await page.waitForTimeout(1500);
   const idlePaused = await record(page, 10_000);
 
-  await page.getByText(mock.albumSongs[0].title, { exact: true }).first().click();
+  await tid(page, "track-row").first().locator("button").first().click();
   await expect.poll(async () => (await audioState(page))?.currentTime ?? 0, { timeout: 20_000 }).toBeGreaterThan(1);
   const m = await measurePlayback(page, "album", isChromium, testInfo.project.name);
 
@@ -245,18 +265,15 @@ test("b1. main thread during playback, album queue (app idle)", async ({ connect
 test("b2. main thread during playback, 1,200-song queue (app idle on Home)", async ({ connected: page, mock }, testInfo) => {
   const isChromium = testInfo.project.name.includes("chromium");
   await instrumentOnly(page.context());
-  await page.goto(`/playlist/${mock.bigPlaylist.id}/mock-server-0001`);
+  await page.goto(`/playlist/${mock.bigPlaylist.id}/${MOCK_SERVER_ID}`);
   await waitForAppReady(page);
-  // Workaround for a current-app bug (see baseline "first tap after a cold deep-link load"):
-  // the first click after a fresh load doesn't start audio, so click neutral page chrome first.
-  await page.getByText(mock.bigPlaylist.name, { exact: true }).first().click();
-  await page.getByTitle("Play playlist").click();
+  // The phase-1 run clicked page chrome first to dodge the first-tap bug (fixed in phase 2).
+  await tid(page, "playlist-play").click();
   await expect.poll(async () => (await audioState(page))?.currentTime ?? 0, { timeout: 30_000 }).toBeGreaterThan(1);
-  // Go Home in-app (page.goto would reload and drop the queue).
-  await page.getByRole("button", { name: "Open menu" }).click();
-  await page.getByRole("button", { name: "Home", exact: true }).or(page.getByRole("link", { name: "Home", exact: true })).first().click();
+  // Go Home in-app (page.goto would reload and drop the queue): the sidebar's Home item.
+  await tid(page, "nav-discover").click();
   await waitForAppReady(page);
-  await expect(page.getByRole("heading", { name: "Recently Added Albums" })).toBeVisible();
+  await expect(tid(page, "shelf-new")).toBeVisible();
   const m = await measurePlayback(page, "bigqueue", isChromium, testInfo.project.name);
   results.playback = { ...(results.playback ?? {}), bigQueue: { queueLength: mock.bigPlaylist.songCount, screen: "home", ...m } };
 });
@@ -268,7 +285,9 @@ test("c+d. songs view: load ~1000 rows, scroll, heap", async ({ connected: page 
   await waitForAppReady(page);
   await expect.poll(() => rowCount(page), { timeout: 30_000 }).toBeGreaterThan(0);
 
-  // Load phase: keep pressing "View more" (the current app has no infinite scroll) until TARGET_ROWS.
+  // Load phase until TARGET_ROWS. Phase 1: press "View more" (no infinite scroll then). Redesign:
+  // infinite scroll, so each step scrolls the main scroller to the bottom and waits for the
+  // next page. `clickMs` is the time per step (click or scroll) until more rows are loaded.
   const clickMs: number[] = [];
   await page.evaluate(() => (window as unknown as PerfWindow).__rsPerf.start());
   const loadStart = Date.now();
@@ -293,7 +312,12 @@ test("c+d. songs view: load ~1000 rows, scroll, heap", async ({ connected: page 
   const loadMs = Date.now() - loadStart;
   const loadWindow = summariseWindow(await page.evaluate(() => (window as unknown as PerfWindow).__rsPerf.stop()));
 
-  // Scroll phase: top to bottom at a steady 100 px per frame.
+  // Let the last page settle (the redesign may already be fetching the next one).
+  await expect(page.getByRole("status", { name: "Loading more" })).toHaveCount(0, { timeout: 30_000 });
+
+  // Scroll phase: top to bottom at a steady 100 px per frame over the rows loaded above. The
+  // end is fixed when the scroll starts: with infinite scroll, nearing the bottom loads more
+  // rows, and the list would otherwise grow to the whole library.
   await page.evaluate(() => {
     const el = document.querySelector("main") ?? document.scrollingElement!;
     el.scrollTop = 0;
@@ -305,10 +329,11 @@ test("c+d. songs view: load ~1000 rows, scroll, heap", async ({ connected: page 
     () =>
       new Promise<number>((resolve) => {
         const el = (document.querySelector("main") ?? document.scrollingElement!) as HTMLElement;
+        const end = el.scrollHeight - el.clientHeight;
         const step = () => {
           const before = el.scrollTop;
-          el.scrollTop = before + 100;
-          if (el.scrollTop === before || el.scrollTop + el.clientHeight >= el.scrollHeight - 1) resolve(el.scrollHeight);
+          el.scrollTop = Math.min(end, before + 100);
+          if (el.scrollTop === before || el.scrollTop >= end - 1) resolve(end + el.clientHeight);
           else requestAnimationFrame(step);
         };
         requestAnimationFrame(step);
@@ -345,6 +370,8 @@ test("c+d. songs view: load ~1000 rows, scroll, heap", async ({ connected: page 
     targetRows: TARGET_ROWS,
     rowsRendered: rows,
     loadClicks: clickMs.length,
+    rowsAfterScroll: await rowCount(page),
+    mountedRowNodes: await page.locator('[data-testid="track-row"]').count(),
     loadTotalMs: loadMs,
     firstClickMs: clickMs[0] ?? null,
     medianClickMs: median(clickMs),
@@ -377,6 +404,7 @@ test("e. image requests on the albums page", async ({ browser }, testInfo) => {
     const imgs = [...document.querySelectorAll("img")];
     return {
       imgElements: imgs.length,
+      tiles: document.querySelectorAll('[data-testid="album-tile"]').length,
       coverImgElements: imgs.filter((i) => i.src.includes("getCoverArt")).length,
       lazy: imgs.filter((i) => i.loading === "lazy").length,
       sized: imgs.filter((i) => i.hasAttribute("width") && i.hasAttribute("height")).length,
@@ -394,6 +422,10 @@ test("e. image requests on the albums page", async ({ browser }, testInfo) => {
   await page.waitForTimeout(1500);
   const sizesRequested = [...new Set(images.map((i) => new URL(i.url).searchParams.get("size")))];
   results.albumsImages = {
+    // The redesign pages 48 albums at a time with infinite scroll, so scrolling to the bottom
+    // loads the next page; phase 1 showed 30 until "View more" was pressed.
+    albumTilesInitial: imgInfo.tiles,
+    albumTilesAfterScroll: await page.locator('[data-testid="album-tile"]').count(),
     imageRequestsInitial: initial,
     imageBytesInitialKb: round(initialBytes / 1024),
     imageRequestsAfterScroll: images.length,
@@ -403,4 +435,41 @@ test("e. image requests on the albums page", async ({ browser }, testInfo) => {
   };
   await context.close();
   expect(initial).toBeGreaterThan(0);
+});
+
+test("f. open the 1,200-song Deep Cuts playlist (cold deep link)", async ({ browser, mock }, testInfo) => {
+  // Not in the phase-1 run (added in phase 3). Same definition as e2e/redesign/playlist-open:
+  // from navigation until the header shows the song count, a track row is visible and two
+  // animation frames have passed. Fresh context per run (cold HTTP cache).
+  const { id, songCount } = mock.bigPlaylist;
+  const runs: { headerMs: number; firstRowMs: number; settledMs: number; mountedRows: number; domNodes: number }[] = [];
+  for (let i = 0; i < Math.min(COLD_RUNS, 3); i++) {
+    const context = await browser.newContext({ ...contextOptions(testInfo.project.use as any), baseURL: WEB_URL });
+    await instrumented(context);
+    const page = await context.newPage();
+    const t0 = Date.now();
+    await page.goto(`/playlist/${id}/${MOCK_SERVER_ID}`);
+    await expect(page.getByText(new RegExp(`${songCount} songs`)).first()).toBeVisible({ timeout: 90_000 });
+    const headerMs = Date.now() - t0;
+    await expect(tid(page, "track-row").first()).toBeVisible({ timeout: 90_000 });
+    const firstRowMs = Date.now() - t0;
+    await page.evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+    const settledMs = Date.now() - t0;
+    const mountedRows = await tid(page, "track-row").count();
+    const domNodes = await page.evaluate(() => document.getElementsByTagName("*").length);
+    runs.push({ headerMs, firstRowMs, settledMs, mountedRows, domNodes });
+    await context.close();
+  }
+  const pick = (k: "headerMs" | "firstRowMs" | "settledMs") => runs.map((r) => r[k]);
+  results.bigPlaylist = {
+    songCount,
+    runs: runs.length,
+    medianHeaderMs: median(pick("headerMs")),
+    medianFirstRowMs: median(pick("firstRowMs")),
+    medianSettledMs: median(pick("settledMs")),
+    mountedRows: runs[0]?.mountedRows ?? null,
+    domNodes: runs[0]?.domNodes ?? null,
+    detail: runs,
+  };
+  expect(results.bigPlaylist.medianSettledMs).toBeGreaterThan(0);
 });

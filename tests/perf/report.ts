@@ -56,7 +56,8 @@ const ROWS: Row[] = [
   ["(b) 1,200-song queue: CDP script / task time", "playback.bigQueue.cdpMetricsDelta.scriptMs|playback.bigQueue.cdpMetricsDelta.taskMs", "ms"],
   ["(b) 1,200-song queue: trace main-thread busy %", "playback.bigQueue.trace.mainThreadBusyPct", "%"],
   ["(b) 1,200-song queue: trace tasks/s / longest task", "playback.bigQueue.trace.tasksPerSecond|playback.bigQueue.trace.longestTaskMs", "ms"],
-  ["(c) Songs: rows rendered / View-more clicks", "songs.rowsRendered|songs.loadClicks", ""],
+  ["(c) Songs: rows loaded / load steps (View-more clicks or scrolls)", "songs.rowsRendered|songs.loadClicks", ""],
+  ["(c) Songs: rows loaded after the scroll / row nodes mounted", "songs.rowsAfterScroll|songs.mountedRowNodes", ""],
   ["(c) Songs: total time to load rows", "songs.loadTotalMs", "ms"],
   ["(c) Songs: first / median / last click to rows", "songs.firstClickMs|songs.medianClickMs|songs.lastClickMs", "ms"],
   ["(c) Songs load phase: dropped frames / long tasks (probe)", "songs.loadPhase.droppedFrames|songs.loadPhase.probeLongTasks", ""],
@@ -65,9 +66,13 @@ const ROWS: Row[] = [
   ["(d) After scroll: DOM nodes", "songs.memory.domNodes", ""],
   ["(d) After scroll: JS heap used / after GC", "songs.memory.jsHeapUsedMb|songs.memory.jsHeapUsedAfterGcMb", "MB"],
   ["(d) After scroll: wasm linear memory", "songs.memory.wasmMemoryMb", "MB"],
-  ["(e) Albums page: cover requests initial / after scroll", "albumsImages.imageRequestsInitial|albumsImages.imageRequestsAfterScroll", ""],
+  ["(e) Albums page: album tiles initial / after scroll", "albumsImages.albumTilesInitial|albumsImages.albumTilesAfterScroll", ""],
+  ["(e) Albums page: cover requests initial / after scroll","albumsImages.imageRequestsInitial|albumsImages.imageRequestsAfterScroll", ""],
   ["(e) Albums page: cover KB initial", "albumsImages.imageBytesInitialKb", "KB"],
   ["(e) Albums page: <img> total / lazy / sized", "albumsImages.imgElements|albumsImages.lazy|albumsImages.sized", ""],
+  ["(e) Albums page: cover sizes requested", "albumsImages.sizesRequested", ""],
+  ["(f) Deep Cuts (1,200 songs): header / first row / settled, median", "bigPlaylist.medianHeaderMs|bigPlaylist.medianFirstRowMs|bigPlaylist.medianSettledMs", "ms"],
+  ["(f) Deep Cuts: row nodes mounted / DOM nodes", "bigPlaylist.mountedRows|bigPlaylist.domNodes", ""],
 ];
 
 function cell(doc: any, path: string) {

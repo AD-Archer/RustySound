@@ -51,11 +51,13 @@ export async function seedServer(context: BrowserContext) {
   );
 }
 
-/** Blocking overlays the current app shows while starting. */
+/** Blocking overlays the pre-redesign app showed while starting (kept so old builds still time). */
 const BLOCKING_TEXT = /App initializing, please wait|Loading Home|Loading RustySound/i;
 
 export async function waitForAppReady(page: Page, timeout = 30_000) {
   await expect(page.locator("#main")).not.toBeEmpty({ timeout });
+  // The redesign's startup overlay ("Starting RustySound").
+  await expect(page.locator('[data-testid="boot-overlay"]')).toHaveCount(0, { timeout });
   await expect(page.getByText(BLOCKING_TEXT).first()).toBeHidden({ timeout });
 }
 
