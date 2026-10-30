@@ -41,8 +41,10 @@ pub fn ArtworkMosaic(
     rsx! {
         div {
             class: "rs-mosaic",
-            role: "img",
-            aria_label: "{alt}",
+            // Decorative without `alt`: role="img" with an empty name fails axe role-img-alt.
+            role: if !alt.is_empty() { Some("img") } else { None },
+            aria_label: if !alt.is_empty() { Some(alt.clone()) } else { None },
+            aria_hidden: if alt.is_empty() { Some("true") } else { None },
             style: "width:{size_px}px;height:{size_px}px",
             for (index, url) in urls.into_iter().enumerate() {
                 if let Some(url) = url {

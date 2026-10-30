@@ -155,7 +155,7 @@ fn OffServerRow(item: OffServerItem, wide: bool) -> Element {
                             href: "{url}",
                             target: "_blank",
                             rel: "noopener noreferrer",
-                            aria_label: "Find {item.title} on {source}",
+                            aria_label: "Find {item.title} online",
                             "data-testid": "offserver-find",
                             "Find"
                         }

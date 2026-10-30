@@ -91,7 +91,8 @@ fn MixRow(mix: Mix, wide: bool, on_menu: EventHandler<Option<(f64, f64)>>) -> El
                 button {
                     r#type: "button",
                     class: "rs-discover-mix__main",
-                    aria_label: "Play {mix.name}, {counts}",
+                    // No aria-label: the visible name, blurb and counts are the
+                    // accessible name (axe label-content-name-mismatch).
                     onclick: play.clone(),
                     ArtworkMosaic { covers, size_px: 44 }
                     span { class: "rs-row__meta",
@@ -109,7 +110,7 @@ fn MixRow(mix: Mix, wide: bool, on_menu: EventHandler<Option<(f64, f64)>>) -> El
                         }
                         span { class: "rs-row__sub", style: "display:block", "{mix.blurb}" }
                         if !wide {
-                            span { class: "rs-row__why rs-discover__num", style: "display:block", "{counts}" }
+                            span { class: "rs-row__sub rs-discover__num", style: "display:block", "{counts}" }
                         }
                     }
                 }

@@ -112,7 +112,9 @@ impl DiscoverySource {
     /// Short label for UI, e.g. "Last.fm".
     pub fn label(&self) -> &'static str {
         match self {
-            Self::Navidrome => "Your server",
+            // Suggested by the server, not in its library: "Your server" read as
+            // "on your server" under the "Outside your server" heading.
+            Self::Navidrome => "Server pick",
             Self::LastFm => "Last.fm",
             Self::ListenBrainz => "ListenBrainz",
             Self::ITunes => "Apple Music",
