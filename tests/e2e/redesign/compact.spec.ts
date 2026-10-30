@@ -1,6 +1,6 @@
 // Redesign suite, compact layout (iPhone). Expected to fail until phase 2 lands.
 import { audioState, expect, test } from "../../support/fixtures";
-import { expectTrackMenuComplete, gotoReady, isCompact, KEPT_PLAYER_IDS, longPress, openAlbum, playFirstTrack, tid } from "./helpers";
+import { expectTrackMenuComplete, gotoReady, isCompact, longPress, openAlbum, playFirstTrack, tid } from "./helpers";
 
 test.describe("compact layout", () => {
   test.beforeEach(async ({ page }) => {
@@ -10,7 +10,8 @@ test.describe("compact layout", () => {
   test("tab bar navigates Discover / Library / Search", async ({ connected: page }) => {
     await gotoReady(page, "/");
     await expect(page.locator(".rs-app[data-layout='compact']")).toBeAttached();
-    await expect(tid(page, "player-bar").or(tid(page, "mini-player")).first()).toBeAttached();
+    // The compact mini player only appears once something is loaded; nothing is yet.
+    await expect(tid(page, "mini-player"), "no empty mini player on compact").toHaveCount(0);
     await expect(page.locator("[data-testid^='nav-']"), "no sidebar on compact").toHaveCount(0);
 
     await tid(page, "tab-library").click();
@@ -48,14 +49,16 @@ test.describe("compact layout", () => {
     await playFirstTrack(page, mock);
     const mini = tid(page, "mini-player");
     await expect(mini).toBeVisible();
-    // MediaSession presses these by id, so they must exist even on the compact layout.
-    for (const id of KEPT_PLAYER_IDS) await expect(page.locator(`#${id}`).first(), id).toBeAttached();
+    // MediaSession presses play/pause, previous and next by id, so those must exist even on the
+    // compact layout. The compact mini player stays minimal: shuffle, repeat, rating and add live
+    // in Now Playing (checked below) and the track menu.
+    for (const id of ["play-pause-btn", "prev-btn", "next-btn"]) await expect(page.locator(`#${id}`).first(), id).toBeAttached();
     await mini.click();
     const now = tid(page, "now-playing");
     await expect(now).toBeVisible();
     // The player bar keeps the MediaSession ids while the sheet is open, so the sheet's own
     // transport uses np-* ids (ids stay unique) and calls the same actions.
-    for (const id of ["np-play-pause-btn", "np-prev-btn", "np-next-btn"]) await expect(now.locator(`#${id}`)).toBeVisible();
+    for (const id of ["np-play-pause-btn", "np-prev-btn", "np-next-btn", "np-shuffle-btn", "np-repeat-btn"]) await expect(now.locator(`#${id}`)).toBeVisible();
     for (const id of ["play-pause-btn", "prev-btn", "next-btn"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
 
     const lyrics = tid(page, "lyrics");
