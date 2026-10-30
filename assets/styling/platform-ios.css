@@ -94,6 +94,14 @@
   background: linear-gradient(to bottom, #1f2124 0 50%, transparent 50%);
 }
 
+/* ---- Landscape ---------------------------------------------------------
+   The compact layout's side gutter ignored the safe area, so in landscape
+   titles, the search field and rows ran under the Dynamic Island and the
+   rounded corners. Backgrounds still reach the edges; only content moves. */
+:root[data-platform="ios"] {
+  --gutter: calc(16px + max(var(--safe-left), var(--safe-right)));
+}
+
 /* ---- Dynamic Type ------------------------------------------------------
    `-apple-system-body` follows the user's text size (17px at the default
    Large), so 1rem tracks Dynamic Type. Each step of the type ramp scales from
