@@ -1,14 +1,15 @@
 name: Build and Release
 
+# Runs on pushes to prod and on v* tags (releases), or by hand from the Actions
+# tab ("Run workflow"). Pull requests no longer trigger it: the Check workflow
+# covers them, and a PR branch isn't allowed to deploy to GitHub Pages.
 on:
   push:
     branches:
       - prod
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - prod
+  workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN for GitHub Pages deployment
 permissions:
@@ -92,6 +93,8 @@ jobs:
 
   web-pages:
     needs: version
+    # The github-pages environment only accepts deployments from main and prod.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -418,7 +421,7 @@ jobs:
   release:
     needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-apks]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/prod' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4
