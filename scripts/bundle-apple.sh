@@ -212,6 +212,19 @@ set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" "${IOS_PLIST_PATH}"
 
+# Adopt the UIScene life cycle: apps built with the iOS 27 SDK are killed at launch
+# without a scene manifest. src/ios_scene.rs registers RustySoundSceneDelegate and
+# attaches tao's window to the scene. Dioxus.toml [ios.raw] adds the same keys for
+# dx >= 0.7.10; set them here too so older dx versions (no [ios.raw]) also work.
+/usr/libexec/PlistBuddy -c "Delete :UIApplicationSceneManifest" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest dict" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UIApplicationSupportsMultipleScenes bool false" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations dict" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication array" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0 dict" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneConfigurationName string Default Configuration" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneDelegateClassName string RustySoundSceneDelegate" "${IOS_PLIST_PATH}"
+
 # Allow streaming/audio URLs in WKWebView for sideload/dev builds (especially HTTP radio streams).
 /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "${IOS_PLIST_PATH}"

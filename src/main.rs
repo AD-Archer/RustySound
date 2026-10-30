@@ -6,6 +6,9 @@ mod cache_service;
 mod components;
 mod db;
 mod diagnostics;
+// iOS 27 SDK: UIScene life-cycle bridge for tao 0.34 (see the module docs).
+#[cfg(target_os = "ios")]
+mod ios_scene;
 mod offline_art;
 mod offline_audio;
 mod storage;
@@ -160,6 +163,10 @@ fn main() {
         return;
     }
 
+    // Must run before launch: UIKit instantiates the scene delegate by class name.
+    #[cfg(target_os = "ios")]
+    ios_scene::install();
+
     #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
 }
@@ -293,6 +300,10 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
 
 #[component]
 fn App() -> Element {
+    // iOS: give tao's window to the UIScene bridge (see ios_scene.rs).
+    #[cfg(target_os = "ios")]
+    ios_scene::use_scene_window();
+
     rsx! {
         document::Title { "RustySound" }
         // Favicon and icons
