@@ -1,6 +1,6 @@
 //! The queue page (`/queue`): the whole queue, windowed (queues can run past
-//! 1,200 songs), with editing, Add Songs, Quick Create, Save as Playlist,
-//! Clear and Restore Previous Queue.
+//! 1,200 songs). Add Songs is the one visible action; the "…" menu holds
+//! Edit, Quick Create, Save as Playlist, Restore Previous Queue and Clear.
 
 mod add_songs;
 
@@ -10,8 +10,8 @@ use crate::components::song_details::up_next::{
     save_queue_as_playlist, spawn_quick_create, QueueEditRow,
 };
 use crate::components::ui::{
-    use_layout, EmptyState, IconButton, Button, ButtonVariant, SectionHeader, TrackRow,
-    VirtualList,
+    use_layout, Button, ButtonSize, EmptyState, IconButton, Menu, MenuGap, MenuItem,
+    SectionHeader, TrackRow, VirtualList,
 };
 use crate::components::{AddMenuController, AppView, Navigation, PreviewPlaybackSignal, SeekRequestSignal};
 use crate::db::{load_temporary_queue_snapshots, TemporaryQueueSnapshot};
@@ -79,6 +79,8 @@ pub fn QueueView() -> Element {
     let layout = use_layout();
     let mut editing = use_signal(|| false);
     let mut adding = use_signal(|| false);
+    let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
+    let mut confirm_clear = use_signal(|| false);
     let busy = use_signal(|| false);
     let mut snapshots = use_signal(|| None::<Vec<TemporaryQueueSnapshot>>);
     let mut prefetch_signature = use_signal(String::new);
@@ -149,32 +151,14 @@ pub fn QueueView() -> Element {
         }
     });
 
-    let restore = latest_snapshot.clone().map(|snapshot| {
-        rsx! {
-            Button {
-                label: "Restore Previous Queue".to_string(),
-                icon: "clock".to_string(),
-                variant: ButtonVariant::Tinted,
-                testid: "queue-restore".to_string(),
-                onclick: move |_| restore_snapshot(player, seek_request, preview, snapshot.clone()),
+    let can_quick_create = !busy() && seed.is_some();
+    let quick_create = {
+        let seed = seed.clone();
+        move |_| {
+            menu_at.set(None);
+            if let Some(seed) = seed.clone() {
+                spawn_quick_create(player, seed, busy);
             }
-        }
-    });
-    let quick_create = rsx! {
-        Button {
-            label: if busy() { "Adding…".to_string() } else { "Quick Create".to_string() },
-            icon: "plus".to_string(),
-            variant: ButtonVariant::Tinted,
-            disabled: busy() || seed.is_none(),
-            testid: "queue-quick-create".to_string(),
-            onclick: {
-                let seed = seed.clone();
-                move |_| {
-                    if let Some(seed) = seed.clone() {
-                        spawn_quick_create(player, seed, busy);
-                    }
-                }
-            },
         }
     };
 
@@ -203,50 +187,47 @@ pub fn QueueView() -> Element {
                             if seconds > 0 {
                                 " · {total_duration(seconds)}"
                             }
+                            if busy() {
+                                " · adding similar songs…"
+                            }
                         }
                     }
                 }
-            }
-            div { class: "rs-player-queue__actions",
-                Button {
-                    label: "Add Songs".to_string(),
-                    icon: "plus".to_string(),
-                    testid: "queue-add".to_string(),
-                    onclick: move |_| adding.set(true),
-                }
-                {quick_create}
-                if count > 0 {
-                    Button {
-                        label: if editing_now { "Done".to_string() } else { "Edit".to_string() },
-                        variant: ButtonVariant::Tinted,
-                        testid: "queue-edit".to_string(),
-                        onclick: move |_| editing.toggle(),
+                div { class: "rs-player-queue__tools",
+                    // One visible action: Add Songs, or Done while reordering.
+                    if editing_now {
+                        Button {
+                            label: "Done".to_string(),
+                            icon: "check".to_string(),
+                            size: ButtonSize::Small,
+                            testid: "queue-edit".to_string(),
+                            onclick: move |_| editing.set(false),
+                        }
+                    } else {
+                        Button {
+                            label: "Add Songs".to_string(),
+                            icon: "plus".to_string(),
+                            size: ButtonSize::Small,
+                            testid: "queue-add".to_string(),
+                            onclick: move |_| adding.set(true),
+                        }
                     }
-                    Button {
-                        label: "Save as Playlist".to_string(),
-                        icon: "playlist".to_string(),
-                        variant: ButtonVariant::Tinted,
-                        testid: "queue-save".to_string(),
-                        onclick: move |_| save_queue_as_playlist(player, add_menu.clone()),
-                    }
-                    Button {
-                        label: "Clear".to_string(),
-                        icon: "trash".to_string(),
-                        variant: ButtonVariant::Tinted,
-                        testid: "queue-clear".to_string(),
-                        onclick: move |_| {
-                            editing.set(false);
-                            player.clear_queue();
+                    IconButton {
+                        icon: "more-horizontal".to_string(),
+                        label: "Queue options".to_string(),
+                        testid: "queue-more".to_string(),
+                        onclick: move |evt: MouseEvent| {
+                            let p = evt.client_coordinates();
+                            menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                         },
                     }
                 }
-                {restore.clone()}
             }
             if count == 0 {
                 EmptyState {
                     icon: "queue".to_string(),
                     title: "Your queue is empty".to_string(),
-                    message: "Add songs, or restore the queue you had before.".to_string(),
+                    message: if latest_snapshot.is_some() { "Add songs, or bring back the queue you had before with Restore Previous Queue in the “…” menu.".to_string() } else { "Add songs to start one.".to_string() },
                     testid: "queue-list".to_string(),
                 }
             } else {
@@ -262,6 +243,87 @@ pub fn QueueView() -> Element {
         }
         if adding() {
             AddSongsSheet { on_close: move |_| adding.set(false) }
+        }
+        if let Some(anchor) = menu_at() {
+            Menu {
+                label: "Queue options".to_string(),
+                anchor,
+                testid: "queue-menu".to_string(),
+                on_close: move |_| menu_at.set(None),
+                if count > 0 {
+                    MenuItem {
+                        label: if editing_now { "Done Editing".to_string() } else { "Edit".to_string() },
+                        icon: "edit".to_string(),
+                        testid: "queue-menu-edit".to_string(),
+                        onclick: move |_| {
+                            menu_at.set(None);
+                            editing.toggle();
+                        },
+                    }
+                }
+                MenuItem {
+                    label: "Quick Create".to_string(),
+                    icon: "plus".to_string(),
+                    detail: if busy() { Some("Adding…".to_string()) } else { None },
+                    disabled: !can_quick_create,
+                    testid: "queue-quick-create".to_string(),
+                    onclick: quick_create,
+                }
+                if count > 0 {
+                    MenuItem {
+                        label: "Save as Playlist…".to_string(),
+                        icon: "playlist".to_string(),
+                        testid: "queue-save".to_string(),
+                        onclick: move |_| {
+                            menu_at.set(None);
+                            save_queue_as_playlist(player, add_menu.clone());
+                        },
+                    }
+                }
+                if let Some(snapshot) = latest_snapshot.clone() {
+                    MenuItem {
+                        label: "Restore Previous Queue".to_string(),
+                        icon: "clock".to_string(),
+                        testid: "queue-restore".to_string(),
+                        onclick: move |_| {
+                            menu_at.set(None);
+                            editing.set(false);
+                            restore_snapshot(player, seek_request, preview, snapshot.clone());
+                        },
+                    }
+                }
+                if count > 0 {
+                    MenuGap {}
+                    MenuItem {
+                        label: "Clear Queue…".to_string(),
+                        icon: "trash".to_string(),
+                        danger: true,
+                        testid: "queue-menu-clear".to_string(),
+                        onclick: move |_| {
+                            menu_at.set(None);
+                            confirm_clear.set(true);
+                        },
+                    }
+                }
+            }
+        }
+        if confirm_clear() {
+            Menu {
+                message: "Clear the queue? Everything except the song that's playing is removed.".to_string(),
+                label: "Clear the queue".to_string(),
+                testid: "queue-clear-confirm".to_string(),
+                on_close: move |_| confirm_clear.set(false),
+                MenuItem {
+                    label: "Clear Queue".to_string(),
+                    danger: true,
+                    testid: "queue-clear".to_string(),
+                    onclick: move |_| {
+                        confirm_clear.set(false);
+                        editing.set(false);
+                        player.clear_queue();
+                    },
+                }
+            }
         }
     }
 }

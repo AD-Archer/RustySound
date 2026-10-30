@@ -164,6 +164,8 @@ pub(super) fn ServerSheet(
     on_close: EventHandler<()>,
     on_saved: EventHandler<ServerConfig>,
     #[props(default)] title: Option<String>,
+    /// Shows "Delete Server…" under the form (edit mode).
+    #[props(default)] on_delete: Option<EventHandler<()>>,
 ) -> Element {
     let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
     let is_edit = editing.is_some();
@@ -393,6 +395,19 @@ pub(super) fn ServerSheet(
                         disabled: !can_save,
                         testid: "server-save".to_string(),
                         onclick: save,
+                    }
+                }
+                // Editing an existing server: Delete lives here, not on the row.
+                if let Some(handler) = on_delete {
+                    div { class: "rs-settings-form__delete",
+                        Button {
+                            label: "Delete Server…".to_string(),
+                            icon: "trash".to_string(),
+                            variant: ButtonVariant::Plain,
+                            danger: true,
+                            testid: "server-delete".to_string(),
+                            onclick: move |_| handler.call(()),
+                        }
                     }
                 }
             }

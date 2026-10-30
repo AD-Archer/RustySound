@@ -104,4 +104,30 @@ test.describe("wide layout", () => {
     await input.fill("Paper Comets");
     await expect(page.getByText(mock.artist.name, { exact: true }).first()).toBeVisible();
   });
+
+  test("Albums: sort and Grid / Cover Flow share one menu", async ({ connected: page }) => {
+    await gotoReady(page, "/albums");
+    await expect(tid(page, "albums-view-toggle"), "no separate view toggle").toHaveCount(0);
+    await tid(page, "albums-sort").click();
+    await tid(page, "albums-view-flow").click();
+    await expect(tid(page, "coverflow")).toBeVisible();
+    await tid(page, "albums-sort").click();
+    await tid(page, "albums-view-grid").click();
+    await expect(tid(page, "coverflow")).toHaveCount(0);
+  });
+
+  test("Settings: the off-server switch comes first in Discovery; a server row opens its editor", async ({ connected: page }) => {
+    await gotoReady(page, "/settings");
+    await tid(page, "server-edit").first().click();
+    const form = tid(page, "server-form");
+    await expect(form).toBeVisible();
+    await expect(tid(page, "server-delete")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(form).toHaveCount(0);
+
+    await page.getByRole("button", { name: /^Discovery/ }).first().click();
+    const first = page.locator(".rs-settings-row").first();
+    await expect(first).toContainText("Show music not on your server");
+    await expect(first.locator('[data-testid="discovery-offserver"]')).toBeVisible();
+  });
 });

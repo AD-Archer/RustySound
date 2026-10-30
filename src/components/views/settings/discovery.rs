@@ -1,5 +1,5 @@
 //! Settings → Discovery: Last.fm and ListenBrainz accounts (each with a real
-//! Test), and the off-server / preview switches.
+//! Test), and, first, the "Show music not on your server" and preview switches.
 
 use super::discovery_check::{test_lastfm_key, test_lastfm_user, test_listenbrainz_user};
 use super::shared::{use_settings_ctx, Footnote, GroupTitle, SwitchRow};
@@ -53,6 +53,25 @@ pub(super) fn DiscoverySection() -> Element {
     drop(current);
 
     rsx! {
+        // The switch people look for comes first.
+        GroupTitle { title: "On Home".to_string() }
+        ul { class: "rs-list rs-list--text",
+            SwitchRow {
+                id: "discovery-offserver".to_string(),
+                title: "Show music not on your server".to_string(),
+                subtitle: "Adds an 'Outside your server' shelf at the bottom of Home, using Last.fm, ListenBrainz and your server's suggestions.".to_string(),
+                checked: offserver,
+                on_toggle: move |on| ctx.update(|s| s.discovery_offserver_enabled = on),
+            }
+            SwitchRow {
+                id: "discovery-previews".to_string(),
+                title: "30-second previews".to_string(),
+                subtitle: "Find previews on the iTunes Store for those recommendations.".to_string(),
+                checked: previews,
+                on_toggle: move |on| ctx.update(|s| s.discovery_previews_enabled = on),
+            }
+        }
+
         GroupTitle { title: "Last.fm".to_string() }
         ul { class: "rs-list rs-list--text rs-settings-fields",
             li {
@@ -160,24 +179,6 @@ pub(super) fn DiscoverySection() -> Element {
         }
         CheckResult { id: "listenbrainz-result".to_string(), check: lb_check() }
         Footnote { "Fresh releases from the artists you listen to. No token needed, just your public username." }
-
-        GroupTitle { title: "On Discover".to_string() }
-        ul { class: "rs-list rs-list--text",
-            SwitchRow {
-                id: "discovery-offserver".to_string(),
-                title: "Outside your server".to_string(),
-                subtitle: "Recommend artists and albums you don't own yet.".to_string(),
-                checked: offserver,
-                on_toggle: move |on| ctx.update(|s| s.discovery_offserver_enabled = on),
-            }
-            SwitchRow {
-                id: "discovery-previews".to_string(),
-                title: "30-second previews".to_string(),
-                subtitle: "Find previews on the iTunes Store for those recommendations.".to_string(),
-                checked: previews,
-                on_toggle: move |on| ctx.update(|s| s.discovery_previews_enabled = on),
-            }
-        }
     }
 }
 

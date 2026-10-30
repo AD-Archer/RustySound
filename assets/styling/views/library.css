@@ -444,17 +444,6 @@
 }
 
 /* Download: a square tinted button beside Play and Shuffle (style A). */
-.rs-library-actions__dl {
-  border-radius: var(--r-button);
-  background: var(--btn-fill);
-  color: var(--btn-ink);
-}
-
-.rs-app[data-layout="wide"] .rs-library-actions__dl {
-  width: 36px;
-  height: 36px;
-}
-
 /* Similar artists: round thumbs in a row. */
 .rs-library-bubbles {
   display: flex;

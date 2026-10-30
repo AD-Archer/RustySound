@@ -1,9 +1,8 @@
-//! Settings → Advanced: Quick Scan per server, and the iOS audio log tools
-//! (iOS builds only).
+//! Settings → Advanced: Quick Scan per server (tap a row), and the iOS audio
+//! log tools (iOS builds only).
 
-use super::shared::{Footnote, GroupTitle};
+use super::shared::{ActionRow, Footnote, GroupTitle};
 use crate::api::{NavidromeClient, ScanStatus, ServerConfig};
-use crate::components::ui::{IconButton, IconButtonSize, Button, ButtonVariant};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 
@@ -26,6 +25,14 @@ fn describe(status: &ScanStatus) -> String {
         parts.push(format!("{elapsed}s elapsed"));
     }
     parts.join(" · ")
+}
+
+/// A scan this session reported as still running.
+fn scanning_now(state: Option<&ScanState>) -> bool {
+    matches!(
+        state,
+        Some(ScanState::Status(s)) if s.scanning == Some(true) || s.status == "running" || s.status == "scanning"
+    )
 }
 
 #[component]
@@ -70,7 +77,21 @@ pub(super) fn AdvancedSection() -> Element {
             ul { class: "rs-list rs-list--text", aria_label: "Quick Scan",
                 for server in list.iter().cloned() {
                     li { key: "{server.id}", "data-testid": "scan-row",
-                        div { class: "rs-row rs-settings-row",
+                        // The whole row starts a scan; tapping again while one
+                        // runs just reports its progress.
+                        button {
+                            r#type: "button",
+                            class: "rs-row rs-settings-row rs-settings-row--tap",
+                            aria_label: "Scan {server.name}",
+                            "data-testid": "scan-start",
+                            disabled: matches!(scans.read().get(&server.id), Some(ScanState::Busy)),
+                            onclick: {
+                                let server = server.clone();
+                                move |_| {
+                                    let running = scanning_now(scans.peek().get(&server.id));
+                                    run(server.clone(), !running)
+                                }
+                            },
                             span { class: "rs-row__meta",
                                 span { class: "rs-settings-row__title", "{server.name}" }
                                 span { class: "rs-settings-row__sub", role: "status",
@@ -82,33 +103,14 @@ pub(super) fn AdvancedSection() -> Element {
                                     }
                                 }
                             }
-                            IconButton {
-                                icon: "refresh-cw".to_string(),
-                                label: format!("Refresh scan status for {}", server.name),
-                                quiet: true,
-                                size: IconButtonSize::Small,
-                                onclick: {
-                                    let server = server.clone();
-                                    move |_| run(server.clone(), false)
-                                },
-                            }
-                            button {
-                                r#type: "button",
-                                class: "rs-btn rs-btn--tinted rs-btn--small",
-                                aria_label: "Scan {server.name}",
-                                "data-testid": "scan-start",
-                                disabled: matches!(scans.read().get(&server.id), Some(ScanState::Busy)),
-                                onclick: {
-                                    let server = server.clone();
-                                    move |_| run(server.clone(), true)
-                                },
-                                "Scan"
+                            span { class: "rs-settings-row__action", aria_hidden: "true",
+                                if scanning_now(scans.read().get(&server.id)) { "Refresh" } else { "Scan" }
                             }
                         }
                     }
                 }
             }
-            Footnote { "Asks the server to pick up new and changed files. Big libraries can take a few minutes; refresh to see progress." }
+            Footnote { "Tap a server to ask it to pick up new and changed files. Big libraries can take a few minutes; tap again to see progress." }
         }
 
         if cfg!(target_os = "ios") {
@@ -128,10 +130,10 @@ fn IosAudioLogs() -> Element {
 
     rsx! {
         GroupTitle { title: "iOS Audio Logs".to_string() }
-        div { class: "rs-settings-form__actions rs-settings-form__actions--start",
-            Button {
+        ul { class: "rs-list rs-list--text", aria_label: "iOS audio log actions",
+            ActionRow {
                 label: "Refresh".to_string(),
-                variant: ButtonVariant::Tinted,
+                icon: "refresh-cw".to_string(),
                 onclick: move |_| {
                     let lines = ios_audio_log_snapshot(1000);
                     if lines.is_empty() {
@@ -143,9 +145,9 @@ fn IosAudioLogs() -> Element {
                     }
                 },
             }
-            Button {
+            ActionRow {
                 label: "Export .txt".to_string(),
-                variant: ButtonVariant::Tinted,
+                icon: "file-text".to_string(),
                 onclick: move |_| {
                     let mut body = text();
                     if body.trim().is_empty() {
@@ -163,9 +165,10 @@ fn IosAudioLogs() -> Element {
                     }));
                 },
             }
-            Button {
+            ActionRow {
                 label: "Clear".to_string(),
-                variant: ButtonVariant::Tinted,
+                icon: "trash".to_string(),
+                danger: true,
                 onclick: move |_| {
                     ios_audio_log_clear();
                     text.set(String::new());

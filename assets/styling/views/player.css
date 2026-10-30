@@ -1052,13 +1052,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rs-player-queue__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: var(--sp-4);
-  margin-bottom: var(--sp-4);
-}
-
 .rs-player-addrow {
   cursor: default;
   gap: var(--sp-3);
@@ -1139,3 +1132,12 @@
   cursor: default;
 }
 .rs-player-modals { display: contents; }
+
+/* Queue page head: Add Songs (or Done) and the "…" menu, beside the title. */
+.rs-player-queue__tools {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-right: -6px;
+}

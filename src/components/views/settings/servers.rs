@@ -4,8 +4,9 @@ use super::server_form::{format_connection_error, ServerSheet};
 use super::shared::{use_settings_ctx, ActionRow, Footnote};
 use crate::api::{NavidromeClient, ServerConfig};
 use crate::components::ui::{
-    EmptyState, IconButton, IconButtonSize, Button, ButtonVariant, Sheet, Switch,
+    Button, ButtonVariant, EmptyState, Sheet, Switch,
 };
+use crate::components::Icon;
 use crate::db::save_servers_now;
 use dioxus::prelude::*;
 use std::collections::HashMap;
@@ -108,10 +109,6 @@ pub(super) fn ServersSection() -> Element {
                             let server = server.clone();
                             move |_| overlay.set(Overlay::Edit(server.clone()))
                         },
-                        on_delete: {
-                            let server = server.clone();
-                            move |_| overlay.set(Overlay::ConfirmDelete(server.clone()))
-                        },
                     }
                 }
             }
@@ -145,7 +142,8 @@ pub(super) fn ServersSection() -> Element {
             },
             Overlay::Edit(server) => rsx! {
                 ServerSheet {
-                    editing: Some(server),
+                    editing: Some(server.clone()),
+                    on_delete: move |_| overlay.set(Overlay::ConfirmDelete(server.clone())),
                     on_close: move |_| overlay.set(Overlay::None),
                     on_saved: move |_| {
                         overlay.set(Overlay::None);
@@ -196,7 +194,6 @@ fn ServerRow(
     reach: Option<Reach>,
     on_toggle: EventHandler<bool>,
     on_edit: EventHandler<MouseEvent>,
-    on_delete: EventHandler<MouseEvent>,
 ) -> Element {
     let (led, status) = if !server.active {
         ("rs-led rs-led--off", "Off".to_string())
@@ -211,31 +208,24 @@ fn ServerRow(
     rsx! {
         li { "data-testid": "server-row",
             div { class: "rs-row rs-settings-server",
-                span { class: "rs-settings-server__dot",
-                    span { class: "{led}", role: "img", aria_label: "{status}" }
-                }
-                span { class: "rs-row__meta",
-                    span { class: "rs-row__title",
-                        span { id: "{title_id}", "{server.name}" }
-                    }
-                    span { class: "rs-row__sub", style: "display:block", "{server.url} · {server.username}" }
-                    span { class: "rs-row__why rs-settings-server__status", style: "display:block", "{status}" }
-                }
-                IconButton {
-                    icon: "edit".to_string(),
-                    label: format!("Edit {}", server.name),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    testid: "server-edit".to_string(),
+                // Tap the row to edit (Delete is in the edit sheet); the
+                // switch stays separate.
+                button {
+                    r#type: "button",
+                    class: "rs-settings-server__open",
+                    "data-testid": "server-edit",
                     onclick: move |evt| on_edit.call(evt),
-                }
-                IconButton {
-                    icon: "trash".to_string(),
-                    label: format!("Delete {}", server.name),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    testid: "server-delete".to_string(),
-                    onclick: move |evt| on_delete.call(evt),
+                    span { class: "rs-settings-server__dot",
+                        span { class: "{led}", aria_hidden: "true" }
+                    }
+                    span { class: "rs-row__meta",
+                        span { class: "rs-row__title",
+                            span { id: "{title_id}", "{server.name}" }
+                        }
+                        span { class: "rs-row__sub", style: "display:block", "{server.url} · {server.username}" }
+                        span { class: "rs-row__why rs-settings-server__status", style: "display:block", "{status}" }
+                    }
+                    Icon { name: "chevron-right".to_string(), class: "rs-ic rs-ic--sm rs-settings-server__chev".to_string() }
                 }
                 Switch {
                     checked: server.active,
