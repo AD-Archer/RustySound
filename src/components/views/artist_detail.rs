@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    ActionMenu, ActionMenuItem, Artwork, EmptyState, InsetList, PillButton,
+    MenuPopover, MenuPopoverItem, Artwork, EmptyState, InsetList, PillButton,
     PillVariant, SectionHeader, TrackRow,
 };
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
@@ -330,17 +330,17 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                ActionMenu {
+                MenuPopover {
                     label: format!("{} actions", artist.name),
                     anchor,
                     on_close: move |_| menu_at.set(None),
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: if starred() { "Unfavorite".to_string() } else { "Favorite".to_string() },
                         icon: if starred() { "star-filled".to_string() } else { "star".to_string() },
                         testid: "artist-favorite".to_string(),
                         onclick: toggle_star,
                     }
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: "Play Top Songs".to_string(),
                         icon: "play".to_string(),
                         disabled: top_count == 0,
@@ -350,7 +350,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                             status.set(player.play(list, 0, None).err());
                         },
                     }
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: "Add Top Songs to Queue".to_string(),
                         icon: "add-to-queue".to_string(),
                         disabled: top_count == 0,

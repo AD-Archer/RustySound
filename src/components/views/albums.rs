@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    cover_art_url, use_layout, ActionMenu, ActionMenuItem, CoverFlow, CoverFlowItem, EmptyState,
+    cover_art_url, use_layout, MenuPopover, MenuPopoverItem, CoverFlow, CoverFlowItem, EmptyState,
     SearchField, Segmented, Stage,
 };
 use crate::components::views::library::shared::{
@@ -301,14 +301,14 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                ActionMenu {
+                MenuPopover {
                     label: "Sort albums".to_string(),
                     title: "Sort by".to_string(),
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     testid: "albums-sort-menu".to_string(),
                     for (value, label) in SORTS {
-                        ActionMenuItem {
+                        MenuPopoverItem {
                             key: "{value}",
                             label: label.to_string(),
                             checked: current_sort == value,

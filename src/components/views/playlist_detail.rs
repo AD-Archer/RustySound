@@ -7,7 +7,7 @@ mod edit_row;
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, ActionMenu, ActionMenuGap, ActionMenuItem, Artwork, EmptyState, IconButton,
+    use_layout, MenuPopover, MenuPopoverGap, MenuPopoverItem, Artwork, EmptyState, IconButton,
     PillButton, PillVariant, TrackRow, VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
@@ -470,12 +470,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                ActionMenu {
+                MenuPopover {
                     label: format!("{} actions", playlist.name),
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     testid: "playlist-menu".to_string(),
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: "Play Next".to_string(),
                         icon: "play-next".to_string(),
                         disabled: count == 0,
@@ -484,7 +484,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), true);
                         },
                     }
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: "Add to Queue".to_string(),
                         icon: "add-to-queue".to_string(),
                         disabled: count == 0,
@@ -493,7 +493,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), false);
                         },
                     }
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: "Add to Playlist…".to_string(),
                         icon: "playlist".to_string(),
                         onclick: {
@@ -506,13 +506,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             }
                         },
                     }
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: if starred() { "Unfavorite".to_string() } else { "Favorite".to_string() },
                         icon: if starred() { "star-filled".to_string() } else { "star".to_string() },
                         onclick: toggle_star,
                     }
                     if can_download {
-                        ActionMenuItem {
+                        MenuPopoverItem {
                             label: if dl_busy() { "Downloading…".to_string() } else { "Download".to_string() },
                             icon: "download".to_string(),
                             detail: dl_detail.clone(),
@@ -520,13 +520,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             onclick: download.clone(),
                         }
                     }
-                    ActionMenuGap {}
+                    MenuPopoverGap {}
                     if read_only {
                         div { class: "rs-menu__note",
                             "Auto-imported playlists are read-only. Edit the playlist file on the server instead."
                         }
                     } else {
-                        ActionMenuItem {
+                        MenuPopoverItem {
                             label: if editing() { "Done Editing".to_string() } else { "Edit".to_string() },
                             icon: "edit".to_string(),
                             testid: "playlist-edit".to_string(),
@@ -535,7 +535,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 editing.toggle();
                             },
                         }
-                        ActionMenuItem {
+                        MenuPopoverItem {
                             label: "Rename…".to_string(),
                             icon: "edit".to_string(),
                             onclick: move |_| {
@@ -543,7 +543,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 sheet.set(Some(Sheet::Rename));
                             },
                         }
-                        ActionMenuItem {
+                        MenuPopoverItem {
                             label: "Delete Playlist…".to_string(),
                             icon: "trash".to_string(),
                             danger: true,

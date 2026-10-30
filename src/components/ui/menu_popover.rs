@@ -10,9 +10,9 @@ use dioxus::prelude::*;
 /// * `anchor`: viewport point to anchor the popover at (wide). None centres it.
 /// * `on_close`: scrim tap, Escape, Cancel.
 /// * `label`: aria-label of the menu. `title`: optional muted header line.
-/// * `children`: `ActionMenuItem`s, `ActionMenuGap`s, notes.
+/// * `children`: `MenuPopoverItem`s, `MenuPopoverGap`s, notes.
 #[component]
-pub fn ActionMenu(
+pub fn MenuPopover(
     on_close: EventHandler<()>,
     label: String,
     #[props(default)] anchor: Option<(f64, f64)>,
@@ -94,12 +94,12 @@ pub fn ActionMenu(
     }
 }
 
-/// One row of an `ActionMenu`.
+/// One row of an `MenuPopover`.
 /// * `checked`: Some(bool) makes it a radio-style choice (check mark when on).
 /// * `icon`: trailing icon (ignored when `checked` is Some(true)).
 /// * `danger`: destructive styling. `detail`: muted trailing text (progress).
 #[component]
-pub fn ActionMenuItem(
+pub fn MenuPopoverItem(
     label: String,
     onclick: EventHandler<MouseEvent>,
     #[props(default)] icon: Option<String>,
@@ -140,9 +140,9 @@ pub fn ActionMenuItem(
     }
 }
 
-/// The thick gap between groups of an `ActionMenu`.
+/// The thick gap between groups of an `MenuPopover`.
 #[component]
-pub fn ActionMenuGap() -> Element {
+pub fn MenuPopoverGap() -> Element {
     rsx! {
         div { class: "rs-menu__gap", aria_hidden: "true" }
     }

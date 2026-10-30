@@ -4,7 +4,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    ActionMenu, ActionMenuGap, ActionMenuItem, EmptyState, SearchField, TrackRow, VirtualList,
+    MenuPopover, MenuPopoverGap, MenuPopoverItem, EmptyState, SearchField, TrackRow, VirtualList,
 };
 use crate::components::views::library::shared::{
     use_servers,
@@ -274,14 +274,14 @@ pub fn SongsView() -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                ActionMenu {
+                MenuPopover {
                     label: "Sort songs".to_string(),
                     title: "Sort by".to_string(),
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     testid: "songs-sort-menu".to_string(),
                     for (value, label) in SORTS {
-                        ActionMenuItem {
+                        MenuPopoverItem {
                             key: "{value}",
                             label: label.to_string(),
                             checked: current_sort == value,
@@ -294,8 +294,8 @@ pub fn SongsView() -> Element {
                             },
                         }
                     }
-                    ActionMenuGap {}
-                    ActionMenuItem {
+                    MenuPopoverGap {}
+                    MenuPopoverItem {
                         label: if current_sort == "title" { "A to Z".to_string() } else { "Ascending".to_string() },
                         checked: asc,
                         onclick: move |_| {
@@ -303,7 +303,7 @@ pub fn SongsView() -> Element {
                             ascending.set(true);
                         },
                     }
-                    ActionMenuItem {
+                    MenuPopoverItem {
                         label: if current_sort == "title" { "Z to A".to_string() } else { "Descending".to_string() },
                         checked: !asc,
                         onclick: move |_| {
@@ -312,7 +312,7 @@ pub fn SongsView() -> Element {
                         },
                     }
                     if current_sort == "rating" {
-                        ActionMenuGap {}
+                        MenuPopoverGap {}
                         div { class: "rs-menu__note", "Minimum rating" }
                         div { class: "rs-menu__stars", role: "group", aria_label: "Minimum rating",
                             for value in 1..=5u32 {

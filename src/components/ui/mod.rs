@@ -7,7 +7,7 @@
 // The kit is consumed by phase-2 views; until they land, parts are unused.
 #![allow(dead_code, unused_imports)]
 
-mod action_menu;
+mod menu_popover;
 mod artwork;
 mod artwork_mosaic;
 mod cover_flow;
@@ -32,7 +32,7 @@ mod track_menu_host;
 mod track_row;
 mod virtual_list;
 
-pub use action_menu::{ActionMenu, ActionMenuGap, ActionMenuItem};
+pub use menu_popover::{MenuPopover, MenuPopoverGap, MenuPopoverItem};
 pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
 pub use cover_flow::{CoverFlow, CoverFlowItem};
