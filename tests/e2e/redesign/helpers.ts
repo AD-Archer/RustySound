@@ -57,7 +57,9 @@ export async function playFirstTrack(page: Page, mock: MockFixtures) {
 export async function expectTrackMenuComplete(page: Page) {
   const menu = tid(page, "track-menu");
   await expect(menu).toBeVisible();
-  for (const action of TRACK_MENU_ACTIONS) {
+  // The harness only runs the web build, where downloads don't exist (INVENTORY §7:
+  // offline_audio downloads are no-ops on wasm), so the kit leaves "Download" out there.
+  for (const action of TRACK_MENU_ACTIONS.filter((a) => a !== "download")) {
     await expect(tid(menu, `track-menu-${action}`), `track menu action ${action}`).toBeAttached();
   }
 }

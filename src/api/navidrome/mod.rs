@@ -162,6 +162,7 @@ include!("bookmarks_favorites_and_playlists.rs");
 include!("playlist_mutations.rs");
 include!("radio_search_and_scrobble.rs");
 include!("artist_info.rs");
+include!("library_paging.rs");
 
 fn normalize_cover_art_id(cover_art_id: &str) -> String {
     let trimmed = cover_art_id.trim();

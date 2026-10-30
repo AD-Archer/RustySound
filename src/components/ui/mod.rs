@@ -8,6 +8,7 @@
 #![allow(dead_code, unused_imports)]
 
 mod action_menu;
+mod menu_popover;
 mod artwork;
 mod artwork_mosaic;
 mod cover_flow;
@@ -20,6 +21,7 @@ mod long_press;
 mod pill_button;
 mod playback;
 mod progress_track;
+mod search_field;
 mod section_header;
 mod segmented;
 mod sheet;
@@ -34,6 +36,7 @@ mod track_row;
 mod virtual_list;
 
 pub use action_menu::{ActionMenu, MenuAction};
+pub use menu_popover::{MenuPopover, MenuPopoverGap, MenuPopoverItem};
 pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
 pub use cover_flow::{CoverFlow, CoverFlowItem};
@@ -48,6 +51,7 @@ pub use long_press::{use_long_press, LongPress};
 pub use pill_button::{PillButton, PillVariant};
 pub use playback::{MiniProgressLine, PlaybackProgress, PlaybackTime};
 pub use progress_track::{ProgressTrack, TrackVariant};
+pub use search_field::SearchField;
 pub use section_header::SectionHeader;
 pub use segmented::Segmented;
 pub use sheet::Sheet;

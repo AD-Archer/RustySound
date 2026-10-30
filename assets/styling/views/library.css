@@ -2,3 +2,724 @@
    View-specific styles only. Use tokens from tokens.css; do not restyle kit
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-library- to keep them out of the kit namespace. */
+
+/* ---- Page head tools: sort/filter menu button, view toggle ------------- */
+
+.rs-library-head-tools {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: none;
+}
+
+.rs-library-menubtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 32px;
+  padding: 0 10px 0 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+  background: var(--surface);
+  color: var(--accent-text);
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast);
+}
+
+.rs-library-menubtn__hint {
+  color: var(--muted);
+  font-weight: var(--fw-regular);
+}
+
+.rs-library-menubtn--on {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: var(--tint);
+}
+
+@media (hover: hover) {
+  .rs-library-menubtn:hover { background: var(--tint); }
+}
+
+.rs-library-search {
+  margin-bottom: var(--sp-6);
+}
+
+.rs-field input::placeholder {
+  color: var(--muted);
+}
+
+.rs-field__clear {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--faint);
+  color: var(--surface);
+  cursor: pointer;
+}
+
+.rs-field input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.rs-library-status,
+.rs-library-note {
+  margin: 0 4px var(--sp-5);
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--muted);
+}
+
+.rs-library-note {
+  padding: 10px 12px;
+  border-radius: var(--r-list);
+  background: var(--warn-tint);
+  color: var(--ink);
+}
+
+/* ---- Cover grid ------------------------------------------------------- */
+
+.rs-library-covers {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-7) var(--sp-6);
+}
+
+.rs-app[data-layout="wide"] .rs-library-covers {
+  grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
+  gap: var(--sp-8) var(--sp-7);
+}
+
+.rs-library-covers__cell {
+  min-width: 0;
+}
+
+.rs-library-tile {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  min-width: 0;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-library-tile__art {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  overflow: hidden;
+  border-radius: var(--r-art);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 6px 18px -8px rgba(0, 0, 0, .35);
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.rs-library-tile__art .rs-art {
+  border-radius: var(--r-art);
+}
+
+@media (hover: hover) {
+  .rs-library-tile:hover .rs-library-tile__art { transform: translateY(-2px); }
+}
+
+.rs-library-tile:active .rs-library-tile__art { transform: scale(.98); }
+
+.rs-library-tile:focus-visible {
+  outline: none;
+}
+
+.rs-library-tile:focus-visible .rs-library-tile__art {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rs-library-tile__title {
+  margin-top: var(--sp-4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-medium);
+}
+
+.rs-library-tile__sub {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-3);
+  min-width: 0;
+  margin-top: 1px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-library-tile__artist {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-library-tile__year {
+  flex: none;
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-library-tile__skel {
+  aspect-ratio: 1;
+  width: 100%;
+  border-radius: var(--r-art);
+}
+
+/* Horizontal shelf (Library tab "Recently Added"). */
+.rs-library-shelf {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - 2 * var(--sp-6)) / 2.4);
+  gap: var(--sp-6);
+  margin: 0 calc(-1 * var(--gutter));
+  padding: 2px var(--gutter) var(--sp-4);
+  overflow-x: auto;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--gutter);
+  scrollbar-width: none;
+}
+
+.rs-library-shelf::-webkit-scrollbar { display: none; }
+
+.rs-app[data-layout="wide"] .rs-library-shelf {
+  grid-auto-columns: 164px;
+  margin: 0;
+  padding: 2px 0 var(--sp-4);
+  scrollbar-width: thin;
+}
+
+.rs-library-shelf__cell {
+  min-width: 0;
+  scroll-snap-align: start;
+}
+
+.rs-app[data-layout="wide"] .rs-library-home > .rs-page-head,
+.rs-app[data-layout="wide"] .rs-library-home__lists {
+  max-width: 760px;
+}
+
+/* ---- Paging ------------------------------------------------------------ */
+
+.rs-library-sentinel {
+  position: relative;
+  z-index: -1;
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.rs-library-foot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-5);
+  min-height: 56px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-library-foot--error {
+  justify-content: space-between;
+  padding: 0 4px;
+}
+
+/* ---- Albums: Cover Flow view ----------------------------------------- */
+
+.rs-library-flowstage {
+  margin: 0 calc(-1 * var(--gutter-wide)) var(--sp-6);
+  padding: 32px 0 24px;
+  border-radius: 0;
+}
+
+/* ---- Detail pages: the stage band ------------------------------------ */
+
+.rs-library-detail {
+  padding-bottom: 32px;
+}
+
+.rs-library-hero {
+  padding: var(--safe-top) 0 46px;
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero {
+  padding: 8px 0 64px;
+}
+
+.rs-library-hero__nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 44px;
+  padding: 0 6px 0 4px;
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero__nav {
+  padding: 0 calc(var(--gutter-wide) - 12px) 0 calc(var(--gutter-wide) - 12px);
+}
+
+.rs-library-back {
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  height: 44px;
+  padding: 0 8px 0 2px;
+  color: var(--accent);
+  font-size: var(--fs-title);
+  cursor: pointer;
+}
+
+.rs-app[data-layout="wide"] .rs-library-back {
+  font-size: var(--fs-body);
+}
+
+@media (hover: hover) {
+  .rs-library-back:hover { color: var(--accent-hi); }
+}
+
+.rs-library-hero__more {
+  color: var(--stage-ink);
+}
+
+.rs-library-hero__body {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-6);
+  padding: var(--sp-4) var(--gutter) 0;
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero__body {
+  align-items: center;
+  gap: 28px;
+  padding: var(--sp-4) var(--gutter-wide) 0;
+}
+
+.rs-library-hero__art {
+  width: 124px;
+  height: 124px;
+  flex: none;
+  -webkit-box-reflect: below 3px linear-gradient(transparent 62%, rgba(255, 255, 255, .22));
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero__art {
+  width: 196px;
+  height: 196px;
+}
+
+.rs-library-hero__art .rs-art {
+  width: 100%;
+  height: 100%;
+}
+
+.rs-library-hero__art--round .rs-art,
+.rs-library-hero__art--round .rs-library-hero__ph {
+  border-radius: 50%;
+}
+
+.rs-library-hero__text {
+  flex: 1;
+  min-width: 0;
+  padding-top: 6px;
+}
+
+.rs-library-hero__title {
+  margin: 0;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-family: var(--font-display);
+  font-size: var(--fs-title2);
+  line-height: var(--lh-title2);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-tight);
+  text-wrap: balance;
+  overflow-wrap: anywhere;
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero__title {
+  font-size: var(--fs-title1);
+  line-height: var(--lh-title1);
+  -webkit-line-clamp: 2;
+}
+
+.rs-library-hero__sub {
+  margin-top: 2px;
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  color: var(--accent);
+}
+
+.rs-library-hero__owner {
+  color: var(--stage-muted);
+}
+
+.rs-library-hero__meta {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-library-hero__badge {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 3px;
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+}
+
+.rs-library-hero__note {
+  margin: var(--sp-4) 0 0;
+  max-width: 60ch;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  overflow: hidden;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--stage-muted);
+}
+
+.rs-library-hero__ph {
+  width: 100%;
+  height: 100%;
+  border-radius: var(--r-art);
+  background: var(--stage-trough);
+}
+
+.rs-library-hero__ph-line {
+  height: 18px;
+  margin-bottom: 10px;
+  border-radius: 5px;
+  background: var(--stage-trough);
+}
+
+.rs-library-hero__ph-line--sm {
+  height: 12px;
+}
+
+/* Artist links (ArtistNameLinks' default classes, used app-wide). */
+.rs-library-names {
+  display: inline-flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0 5px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.rs-library-names__link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .rs-library-names__link:hover { text-decoration: underline; text-underline-offset: 3px; }
+}
+
+.rs-library-names__sep {
+  color: var(--muted);
+}
+
+.rs-stage .rs-library-names__sep {
+  color: var(--stage-muted);
+}
+
+/* ---- Detail pages: the page below the band --------------------------- */
+
+.rs-library-page {
+  padding: 0 var(--gutter);
+}
+
+.rs-app[data-layout="wide"] .rs-library-page {
+  padding: 0 var(--gutter-wide);
+}
+
+.rs-library-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin: var(--sp-6) 0;
+}
+
+.rs-app[data-layout="wide"] .rs-library-actions .rs-pill--block {
+  flex: 0 0 168px;
+  width: auto;
+}
+
+.rs-library-actions__dl {
+  border: 1px solid var(--line);
+  border-radius: 50%;
+  width: 42px;
+  height: 42px;
+  color: var(--accent-text);
+}
+
+.rs-app[data-layout="wide"] .rs-library-page > .rs-list,
+.rs-app[data-layout="wide"] .rs-library-page > .rs-vlist,
+.rs-app[data-layout="wide"] .rs-library-page > .rs-list-foot {
+  max-width: 960px;
+}
+
+/* Similar artists: round thumbs in a row. */
+.rs-library-bubbles {
+  display: flex;
+  gap: var(--sp-6);
+  margin: 0 calc(-1 * var(--gutter));
+  padding: 2px var(--gutter) var(--sp-4);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.rs-library-bubbles::-webkit-scrollbar { display: none; }
+
+.rs-app[data-layout="wide"] .rs-library-bubbles {
+  flex-wrap: wrap;
+  margin: 0;
+  padding: 2px 0 var(--sp-4);
+}
+
+.rs-library-bubble {
+  width: 84px;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  color: inherit;
+  cursor: pointer;
+}
+
+.rs-library-bubble__name {
+  width: 100%;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  overflow: hidden;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  text-align: center;
+}
+
+@media (hover: hover) {
+  .rs-library-bubble:hover .rs-library-bubble__name { color: var(--accent-text); }
+}
+
+/* ---- Artists list ------------------------------------------------------ */
+
+.rs-library-artists .rs-library-artrow {
+  height: 56px;
+  min-height: 56px;
+  padding-block: 0;
+}
+
+.rs-library-artists .rs-art {
+  margin-right: 4px;
+}
+
+.rs-library-letter {
+  height: 56px;
+  display: flex;
+  align-items: flex-end;
+  padding: 0 16px 6px;
+  background: color-mix(in srgb, var(--page) 55%, var(--surface));
+}
+
+.rs-library-letter h2 {
+  margin: 0;
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-semibold);
+  color: var(--muted);
+  letter-spacing: .02em;
+}
+
+/* iOS-contacts style A–Z scrubber (compact). */
+.rs-library-index {
+  position: fixed;
+  right: calc(var(--safe-right) + 1px);
+  top: 50%;
+  z-index: 40;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 4px 2px;
+  touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.rs-library-index__letter {
+  width: 22px;
+  height: 15px;
+  display: grid;
+  place-items: center;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.rs-library-artists-view {
+  padding-right: calc(var(--gutter) + 8px);
+}
+
+.rs-app[data-layout="wide"] .rs-library-artists-view {
+  padding-right: var(--gutter-wide);
+}
+
+.rs-app[data-layout="wide"] .rs-library-artists-view > *,
+.rs-app[data-layout="wide"] .rs-library-songs > *,
+.rs-app[data-layout="wide"] .rs-library-playlists-view > * {
+  max-width: 960px;
+}
+
+/* ---- Playlists list -------------------------------------------------- */
+
+.rs-library-prow {
+  height: 58px;
+  min-height: 58px;
+  padding: 0 4px 0 0;
+  gap: 0;
+}
+
+.rs-app[data-layout="wide"] .rs-library-prow {
+  height: 62px;
+  min-height: 62px;
+  padding: 0 6px 0 0;
+}
+
+.rs-library-prow__open {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 0 4px 0 12px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-library-prow:has(.rs-library-prow__open:hover) {
+  background: var(--tint);
+}
+
+.rs-library-prow__open:active {
+  background: var(--tint-strong);
+}
+
+/* ---- Track lists ----------------------------------------------------- */
+
+.rs-library-songlist .rs-trow,
+.rs-library-editrow {
+  height: var(--row-h);
+}
+
+.rs-library-editrow {
+  cursor: default;
+  padding-right: 6px;
+  gap: var(--sp-3);
+}
+
+.rs-library-editrow .rs-trow__meta {
+  margin-right: var(--sp-3);
+}
+
+.rs-library-editrow__remove {
+  color: var(--danger);
+}
+
+/* Candidate rows in the Add Songs sheet. */
+.rs-library-cand {
+  gap: var(--sp-4);
+  padding-right: 8px;
+}
+
+.rs-library-cand .rs-pill--mini {
+  flex: none;
+}
+
+/* ---- Sheets and forms ------------------------------------------------ */
+
+.rs-library-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding-top: var(--sp-2);
+}
+
+.rs-library-form__label {
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  color: var(--muted);
+}
+
+.rs-library-form .rs-field {
+  height: 44px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.rs-library-form__text {
+  margin: 0 0 var(--sp-6);
+  color: var(--ink);
+}
+
+.rs-library-form__error {
+  margin: 0;
+  font-size: var(--fs-sub);
+  color: var(--danger);
+}
+
+.rs-library-form__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+.rs-library-pill--danger {
+  background: var(--danger);
+  color: #fff;
+}
+
+@media (hover: hover) {
+  .rs-library-pill--danger:hover:not(:disabled) { background: color-mix(in srgb, var(--danger) 88%, #000); }
+}
+
+/* Reduced motion: no lift on tiles. */
+@media (prefers-reduced-motion: reduce) {
+  .rs-library-tile__art { transition: none; }
+  .rs-library-tile:hover .rs-library-tile__art,
+  .rs-library-tile:active .rs-library-tile__art { transform: none; }
+}
+
+/* Detail pages bleed edge to edge on wide windows too (the kit's wide
+   .rs-view padding outranks .rs-view--flush). */
+.rs-app[data-layout="wide"] .rs-view--flush.rs-library-detail {
+  padding: 0 0 32px;
+}
+
+.rs-app[data-layout="wide"] .rs-library-page > .rs-hd {
+  max-width: 960px;
+}
