@@ -1123,7 +1123,7 @@ pub fn AppShell() -> Element {
     #[cfg(target_arch = "wasm32")]
     let sidebar_open_for_swipe = sidebar_open.clone();
 
-    // Browser-only: queue cover-art image requests to avoid provider/CDN rate-limit bursts.
+    // Browser-only: queue bulk cover-art prefetches to avoid provider/CDN rate-limit bursts.
     #[cfg(target_arch = "wasm32")]
     use_effect(move || {
         let _ = js_sys::eval(
@@ -1188,7 +1188,6 @@ pub fn AppShell() -> Element {
       active += 1;
       current.loading = true;
 
-      if (!img.getAttribute('loading')) originalSetAttribute.call(img, 'loading', 'lazy');
       if (!img.getAttribute('decoding')) originalSetAttribute.call(img, 'decoding', 'async');
       if (!img.getAttribute('fetchpriority')) originalSetAttribute.call(img, 'fetchpriority', 'low');
 
@@ -1231,19 +1230,14 @@ pub fn AppShell() -> Element {
     }
   }
 
+  // Only bulk prefetches (Settings cache warm-up) go through the queue. On-screen
+  // images load directly: Artwork marks them lazy, and queuing them let offscreen
+  // or unmounted images hold every slot until the timeout, leaving grids blank.
   window.__rustyCoverArtEnqueue = (url) => {
     if (!isCoverArtUrl(url)) return false;
     const img = new Image();
     enqueue(img, url, true, true);
     return true;
-  };
-
-  Element.prototype.setAttribute = function(name, value) {
-    if (this instanceof HTMLImageElement && name === 'src' && isCoverArtUrl(value)) {
-      enqueue(this, value, true, false);
-      return;
-    }
-    return originalSetAttribute.call(this, name, value);
   };
 })();
             "#,
