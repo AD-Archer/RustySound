@@ -53,7 +53,10 @@ test.describe("compact layout", () => {
     await mini.click();
     const now = tid(page, "now-playing");
     await expect(now).toBeVisible();
-    for (const id of ["play-pause-btn", "prev-btn", "next-btn"]) await expect(now.locator(`#${id}`)).toBeVisible();
+    // The player bar keeps the MediaSession ids while the sheet is open, so the sheet's own
+    // transport uses np-* ids (ids stay unique) and calls the same actions.
+    for (const id of ["np-play-pause-btn", "np-prev-btn", "np-next-btn"]) await expect(now.locator(`#${id}`)).toBeVisible();
+    for (const id of ["play-pause-btn", "prev-btn", "next-btn"]) await expect(page.locator(`#${id}`)).toHaveCount(1);
 
     const lyrics = tid(page, "lyrics");
     if (!(await lyrics.isVisible().catch(() => false))) {

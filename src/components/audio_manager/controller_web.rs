@@ -23,7 +23,8 @@ pub fn AudioController() -> Element {
     thread_local! {
         static USER_INTERACTED: Cell<bool> = Cell::new(false);
     }
-    let has_user_interacted = || USER_INTERACTED.with(|c| c.get());
+    let has_user_interacted =
+        || USER_INTERACTED.with(|c| c.get()) || web_has_sticky_activation();
 
     include!("audio_controller_wasm/setup_and_polling.rs");
     include!("audio_controller_wasm/track_and_control_sync.rs");

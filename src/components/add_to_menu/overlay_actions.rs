@@ -276,11 +276,6 @@
         }
     };
 
-    let on_open_playlist_picker = {
-        let mut show_playlist_picker = show_playlist_picker.clone();
-        move |_| show_playlist_picker.set(true)
-    };
-
     let on_create_similar = {
         let controller = controller.clone();
         let servers = servers.clone();
@@ -476,7 +471,6 @@
         make_add_to_queue,
         make_add_to_playlist,
         create_playlist,
-        on_open_playlist_picker,
         on_create_similar,
         on_quick_add_suggestion,
     )
