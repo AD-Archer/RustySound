@@ -4,69 +4,11 @@
    classes with rs-settings- to keep them out of the kit namespace. */
 
 /* ==========================================================================
-   Switch (kit component ui/switch.rs). Lives here until the coordinator moves
-   it into components.css.
-   ========================================================================== */
-
-.rs-switch {
-  position: relative;
-  width: 51px;
-  height: 31px;
-  flex: none;
-  border-radius: var(--r-pill);
-  background: var(--seg-trough);
-  cursor: pointer;
-  transition: background-color var(--dur-med) var(--ease-out);
-}
-
-.rs-switch__knob {
-  position: absolute;
-  top: 2px;
-  left: 2px;
-  width: 27px;
-  height: 27px;
-  border-radius: 50%;
-  background: #fff;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 0 0 .5px rgba(0, 0, 0, .06);
-  transition: transform var(--dur-med) var(--ease-out);
-}
-
-.rs-switch[aria-checked="true"] {
-  background: var(--ok);
-}
-
-.rs-switch[aria-checked="true"] .rs-switch__knob {
-  transform: translateX(20px);
-}
-
-.rs-switch:disabled {
-  opacity: .45;
-  cursor: default;
-}
-
-.rs-app[data-layout="wide"] .rs-switch {
-  width: 40px;
-  height: 24px;
-}
-
-.rs-app[data-layout="wide"] .rs-switch__knob {
-  width: 20px;
-  height: 20px;
-}
-
-.rs-app[data-layout="wide"] .rs-switch[aria-checked="true"] .rs-switch__knob {
-  transform: translateX(16px);
-}
-
-/* ==========================================================================
    Page structure
    ========================================================================== */
 
 .rs-settings {
   position: relative;
-  /* Secondary text pulled toward ink. Plain --muted is 4.07:1 on the light
-     page background and 3.9:1 on the selected-row tint (axe, WCAG AA). */
-  --settings-muted: color-mix(in srgb, var(--muted) 70%, var(--ink));
 }
 
 .rs-settings .rs-settings-foot,
@@ -74,7 +16,12 @@
 .rs-settings .rs-settings-row__sub,
 .rs-settings .rs-settings-nav__sub,
 .rs-settings .rs-settings-server__status {
-  color: var(--settings-muted);
+  color: var(--muted);
+}
+
+/* On the selected row's tint, plain --muted drops under 4.5:1 in dark. */
+.rs-settings .rs-settings-nav__row--on .rs-settings-nav__sub {
+  color: var(--muted-strong);
 }
 
 .rs-settings-sr {
@@ -299,12 +246,9 @@
   color: var(--danger);
 }
 
-/* base.css `.rs-app button { color: inherit }` (0,1,1) outranks a single class,
-   so the button colours need the .rs-app prefix to show. */
-.rs-app .rs-settings-action { color: var(--accent-text); }
-.rs-app .rs-settings-action--danger { color: var(--danger); }
-.rs-app .rs-settings-back__btn { color: var(--accent-text); }
-.rs-app .rs-settings-danger-pill { color: #fff; }
+.rs-settings-action { color: var(--accent-text); }
+.rs-settings-action--danger { color: var(--danger); }
+.rs-settings-back__btn { color: var(--accent-text); }
 
 .rs-settings-action:disabled {
   opacity: .5;
@@ -456,11 +400,6 @@
 
 .rs-settings-field:focus-within {
   box-shadow: inset 2px 0 0 var(--accent);
-}
-
-/* The row shows focus; beat base.css `.rs-app :focus-visible` on the input itself. */
-.rs-app .rs-settings-field input:focus-visible {
-  outline: none;
 }
 
 .rs-settings-field--switch {
@@ -875,7 +814,5 @@
 @media (prefers-reduced-motion: reduce) {
   .rs-firstrun__inner,
   .rs-settings-toast { animation: none; }
-  .rs-switch,
-  .rs-switch__knob,
   .rs-settings-meter__fill { transition: none; }
 }

@@ -9,7 +9,7 @@ test.describe("compact layout", () => {
 
   test("tab bar navigates Discover / Library / Search", async ({ connected: page }) => {
     await gotoReady(page, "/");
-    await expect(page.locator("[data-layout='compact']")).toBeAttached();
+    await expect(page.locator(".rs-app[data-layout='compact']")).toBeAttached();
     await expect(tid(page, "player-bar").or(tid(page, "mini-player")).first()).toBeAttached();
     await expect(page.locator("[data-testid^='nav-']"), "no sidebar on compact").toHaveCount(0);
 

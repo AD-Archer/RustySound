@@ -47,27 +47,6 @@
   margin-bottom: var(--sp-6);
 }
 
-.rs-field input::placeholder {
-  color: var(--muted);
-}
-
-.rs-field__clear {
-  width: 20px;
-  height: 20px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--faint);
-  color: var(--surface);
-  cursor: pointer;
-}
-
-.rs-field input[type="search"]::-webkit-search-cancel-button {
-  -webkit-appearance: none;
-  appearance: none;
-}
-
 .rs-library-status,
 .rs-library-note {
   margin: 0 4px var(--sp-5);
@@ -712,12 +691,6 @@
   .rs-library-tile__art { transition: none; }
   .rs-library-tile:hover .rs-library-tile__art,
   .rs-library-tile:active .rs-library-tile__art { transform: none; }
-}
-
-/* Detail pages bleed edge to edge on wide windows too (the kit's wide
-   .rs-view padding outranks .rs-view--flush). */
-.rs-app[data-layout="wide"] .rs-view--flush.rs-library-detail {
-  padding: 0 0 32px;
 }
 
 .rs-app[data-layout="wide"] .rs-library-page > .rs-hd {

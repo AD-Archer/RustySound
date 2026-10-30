@@ -147,12 +147,16 @@
   --page: #e6e7ea;
   --surface: #f8f8f9;
   --ink: #1d1e20;
-  --muted: #6c6f75;
+  --muted: #606369;           /* 4.87:1 on page, 5.68:1 on surface       */
   --faint: #8a8d93;
   --line: #d6d8dc;
   --sidebar-bg: color-mix(in srgb, var(--page) 92%, var(--surface));
+  /* Secondary text on a tinted (selected) row. Declared here, on every
+     [data-appearance] element, so it follows each theme's --muted and --ink. */
+  --muted-strong: color-mix(in srgb, var(--muted) 70%, var(--ink));
 
-  --accent: #2a7be4;           /* fills, icons, progress                  */
+  --accent: #2a7be4;           /* icons, progress, ticks                  */
+  --accent-fill: #2270d6;      /* text-bearing fills: white is 4.82:1     */
   --accent-hi: #7db5f6;        /* gloss top                               */
   --accent-lo: #1b60c0;        /* gloss bottom                            */
   --accent-text: #1a64c8;      /* AA on page and surface                  */
@@ -185,6 +189,7 @@
   --accent-hi: #7db5f6;
   --accent-lo: #1b60c0;
   --accent-text: #15559f;
+  --accent-fill: #2270d6;
   --accent-ink: #fff;
   --tint: rgba(42, 123, 228, .12);
   --tint-strong: rgba(42, 123, 228, .2);
@@ -209,7 +214,8 @@
   --accent-hi: #ffa47a;
   --accent-lo: #d93f05;
   --accent-text: #b23a0a;      /* orange is 2.9:1 on paper; this is 4.9:1 */
-  --accent-ink: #160b05;       /* dark text on orange fills (5.4:1)       */
+  --accent-fill: #ff5b1f;
+  --accent-ink: #160b05;       /* dark text on orange fills (6.2:1)       */
   --tint: rgba(255, 91, 31, .12);
   --tint-strong: rgba(255, 91, 31, .2);
   --seg-trough: #dbd6cf;
@@ -235,7 +241,8 @@
   --accent: #4a90ee;
   --accent-hi: #8cc0fa;
   --accent-lo: #2a6fd0;
-  --accent-text: #4a90ee;
+  --accent-text: #5a9cf2;      /* 5.0:1 on the dark menu, 6.3:1 on page   */
+  --accent-fill: #2c71d4;      /* white is 4.75:1 (#4a90ee would be 3.2)  */
   --accent-ink: #fff;
   --tint: rgba(74, 144, 238, .16);
   --tint-strong: rgba(74, 144, 238, .24);
@@ -280,6 +287,7 @@
   --accent-hi: #ffa47a;
   --accent-lo: #d94a12;
   --accent-text: #ff7a45;
+  --accent-fill: #ff6a33;
   --accent-ink: #160b05;
   --tint: rgba(255, 106, 51, .16);
   --tint-strong: rgba(255, 106, 51, .26);
@@ -309,7 +317,8 @@
     --accent: #4a90ee;
     --accent-hi: #8cc0fa;
     --accent-lo: #2a6fd0;
-    --accent-text: #4a90ee;
+    --accent-text: #5a9cf2;
+    --accent-fill: #2c71d4;
     --accent-ink: #fff;
     --tint: rgba(74, 144, 238, .16);
     --tint-strong: rgba(74, 144, 238, .24);
@@ -356,6 +365,7 @@
     --accent-hi: #ffa47a;
     --accent-lo: #d94a12;
     --accent-text: #ff7a45;
+    --accent-fill: #ff6a33;
     --accent-ink: #160b05;
     --tint: rgba(255, 106, 51, .16);
     --tint-strong: rgba(255, 106, 51, .26);

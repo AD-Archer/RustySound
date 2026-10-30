@@ -35,6 +35,8 @@ struct NativeAuthSession {
 
 #[derive(Debug, Clone, Copy)]
 pub enum NativeSongSortField {
+    /// Recently played. No caller since the old Home shelf went; kept as API.
+    #[allow(dead_code)]
     PlayDate,
     PlayCount,
 }

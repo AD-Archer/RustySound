@@ -15,12 +15,6 @@
   border: 0;
 }
 
-/* The kit field draws the ring on :focus-within; base.css `.rs-app :focus-visible`
-   otherwise paints a second one on the input inside it. */
-.rs-app .rs-search-field input:focus-visible {
-  outline: none;
-}
-
 .rs-app[data-layout="wide"] .rs-search > * {
   max-width: 980px;
 }

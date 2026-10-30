@@ -22,7 +22,7 @@ test.describe("wide layout", () => {
 
   test("sidebar navigation reaches every library area", async ({ connected: page }) => {
     await gotoReady(page, "/");
-    await expect(page.locator("[data-layout='wide']")).toBeAttached();
+    await expect(page.locator(".rs-app[data-layout='wide']")).toBeAttached();
     await expect(page.locator("[data-testid^='tab-']"), "no tab bar on wide").toHaveCount(0);
     for (const [id, url] of SIDEBAR) {
       await tid(page, id).click();

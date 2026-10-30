@@ -218,6 +218,14 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
             &PredefinedMenuItem::paste(None),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::select_all(None),
+            &PredefinedMenuItem::separator(),
+            // Find jumps to Search, as Cmd+F does in the web build.
+            &MenuItem::with_id(
+                "rustysound-find",
+                "Find…",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyF)),
+            ),
         ])
         .expect("failed to build macOS edit menu");
 
@@ -226,7 +234,7 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         .append_items(&[
             &MenuItem::with_id(
                 "rustysound-go-home",
-                "Home",
+                "Discover",
                 true,
                 Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit1)),
             ),

@@ -390,10 +390,7 @@
   padding: calc(var(--safe-top) + 8px) 0 var(--sp-5);
 }
 
-/* The wide shell pads every .rs-view (it outranks .rs-view--flush), so the
-   band pulls itself back to the edges and the page body drops its own inset. */
 .rs-app[data-layout="wide"] .rs-personal-band {
-  margin: -24px calc(-1 * var(--gutter-wide)) 0;
   padding-top: var(--sp-7);
 }
 
@@ -422,7 +419,7 @@
 }
 
 .rs-app[data-layout="wide"] .rs-personal-page {
-  padding: var(--sp-8) 0 0;
+  padding: var(--sp-8) var(--gutter-wide) 32px;
 }
 
 .rs-personal-foot {

@@ -50,10 +50,12 @@ body {
   font-size: var(--fs-callout);
 }
 
-.rs-app button,
-.rs-app input,
-.rs-app select,
-.rs-app textarea {
+/* :where() keeps these at element specificity, so a one-class rule such as
+   .rs-pill--quiet { color } wins without help. */
+:where(.rs-app) button,
+:where(.rs-app) input,
+:where(.rs-app) select,
+:where(.rs-app) textarea {
   font: inherit;
   color: inherit;
 }
@@ -102,11 +104,14 @@ body {
   color: inherit;
 }
 
-.rs-app :focus {
+/* One class of specificity: a component that draws its own ring (a field on
+   :focus-within, a Cover Flow cover) sets `outline: none` on the inner
+   element with a single class and wins. */
+:where(.rs-app) :focus {
   outline: none;
 }
 
-.rs-app :focus-visible {
+:where(.rs-app) :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }

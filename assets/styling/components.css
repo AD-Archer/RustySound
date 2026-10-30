@@ -93,7 +93,9 @@
   padding: calc(var(--safe-top) + 8px) var(--gutter) 24px;
 }
 
-.rs-app[data-layout="wide"] .rs-view {
+/* :where() keeps this at one class, so .rs-view--flush (declared after it)
+   and a view's own root class can still set their padding. */
+:where(.rs-app[data-layout="wide"]) .rs-view {
   padding: 24px var(--gutter-wide) 32px;
 }
 
@@ -577,6 +579,18 @@
 
 :is(button, a).rs-row:active { background: var(--tint-strong); }
 
+/* On a tinted row, secondary text steps up: plain --muted falls under 4.5:1
+   on the dark tints. */
+@media (hover: hover) {
+  :is(button, a).rs-row:hover :is(.rs-row__sub, .rs-row__why, .rs-row__detail) {
+    color: var(--muted-strong);
+  }
+}
+
+:is(button, a).rs-row:active :is(.rs-row__sub, .rs-row__why, .rs-row__detail) {
+  color: var(--muted-strong);
+}
+
 .rs-row__lead {
   width: 28px;
   height: 28px;
@@ -614,10 +628,6 @@
   font-size: var(--fs-sub);
   line-height: var(--lh-sub);
   color: var(--muted);
-}
-
-.rs-row__why {
-  color: color-mix(in srgb, var(--muted) 82%, var(--surface));
 }
 
 .rs-row__detail {
@@ -706,7 +716,8 @@
   border-radius: var(--r-seg-thumb);
   font-size: var(--fs-sub);
   font-weight: var(--fw-medium);
-  color: var(--muted);
+  /* --muted is under 4.5:1 on the trough; this is 5.1:1 or better. */
+  color: var(--muted-strong);
   white-space: nowrap;
   transition: background-color var(--dur-fast), color var(--dur-fast);
 }
@@ -760,12 +771,12 @@
 }
 
 .rs-pill--primary {
-  background: var(--accent);
+  background: var(--accent-fill);
   color: var(--accent-ink);
 }
 
 @media (hover: hover) {
-  .rs-pill--primary:hover { background: color-mix(in srgb, var(--accent) 88%, #000); }
+  .rs-pill--primary:hover { background: color-mix(in srgb, var(--accent-fill) 88%, #000); }
 }
 
 .rs-pill--primary:active { background: var(--accent-lo); }
@@ -886,6 +897,63 @@
   color: var(--accent-ink);
 }
 
+/* ---- Switch (ui/switch.rs) -------------------------------------------- */
+
+.rs-switch {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  flex: none;
+  border-radius: var(--r-pill);
+  background: var(--seg-trough);
+  cursor: pointer;
+  transition: background-color var(--dur-med) var(--ease-out);
+}
+
+.rs-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 0 0 .5px rgba(0, 0, 0, .06);
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.rs-switch[aria-checked="true"] {
+  background: var(--ok);
+}
+
+.rs-switch[aria-checked="true"] .rs-switch__knob {
+  transform: translateX(20px);
+}
+
+.rs-switch:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.rs-app[data-layout="wide"] .rs-switch {
+  width: 40px;
+  height: 24px;
+}
+
+.rs-app[data-layout="wide"] .rs-switch__knob {
+  width: 20px;
+  height: 20px;
+}
+
+.rs-app[data-layout="wide"] .rs-switch[aria-checked="true"] .rs-switch__knob {
+  transform: translateX(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-switch,
+  .rs-switch__knob { transition: none; }
+}
+
 /* ---- Text field ------------------------------------------------------- */
 
 .rs-field {
@@ -909,9 +977,34 @@
   outline: none;
 }
 
+.rs-field input::placeholder {
+  /* Pulled toward ink: plain --muted is under 4.5:1 on the field trough. */
+  color: color-mix(in srgb, var(--muted) 75%, var(--ink));
+}
+
+/* One ring per field: the field draws it, the input inside does not
+   (base.css keeps the global :focus-visible ring at one class, so the
+   input's `outline: none` above wins). */
 .rs-field:focus-within {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.rs-field__clear {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--faint);
+  color: var(--surface);
+  cursor: pointer;
+}
+
+.rs-field input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
 }
 
 /* ==========================================================================
@@ -1004,9 +1097,49 @@
   padding-block: 7px;
 }
 
+/* Kit TrackRow: the row is a container; .rs-trow__main (play) fills it up
+   to the sibling "…" button and carries the padding, so the whole row is
+   one hit area. */
+.rs-trow--split {
+  padding-block: 0;
+  padding-left: 0;
+}
+
+.rs-trow__main {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding-left: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-trow--art .rs-trow__main {
+  padding-block: 7px;
+}
+
+/* Inset, so the list's rounded clip doesn't cut the ring. */
+.rs-trow__main:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--r-btn);
+}
+
+.rs-trow__meta,
+.rs-trow__title,
+.rs-trow__sub {
+  display: block;
+}
+
 @media (hover: hover) {
   .rs-trow:hover { background: var(--tint); }
+  .rs-trow:hover :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) { color: var(--muted-strong); }
 }
+
+.rs-trow--pressed :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur),
+.rs-trow:active :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) { color: var(--muted-strong); }
 
 .rs-trow--pressed,
 .rs-trow:active { background: var(--tint-strong); }
@@ -1172,7 +1305,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: var(--fs-sub);
-  color: var(--muted);
+  /* The dark menu surface is lighter than the page; --muted is 4.4:1 there. */
+  color: var(--muted-strong);
 }
 
 .rs-menu__tiles {
