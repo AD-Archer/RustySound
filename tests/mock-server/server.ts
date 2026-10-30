@@ -9,6 +9,7 @@
 // - Permissive CORS, including OPTIONS preflight.
 // - In-memory state; restart to reset. POST /__mock/reset also resets it.
 import { createHash } from "node:crypto";
+import { readdirSync, readFileSync } from "node:fs";
 import { buildLibrary, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
 import { coverPng, STREAM_CAP_SECONDS, wavLength, wavSlice } from "./media";
 
@@ -18,6 +19,14 @@ const USER = process.env.MOCK_USER ?? "demo";
 const PASS = process.env.MOCK_PASSWORD ?? "demo";
 const LATENCY_MS = Number(process.env.MOCK_LATENCY_MS ?? "0") || 0;
 const QUIET = process.env.MOCK_QUIET === "1";
+/** MOCK_ART=1 serves the abstract SVG covers in ./art instead of generated PNGs. */
+const ART: string[] =
+  process.env.MOCK_ART === "1"
+    ? readdirSync(new URL("./art", import.meta.url))
+        .filter((f) => f.endsWith(".svg"))
+        .sort()
+        .map((f) => readFileSync(new URL(`./art/${f}`, import.meta.url), "utf8"))
+    : [];
 const BASE = `http://${HOST === "0.0.0.0" ? "127.0.0.1" : HOST}:${PORT}`;
 const API_VERSION = "1.16.1";
 const DAY = 86_400_000;
@@ -748,6 +757,13 @@ const handlers: Record<string, Handler> = {
   getCoverArt: (p) => {
     const id = p.req("id");
     const size = p.int("size", 300);
+    if (ART.length) {
+      // MOCK_ART=1: abstract album covers for screenshots (README, design review).
+      const pick = ART[createHash("md5").update(id.replace(/_[0-9a-f]{8}$/i, "")).digest()[0] % ART.length];
+      return new Response(pick, {
+        headers: { "Content-Type": "image/svg+xml", "Cache-Control": "public, max-age=86400", ...CORS },
+      });
+    }
     const png = coverPng(id.replace(/_[0-9a-f]{8}$/i, ""), size);
     return new Response(png, {
       headers: { "Content-Type": "image/png", "Cache-Control": "public, max-age=86400", ...CORS },
