@@ -1,6 +1,6 @@
-# Weekly dependency updates. Patch and minor updates arrive as one grouped PR per
-# ecosystem and are merged automatically once the Check workflow passes
-# (.github/workflows/check.yml); major updates wait for review.
+# Weekly dependency updates, grouped per ecosystem. Patch updates (and minor
+# ones for crates at 1.0+) merge automatically once the Check workflow passes
+# (.github/workflows/check.yml); the rest wait for review.
 version: 2
 updates:
   - package-ecosystem: cargo
