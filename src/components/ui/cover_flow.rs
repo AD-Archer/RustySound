@@ -74,6 +74,10 @@ pub fn CoverFlow(
     let size = cover_px as f64;
     let swipe_step = size * if wide { 0.3 } else { 0.34 };
 
+    // Copies the index out so the `peek` guard is gone before `go` writes:
+    // `go(*selected.peek() + 1)` keeps the guard alive for the whole call and
+    // the write inside `go` panics (a wasm `unreachable` trap that kills the app).
+    let current = move || *selected.peek() as isize;
     let mut go = move |index: isize| {
         let clamped = index.clamp(0, count as isize - 1) as usize;
         if clamped != *selected.peek() {
@@ -110,8 +114,8 @@ pub fn CoverFlow(
             "data-testid": "coverflow",
             onkeydown: move |evt| {
                 match evt.key() {
-                    Key::ArrowLeft => go(*selected.peek() as isize - 1),
-                    Key::ArrowRight => go(*selected.peek() as isize + 1),
+                    Key::ArrowLeft => go(current() - 1),
+                    Key::ArrowRight => go(current() + 1),
                     Key::Home => go(0),
                     Key::End => go(count as isize - 1),
                     Key::Enter => open(),
@@ -127,7 +131,7 @@ pub fn CoverFlow(
                 let total = *wheel.peek() + d;
                 if total.abs() > 40.0 {
                     wheel.set(0.0);
-                    go(*selected.peek() as isize + total.signum() as isize);
+                    go(current() + total.signum() as isize);
                 } else {
                     wheel.set(total);
                 }
@@ -143,7 +147,7 @@ pub fn CoverFlow(
                 let x = evt.client_coordinates().x;
                 let dx = x - start_x;
                 if dx.abs() > swipe_step {
-                    go(*selected.peek() as isize - dx.signum() as isize);
+                    go(current() - dx.signum() as isize);
                     swipe_start.set(Some(x));
                     dragged.set(true);
                 }

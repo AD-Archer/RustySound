@@ -10,7 +10,6 @@ mod recent;
 mod results;
 mod scoring;
 
-pub use results::ArtistCard;
 
 use crate::api::{NavidromeClient, SearchResult, ServerConfig};
 use crate::components::ui::env::sleep_ms;

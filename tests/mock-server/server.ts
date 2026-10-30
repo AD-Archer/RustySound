@@ -451,8 +451,8 @@ const handlers: Record<string, Handler> = {
     const count = p.int("count", 20);
     const similar: Record<string, unknown>[] = a.similar.map((id) => artistJson(S.lib.artistById.get(id)!));
     if (p.bool("includeNotPresent")) {
-      // Navidrome returns off-library similar artists with an empty id and no cover.
-      for (const name of a.similarNotPresent) similar.push({ id: "", name, albumCount: 0 });
+      // Navidrome returns off-library similar artists with id "-1" and no cover.
+      for (const name of a.similarNotPresent) similar.push({ id: "-1", name, albumCount: 0 });
     }
     return sub({
       artistInfo2: {

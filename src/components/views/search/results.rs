@@ -254,8 +254,7 @@ fn TopHitCard(hit: TopHit, on_activate: EventHandler<MouseEvent>) -> Element {
     }
 }
 
-/// A round artist thumb with name and album count. Also used by the Artists
-/// and Favorites views (kept at `views::search::ArtistCard`).
+/// A round artist thumb with name and album count.
 #[component]
 pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element {
     let count = if artist.album_count == 1 {

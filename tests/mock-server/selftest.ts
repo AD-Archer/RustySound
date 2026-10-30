@@ -43,9 +43,9 @@ const artist = await rest("getArtist", `&id=${comets.id}`);
 expect(artist.artist.album.length >= 2, "getArtist has albums");
 const info = await rest("getArtistInfo2", `&id=${comets.id}&includeNotPresent=true`);
 const sim = info.artistInfo2.similarArtist;
-expect(sim.some((a: any) => a.id === "") && sim.some((a: any) => a.id), "getArtistInfo2 includes not-present (empty id) + present");
+expect(sim.some((a: any) => a.id === "-1") && sim.some((a: any) => a.id && a.id !== "-1"), "getArtistInfo2 includes not-present (id -1) + present");
 const infoNo = await rest("getArtistInfo2", `&id=${comets.id}`);
-expect(infoNo.artistInfo2.similarArtist.every((a: any) => a.id), "getArtistInfo2 without includeNotPresent has only library artists");
+expect(infoNo.artistInfo2.similarArtist.every((a: any) => a.id && a.id !== "-1"), "getArtistInfo2 without includeNotPresent has only library artists");
 
 for (const type of ["newest", "recent", "frequent", "random", "alphabeticalByName", "highest", "starred"]) {
   const r = await rest("getAlbumList2", `&type=${type}&size=50`);
