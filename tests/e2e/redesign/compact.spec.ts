@@ -23,13 +23,50 @@ test.describe("compact layout", () => {
     await expect(page).toHaveURL(/\/$/);
   });
 
-  test("Discover shows Cover Flow and mixes", async ({ connected: page }) => {
+  test("Home shows Recently Played on the stage, then horizontal shelves", async ({ connected: page }) => {
     await gotoReady(page, "/");
+    await expect(page.getByRole("heading", { level: 1, name: "Home" })).toBeVisible();
     await expect(tid(page, "coverflow")).toBeVisible();
     await expect(tid(page, "coverflow-center")).toBeVisible();
     await expect(tid(page, "coverflow-center").locator("img").first()).toBeVisible();
-    await expect.poll(() => tid(page, "mix-row").count()).toBeGreaterThan(0);
+    // The caption says when the centred album was played; play is one round icon button.
+    await expect(page.locator(".rs-flow-caption em")).toContainText(/played/i);
+    await expect(tid(page, "coverflow-play")).toBeVisible();
     await expect(tid(page, "settings-open")).toBeVisible();
+    // Shelves in order; the old For You / New / Rewind segments are gone.
+    for (const shelf of ["shelf-playlists", "shelf-songs", "shelf-albums", "shelf-new"]) {
+      await expect(tid(page, shelf), shelf).toBeVisible();
+    }
+    await expect(tid(page, "discover-segments")).toHaveCount(0);
+    const order = await page.locator("section[data-testid^='shelf-']").evaluateAll((els) => els.map((e) => e.getAttribute("data-testid")));
+    expect(order.indexOf("shelf-playlists")).toBeLessThan(order.indexOf("shelf-songs"));
+    expect(order.indexOf("shelf-songs")).toBeLessThan(order.indexOf("shelf-albums"));
+    expect(order.indexOf("shelf-albums")).toBeLessThan(order.indexOf("shelf-new"));
+    if (order.includes("shelf-offserver")) expect(order.at(-1)).toBe("shelf-offserver");
+    // Playlists mix the user's playlists with generated mixes (tagged "Mix").
+    const playlists = tid(page, "shelf-playlists");
+    await expect.poll(() => playlists.locator("[data-testid='mix-card']").count()).toBeGreaterThan(0);
+    await expect(playlists.locator("[data-testid='playlist-card']").first()).toBeVisible();
+    await expect(playlists.locator("[data-testid='mix-card']").first().locator(".rs-badge")).toHaveText("Mix");
+    // About 2.3 cards per screen: the third card peeks in at the right edge.
+    const width = page.viewportSize()!.width;
+    const third = await tid(page, "shelf-new").locator("[role='listitem']").nth(2).boundingBox();
+    expect(third, "third card").not.toBeNull();
+    expect(third!.x).toBeLessThan(width);
+    expect(third!.x + third!.width).toBeGreaterThan(width);
+  });
+
+  test("a mix card's menu offers Save as Playlist; a song card plays", async ({ connected: page }) => {
+    await gotoReady(page, "/");
+    const mix = tid(page, "shelf-playlists").locator("[data-testid='mix-card']").first();
+    await mix.locator("[data-testid='card-more']").click();
+    await expect(tid(page, "mix-menu")).toBeVisible();
+    await expect(tid(page, "mix-menu-save")).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(tid(page, "mix-menu")).toHaveCount(0);
+    const song = tid(page, "shelf-songs").locator("[data-testid='song-card']").first();
+    await song.locator(".rs-hcard__main").tap();
+    await expect.poll(async () => (await audioState(page))?.src ?? "").toContain("stream");
   });
 
   test("long-press on a track row opens the track menu with every action", async ({ connected: page, mock }) => {
@@ -70,7 +107,7 @@ test.describe("compact layout", () => {
     await expect(lyrics).toContainText(`(${mock.albumSongs[0].title})`, { timeout: 20_000 });
   });
 
-  test("settings opens from Discover and shows the server form", async ({ connected: page }) => {
+  test("settings opens from Home and shows the server form", async ({ connected: page }) => {
     await gotoReady(page, "/");
     await tid(page, "settings-open").click();
     await expect(page).toHaveURL(/\/settings/);

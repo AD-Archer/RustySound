@@ -1,11 +1,11 @@
-// Accessibility smoke with axe on Discover, an album and Settings. Fails on serious/critical
+// Accessibility smoke with axe on Home, an album and Settings. Fails on serious/critical
 // violations; the full list is attached to the report either way.
 import AxeBuilder from "@axe-core/playwright";
 import { expect, MOCK_SERVER_ID, test, waitForAppReady } from "../../support/fixtures";
 import { tid } from "./helpers";
 
 const PAGES: [name: string, path: (m: { album: { id: string } }) => string, ready: string][] = [
-  ["Discover", () => "/", "coverflow"],
+  ["Home", () => "/", "shelf-playlists"],
   ["Album", (m) => `/album/${m.album.id}/${MOCK_SERVER_ID}`, "track-row"],
   ["Settings", () => "/settings", "server-form"],
 ];

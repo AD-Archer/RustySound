@@ -96,6 +96,7 @@ pub fn select_rewind_songs(songs: &[Song], now: i64, cutoff_days: i64, limit: us
                 reason: rewind_reason(now, last, song.play_count.unwrap_or(0)),
                 song: song.clone(),
                 kind: ReasonKind::Rewind,
+                because_artist: None,
             }
         })
         .collect()
