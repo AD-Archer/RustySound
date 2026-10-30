@@ -92,35 +92,21 @@
   letter-spacing: var(--track-tight);
 }
 
-/* Server status: a dot and the name in plain text. Opens Settings. */
-.rs-home__server {
+/* Settings: a gear at the end of the title row, with a status dot on it only
+   when no server is reachable. */
+.rs-home__settings {
+  position: relative;
   display: inline-flex;
   flex: none;
-  align-items: center;
-  gap: 7px;
-  max-width: min(50vw, 260px);
-  min-height: var(--touch);
-  padding: 0 4px;
-  color: var(--stage-muted);
-  font-size: var(--fs-sub);
-  cursor: pointer;
-  transition: color var(--dur-fast);
+  color: var(--stage-ink);
 }
 
-@media (hover: hover) {
-  .rs-home__server:hover { color: var(--stage-ink); }
-}
-
-.rs-home__server-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rs-home__server-count {
-  flex: none;
-  font-variant-numeric: tabular-nums;
+.rs-home__settings-dot {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--stage-base);
 }
 
 /* Cover Flow with the play button beside the centred caption. The kit's
@@ -327,39 +313,11 @@
   font-size: 19px;
 }
 
-/* The Rewind window: a small segmented control beside the title. */
-.rs-shelf__control {
-  flex: none;
-  margin-left: auto;
-}
-
-/* Compact: the control gets its own line under the title, so a long title
-   ("Haven't Heard in a While") never truncates next to it. */
-.rs-home:not(.rs-home--wide) .rs-shelf__hd {
-  flex-wrap: wrap;
-  row-gap: var(--sp-3);
-}
-
-.rs-home:not(.rs-home--wide) .rs-shelf__control {
-  flex-basis: 100%;
-  margin-left: 0;
-}
-
-.rs-shelf__control .rs-seg__btn {
-  height: 24px;
-  padding: 0 9px;
-  font-size: var(--fs-foot);
-}
-
 .rs-shelf__arrows {
   display: flex;
   flex: none;
   gap: 2px;
   margin-left: auto;
-}
-
-.rs-shelf__control + .rs-shelf__arrows {
-  margin-left: 0;
 }
 
 .rs-shelf__row {

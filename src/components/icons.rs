@@ -31,7 +31,7 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "music" => (Stroke, r#"<path d="M9 18V5.5l11-2.2V16"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="16" r="2.6"/>"#),
         "radio" => (Stroke, r#"<circle cx="12" cy="12" r="1.9" fill="currentColor"/><path d="M8.3 8.3a5.2 5.2 0 0 0 0 7.4M15.7 8.3a5.2 5.2 0 0 1 0 7.4M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>"#),
         "stats" | "bars" => (Stroke, r#"<path d="M5 20.5V13M10 20.5V6.5M15 20.5V10M20 20.5V3.5"/>"#),
-        "settings" => (Stroke, r#"<path d="M4 7h9M17 7h3M4 17h3M11 17h9"/><circle cx="15" cy="7" r="2.2"/><circle cx="9" cy="17" r="2.2"/>"#),
+        "settings" => (Stroke, r#"<path d="M9.87 5.02 L9.89 2.84 L14.11 2.84 L14.13 5.02 L15.43 5.55 L16.98 4.03 L19.97 7.02 L18.45 8.57 L18.98 9.87 L21.16 9.89 L21.16 14.11 L18.98 14.13 L18.45 15.43 L19.97 16.98 L16.98 19.97 L15.43 18.45 L14.13 18.98 L14.11 21.16 L9.89 21.16 L9.87 18.98 L8.57 18.45 L7.02 19.97 L4.03 16.98 L5.55 15.43 L5.02 14.13 L2.84 14.11 L2.84 9.89 L5.02 9.87 L5.55 8.57 L4.03 7.02 L7.02 4.03 L8.57 5.55Z"/><circle cx="12" cy="12" r="3"/>"#),
         "bookmark" => (Stroke, r#"<path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/>"#),
         "queue" | "list" => (Stroke, r#"<path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><circle cx="4.2" cy="6" r=".9" fill="currentColor"/><circle cx="4.2" cy="12" r=".9" fill="currentColor"/><circle cx="4.2" cy="18" r=".9" fill="currentColor"/>"#),
         "menu" => (Stroke, r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#),

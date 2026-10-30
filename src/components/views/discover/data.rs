@@ -8,7 +8,7 @@ use crate::api::discovery::{
     load_albums_you_might_like, load_discover_off_server, load_discover_rewind,
     load_home_playlists, load_new_in_library, load_recently_played, load_songs_you_might_like,
     refresh_discover, DiscoverAlbum, DiscoverSong, DiscoveryConfig, HomePlaylist,
-    OffServerSection, RewindSection, DEFAULT_REWIND_MONTHS, REWIND_MONTH_CHOICES,
+    OffServerSection, RewindSection,
 };
 use super::stage::initial_centre;
 use crate::api::ServerConfig;
@@ -27,8 +27,6 @@ pub struct HomeData {
     pub songs: Signal<Option<Vec<DiscoverSong>>>,
     pub albums_like: Signal<Option<Vec<DiscoverAlbum>>>,
     pub rewind: Signal<Option<RewindSection>>,
-    /// The chosen Rewind window in months (3, 6 or 12).
-    pub rewind_months: Memo<u32>,
     pub off_server: Signal<Option<OffServerSection>>,
     /// Settings → Discovery "show music not on your server".
     pub offserver_enabled: Memo<bool>,
@@ -36,8 +34,6 @@ pub struct HomeData {
     pub refreshing: Signal<bool>,
     /// Index of the centred Cover Flow item.
     pub centre: Signal<usize>,
-    /// Bumped when new stage data lands, so Cover Flow remounts re-centred.
-    pub flow_key: Signal<u64>,
     pub active: Memo<Vec<ServerConfig>>,
     pub offline: Memo<bool>,
     generation: Signal<u64>,
@@ -56,14 +52,6 @@ impl HomeData {
     }
 }
 
-fn valid_months(months: u32) -> u32 {
-    if REWIND_MONTH_CHOICES.contains(&months) {
-        months
-    } else {
-        DEFAULT_REWIND_MONTHS
-    }
-}
-
 /// Creates Home's data, provides it as context and drives the loads.
 pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSettings>) -> HomeData {
     let active = use_memo(move || {
@@ -79,7 +67,6 @@ pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSet
     let config = use_memo(move || DiscoveryConfig::from_settings(&settings.read()));
     let offserver_enabled = use_memo(move || config.read().offserver_enabled);
     let offline = use_memo(move || settings.read().offline_mode);
-    let rewind_months = use_memo(move || valid_months(settings.read().discover_rewind_months));
 
     let mut recent = use_signal(|| None::<Vec<DiscoverAlbum>>);
     let mut new_albums = use_signal(|| None::<Vec<DiscoverAlbum>>);
@@ -90,7 +77,6 @@ pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSet
     let mut off_server = use_signal(|| None::<OffServerSection>);
     let mut refreshing = use_signal(|| false);
     let mut centre = use_signal(|| 0usize);
-    let mut flow_key = use_signal(|| 0u64);
     let generation = use_signal(|| 0u64);
     // The library shelves have loaded. The off-server shelf waits for it, so
     // both don't fetch the shared snapshot at once.
@@ -103,12 +89,10 @@ pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSet
         songs,
         albums_like,
         rewind,
-        rewind_months,
         off_server,
         offserver_enabled,
         refreshing,
         centre,
-        flow_key,
         active,
         offline,
         generation,
@@ -147,17 +131,14 @@ pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSet
             let stage = load_recently_played(&servers, &settings).await;
             let played = stage.len();
             centre.set(initial_centre(played));
-            *flow_key.write() += 1;
             recent.set(Some(stage));
             let new = load_new_in_library(&servers, &settings).await;
             if played == 0 {
                 // Nothing played yet: the stage shows the new albums instead.
                 centre.set(initial_centre(new.len()));
-                *flow_key.write() += 1;
             }
             new_albums.set(Some(new));
-            let months = *rewind_months.peek();
-            rewind.set(Some(load_discover_rewind(&servers, &settings, months).await));
+            rewind.set(Some(load_discover_rewind(&servers, &settings).await));
             playlists.set(Some(load_home_playlists(&servers, &settings).await));
             songs.set(Some(load_songs_you_might_like(&servers, &settings).await));
             albums_like.set(Some(load_albums_you_might_like(&servers, &settings).await));
@@ -165,27 +146,6 @@ pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSet
             library_ready.set(true);
         });
         task.set(Some(load));
-    });
-
-    // A different Rewind window: reload that shelf only (no requests; it
-    // reads the snapshot the library shelves already fetched).
-    let mut rewind_task = use_signal(|| None::<Task>);
-    use_effect(move || {
-        let months = rewind_months();
-        if !*library_ready.peek() {
-            return;
-        }
-        if rewind.peek().as_ref().map(|r| r.months) == Some(months) {
-            return;
-        }
-        if let Some(previous) = *rewind_task.peek() {
-            previous.cancel();
-        }
-        let servers = active.peek().clone();
-        let settings = settings.peek().clone();
-        rewind_task.set(Some(spawn(async move {
-            rewind.set(Some(load_discover_rewind(&servers, &settings, months).await));
-        })));
     });
 
     // The off-server shelf: after the library shelves, and again when the

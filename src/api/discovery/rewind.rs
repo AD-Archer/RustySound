@@ -7,8 +7,6 @@ use crate::api::models::{Album, Song};
 
 /// Default Rewind window in months (the Discover segment's default).
 pub const DEFAULT_REWIND_MONTHS: u32 = 6;
-/// The windows the Discover Rewind segment offers, in months.
-pub const REWIND_MONTH_CHOICES: [u32; 3] = [3, 6, 12];
 /// Minimum plays for an album to count as a "classic".
 pub const MIN_ALBUM_PLAYS: u32 = 5;
 /// Minimum plays for a song to count as a "classic".

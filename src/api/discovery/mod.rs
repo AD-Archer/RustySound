@@ -47,7 +47,7 @@ pub use home::{
     load_albums_you_might_like, load_home_playlists, load_new_in_library, load_recently_played,
     load_songs_you_might_like,
 };
-pub use rewind::{DEFAULT_REWIND_MONTHS, REWIND_MONTH_CHOICES};
+pub use rewind::DEFAULT_REWIND_MONTHS;
 pub use types::*;
 
 use crate::api::models::{ServerConfig, Song};
@@ -333,18 +333,15 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
     section
 }
 
-/// The Rewind segment: heavily played albums (≥ 5 plays, ≤ 12) and songs
-/// (≥ 3 plays, ≤ 20) not played within the last `months` months.
+/// Haven't heard in a while: heavily played albums (≥ 5 plays, ≤ 12) and songs
+/// (≥ 3 plays, ≤ 20) not played in the last [`DEFAULT_REWIND_MONTHS`] months.
 ///
-/// `months` is the user's window (3, 6 or 12; see [`REWIND_MONTH_CHOICES`]);
-/// other values are clamped. Uses only the shared library snapshot, so after
-/// [`load_discover_stage`] it makes no requests. Empty when the server lacks
-/// `played` dates (plain Subsonic servers).
-pub async fn load_discover_rewind(
-    servers: &[ServerConfig],
-    settings: &AppSettings,
-    months: u32,
-) -> RewindSection {
+/// A fresh random pick in random order on every call, so Home shows something
+/// different each visit. Uses only the shared library snapshot, so after
+/// [`load_discover_stage`] it makes no requests. Empty when nothing qualifies,
+/// including servers without `played` dates (plain Subsonic).
+pub async fn load_discover_rewind(servers: &[ServerConfig], settings: &AppSettings) -> RewindSection {
+    let months = DEFAULT_REWIND_MONTHS;
     let Some(ctx) = LoadContext::new(servers, settings) else {
         return RewindSection {
             months,
@@ -352,28 +349,20 @@ pub async fn load_discover_rewind(
             ..Default::default()
         };
     };
-    let key = ctx.section_key(&format!("rewind-{months}"));
-    if let Some(cached) = cache::get::<RewindSection>(&key) {
-        return cached;
-    }
     let snapshot = ctx.snapshot().await;
     let cutoff_days = rewind::cutoff_days_for_months(months);
-    let section = RewindSection {
+    let mut rng = util::SeededRng::new(rand::random());
+    let mut albums =
+        rewind::select_rewind_albums(&snapshot.frequent, ctx.now, cutoff_days, rng.next_u64(), 12);
+    let mut songs = rewind::select_rewind_songs(&snapshot.top_songs, ctx.now, cutoff_days, 20);
+    rng.shuffle(&mut albums);
+    rng.shuffle(&mut songs);
+    RewindSection {
         months,
-        albums: rewind::select_rewind_albums(
-            &snapshot.frequent,
-            ctx.now,
-            cutoff_days,
-            ctx.seed("rewind-albums"),
-            12,
-        ),
-        songs: rewind::select_rewind_songs(&snapshot.top_songs, ctx.now, cutoff_days, 20),
+        albums,
+        songs,
         generated_on: ctx.date.clone(),
-    };
-    if snapshot.servers_ok > 0 {
-        cache::put(&key, &section);
     }
-    section
 }
 
 /// Recommendations from outside the library ("New" segment).
@@ -615,8 +604,8 @@ mod tests {
         assert!(feed.mixes.mixes.is_empty());
         assert!(feed.off_server.items.is_empty());
         assert_eq!(feed.off_server.status.external_requests, 0);
-        let rewind = runtime.block_on(load_discover_rewind(&servers, &settings, 12));
-        assert_eq!(rewind.months, 12);
+        let rewind = runtime.block_on(load_discover_rewind(&servers, &settings));
+        assert_eq!(rewind.months, DEFAULT_REWIND_MONTHS);
         assert!(rewind.albums.is_empty() && rewind.songs.is_empty());
         assert_eq!(feed.stage.generated_on.len(), 10);
     }

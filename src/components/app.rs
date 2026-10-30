@@ -8,7 +8,7 @@ use crate::components::ui::{
     TrackMenuHost, TrackMenuRequest, WindowDragRegion,
 };
 use crate::components::{
-    ios_audio_log_snapshot, ios_diag_log, view_instance_key, AddIntent, AddMenuController,
+    ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController,
     AddToMenuOverlay, AppView, AudioController, AudioState, Icon,
     IsPlayingSignal, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
     ShuffleEnabledSignal, SongDetailsController, SongDetailsOverlay,
@@ -265,7 +265,6 @@ pub fn AppShell() -> Element {
     let router_navigator = use_navigator();
     let mut current_view_signal = use_signal(|| current_view.clone());
     let pending_navigation_target = use_signal(|| None::<AppView>);
-    let outlet_key = view_instance_key(&current_view);
     let now_playing = use_signal(|| None::<Song>);
     let queue = use_signal(Vec::<Song>::new);
     let mut queue_index = use_signal(|| 0usize);
@@ -1224,7 +1223,7 @@ pub fn AppShell() -> Element {
                             }
                         }
                     }
-                    div { key: "{outlet_key}", class: "rs-outlet",
+                    div { class: "rs-outlet",
                         Outlet::<AppView> {}
                     }
                 }
