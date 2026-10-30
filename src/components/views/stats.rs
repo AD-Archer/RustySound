@@ -5,7 +5,7 @@
 use crate::api::*;
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{
-    Artwork, EmptyState, InsetList, ListInset, ListRow, PillButton, SectionHeader, Skeleton,
+    Artwork, EmptyState, InsetList, ListInset, ListRow, Button, SectionHeader, Skeleton,
     TrackRow,
 };
 use crate::components::{AppView, IsPlayingSignal, Navigation};
@@ -248,7 +248,7 @@ pub fn StatsView() -> Element {
                     icon: "stats".to_string(),
                     title: "No servers connected".to_string(),
                     message: "Add a Navidrome server to see what's in your library.".to_string(),
-                    PillButton {
+                    Button {
                         label: "Add Server".to_string(),
                         onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
                     }

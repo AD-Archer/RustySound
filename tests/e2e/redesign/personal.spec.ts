@@ -5,9 +5,8 @@ import { audioState, expect, test } from "../../support/fixtures";
 import { MOCK_URL } from "../../support/env";
 import { gotoReady, tid } from "./helpers";
 
-// Known noise that is not these screens' fault: the legacy theme CSS 404s on web until Tailwind and
-// the old themes are deleted after phase 2 (PHASE2.md), and off-host requests the hermetic network
-// aborts on purpose.
+// Known noise that is not these screens' fault: off-host requests (cover art, lyrics providers) that
+// the hermetic network aborts on purpose.
 const IGNORED = [/Failed to load resource/i, /ERR_BLOCKED_BY_CLIENT/i, /blockedbyclient/i];
 
 function realErrors(errors: string[]) {

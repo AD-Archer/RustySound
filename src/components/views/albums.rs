@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    cover_art_url, use_layout, MenuPopover, MenuPopoverItem, CoverFlow, CoverFlowItem, EmptyState,
+    cover_art_url, use_layout, Menu, MenuItem, CoverFlow, CoverFlowItem, EmptyState,
     SearchField, Segmented, Stage,
 };
 use crate::components::views::library::shared::{
@@ -198,7 +198,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
     drop(items);
 
     rsx! {
-        div { class: "rs-view rs-library-albums", "data-testid": "albums",
+        div { class: "rs-view rs-view--full rs-library-albums", "data-testid": "albums",
             div { class: "rs-page-head",
                 h1 { class: "rs-large-title", "{title}" }
                 div { class: "rs-library-head-tools",
@@ -301,14 +301,14 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                MenuPopover {
+                Menu {
                     label: "Sort albums".to_string(),
                     title: "Sort by".to_string(),
                     anchor,
                     on_close: move |_| menu_at.set(None),
                     testid: "albums-sort-menu".to_string(),
                     for (value, label) in SORTS {
-                        MenuPopoverItem {
+                        MenuItem {
                             key: "{value}",
                             label: label.to_string(),
                             checked: current_sort == value,

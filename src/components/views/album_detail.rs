@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    MenuPopover, MenuPopoverGap, MenuPopoverItem, Artwork, EmptyState, PillButton, PillVariant,
+    Menu, MenuGap, MenuItem, Artwork, EmptyState, Button, ButtonVariant,
 };
 use crate::components::views::album_song_row::AlbumTracks;
 use crate::components::views::artist_links::ArtistNameLinks;
@@ -98,9 +98,9 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             icon: "album".to_string(),
                             title: "Album not found".to_string(),
                             message: "It may have been removed from the server, or the link is out of date.".to_string(),
-                            PillButton {
+                            Button {
                                 label: "Browse Albums".to_string(),
-                                variant: PillVariant::Quiet,
+                                variant: ButtonVariant::Tinted,
                                 onclick: move |_| navigation.navigate_to(AppView::Albums {}),
                             }
                         }
@@ -263,7 +263,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
             div { class: "rs-library-page",
                 div { class: "rs-library-actions",
-                    PillButton {
+                    Button {
                         label: "Play".to_string(),
                         icon: "play".to_string(),
                         block: true,
@@ -273,10 +273,10 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             move |_| play_from(0)
                         },
                     }
-                    PillButton {
+                    Button {
                         label: "Shuffle".to_string(),
                         icon: "shuffle".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         block: true,
                         testid: "album-shuffle".to_string(),
                         onclick: on_shuffle,
@@ -304,12 +304,12 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             }
 
             if let Some(anchor) = menu_at() {
-                MenuPopover {
+                Menu {
                     label: format!("{} actions", album.name),
                     anchor,
                     on_close: move |_| close_menu(),
                     testid: "album-menu".to_string(),
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Play Next".to_string(),
                         icon: "play-next".to_string(),
                         onclick: move |_| {
@@ -317,7 +317,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), true);
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Add to Queue".to_string(),
                         icon: "add-to-queue".to_string(),
                         testid: "album-menu-queue".to_string(),
@@ -326,7 +326,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), false);
                         },
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Add to Playlist…".to_string(),
                         icon: "playlist".to_string(),
                         onclick: {
@@ -339,9 +339,9 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             }
                         },
                     }
-                    MenuPopoverGap {}
+                    MenuGap {}
                     if can_download {
-                        MenuPopoverItem {
+                        MenuItem {
                             label: if dl_busy() { "Downloading…".to_string() } else if album_downloaded() { "Download Again".to_string() } else { "Download Album".to_string() },
                             icon: "download".to_string(),
                             detail: dl_detail.clone(),
@@ -349,13 +349,13 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             onclick: download_album,
                         }
                     }
-                    MenuPopoverItem {
+                    MenuItem {
                         label: "Go to Artist".to_string(),
                         icon: "artist".to_string(),
                         disabled: album.artist_id.is_none(),
                         onclick: go_artist,
                     }
-                    MenuPopoverGap {}
+                    MenuGap {}
                     div { class: "rs-menu__note", "Rate album" }
                     div { class: "rs-menu__stars", role: "group", aria_label: "Album rating",
                         for value in 1..=5u32 {

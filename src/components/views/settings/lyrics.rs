@@ -2,7 +2,7 @@
 
 use super::shared::{use_settings_ctx, Footnote, GroupTitle, NumberRow, SwitchRow};
 use crate::api::{normalize_lyrics_provider_order, LyricsProvider};
-use crate::components::ui::{IconButton, IconButtonSize, PillButton, PillVariant};
+use crate::components::ui::{IconButton, IconButtonSize, Button, ButtonVariant};
 use dioxus::prelude::*;
 
 fn provider_label(key: &str) -> &'static str {
@@ -61,9 +61,9 @@ pub(super) fn LyricsSection() -> Element {
         }
         if settings.lyrics_offset_ms != 0 {
             div { class: "rs-settings-form__actions rs-settings-form__actions--start",
-                PillButton {
+                Button {
                     label: "Reset Offset".to_string(),
-                    variant: PillVariant::Mini,
+                    variant: ButtonVariant::Plain,
                     onclick: move |_| ctx.update(|s| s.lyrics_offset_ms = 0),
                 }
             }

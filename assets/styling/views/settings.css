@@ -9,6 +9,8 @@
 
 .rs-settings {
   position: relative;
+  /* Wide: the section list (300) + gap (32) + detail (680), centred. */
+  --view-max: 1012px;
 }
 
 .rs-settings .rs-settings-foot,
@@ -488,15 +490,6 @@
   line-height: var(--lh-body);
 }
 
-.rs-settings-danger-pill {
-  background: var(--danger);
-  color: #fff;
-}
-
-@media (hover: hover) {
-  .rs-settings-danger-pill:hover { background: color-mix(in srgb, var(--danger) 86%, #000); }
-}
-
 /* ==========================================================================
    Appearance
    ========================================================================== */
@@ -716,7 +709,7 @@
 .rs-settings-toast {
   display: inline-block;
   padding: 7px 14px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-button);
   background: var(--stage-base);
   color: var(--stage-ink);
   border: 1px solid var(--stage-line);

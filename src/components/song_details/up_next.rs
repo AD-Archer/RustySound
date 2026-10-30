@@ -5,7 +5,7 @@ use super::types::SongDetailsController;
 use crate::api::Song;
 use crate::components::audio_manager::generate_queue_extension_from_seed;
 use crate::components::ui::{
-    Artwork, EmptyState, IconButton, IconButtonSize, InsetList, PillButton, PillVariant, TrackRow,
+    Artwork, EmptyState, IconButton, IconButtonSize, InsetList, Button, ButtonVariant, TrackRow,
 };
 use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
 use dioxus::prelude::*;
@@ -153,20 +153,20 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                     if remaining == 1 { "1 song" } else { "{remaining} songs" }
                 }
                 if !upcoming.is_empty() {
-                    PillButton {
+                    Button {
                         label: if editing_now { "Done".to_string() } else { "Edit".to_string() },
-                        variant: PillVariant::Mini,
+                        variant: ButtonVariant::Plain,
                         testid: "up-next-edit".to_string(),
                         onclick: move |_| editing.toggle(),
                     }
-                    PillButton {
+                    Button {
                         label: "Save as Playlist".to_string(),
-                        variant: PillVariant::Mini,
+                        variant: ButtonVariant::Plain,
                         onclick: move |_| save_queue_as_playlist(player, add_menu.clone()),
                     }
-                    PillButton {
+                    Button {
                         label: "Clear".to_string(),
-                        variant: PillVariant::Mini,
+                        variant: ButtonVariant::Plain,
                         testid: "up-next-clear".to_string(),
                         onclick: move |_| {
                             editing.set(false);
@@ -180,7 +180,7 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                     icon: "queue".to_string(),
                     title: "Nothing up next".to_string(),
                     message: "Build a queue of similar songs, with this one as the seed.".to_string(),
-                    PillButton {
+                    Button {
                         label: if busy() { "Creating Queue…".to_string() } else { "Create Queue From This Song".to_string() },
                         disabled: busy(),
                         onclick: quick_create.clone(),
@@ -211,16 +211,16 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                     if remaining > upcoming.len() {
                         span { "Showing the next {upcoming.len()} of {remaining}." }
                     }
-                    PillButton {
+                    Button {
                         label: if busy() { "Adding…".to_string() } else { "Quick Create".to_string() },
                         icon: "plus".to_string(),
-                        variant: PillVariant::Mini,
+                        variant: ButtonVariant::Plain,
                         disabled: busy(),
                         onclick: quick_create,
                     }
-                    PillButton {
+                    Button {
                         label: "Open Full Queue".to_string(),
-                        variant: PillVariant::Mini,
+                        variant: ButtonVariant::Plain,
                         onclick: move |_| {
                             controller.close();
                             navigation.navigate_to(AppView::QueueView {});

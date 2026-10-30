@@ -8,8 +8,8 @@
 use crate::api::*;
 use crate::components::ui::env::{is_radio_song, sleep_ms};
 use crate::components::ui::{
-    use_long_press, ActionMenu, EmptyState, IconButton, IconButtonSize, InsetList, ListInset,
-    MenuAction, PillButton, PillVariant, Sheet, Skeleton,
+    use_long_press, Menu, EmptyState, IconButton, IconButtonSize, InsetList, ListInset,
+    MenuAction, Button, ButtonVariant, Sheet, Skeleton,
 };
 use crate::components::{AppView, Icon, IsPlayingSignal, Navigation};
 use dioxus::prelude::*;
@@ -233,7 +233,7 @@ pub fn RadioView() -> Element {
                     icon: "radio".to_string(),
                     title: "No servers connected".to_string(),
                     message: "Radio stations live on your Navidrome server. Add a server to listen.".to_string(),
-                    PillButton {
+                    Button {
                         label: "Add Server".to_string(),
                         onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
                     }
@@ -247,14 +247,14 @@ pub fn RadioView() -> Element {
                             title: "No radio stations".to_string(),
                             message: "Add an internet radio stream by its URL, or try a demo station.".to_string(),
                             testid: "radio-empty".to_string(),
-                            PillButton {
+                            Button {
                                 label: "Add Station".to_string(),
                                 icon: "plus".to_string(),
                                 onclick: move |_| form.set(Some(Form::Add)),
                             }
-                            PillButton {
+                            Button {
                                 label: "Add Demo Station".to_string(),
-                                variant: PillVariant::Quiet,
+                                variant: ButtonVariant::Tinted,
                                 testid: "radio-demo".to_string(),
                                 onclick: add_demo,
                             }
@@ -300,7 +300,7 @@ pub fn RadioView() -> Element {
             }
 
             if let Some((station, anchor)) = row_menu() {
-                ActionMenu {
+                Menu {
                     title: station.name.clone(),
                     anchor,
                     testid: "radio-menu".to_string(),
@@ -325,7 +325,7 @@ pub fn RadioView() -> Element {
                 }
             }
             if let Some(station) = confirm_delete() {
-                ActionMenu {
+                Menu {
                     title: "Delete Station?".to_string(),
                     message: format!("“{}” will be removed from your server.", station.name),
                     testid: "radio-confirm".to_string(),
@@ -596,7 +596,7 @@ fn StationForm(mode: Form, on_close: EventHandler<()>, on_saved: EventHandler<()
                 }
                 button {
                     r#type: "submit",
-                    class: "rs-pill rs-pill--primary rs-pill--block",
+                    class: "rs-btn rs-btn--filled rs-btn--block",
                     disabled: saving(),
                     "data-testid": "radio-form-save",
                     if saving() { "Saving…" } else if editing.is_some() { "Save Changes" } else { "Add Station" }

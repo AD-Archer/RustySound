@@ -6,7 +6,7 @@ use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{
-    Artwork, IconButton, IconButtonSize, InsetList, PillButton, PillVariant, SearchField,
+    Artwork, IconButton, IconButtonSize, InsetList, Button, ButtonVariant, SearchField,
     SectionHeader, Sheet, Skeleton,
 };
 use crate::components::views::library::shared::{song_key, use_debounced};
@@ -167,17 +167,17 @@ fn CandidateRow(
                     span { class: "rs-row__title", span { "{song.title}" } }
                     span { class: "rs-row__sub", style: "display:block", "{sub}" }
                 }
-                PillButton {
+                Button {
                     label: if previewing { "Playing".to_string() } else { "Preview".to_string() },
                     icon: "play".to_string(),
-                    variant: PillVariant::Mini,
+                    variant: ButtonVariant::Plain,
                     disabled: previewing,
                     onclick: move |_| on_preview.call(()),
                 }
-                PillButton {
+                Button {
                     label: if added { "Added".to_string() } else { "Add".to_string() },
                     icon: if added { "check".to_string() } else { "plus".to_string() },
-                    variant: PillVariant::Mini,
+                    variant: ButtonVariant::Plain,
                     disabled: added,
                     testid: "playlist-add-song".to_string(),
                     onclick: move |_| on_add.call(()),

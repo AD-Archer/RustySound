@@ -1,7 +1,6 @@
 /* ==========================================================================
    RustySound base: reset, typography, browser surfaces, platform tweaks.
-   Loaded after tokens.css. Tailwind (legacy, removed at the end of phase 2)
-   lives in a cascade layer, so these unlayered rules win over its preflight.
+   Loaded after tokens.css.
    ========================================================================== */
 
 *,
@@ -29,7 +28,7 @@ body {
   touch-action: manipulation;
 }
 
-/* The app root. Owns the type ramp so legacy body rules can't leak in. */
+/* The app root. Owns the type ramp. */
 .rs-app {
   position: relative;
   height: 100vh;
@@ -51,7 +50,7 @@ body {
 }
 
 /* :where() keeps these at element specificity, so a one-class rule such as
-   .rs-pill--quiet { color } wins without help. */
+   .rs-btn--tinted { color } wins without help. */
 :where(.rs-app) button,
 :where(.rs-app) input,
 :where(.rs-app) select,
@@ -143,7 +142,7 @@ body {
 ::-webkit-scrollbar-thumb {
   background: var(--scroll-thumb);
   border: 3px solid transparent;
-  border-radius: 999px;
+  border-radius: 5px;
   background-clip: padding-box;
 }
 
@@ -155,6 +154,11 @@ body {
 
 ::-webkit-scrollbar-corner {
   background: transparent;
+}
+
+/* The audio elements are driven from code and never shown. */
+audio {
+  display: none;
 }
 
 /* ---- Utilities -------------------------------------------------------- */

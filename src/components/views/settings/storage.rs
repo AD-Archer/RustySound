@@ -8,7 +8,7 @@ use super::smart_cache::run_smart_cache;
 use super::storage_downloads::DownloadsGroup;
 use crate::api::ServerConfig;
 use crate::cache_service::{clear_all as clear_cache_storage, stats as current_cache_stats};
-use crate::components::ui::{PillButton, PillVariant, Sheet};
+use crate::components::ui::{Button, ButtonVariant, Sheet};
 use dioxus::prelude::*;
 
 /// (entries, used bytes, max bytes)
@@ -203,14 +203,14 @@ fn CacheGroup() -> Element {
                     "Cached library data, lyrics and artwork are removed from this device. Downloads stay. Things load from the server again as you browse."
                 }
                 div { class: "rs-settings-form__actions",
-                    PillButton {
+                    Button {
                         label: "Cancel".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         onclick: move |_| confirm_clear.set(false),
                     }
                     button {
                         r#type: "button",
-                        class: "rs-pill rs-settings-danger-pill",
+                        class: "rs-btn rs-btn--filled rs-btn--danger",
                         onclick: move |_| {
                             clear_cache_storage();
                             confirm_clear.set(false);

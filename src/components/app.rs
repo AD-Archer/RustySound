@@ -1153,7 +1153,7 @@ pub fn AppShell() -> Element {
                             }
                             button {
                                 r#type: "button",
-                                class: "rs-pill rs-pill--mini",
+                                class: "rs-btn rs-btn--tinted rs-btn--small",
                                 onclick: move |_| {
                                     let mut settings = app_settings();
                                     if !settings.offline_mode {

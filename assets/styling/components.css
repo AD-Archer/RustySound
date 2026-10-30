@@ -5,12 +5,6 @@
    views/*.css and do not restyle these classes.
    ========================================================================== */
 
-/* Legacy app.css animates "all" on every button and link. Kit elements opt
-   out here (zero specificity on the element part, so the rules below win). */
-:where(.rs-app button, .rs-app a, .rs-app input)[class*="rs-"] {
-  transition: none;
-}
-
 /* ---- Icons ------------------------------------------------------------- */
 
 .rs-ic { width: 20px; height: 20px; }
@@ -65,47 +59,39 @@
   min-height: 100%;
 }
 
-/* Views not yet rebuilt in Stage still use Tailwind's dark classes. Until
-   phase 2 replaces them they sit on a dark island so their white text stays
-   readable in light appearance. A rebuilt view renders a root .rs-view and
-   the island steps aside. */
-.rs-outlet:not(:has(> .rs-view)) {
-  background: var(--legacy-bg);
-  color: var(--legacy-ink);
-  color-scheme: dark;
-}
+/* A view: page material.
 
-.rs-outlet:not(:has(> .rs-view)) > * {
-  width: min(100%, 1320px);
-  margin: 0 auto;
-  padding: calc(var(--safe-top) + 20px) 20px 28px;
-}
-
-.rs-app[data-layout="wide"] .rs-outlet:not(:has(> .rs-view)) > * {
-  padding: 28px 32px 32px;
-}
-
-/* A rebuilt view: page material. */
+   Wide layouts centre view content in the space beside the sidebar: the
+   view's side padding grows so a column of at most --view-max sits in the
+   middle, and never shrinks below the gutter. Padding (not a max-width on
+   each child) keeps children's own margins and lets every child, stage bands
+   included, share one column edge.
+   * --view-max: the column width. 1040px by default; .rs-view--narrow is a
+     760px reading measure for list-only pages; a view root may set its own.
+   * --view-pad: the resulting side padding. Flush views (detail pages,
+     Random) pad their inner sections with it so they line up the same way.
+   * .rs-view--full opts out: grids, shelves and stages use the whole width
+     with the normal gutter. */
 .rs-view {
+  --view-max: 1040px;
+  --view-pad: max(var(--gutter-wide), calc((100% - var(--view-max)) / 2));
   min-height: 100%;
   background: var(--page);
   color: var(--ink);
   padding: calc(var(--safe-top) + 8px) var(--gutter) 24px;
 }
 
+.rs-view--narrow { --view-max: 760px; }
+.rs-view--full { --view-pad: var(--gutter-wide); }
+
 /* :where() keeps this at one class, so .rs-view--flush (declared after it)
    and a view's own root class can still set their padding. */
 :where(.rs-app[data-layout="wide"]) .rs-view {
-  padding: 24px var(--gutter-wide) 32px;
+  padding: 24px var(--view-pad) 32px;
 }
 
 .rs-view--flush {
   padding: 0;
-}
-
-/* Readable measure for list-only pages on wide windows. */
-.rs-app[data-layout="wide"] .rs-view--narrow > * {
-  max-width: 760px;
 }
 
 .rs-large-title {
@@ -254,7 +240,7 @@
   gap: var(--sp-4);
   max-width: calc(100vw - 32px);
   padding: 8px 14px 8px 10px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-button);
   background: var(--stage-base);
   color: var(--stage-ink);
   border: 1px solid var(--stage-line);
@@ -754,68 +740,127 @@
   box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
 }
 
-/* ---- Pill buttons ----------------------------------------------------- */
+/* ---- Buttons (ui/button.rs): style A, rounded rectangles ------------- */
 
-.rs-pill {
+.rs-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 7px;
-  height: 42px;
-  padding: 0 20px;
-  border-radius: var(--r-pill);
+  min-width: 0;
+  height: var(--touch);
+  padding: 0 18px;
+  border-radius: var(--r-button);
+  font-size: 16px;
   font-weight: var(--fw-semibold);
   white-space: nowrap;
   cursor: pointer;
-  transition: background-color var(--dur-fast), border-color var(--dur-fast), opacity var(--dur-fast);
+  transition: background-color var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
 }
 
-.rs-pill--primary {
+.rs-app[data-layout="wide"] .rs-btn {
+  height: 36px;
+  padding: 0 16px;
+  font-size: var(--fs-callout);
+}
+
+.rs-btn--small,
+.rs-app[data-layout="wide"] .rs-btn--small {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-button-sm);
+  font-size: var(--fs-callout);
+}
+
+.rs-app[data-layout="wide"] .rs-btn--small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-sub);
+}
+
+/* Tinted: the default. Quiet grey fill, accent text. */
+.rs-btn--tinted {
+  background: var(--btn-fill);
+  color: var(--btn-ink);
+}
+
+@media (hover: hover) {
+  .rs-btn--tinted:hover:not(:disabled) { background: var(--btn-fill-hover); }
+}
+
+.rs-btn--tinted:active:not(:disabled) { background: var(--btn-fill-hover); }
+
+/* Plain: accent text, no box (Preview, See All, Edit). Keeps a 44px
+   touch height on compact layouts. */
+.rs-btn--plain {
+  height: auto;
+  min-height: var(--touch);
+  padding: 0 4px;
+  background: none;
+  color: var(--btn-ink);
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-medium);
+}
+
+.rs-app[data-layout="wide"] .rs-btn--plain {
+  height: auto;
+  min-height: 28px;
+  padding: 0 4px;
+}
+
+@media (hover: hover) {
+  .rs-btn--plain:hover:not(:disabled) { text-decoration: underline; text-underline-offset: .18em; }
+}
+
+/* Filled: only the single primary action of a sheet or form. */
+.rs-btn--filled {
   background: var(--accent-fill);
   color: var(--accent-ink);
 }
 
 @media (hover: hover) {
-  .rs-pill--primary:hover { background: color-mix(in srgb, var(--accent-fill) 88%, #000); }
+  .rs-btn--filled:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 88%, #000); }
 }
 
-.rs-pill--primary:active { background: var(--accent-lo); }
+.rs-btn--filled:active:not(:disabled) { background: var(--accent-lo); }
 
-.rs-pill--quiet {
-  background: transparent;
-  color: var(--accent-text);
-  border: 1px solid var(--line);
-}
+/* Destructive. */
+.rs-btn--danger:is(.rs-btn--tinted, .rs-btn--plain) { color: var(--btn-danger-ink); }
 
-.rs-pill--mini {
-  height: auto;
-  padding: 4px 12px;
-  border: 1px solid var(--line);
-  font-size: var(--fs-sub);
-  color: var(--accent-text);
+.rs-btn--danger.rs-btn--filled {
+  background: var(--danger-fill);
+  color: #fff;
 }
 
 @media (hover: hover) {
-  .rs-pill--quiet:hover,
-  .rs-pill--mini:hover { background: var(--tint); }
+  .rs-btn--danger.rs-btn--filled:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-fill) 86%, #000); }
 }
 
-.rs-pill--block {
+.rs-btn--block {
   display: flex;
   flex: 1;
   width: 100%;
 }
 
-.rs-pill:disabled {
+.rs-btn:disabled,
+.rs-btn[aria-disabled="true"] {
   opacity: .45;
   cursor: default;
 }
 
-.rs-stage .rs-pill--quiet,
-.rs-stage .rs-pill--mini {
-  border-color: var(--stage-badge-line);
-  color: var(--stage-ink);
+/* On the black stage: a lighter fill and the light accent. */
+.rs-stage .rs-btn--tinted,
+.rs-mini .rs-btn--tinted,
+.rs-bar .rs-btn--tinted {
+  background: rgba(120, 120, 128, .28);
+  color: var(--stage-btn-ink);
 }
+
+@media (hover: hover) {
+  .rs-stage .rs-btn--tinted:hover:not(:disabled) { background: rgba(120, 120, 128, .38); }
+}
+
+.rs-stage .rs-btn--plain { color: var(--stage-btn-ink); }
 
 /* ---- Icon buttons ----------------------------------------------------- */
 
@@ -904,7 +949,8 @@
   width: 51px;
   height: 31px;
   flex: none;
-  border-radius: var(--r-pill);
+  /* Round ends: a switch track holds a round knob; it is not a pill. */
+  border-radius: 16px;
   background: var(--seg-trough);
   cursor: pointer;
   transition: background-color var(--dur-med) var(--ease-out);
@@ -938,6 +984,7 @@
 .rs-app[data-layout="wide"] .rs-switch {
   width: 40px;
   height: 24px;
+  border-radius: 12px;
 }
 
 .rs-app[data-layout="wide"] .rs-switch__knob {
@@ -1367,6 +1414,25 @@
 
 .rs-menu__item svg { color: var(--ink); }
 .rs-menu__item .rs-menu__sub { color: var(--muted); }
+
+.rs-menu__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Muted trailing text (a count, a progress figure). --muted is under 4.5:1
+   on the dark menu surface. */
+.rs-menu__detail {
+  margin-left: auto;
+  font-size: var(--fs-sub);
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-menu__head-sub--wrap { white-space: normal; }
+
 .rs-menu__item:disabled { color: var(--muted); }
 
 .rs-menu__item--danger,
@@ -2052,7 +2118,7 @@ button.rs-bar__art {
   align-items: center;
   gap: 2px;
   padding: 4px 6px;
-  border-radius: var(--r-pill);
+  border-radius: var(--r-button);
   background: var(--stage-base);
   border: 1px solid var(--stage-line);
   box-shadow: var(--stage-shadow);

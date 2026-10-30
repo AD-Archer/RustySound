@@ -2,7 +2,7 @@
 //! Settings → Servers and the first-run welcome.
 
 use crate::api::{NavidromeClient, ServerConfig};
-use crate::components::ui::{PillButton, PillVariant, Sheet, Switch};
+use crate::components::ui::{Button, ButtonVariant, Sheet, Switch};
 use crate::components::Icon;
 use crate::db::save_servers_now;
 use dioxus::prelude::*;
@@ -377,18 +377,19 @@ pub(super) fn ServerSheet(
                 }
 
                 div { class: "rs-settings-form__actions",
-                    PillButton {
+                    Button {
                         label: "Test Connection".to_string(),
                         icon: "server".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         // Not disabled while testing: disabling the focused button would drop
                         // focus out of the sheet (Escape stops working). run_test ignores repeats.
                         disabled: !complete,
                         testid: "server-test".to_string(),
                         onclick: run_test,
                     }
-                    PillButton {
+                    Button {
                         label: "Save".to_string(),
+                        variant: ButtonVariant::Filled,
                         disabled: !can_save,
                         testid: "server-save".to_string(),
                         onclick: save,

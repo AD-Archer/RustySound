@@ -76,7 +76,7 @@ pub(crate) fn LyricsPanel(song: Song) -> Element {
                 p { "Search by title and pick the exact match." }
                 button {
                     r#type: "button",
-                    class: "rs-pill rs-pill--quiet",
+                    class: "rs-btn rs-btn--tinted",
                     onclick: move |_| search_open.set(true),
                     "Search Lyrics"
                 }

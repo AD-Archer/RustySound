@@ -6,7 +6,7 @@ use super::shared::{
 };
 use super::storage::off_ui_thread;
 use crate::api::ServerConfig;
-use crate::components::ui::{PillButton, PillVariant, Sheet};
+use crate::components::ui::{Button, ButtonVariant, Sheet};
 use crate::components::{AppView, Navigation};
 use crate::db::ArtworkDownloadPreference;
 use crate::offline_audio::{
@@ -311,14 +311,14 @@ pub(super) fn DownloadsGroup() -> Element {
                     "Every downloaded song is deleted from this device. You'll need a connection to play them again."
                 }
                 div { class: "rs-settings-form__actions",
-                    PillButton {
+                    Button {
                         label: "Cancel".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         onclick: move |_| confirm_clear.set(false),
                     }
                     button {
                         r#type: "button",
-                        class: "rs-pill rs-settings-danger-pill",
+                        class: "rs-btn rs-btn--filled rs-btn--danger",
                         onclick: move |_| {
                             confirm_clear.set(false);
                             spawn(async move {

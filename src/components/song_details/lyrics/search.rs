@@ -3,7 +3,7 @@
 
 use super::LyricsSource;
 use crate::api::format_duration;
-use crate::components::ui::{InsetList, ListInset, PillButton, PillVariant, Sheet};
+use crate::components::ui::{InsetList, ListInset, Button, ButtonVariant, Sheet};
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -44,10 +44,10 @@ pub(super) fn LyricsSearchSheet(default_title: String, on_close: EventHandler<()
                     }
                 }
                 div { class: "rs-player-search__actions",
-                    button { r#type: "submit", class: "rs-pill rs-pill--primary", "Search" }
-                    PillButton {
+                    button { r#type: "submit", class: "rs-btn rs-btn--filled", "Search" }
+                    Button {
                         label: "Use Current Song".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         onclick: {
                             let default_title = default_title.clone();
                             move |_| {

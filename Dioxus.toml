@@ -82,7 +82,6 @@ icon = [
 
 # The list of files to include in the bundle
 resources = [
-    "assets/tailwind.css",
     "assets/styling/*",
     "assets/*.png",
     "assets/*.svg",

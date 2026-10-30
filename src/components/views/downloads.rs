@@ -36,8 +36,8 @@ mod native {
     use crate::api::{NavidromeClient, ServerConfig, Song};
     use crate::components::audio_manager::normalize_manual_queue_songs;
     use crate::components::ui::{
-        use_long_press, ActionMenu, Artwork, EmptyState, IconButton, InsetList, ListInset,
-        ListRow, MenuAction, PillButton, PillVariant, SectionHeader, Segmented, Sheet, Skeleton,
+        use_long_press, Menu, Artwork, EmptyState, IconButton, InsetList, ListInset,
+        ListRow, MenuAction, Button, ButtonVariant, SectionHeader, Segmented, Sheet, Skeleton,
         TrackMenuController, VirtualList,
     };
     use crate::components::{
@@ -625,7 +625,7 @@ mod native {
             }
 
             if let Some(anchor) = header_menu() {
-                ActionMenu {
+                Menu {
                     title: "Downloads".to_string(),
                     anchor,
                     testid: "downloads-actions".to_string(),
@@ -857,7 +857,7 @@ mod native {
             }
             p { class: "rs-list-foot", if count == total { "{total} songs" } else { "{count} of {total} songs" } }
             if let Some(anchor) = sort_menu() {
-                ActionMenu {
+                Menu {
                     title: "Sort Songs".to_string(),
                     anchor,
                     testid: "downloads-sort".to_string(),
@@ -976,26 +976,18 @@ mod native {
         let size = format_size(entry.size_bytes);
         rsx! {
             li { "data-index": "{index}",
+                // Like the kit TrackRow: the row is a plain container and the
+                // play button and the "…" button sit side by side inside it
+                // (no interactive nesting). Long-press and right-click work
+                // anywhere on the row.
                 div {
-                    class: "rs-trow rs-trow--art",
-                    role: "button",
-                    tabindex: "0",
-                    aria_label: "{entry.title}",
+                    class: "rs-trow rs-trow--split rs-trow--art",
                     "data-testid": "download-row",
-                    onclick: move |_| {
-                        if press.take_fired() {
-                            return;
-                        }
-                        on_play.call(());
-                    },
                     onkeydown: {
                         let open_menu = open_menu.clone();
                         move |evt: KeyboardEvent| {
                             let key = evt.key();
-                            if key == Key::Enter || key == Key::Character(" ".to_string()) {
-                                evt.prevent_default();
-                                on_play.call(());
-                            } else if key == Key::ContextMenu || (key == Key::F10 && evt.modifiers().shift()) {
+                            if key == Key::ContextMenu || (key == Key::F10 && evt.modifiers().shift()) {
                                 evt.prevent_default();
                                 open_menu(None);
                             }
@@ -1020,23 +1012,35 @@ mod native {
                     onpointermove: move |evt| press.moved(&evt),
                     onpointerup: move |_| press.cancel(),
                     onpointercancel: move |_| press.cancel(),
-                    Artwork {
-                        cover_art: entry.cover_art_id.clone().or_else(|| entry.album_id.clone()),
-                        server_id: entry.server_id.clone(),
-                        size_px: 44,
-                    }
-                    div { class: "rs-trow__meta",
-                        div { class: "rs-trow__title", "{entry.title}" }
-                        if !sub.is_empty() {
-                            div { class: "rs-trow__sub", "{sub}" }
+                    // Play. Its accessible name is its visible text.
+                    button {
+                        r#type: "button",
+                        class: "rs-trow__main",
+                        "data-testid": "download-row-play",
+                        onclick: move |_| {
+                            if press.take_fired() {
+                                return;
+                            }
+                            on_play.call(());
+                        },
+                        Artwork {
+                            cover_art: entry.cover_art_id.clone().or_else(|| entry.album_id.clone()),
+                            server_id: entry.server_id.clone(),
+                            size_px: 44,
                         }
-                    }
-                    span { class: "rs-trow__marks",
-                        span { class: "rs-trow__dl", role: "img", aria_label: "Downloaded",
-                            Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                        span { class: "rs-trow__meta",
+                            span { class: "rs-trow__title", "{entry.title}" }
+                            if !sub.is_empty() {
+                                span { class: "rs-trow__sub", "{sub}" }
+                            }
                         }
+                        span { class: "rs-trow__marks",
+                            span { class: "rs-trow__dl", role: "img", aria_label: "Downloaded",
+                                Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                            }
+                        }
+                        span { class: "rs-trow__dur", "{size}" }
                     }
-                    span { class: "rs-trow__dur", "{size}" }
                     button {
                         r#type: "button",
                         class: "rs-trow__more",
@@ -1095,7 +1099,7 @@ mod native {
             }
         };
         rsx! {
-            ActionMenu {
+            Menu {
                 title: entry.title.clone(),
                 anchor,
                 testid: "download-menu".to_string(),
@@ -1230,7 +1234,7 @@ mod native {
                 }
             }
             if let Some(anchor) = sort_menu() {
-                ActionMenu {
+                Menu {
                     title: format!("Sort {}", if playlists { "Playlists" } else { "Albums" }),
                     anchor,
                     actions: vec![
@@ -1362,8 +1366,8 @@ mod native {
                         "{summary}"
                     }
                 }
-                div { class: "rs-personal-sheet-pills",
-                    PillButton {
+                div { class: "rs-personal-sheet-actions",
+                    Button {
                         label: "Play".to_string(),
                         icon: "play".to_string(),
                         block: true,
@@ -1374,10 +1378,10 @@ mod native {
                             move |_| play(0, false)
                         },
                     }
-                    PillButton {
+                    Button {
                         label: "Shuffle".to_string(),
                         icon: "shuffle".to_string(),
-                        variant: PillVariant::Quiet,
+                        variant: ButtonVariant::Tinted,
                         block: true,
                         disabled: songs.is_empty(),
                         onclick: {
@@ -1514,7 +1518,7 @@ mod native {
             store.reload();
         };
         rsx! {
-            ActionMenu {
+            Menu {
                 title,
                 message,
                 testid: "downloads-confirm".to_string(),

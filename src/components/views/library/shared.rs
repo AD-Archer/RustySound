@@ -7,7 +7,7 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
 };
 use crate::components::ui::env::sleep_ms;
-use crate::components::ui::{EmptyState, PillButton, PillVariant, Skeleton, TrackMenuController};
+use crate::components::ui::{EmptyState, Button, ButtonVariant, Skeleton, TrackMenuController};
 use crate::components::{IsPlayingSignal, ShuffleEnabledSignal};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -414,9 +414,9 @@ pub fn PageFoot(loading: bool, error: Option<String>, on_retry: EventHandler<()>
         return rsx! {
             div { class: "rs-library-foot rs-library-foot--error", role: "status",
                 span { "Couldn't load more. {err}" }
-                PillButton {
+                Button {
                     label: "Retry".to_string(),
-                    variant: PillVariant::Mini,
+                    variant: ButtonVariant::Plain,
                     onclick: move |_| on_retry.call(()),
                 }
             }
@@ -455,10 +455,10 @@ pub fn ErrorState(
             title,
             message,
             testid,
-            PillButton {
+            Button {
                 label: "Retry".to_string(),
                 icon: "refresh-cw".to_string(),
-                variant: PillVariant::Quiet,
+                variant: ButtonVariant::Tinted,
                 onclick: move |_| on_retry.call(()),
             }
         }
@@ -474,7 +474,7 @@ pub fn NoServers() -> Element {
             icon: "server".to_string(),
             title: "No server connected".to_string(),
             message: "Add your Navidrome or Subsonic server to browse your library.".to_string(),
-            PillButton {
+            Button {
                 label: "Open Settings".to_string(),
                 onclick: move |_| navigation.navigate_to(crate::components::AppView::SettingsView {}),
             }
