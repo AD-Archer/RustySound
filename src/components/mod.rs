@@ -35,7 +35,7 @@ pub struct ShuffleEnabledSignal(pub Signal<bool>);
 
 pub use add_to_menu::*;
 pub use app::*;
-pub use app_view::{view_instance_key, AppView};
+pub use app_view::AppView;
 pub use audio_manager::*;
 pub use icons::*;
 pub use navigation::Navigation;

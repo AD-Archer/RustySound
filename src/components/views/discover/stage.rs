@@ -81,24 +81,10 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
         Stage {
             class: if wide { "rs-home__stage rs-home__stage--wide".to_string() } else { "rs-home__stage".to_string() },
             label: "Recently played".to_string(),
-            if !wide {
-                PullIndicator { pull, refreshing }
-            }
+            PullIndicator { pull, refreshing }
             div { class: "rs-home__bar",
                 h1 { class: "rs-home__title", "Home" }
-                if wide {
-                    IconButton {
-                        icon: "refresh-cw".to_string(),
-                        label: "Refresh Home".to_string(),
-                        quiet: true,
-                        size: IconButtonSize::Small,
-                        disabled: refreshing,
-                        class: if refreshing { "rs-home__spin".to_string() } else { String::new() },
-                        testid: "home-refresh".to_string(),
-                        onclick: move |_| data.refresh(),
-                    }
-                }
-                ServerStatus {}
+                SettingsButton { wide }
             }
             match items() {
                 None => rsx! {
@@ -113,7 +99,6 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
                 Some(list) => rsx! {
                     div { class: "rs-home__flow",
                         CoverFlow {
-                            key: "{data.flow_key}",
                             initial: initial_centre(list.len()),
                             items: list,
                             cover_px,
@@ -164,55 +149,36 @@ fn CentrePlay(picks: Memo<Option<Vec<DiscoverAlbum>>>) -> Element {
     }
 }
 
-/// The active server as a status dot and its name in plain text (count when
-/// several). Opens Settings.
+/// Opens Settings: a gear, with a small dot on it when no server is reachable
+/// (offline mode, or every server switched off).
 #[component]
-fn ServerStatus() -> Element {
+fn SettingsButton(wide: bool) -> Element {
     let navigation = use_context::<Navigation>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let settings = use_context::<Signal<AppSettings>>();
-    let offline = settings.read().offline_mode;
-    let list = servers.read();
-    let active: Vec<&ServerConfig> = list.iter().filter(|s| s.active).collect();
-    let name = active
-        .first()
-        .map(|s| {
-            if s.name.trim().is_empty() {
-                s.url
-                    .trim_start_matches("https://")
-                    .trim_start_matches("http://")
-                    .trim_end_matches('/')
-                    .to_string()
-            } else {
-                s.name.clone()
-            }
-        })
-        .unwrap_or_else(|| "No server".to_string());
-    let extra = active.len().saturating_sub(1);
-    let (led, state) = if offline {
-        ("rs-led rs-led--warn", "offline")
-    } else if active.is_empty() {
-        ("rs-led rs-led--off", "not connected")
+    let problem = if settings.read().offline_mode {
+        Some(("rs-led rs-led--warn", "offline"))
+    } else if !servers.read().iter().any(|s| s.active) {
+        Some(("rs-led rs-led--off", "no server on"))
     } else {
-        ("rs-led", "connected")
+        None
     };
-    let aria = if extra > 0 {
-        format!("{name} and {extra} more servers, {state}. Open Settings")
-    } else {
-        format!("{name}, {state}. Open Settings")
+    let label = match problem {
+        Some((_, state)) => format!("Settings, {state}"),
+        None => "Settings".to_string(),
     };
     rsx! {
-        button {
-            r#type: "button",
-            class: "rs-home__server",
-            aria_label: "{aria}",
-            title: "Settings",
-            "data-testid": "settings-open",
-            onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
-            span { class: "{led}" }
-            span { class: "rs-home__server-name", "{name}" }
-            if extra > 0 {
-                span { class: "rs-home__server-count", "+{extra}" }
+        span { class: "rs-home__settings",
+            IconButton {
+                icon: "settings".to_string(),
+                label,
+                quiet: true,
+                size: if wide { IconButtonSize::Small } else { IconButtonSize::Medium },
+                testid: "settings-open".to_string(),
+                onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
+            }
+            if let Some((led, _)) = problem {
+                span { class: "{led} rs-home__settings-dot", aria_hidden: "true" }
             }
         }
     }
@@ -239,7 +205,9 @@ fn FlowSkeleton(cover_px: u32, wide: bool) -> Element {
 #[component]
 fn PullIndicator(pull: Signal<f64>, refreshing: bool) -> Element {
     let distance = pull();
-    if distance <= 0.0 && !refreshing {
+    // Only once a pull is clearly meant: a few pixels of overscroll while
+    // scrolling shouldn't flash the indicator.
+    if distance < super::PULL_TRIGGER_PX * 0.35 && !refreshing {
         return rsx! {};
     }
     let progress = (distance / super::PULL_TRIGGER_PX).min(1.0);

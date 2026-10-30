@@ -47,7 +47,8 @@ pub use home::{
     load_albums_you_might_like, load_home_playlists, load_new_in_library, load_recently_played,
     load_songs_you_might_like,
 };
-pub use rewind::{DEFAULT_REWIND_MONTHS, REWIND_MONTH_CHOICES};
+pub use mixes::{mix_id_from_slug, mix_slug};
+pub use rewind::DEFAULT_REWIND_MONTHS;
 pub use types::*;
 
 use crate::api::models::{ServerConfig, Song};
@@ -333,18 +334,74 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
     section
 }
 
-/// The Rewind segment: heavily played albums (≥ 5 plays, ≤ 12) and songs
-/// (≥ 3 plays, ≤ 20) not played within the last `months` months.
+/// What [`load_mix`] found.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MixLookup {
+    Found(Mix),
+    /// No such mix today (not enough data, or an unknown id).
+    Missing,
+    /// No active server to build it from.
+    NoServer,
+}
+
+/// One generated mix by id, for the mix page (`/mix/<slug>`).
 ///
-/// `months` is the user's window (3, 6 or 12; see [`REWIND_MONTH_CHOICES`]);
-/// other values are clamped. Uses only the shared library snapshot, so after
-/// [`load_discover_stage`] it makes no requests. Empty when the server lacks
-/// `played` dates (plain Subsonic servers).
-pub async fn load_discover_rewind(
-    servers: &[ServerConfig],
-    settings: &AppSettings,
-    months: u32,
-) -> RewindSection {
+/// Reads today's mixes ([`load_discover_mixes`]: the in-memory memo, then the
+/// disk cache, so it matches Home exactly and costs no requests once Home
+/// has loaded); otherwise regenerates them from the same day seed. An artist
+/// radio that isn't in today's list (a link from another day, or from before
+/// a refresh) is rebuilt from the server and artist ids in its id, with
+/// 1 `getArtist` and 1 `getSimilarSongs2`, then cached for the day.
+pub async fn load_mix(servers: &[ServerConfig], settings: &AppSettings, id: &str) -> MixLookup {
+    let Some(ctx) = LoadContext::new(servers, settings) else {
+        return MixLookup::NoServer;
+    };
+    let section = load_discover_mixes(servers, settings).await;
+    if let Some(mix) = section.mixes.into_iter().find(|m| m.id == id) {
+        return MixLookup::Found(mix);
+    }
+    let Some((server_id, artist_id)) = mixes::radio_parts(id) else {
+        return MixLookup::Missing;
+    };
+    let key = ctx.section_key(&format!("mix:{id}"));
+    if let Some(mix) = cache::get::<Mix>(&key) {
+        return MixLookup::Found(mix);
+    }
+    let Some(server) = ctx.server(server_id) else {
+        return MixLookup::Missing;
+    };
+    let client = NavidromeClient::new(server);
+    let (artist, similar) = futures_util::join!(
+        server_call(client.get_artist(artist_id)),
+        server_call(client.get_similar_songs2(artist_id, 40)),
+    );
+    let (Ok((artist, _)), Ok(songs)) = (artist, similar) else {
+        return MixLookup::Missing;
+    };
+    let seed = ArtistSeed {
+        server_id: server_id.to_string(),
+        artist_id: artist_id.to_string(),
+        name: artist.name.clone(),
+        plays: 0,
+    };
+    match mixes::build_artist_radio(&ctx.mix_context(), &seed, songs) {
+        Some(mix) => {
+            cache::put(&key, &mix);
+            MixLookup::Found(mix)
+        }
+        None => MixLookup::Missing,
+    }
+}
+
+/// Haven't heard in a while: heavily played albums (≥ 5 plays, ≤ 12) and songs
+/// (≥ 3 plays, ≤ 20) not played in the last [`DEFAULT_REWIND_MONTHS`] months.
+///
+/// A fresh random pick in random order on every call, so Home shows something
+/// different each visit. Uses only the shared library snapshot, so after
+/// [`load_discover_stage`] it makes no requests. Empty when nothing qualifies,
+/// including servers without `played` dates (plain Subsonic).
+pub async fn load_discover_rewind(servers: &[ServerConfig], settings: &AppSettings) -> RewindSection {
+    let months = DEFAULT_REWIND_MONTHS;
     let Some(ctx) = LoadContext::new(servers, settings) else {
         return RewindSection {
             months,
@@ -352,28 +409,20 @@ pub async fn load_discover_rewind(
             ..Default::default()
         };
     };
-    let key = ctx.section_key(&format!("rewind-{months}"));
-    if let Some(cached) = cache::get::<RewindSection>(&key) {
-        return cached;
-    }
     let snapshot = ctx.snapshot().await;
     let cutoff_days = rewind::cutoff_days_for_months(months);
-    let section = RewindSection {
+    let mut rng = util::SeededRng::new(rand::random());
+    let mut albums =
+        rewind::select_rewind_albums(&snapshot.frequent, ctx.now, cutoff_days, rng.next_u64(), 12);
+    let mut songs = rewind::select_rewind_songs(&snapshot.top_songs, ctx.now, cutoff_days, 20);
+    rng.shuffle(&mut albums);
+    rng.shuffle(&mut songs);
+    RewindSection {
         months,
-        albums: rewind::select_rewind_albums(
-            &snapshot.frequent,
-            ctx.now,
-            cutoff_days,
-            ctx.seed("rewind-albums"),
-            12,
-        ),
-        songs: rewind::select_rewind_songs(&snapshot.top_songs, ctx.now, cutoff_days, 20),
+        albums,
+        songs,
         generated_on: ctx.date.clone(),
-    };
-    if snapshot.servers_ok > 0 {
-        cache::put(&key, &section);
     }
-    section
 }
 
 /// Recommendations from outside the library ("New" segment).
@@ -615,8 +664,8 @@ mod tests {
         assert!(feed.mixes.mixes.is_empty());
         assert!(feed.off_server.items.is_empty());
         assert_eq!(feed.off_server.status.external_requests, 0);
-        let rewind = runtime.block_on(load_discover_rewind(&servers, &settings, 12));
-        assert_eq!(rewind.months, 12);
+        let rewind = runtime.block_on(load_discover_rewind(&servers, &settings));
+        assert_eq!(rewind.months, DEFAULT_REWIND_MONTHS);
         assert!(rewind.albums.is_empty() && rewind.songs.is_empty());
         assert_eq!(feed.stage.generated_on.len(), 10);
     }
@@ -624,7 +673,8 @@ mod tests {
     #[test]
     fn settings_map_to_config() {
         let mut settings = AppSettings::default();
-        assert!(settings.discovery_offserver_enabled && settings.discovery_previews_enabled);
+        // Music from outside the server is opt-in.
+        assert!(!settings.discovery_offserver_enabled && settings.discovery_previews_enabled);
         settings.lastfm_api_key = "  ".into();
         settings.lastfm_username = " rj ".into();
         let config = DiscoveryConfig::from_settings(&settings);

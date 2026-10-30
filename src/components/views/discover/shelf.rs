@@ -13,13 +13,11 @@ use std::rc::Rc;
 
 /// A titled, horizontally scrolling row of cards.
 /// * `testid`: on the section (`shelf-playlists`, …); also the heading id.
-/// * `control`: extra header content (the Rewind window).
 /// * `children`: the cards (each renders its own `role="listitem"`).
 #[component]
 pub fn Shelf(
     title: String,
     testid: String,
-    #[props(default)] control: Option<Element>,
     children: Element,
 ) -> Element {
     let wide = !use_layout().is_compact();
@@ -59,9 +57,6 @@ pub fn Shelf(
             aria_labelledby: "{heading}",
             div { class: "rs-shelf__hd",
                 h2 { id: "{heading}", class: "rs-shelf__title", "{title}" }
-                if let Some(control) = control {
-                    div { class: "rs-shelf__control", {control} }
-                }
                 if wide {
                     ShelfArrows { title: title.clone(), row, at_start, at_end }
                 }

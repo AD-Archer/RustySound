@@ -4,11 +4,11 @@ use crate::components::ui::env::{
     appearance_attr, platform_name, stage_theme, use_layout_provider,
 };
 use crate::components::ui::{
-    LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
+    EdgeSwipe, LayoutSignal, MainScroll, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
     TrackMenuHost, TrackMenuRequest, WindowDragRegion,
 };
 use crate::components::{
-    ios_audio_log_snapshot, ios_diag_log, view_instance_key, AddIntent, AddMenuController,
+    ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController,
     AddToMenuOverlay, AppView, AudioController, AudioState, Icon,
     IsPlayingSignal, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
     ShuffleEnabledSignal, SongDetailsController, SongDetailsOverlay,
@@ -21,28 +21,14 @@ use crate::db::{
 };
 use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
 use chrono::Utc;
-#[cfg(target_arch = "wasm32")]
-use dioxus::core::{Runtime, RuntimeGuard};
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 use dioxus::desktop::use_muda_event_handler;
 use dioxus_router::components::Outlet;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::closure::Closure;
-#[cfg(target_arch = "wasm32")]
-use wasm_bindgen::JsCast;
-#[cfg(target_arch = "wasm32")]
-use web_sys::window;
 // Re-export RepeatMode for other components
 pub use crate::db::RepeatMode;
 use dioxus::prelude::*;
 use dioxus_router::use_navigator;
 
-#[cfg(target_arch = "wasm32")]
-const HISTORY_SWIPE_THRESHOLD: f64 = 100.0;
-#[cfg(target_arch = "wasm32")]
-const HISTORY_SWIPE_VERTICAL_SLOP: f64 = 72.0;
-#[cfg(target_arch = "wasm32")]
-const HISTORY_SWIPE_EDGE_ZONE: f64 = 28.0;
 const AUTO_DOWNLOAD_POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
 
 fn queue_snapshot_signature(
@@ -265,7 +251,6 @@ pub fn AppShell() -> Element {
     let router_navigator = use_navigator();
     let mut current_view_signal = use_signal(|| current_view.clone());
     let pending_navigation_target = use_signal(|| None::<AppView>);
-    let outlet_key = view_instance_key(&current_view);
     let now_playing = use_signal(|| None::<Song>);
     let queue = use_signal(Vec::<Song>::new);
     let mut queue_index = use_signal(|| 0usize);
@@ -343,9 +328,6 @@ pub fn AppShell() -> Element {
     });
     let seek_request = use_signal(|| None::<(String, f64)>);
     let mut resume_bookmark_loaded = use_signal(|| false);
-    #[cfg(target_arch = "wasm32")]
-    let swipe_start = use_signal(|| None::<(f64, f64, i8)>);
-    let swipe_hint = use_signal(|| None::<(i8, f64)>);
     let add_menu_intent = use_signal(|| None::<AddIntent>);
     let add_menu = AddMenuController::new(add_menu_intent.clone());
     let song_details_state = use_signal(SongDetailsState::default);
@@ -413,9 +395,6 @@ pub fn AppShell() -> Element {
             });
         });
     }
-
-    #[cfg(target_arch = "wasm32")]
-    let nav_for_swipe = navigation.clone();
 
     // Browser-only: queue bulk cover-art prefetches to avoid provider/CDN rate-limit bursts.
     #[cfg(target_arch = "wasm32")]
@@ -538,126 +517,6 @@ pub fn AppShell() -> Element {
         );
     });
 
-    // Global pointer listeners so back swipe works anywhere on the screen (PWA-like)
-    #[cfg(target_arch = "wasm32")]
-    use_effect(move || {
-        let Some(win) = window() else {
-            return;
-        };
-
-        let runtime = Runtime::current();
-        let mut swipe_start = swipe_start.clone();
-        let mut swipe_hint = swipe_hint.clone();
-        let nav = nav_for_swipe.clone();
-
-        let runtime_down = runtime.clone();
-        let down_cb = Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
-            let _guard = RuntimeGuard::new(runtime_down.clone());
-            if e.pointer_type() != "touch" {
-                swipe_start.set(None);
-                swipe_hint.set(None);
-                return;
-            }
-
-            let viewport_width = window()
-                .and_then(|w| w.inner_width().ok())
-                .and_then(|value| value.as_f64())
-                .unwrap_or(0.0);
-            if viewport_width <= 0.0 {
-                swipe_start.set(None);
-                swipe_hint.set(None);
-                return;
-            }
-
-            let x = e.client_x() as f64;
-            let y = e.client_y() as f64;
-            let direction = if x <= HISTORY_SWIPE_EDGE_ZONE {
-                1
-            } else if x >= viewport_width - HISTORY_SWIPE_EDGE_ZONE {
-                -1
-            } else {
-                0
-            };
-
-            if direction == 0 {
-                swipe_start.set(None);
-                swipe_hint.set(None);
-                return;
-            }
-
-            swipe_start.set(Some((x, y, direction)));
-            swipe_hint.set(Some((direction, 0.0)));
-        }) as Box<dyn FnMut(_)>);
-        let move_cb = {
-            let mut swipe_start = swipe_start.clone();
-            let nav = nav.clone();
-            let mut swipe_hint = swipe_hint.clone();
-            let runtime_move = runtime.clone();
-            Closure::wrap(Box::new(move |e: web_sys::PointerEvent| {
-                let _guard = RuntimeGuard::new(runtime_move.clone());
-                if let Some((start_x, start_y, direction)) = swipe_start() {
-                    let delta_x = e.client_x() as f64 - start_x;
-                    let delta_y = e.client_y() as f64 - start_y;
-                    if delta_y.abs() > HISTORY_SWIPE_VERTICAL_SLOP {
-                        swipe_start.set(None);
-                        swipe_hint.set(None);
-                        return;
-                    }
-
-                    let travel = if direction > 0 {
-                        delta_x.max(0.0)
-                    } else {
-                        (-delta_x).max(0.0)
-                    };
-                    let progress = (travel / HISTORY_SWIPE_THRESHOLD).clamp(0.0, 1.2);
-                    swipe_hint.set(Some((direction, progress)));
-
-                    if progress >= 1.0 {
-                        if direction > 0 && nav.can_go_back() {
-                            nav.go_back();
-                        } else if direction < 0 && nav.can_go_forward() {
-                            nav.go_forward();
-                        }
-                        swipe_start.set(None);
-                        swipe_hint.set(None);
-                    }
-                }
-            }) as Box<dyn FnMut(_)>)
-        };
-        let up_cb = {
-            let mut swipe_start = swipe_start.clone();
-            let mut swipe_hint = swipe_hint.clone();
-            let runtime_up = runtime.clone();
-            Closure::wrap(Box::new(move |_e: web_sys::PointerEvent| {
-                let _guard = RuntimeGuard::new(runtime_up.clone());
-                swipe_start.set(None);
-                swipe_hint.set(None);
-            }) as Box<dyn FnMut(_)>)
-        };
-        let cancel_cb = {
-            let mut swipe_start = swipe_start.clone();
-            let mut swipe_hint = swipe_hint.clone();
-            let runtime_cancel = runtime.clone();
-            Closure::wrap(Box::new(move |_e: web_sys::PointerEvent| {
-                let _guard = RuntimeGuard::new(runtime_cancel.clone());
-                swipe_start.set(None);
-                swipe_hint.set(None);
-            }) as Box<dyn FnMut(_)>)
-        };
-
-        let _ =
-            win.add_event_listener_with_callback("pointerdown", down_cb.as_ref().unchecked_ref());
-        let _ =
-            win.add_event_listener_with_callback("pointermove", move_cb.as_ref().unchecked_ref());
-        let _ = win.add_event_listener_with_callback("pointerup", up_cb.as_ref().unchecked_ref());
-        let _ = win
-            .add_event_listener_with_callback("pointercancel", cancel_cb.as_ref().unchecked_ref());
-
-        down_cb.forget();
-        move_cb.forget();
-        up_cb.forget();
-        cancel_cb.forget();
-    });
     use_context_provider(|| now_playing);
     use_context_provider(|| queue);
     use_context_provider(|| queue_index);
@@ -1159,7 +1018,6 @@ pub fn AppShell() -> Element {
     };
     let has_song = now_playing.read().is_some();
     let player_on = !compact || has_song;
-    let swipe_hint_state = swipe_hint();
 
     rsx! {
         div {
@@ -1224,7 +1082,7 @@ pub fn AppShell() -> Element {
                             }
                         }
                     }
-                    div { key: "{outlet_key}", class: "rs-outlet",
+                    div { class: "rs-outlet",
                         Outlet::<AppView> {}
                     }
                 }
@@ -1235,24 +1093,8 @@ pub fn AppShell() -> Element {
                 TabBar {}
             }
 
-            if let Some((direction, progress)) = swipe_hint_state {
-                if progress > 0.0 {
-                    div {
-                        class: if direction > 0 { "rs-swipe-hint rs-swipe-hint--back" } else { "rs-swipe-hint rs-swipe-hint--forward" },
-                        aria_hidden: "true",
-                        style: format!(
-                            "opacity:{:.2};transform:translateY(-50%) translateX({:.1}px) scale({:.2});",
-                            0.2 + progress.min(1.0) * 0.8,
-                            if direction > 0 { -12.0 + progress.min(1.0) * 12.0 } else { 12.0 - progress.min(1.0) * 12.0 },
-                            0.86 + progress.min(1.0) * 0.18
-                        ),
-                        Icon {
-                            name: if direction > 0 { "chevron-left".to_string() } else { "chevron-right".to_string() },
-                            class: "rs-ic".to_string(),
-                        }
-                    }
-                }
-            }
+            // Edge swipe back/forward; the script only acts on compact.
+            EdgeSwipe {}
 
             AddToMenuOverlay { controller: add_menu.clone() }
 

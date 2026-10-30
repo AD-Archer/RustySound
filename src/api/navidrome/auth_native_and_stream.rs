@@ -108,6 +108,28 @@ impl NavidromeClient {
         let _ = cache_remove_prefix("view:favorites:v1:");
     }
 
+    /// After a star/unstar: drop every cached response that carries the old
+    /// `starred` value, so a reopened page shows the new state. Song stars
+    /// show inside cached albums and playlists, so those go too.
+    fn invalidate_after_star(&self, id: &str, item_type: &str) {
+        match item_type {
+            "playlist" => self.invalidate_playlist_cache(),
+            "album" => {
+                self.invalidate_favorites_cache();
+                let _ = cache_remove_prefix(&format!("api:getAlbum:v1:{}:{}", self.server.id, id));
+            }
+            "artist" => {
+                self.invalidate_favorites_cache();
+                let _ = cache_remove_prefix(&format!("api:getArtist:v1:{}:{}", self.server.id, id));
+            }
+            _ => {
+                self.invalidate_favorites_cache();
+                let _ = cache_remove_prefix(&format!("api:getAlbum:v1:{}:", self.server.id));
+                let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:", self.server.id));
+            }
+        }
+    }
+
     fn invalidate_playlist_cache(&self) {
         let _ = cache_remove_prefix(&format!("api:getPlaylists:v1:{}", self.server.id));
         let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:", self.server.id));

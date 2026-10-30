@@ -150,8 +150,19 @@ impl Navigation {
         });
     }
 
+    /// Whether a back step stays inside the app. Native builds ask the
+    /// router's MemoryHistory. On the web the router always says yes, and
+    /// `history.back()` from the first page would leave the app, so ask the
+    /// browser instead (see `web_history_can_go`).
     pub fn can_go_back(&self) -> bool {
-        self.0.can_go_back()
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_history_can_go(true)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.0.can_go_back()
+        }
     }
 
     pub fn go_back(&self) -> Option<AppView> {
@@ -160,15 +171,56 @@ impl Navigation {
         None // Router handles the navigation, we don't need to return the view
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn can_go_forward(&self) -> bool {
-        self.0.can_go_forward()
+        #[cfg(target_arch = "wasm32")]
+        {
+            web_history_can_go(false)
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.0.can_go_forward()
+        }
     }
 
-    #[cfg(target_arch = "wasm32")]
     pub fn go_forward(&self) -> Option<AppView> {
         self.0.go_forward();
         reset_main_scroll_position();
         None // Router handles the navigation, we don't need to return the view
     }
+}
+
+/// Browser history check: the Navigation API's canGoBack / canGoForward where
+/// it exists, otherwise the entry index that `ui/edge_swipe.js` stamps into
+/// each history state (`[scrollX, scrollY, index]`).
+#[cfg(target_arch = "wasm32")]
+fn web_history_can_go(back: bool) -> bool {
+    use js_sys::Reflect;
+    use wasm_bindgen::JsValue;
+
+    let Some(win) = window() else {
+        return false;
+    };
+    let get = |target: &JsValue, key: &str| Reflect::get(target, &JsValue::from_str(key)).ok();
+    if let Some(navigation) = get(win.as_ref(), "navigation").filter(|value| value.is_object()) {
+        let key = if back { "canGoBack" } else { "canGoForward" };
+        if let Some(flag) = get(&navigation, key).and_then(|value| value.as_bool()) {
+            return flag;
+        }
+    }
+    let index = get(win.as_ref(), "history")
+        .and_then(|history| get(&history, "state"))
+        .and_then(|state| get(&state, "2"))
+        .and_then(|value| value.as_f64())
+        .unwrap_or(0.0);
+    if back {
+        return index > 0.0;
+    }
+    let newest = win
+        .session_storage()
+        .ok()
+        .flatten()
+        .and_then(|storage| storage.get_item("rs.history.max").ok().flatten())
+        .and_then(|value| value.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    index < newest
 }

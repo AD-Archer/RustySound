@@ -109,6 +109,44 @@ pub async fn save_mix(
     })
 }
 
+/// Save (or re-save, replacing the earlier copy) and remember where it went
+/// in the `discover_saved_mix_playlists` setting. Returns the message to show.
+/// Shared by Home's mix menu and the mix page.
+pub async fn save_and_remember(
+    mix: Mix,
+    servers: Vec<ServerConfig>,
+    mut settings: dioxus::prelude::Signal<crate::db::AppSettings>,
+) -> Result<String, String> {
+    use dioxus::prelude::{ReadableExt, WritableExt};
+    if settings.peek().offline_mode {
+        return Err("Saving a playlist needs a connection.".to_string());
+    }
+    let map = parse_saved(&settings.peek().discover_saved_mix_playlists);
+    let prior = remembered(&map, &mix.id, &servers);
+    match save_mix(&servers, &mix, prior).await {
+        Ok(outcome) => {
+            if let Some(saved) = outcome.saved.clone() {
+                let mut next = settings.peek().clone();
+                let mut map = parse_saved(&next.discover_saved_mix_playlists);
+                map.insert(mix.id.clone(), saved);
+                next.discover_saved_mix_playlists = serialize_saved(&map);
+                settings.set(next.clone());
+                let _ = crate::db::save_settings(next).await;
+            }
+            Ok(saved_message(&mix, &outcome))
+        }
+        Err(message) => Err(format!("Couldn't save “{}”: {message}", mix.name)),
+    }
+}
+
+/// True when the playlist `playlist_id` on `server_id` is the saved copy of a
+/// generated mix (it will be replaced when that mix is saved again).
+pub fn is_saved_mix_copy(raw_map: &str, server_id: &str, playlist_id: &str) -> bool {
+    parse_saved(raw_map)
+        .values()
+        .any(|saved| saved.server_id == server_id && saved.playlist_id == playlist_id)
+}
+
 /// A playlist on `server` named exactly `name` and owned by the signed-in user.
 async fn find_owned_playlist(server: &ServerConfig, name: &str) -> Option<String> {
     let client = NavidromeClient::new(server.clone());

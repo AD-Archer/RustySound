@@ -176,7 +176,7 @@ pub fn TrackRow(
                         span { class: "rs-trow__marks",
                             if starred {
                                 span { class: "rs-trow__star", role: "img", aria_label: "Favorite",
-                                    Icon { name: "star-filled".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                                    Icon { name: "heart-filled".to_string(), class: "rs-ic rs-ic--xs".to_string() }
                                 }
                             }
                             if downloaded {

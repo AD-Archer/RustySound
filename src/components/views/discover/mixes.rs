@@ -1,17 +1,27 @@
-//! Generated mixes on the Playlists shelf. Tapping a mix card plays it; its
-//! "…" menu has Play, Shuffle, Add to Queue and Save as Playlist (re-saving
-//! replaces the earlier copy).
+//! Generated mixes on the Playlists shelf. Tapping a mix card opens its page
+//! (`/mix/<slug>`), like a server playlist card; the round play button over
+//! the art plays it, and its "…" menu has Play, Shuffle, Add to Queue and
+//! Save as Playlist (re-saving replaces the earlier copy).
+//!
+//! A mix is RustySound's, not one of the user's server playlists, so its
+//! card carries the RustySound mark on the art and says "RustySound"
+//! where a playlist says its song count (see [`RsMark`]).
 
 use super::actions::{use_player, Player, Toast};
 use super::cards::{songs_label, CARD_ART_PX};
-use super::saved::{parse_saved, remembered, save_mix, saved_message, serialize_saved};
 use super::offserver::OffServerMenu;
+use super::saved::save_and_remember;
 use super::shelf::Card;
-use crate::api::discovery::{Mix, OffServerItem};
+use crate::api::discovery::{mix_slug, Mix, OffServerItem};
 use crate::api::{QueueSourceKind, ServerConfig};
+use crate::components::ui::env::app_mark_src;
 use crate::components::ui::{Artwork, Menu, MenuAction};
-use crate::db::{save_settings, AppSettings};
+use crate::components::{AppView, Icon, Navigation};
+use crate::db::AppSettings;
 use dioxus::prelude::*;
+
+/// The line that names who made a mix, on cards and the mix page.
+pub const MIX_BYLINE: &str = "RustySound";
 
 fn play_mix(player: Player, toast: Toast, mix: &Mix, shuffle: bool) {
     let source = format!("discover:{}", mix.id);
@@ -21,13 +31,28 @@ fn play_mix(player: Player, toast: Toast, mix: &Mix, shuffle: bool) {
 }
 
 /// "25 songs · 1 hr 38 min".
-fn count_label(mix: &Mix) -> String {
+pub fn count_label(mix: &Mix) -> String {
     let songs = songs_label(mix.song_count);
     if mix.length_label.is_empty() {
         songs
     } else {
         format!("{songs} · {}", mix.length_label)
     }
+}
+
+/// The route of a mix's page.
+pub fn mix_route(mix: &Mix) -> AppView {
+    AppView::MixDetailView {
+        mix_id: mix_slug(&mix.id),
+    }
+}
+
+/// `(server_id, cover_art)` pairs for [`MixArt`].
+pub fn mix_covers(mix: &Mix) -> Vec<(String, String)> {
+    mix.covers
+        .iter()
+        .map(|c| (c.server_id.clone(), c.cover_art.clone()))
+        .collect()
 }
 
 /// The "…" menu Home shows, if any. Menus mount once at Home's root (not
@@ -74,51 +99,79 @@ pub fn HomeMenuHost() -> Element {
     }
 }
 
-/// One mix: a 2×2 mosaic, the name, a small "Mix" tag and the counts.
+/// The RustySound app mark, the real icon. Decorative by default: every place
+/// that shows it also says "RustySound" in text.
+/// * `class`: sizing and placement (`rs-mixmark--card`, `rs-mixmark--title`).
+#[component]
+pub fn RsMark(#[props(default)] class: String) -> Element {
+    rsx! {
+        img {
+            class: "rs-mixmark {class}",
+            src: app_mark_src(),
+            alt: "",
+            aria_hidden: "true",
+            draggable: "false",
+            "data-testid": "rs-mark",
+        }
+    }
+}
+
+/// One mix: a 2×2 mosaic stamped with the RustySound mark, the name,
+/// "RustySound" (who made it) and the blurb. Tap opens the mix page.
 #[component]
 pub fn MixCard(mix: Mix) -> Element {
     let player = use_player();
     let toast = use_context::<Toast>();
     let menus = use_context::<HomeMenus>();
-    let covers: Vec<(String, String)> = mix
-        .covers
-        .iter()
-        .map(|c| (c.server_id.clone(), c.cover_art.clone()))
-        .collect();
-    let play = {
-        let mix = mix.clone();
-        move |_| play_mix(player, toast, &mix, false)
-    };
+    let navigation = use_context::<Navigation>();
+    let covers = mix_covers(&mix);
+    let target = mix_route(&mix);
+    let to_play = mix.clone();
     let for_menu = mix.clone();
     rsx! {
         Card {
             title: mix.name.clone(),
-            // Short enough to fit beside the tag; the length is in the menu.
-            subtitle: songs_label(mix.song_count),
+            // Who made it, where a playlist card shows its song count; the
+            // count is on the page and in the menu.
+            subtitle: MIX_BYLINE.to_string(),
             reason: Some(mix.blurb.clone()),
-            tag: Some("Mix".to_string()),
             testid: "mix-card".to_string(),
             art: rsx! {
-                MixArt { covers }
+                MixArt { covers, size_px: CARD_ART_PX }
+                RsMark { class: "rs-mixmark--card".to_string() }
             },
-            onclick: play,
+            overlay: rsx! {
+                button {
+                    r#type: "button",
+                    class: "rs-hcard__play",
+                    aria_label: "Play {mix.name}",
+                    title: "Play",
+                    "data-testid": "mix-card-play",
+                    onclick: move |_| play_mix(player, toast, &to_play, false),
+                    Icon { name: "play".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                }
+            },
+            onclick: move |_| navigation.navigate_to(target.clone()),
             on_menu: move |anchor| menus.open(HomeMenu::Mix(for_menu.clone()), anchor),
         }
     }
 }
 
-/// A mix's art, filling the card: a 2×2 mosaic of its first four album
+/// A mix's art, filling its box: a 2×2 mosaic of its first four album
 /// covers, or one cover when it has fewer.
+/// * `size_px`: the box's edge, for the artwork request size.
+/// * `eager`: load now (the mix page's hero).
 #[component]
-fn MixArt(covers: Vec<(String, String)>) -> Element {
+pub fn MixArt(covers: Vec<(String, String)>, size_px: u32, #[props(default)] eager: bool) -> Element {
     if covers.len() < 4 {
         let first = covers.first().cloned();
         return rsx! {
             Artwork {
                 server_id: first.as_ref().map(|c| c.0.clone()).unwrap_or_default(),
                 cover_art: first.map(|c| c.1),
-                size_px: CARD_ART_PX,
+                size_px,
                 fill: true,
+                eager,
                 placeholder: "playlist".to_string(),
             }
         };
@@ -130,8 +183,9 @@ fn MixArt(covers: Vec<(String, String)>) -> Element {
                     key: "{server_id}:{cover}",
                     server_id,
                     cover_art: Some(cover),
-                    size_px: CARD_ART_PX / 2,
+                    size_px: size_px / 2,
                     fill: true,
+                    eager,
                     placeholder: "album".to_string(),
                 }
             }
@@ -156,7 +210,7 @@ fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> 
     rsx! {
         Menu {
             title: Some(title),
-            message: Some(count_label(&mix)),
+            message: Some(format!("Made by RustySound · {}", count_label(&mix))),
             actions,
             anchor,
             testid: "mix-menu".to_string(),
@@ -178,7 +232,7 @@ fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> 
 fn save_to_playlist(
     mix: Mix,
     servers: Signal<Vec<ServerConfig>>,
-    mut settings: Signal<AppSettings>,
+    settings: Signal<AppSettings>,
     toast: Toast,
 ) {
     if settings.peek().offline_mode {
@@ -186,23 +240,11 @@ fn save_to_playlist(
         return;
     }
     let servers = servers.peek().clone();
-    let map = parse_saved(&settings.peek().discover_saved_mix_playlists);
-    let prior = remembered(&map, &mix.id, &servers);
     toast.show(format!("Saving “{}”…", mix.name), false);
     toast.spawn(async move {
-        match save_mix(&servers, &mix, prior).await {
-            Ok(outcome) => {
-                if let Some(saved) = outcome.saved.clone() {
-                    let mut next = settings.peek().clone();
-                    let mut map = parse_saved(&next.discover_saved_mix_playlists);
-                    map.insert(mix.id.clone(), saved);
-                    next.discover_saved_mix_playlists = serialize_saved(&map);
-                    settings.set(next.clone());
-                    let _ = save_settings(next).await;
-                }
-                toast.show(saved_message(&mix, &outcome), false);
-            }
-            Err(message) => toast.show(format!("Couldn't save “{}”: {message}", mix.name), true),
+        match save_and_remember(mix, servers, settings).await {
+            Ok(message) => toast.show(message, false),
+            Err(message) => toast.show(message, true),
         }
     });
 }

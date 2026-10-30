@@ -92,35 +92,21 @@
   letter-spacing: var(--track-tight);
 }
 
-/* Server status: a dot and the name in plain text. Opens Settings. */
-.rs-home__server {
+/* Settings: a gear at the end of the title row, with a status dot on it only
+   when no server is reachable. */
+.rs-home__settings {
+  position: relative;
   display: inline-flex;
   flex: none;
-  align-items: center;
-  gap: 7px;
-  max-width: min(50vw, 260px);
-  min-height: var(--touch);
-  padding: 0 4px;
-  color: var(--stage-muted);
-  font-size: var(--fs-sub);
-  cursor: pointer;
-  transition: color var(--dur-fast);
+  color: var(--stage-ink);
 }
 
-@media (hover: hover) {
-  .rs-home__server:hover { color: var(--stage-ink); }
-}
-
-.rs-home__server-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.rs-home__server-count {
-  flex: none;
-  font-variant-numeric: tabular-nums;
+.rs-home__settings-dot {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--stage-base);
 }
 
 /* Cover Flow with the play button beside the centred caption. The kit's
@@ -327,39 +313,11 @@
   font-size: 19px;
 }
 
-/* The Rewind window: a small segmented control beside the title. */
-.rs-shelf__control {
-  flex: none;
-  margin-left: auto;
-}
-
-/* Compact: the control gets its own line under the title, so a long title
-   ("Haven't Heard in a While") never truncates next to it. */
-.rs-home:not(.rs-home--wide) .rs-shelf__hd {
-  flex-wrap: wrap;
-  row-gap: var(--sp-3);
-}
-
-.rs-home:not(.rs-home--wide) .rs-shelf__control {
-  flex-basis: 100%;
-  margin-left: 0;
-}
-
-.rs-shelf__control .rs-seg__btn {
-  height: 24px;
-  padding: 0 9px;
-  font-size: var(--fs-foot);
-}
-
 .rs-shelf__arrows {
   display: flex;
   flex: none;
   gap: 2px;
   margin-left: auto;
-}
-
-.rs-shelf__control + .rs-shelf__arrows {
-  margin-left: 0;
 }
 
 .rs-shelf__row {
@@ -551,6 +509,66 @@
 
 @media (hover: none) {
   .rs-hcard__play--hover { display: none; }
+}
+
+/* ---- RustySound's mixes ----------------------------------------------
+   A mix is RustySound's, not one of the user's server playlists. Its card
+   art carries the app mark in the top-left corner (as generated playlists
+   do on other services) and its subtitle says "By RustySound"; the mix page
+   puts the mark with "Made by RustySound" right above the title. The mark is
+   decorative: the text says who made it. */
+.rs-mixmark {
+  display: block;
+  flex: none;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Scales with the card (the card is an inline-size container): 20px on a
+   320px-wide phone, up to 32px on wide windows. A dark disc behind it keeps
+   the orange mark legible on busy or orange covers. */
+.rs-mixmark--card {
+  position: absolute;
+  z-index: 1;
+  top: clamp(5px, 4cqw, 9px);
+  left: clamp(5px, 4cqw, 9px);
+  width: clamp(20px, 13cqw, 32px);
+  height: clamp(20px, 13cqw, 32px);
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .62);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+}
+
+.rs-mixmark--title {
+  width: 20px;
+  height: 20px;
+}
+
+.rs-mixpage__by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+  white-space: nowrap;
+}
+
+.rs-app[data-layout="wide"] .rs-mixmark--title {
+  width: 22px;
+  height: 22px;
+}
+
+/* The mosaic fills the hero's art box. */
+.rs-mixpage__art {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--r-art);
 }
 
 /* Loading cards. */

@@ -206,7 +206,7 @@ fn FavoriteButton() -> Element {
 
     rsx! {
         IconButton {
-            icon: if starred { "star-filled".to_string() } else { "star".to_string() },
+            icon: if starred { "heart-filled".to_string() } else { "heart".to_string() },
             label: if starred { "Unfavorite".to_string() } else { "Favorite".to_string() },
             pressed: starred,
             size: IconButtonSize::Small,

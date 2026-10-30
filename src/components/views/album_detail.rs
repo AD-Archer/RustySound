@@ -52,6 +52,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let mut dl_progress = use_signal(|| None::<(usize, usize)>);
     let mut dl_busy = use_signal(|| false);
     let mut album_downloaded = use_signal(|| false);
+    let mut starred = use_signal(|| false);
     use_song_patches(songs);
 
     let data = use_resource(use_reactive!(|(album_id, server_id)| {
@@ -69,6 +70,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         if let Some(Ok((album, list))) = &*data.read() {
             songs.set(list.clone());
             rating.set(album.user_rating.unwrap_or(0).min(5));
+            starred.set(album.starred.is_some());
             let (sid, aid) = (album.server_id.clone(), album.id.clone());
             spawn(async move {
                 let done = crate::offline_audio::is_album_downloaded(&sid, &aid);
@@ -211,6 +213,35 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         }
     };
 
+    // Optimistic: the heart flips at once; a failed call flips it back and
+    // says why.
+    let toggle_favorite = {
+        let album = album.clone();
+        move |_| {
+            menu_at.set(None);
+            let should = !*starred.peek();
+            let server = servers.peek().iter().find(|s| s.id == album.server_id).cloned();
+            let Some(server) = server else {
+                status.set(Some("This album's server isn't connected.".to_string()));
+                return;
+            };
+            starred.set(should);
+            let album_id = album.id.clone();
+            spawn(async move {
+                let client = NavidromeClient::new(server);
+                let result = if should {
+                    client.star(&album_id, "album").await
+                } else {
+                    client.unstar(&album_id, "album").await
+                };
+                if let Err(err) = result {
+                    starred.set(!should);
+                    status.set(Some(format!("Couldn't update Favorites: {err}")));
+                }
+            });
+        }
+    };
+
     let go_artist = {
         let album = album.clone();
         move |_| {
@@ -342,6 +373,12 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                                 add_menu.open(AddIntent::from_album(&album));
                             }
                         },
+                    }
+                    MenuItem {
+                        label: if starred() { "Remove from Favorites".to_string() } else { "Favorite".to_string() },
+                        icon: if starred() { "heart-filled".to_string() } else { "heart".to_string() },
+                        testid: "album-menu-favorite".to_string(),
+                        onclick: toggle_favorite,
                     }
                     MenuGap {}
                     if can_download {

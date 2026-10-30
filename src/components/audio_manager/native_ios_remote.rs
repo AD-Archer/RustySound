@@ -19,6 +19,11 @@ static IOS_LAST_REMOTE_NAV_ACTION: Lazy<Mutex<(String, u128)>> =
     Lazy::new(|| Mutex::new((String::new(), 0)));
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 const IOS_REMOTE_NAV_DEBOUNCE_MS: u128 = 220;
+/// Shorter than the next-track debounce: a deliberate double tap on
+/// "previous" (restart, then previous song) lands ~150-400 ms apart, while
+/// duplicate deliveries of one press arrive within a few milliseconds.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+const IOS_REMOTE_PREVIOUS_DEBOUNCE_MS: u128 = 120;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 const IOS_REMOTE_DIAGNOSTIC_REV: &str = "ios-remote-2026-03-14b";
 
@@ -186,7 +191,12 @@ fn should_ignore_duplicate_nav_action(action: &str) -> bool {
     let Ok(mut last) = IOS_LAST_REMOTE_NAV_ACTION.lock() else {
         return false;
     };
-    if last.0 == action && now.saturating_sub(last.1) < IOS_REMOTE_NAV_DEBOUNCE_MS {
+    let debounce_ms = if action == "previous" {
+        IOS_REMOTE_PREVIOUS_DEBOUNCE_MS
+    } else {
+        IOS_REMOTE_NAV_DEBOUNCE_MS
+    };
+    if last.0 == action && now.saturating_sub(last.1) < debounce_ms {
         ios_diag_log(
             "remote.command",
             &format!("ignored duplicate action={action} dt={}ms", now.saturating_sub(last.1)),
@@ -579,6 +589,58 @@ fn ios_apply_immediate_transition(
     false
 }
 
+/// A "previous" remote press (lock screen, Control Center, headphones):
+/// the shared skip-back rule (`player/skip_back.rs`) decides between
+/// restarting and the previous song, using AVPlayer's own position so it
+/// works while the web view is suspended.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_skip_back_press(source: &str) {
+    use crate::components::player::skip_back::{
+        decide, monotonic_now_ms, previous_index, track_key, Press, SkipBack,
+    };
+    let current = IOS_PLAYBACK_PLAN.lock().ok().and_then(|plan| {
+        let len = plan.items.len();
+        let index = plan.index.min(len.saturating_sub(1));
+        plan.items
+            .get(index)
+            .map(|item| (index, len, plan.repeat_mode, item.song_id.clone(), item.meta.is_live))
+    });
+    let Some((index, len, repeat, song_id, is_live)) = current else {
+        // No native plan yet: the app's controller decides when it polls.
+        ios_diag_log("remote.skip-back", &format!("source={source} no-plan -> queued"));
+        push_ios_remote_action("previous");
+        return;
+    };
+    let position = with_ios_player(|player| player.current_time_and_duration().0)
+        .filter(|time| time.is_finite())
+        .unwrap_or(f64::INFINITY);
+    let key = track_key(index, &song_id);
+    let outcome = decide(Press {
+        now_ms: monotonic_now_ms(),
+        position_secs: position,
+        track: &key,
+        previous: previous_index(index, len, repeat),
+        is_live,
+    });
+    ios_diag_log(
+        "remote.skip-back",
+        &format!("source={source} idx={index} len={len} pos={position:.2} outcome={outcome:?}"),
+    );
+    match outcome {
+        SkipBack::Ignore => {}
+        SkipBack::Restart => {
+            let _ = with_ios_player(|player| {
+                player.apply(serde_json::json!({ "type": "seek", "position": 0.0 }));
+            });
+            // Tell the app so its position and progress follow.
+            push_ios_remote_action("seek:0");
+        }
+        SkipBack::Previous(_) => {
+            let _ = ios_apply_immediate_transition("previous", "previous_track", source);
+        }
+    }
+}
+
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
     configure_ios_audio_session();
@@ -611,7 +673,7 @@ extern "C" fn ios_handle_previous(_: &Object, _: objc::runtime::Sel, _: *mut Obj
     if should_ignore_duplicate_nav_action("previous") {
         return 0;
     }
-    let _ = ios_apply_immediate_transition("previous", "previous", "previous-immediate");
+    ios_skip_back_press("previous-immediate");
     0
 }
 
@@ -647,7 +709,7 @@ extern "C" fn ios_handle_skip_backward(_: &Object, _: objc::runtime::Sel, _: *mu
     if should_ignore_duplicate_nav_action("previous") {
         return 0;
     }
-    let _ = ios_apply_immediate_transition("previous", "previous", "skip-backward-immediate");
+    ios_skip_back_press("skip-backward-immediate");
     0
 }
 
@@ -695,7 +757,7 @@ extern "C" fn ios_handle_seek_backward(_: &Object, _: objc::runtime::Sel, event:
             ),
         );
         if phase <= 0 && !should_ignore_duplicate_nav_action("previous") {
-            let _ = ios_apply_immediate_transition("previous", "previous", "seek-backward-immediate");
+            ios_skip_back_press("seek-backward-immediate");
         }
     }
     0

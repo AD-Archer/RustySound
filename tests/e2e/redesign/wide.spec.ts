@@ -55,6 +55,30 @@ test.describe("wide layout", () => {
     await expect.poll(name).toBe(first);
   });
 
+  test("Home refreshes only on a trackpad pull that starts at the top", async ({ connected: page }) => {
+    await gotoReady(page, "/");
+    await expect(tid(page, "shelf-playlists")).toBeVisible();
+    await expect(tid(page, "home-refresh"), "no permanent refresh button").toHaveCount(0);
+    const pull = page.locator(".rs-home__pull");
+    await expect(pull).toHaveCount(0);
+
+    // Scroll down, then flick back up past the top: momentum must not refresh.
+    await page.mouse.move(900, 500);
+    await page.mouse.wheel(0, 600);
+    await page.waitForTimeout(400);
+    for (let i = 0; i < 12; i++) await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(500);
+    await expect(pull, "a scroll that reached the top is not a pull").toHaveCount(0);
+
+    // A new gesture that starts at the top pulls, shows the indicator and refreshes
+    // (the mock answers fast, so the refresh shows up as fresh library requests).
+    const refreshed = page.waitForRequest((r) => r.url().includes("/rest/") && r.url().includes("getAlbumList2"), { timeout: 10_000 });
+    for (let i = 0; i < 10; i++) await page.mouse.wheel(0, -60);
+    await expect(pull).toBeVisible();
+    await refreshed;
+    await expect(pull).toHaveCount(0, { timeout: 20_000 });
+  });
+
   test("Home shelves fill the content width and page with the arrows", async ({ connected: page }) => {
     await gotoReady(page, "/");
     const shelf = tid(page, "shelf-new");

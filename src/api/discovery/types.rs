@@ -236,11 +236,11 @@ impl HomePlaylist {
 /// The "Rewind" segment for one window, from [`super::load_discover_rewind`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct RewindSection {
-    /// The window this was computed for, in months (3, 6 or 12).
+    /// The window this was computed for, in months.
     pub months: u32,
-    /// Heavily played albums not played within the window (≤ 12), most played first.
+    /// Heavily played albums not played within the window (≤ 12), in random order.
     pub albums: Vec<DiscoverAlbum>,
-    /// Heavily played songs not played within the window (≤ 20), most played first.
+    /// Heavily played songs not played within the window (≤ 20), in random order.
     pub songs: Vec<DiscoverSong>,
     pub generated_on: String,
 }

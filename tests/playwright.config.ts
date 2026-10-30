@@ -5,6 +5,8 @@
 //                ported to the Stage UI in phase 3) on all five browser projects
 //   REDESIGN=1   redesign suite (tests/e2e/redesign, incl. the axe sweep) on the same projects
 //   PERF=1       perf suite (tests/perf) on perf-chromium-mac and perf-webkit-mac only
+//   SHOTS=1      README screenshots (tests/screenshots) into docs/screenshots, taken read-only
+//                against the real server in .env (see `just readme-shots`)
 //
 // The global setup starts the mock server and a static server over the web release build.
 // RS_WEB_URL points the tests at an already-running server instead.
@@ -13,6 +15,7 @@ import { WEB_URL } from "./support/env";
 
 const REDESIGN = process.env.REDESIGN === "1";
 const PERF = process.env.PERF === "1";
+const SHOTS = process.env.SHOTS === "1";
 // Workers inherit this, so perf results from one run are merged into the same JSON files.
 process.env.RS_PERF_RUN_ID ??= new Date().toISOString();
 
@@ -27,7 +30,7 @@ const browsers: Project[] = [
   { name: "chromium-iphone", use: { ...devices["iPhone 15"], browserName: "chromium", defaultBrowserType: "chromium" } },
 ];
 
-const suiteDir = REDESIGN ? "e2e/redesign" : "e2e/baseline";
+const suiteDir = SHOTS ? "screenshots" : REDESIGN ? "e2e/redesign" : "e2e/baseline";
 
 const projects: Project[] = PERF
   ? [

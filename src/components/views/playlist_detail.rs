@@ -7,7 +7,7 @@ mod edit_row;
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, Menu, MenuGap, MenuItem, Artwork, EmptyState,
+    use_layout, Menu, MenuAction, MenuGap, MenuItem, Artwork, EmptyState,
     Button, ButtonVariant, TrackRow, VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
@@ -25,6 +25,7 @@ use crate::offline_audio::{
     mark_playlist_auto_download_tracked, prefetch_song_audio_with_origin,
     sync_downloaded_collection_members, DownloadOrigin,
 };
+use crate::components::views::discover::saved::is_saved_mix_copy;
 use add_songs::AddSongsSheet;
 use dioxus::prelude::*;
 use edit_row::EditRow;
@@ -51,9 +52,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut editing = use_signal(|| false);
     let mut sheet = use_signal(|| None::<Sheet>);
     let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
-    let mut starred = use_signal(|| false);
     let mut dl_busy = use_signal(|| false);
     let dl_progress = use_signal(|| None::<(usize, usize)>);
+    // "Remove Songs from Favorites" asks first (it can undo many hearts).
+    let mut confirm_unstar = use_signal(|| false);
+    let mut queue = use_context::<Signal<Vec<Song>>>();
+    let mut now_playing = use_context::<Signal<Option<Song>>>();
     use_song_patches(songs);
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
@@ -70,9 +74,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     }));
 
     use_effect(move || {
-        if let Some(Ok((playlist, list))) = &*data.read() {
+        if let Some(Ok((_, list))) = &*data.read() {
             songs.set(list.clone());
-            starred.set(playlist.starred.is_some());
             meta_override.set(None);
         }
     });
@@ -131,8 +134,17 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         .owner
         .clone()
         .filter(|o| server.as_ref().map(|s| !s.username.eq_ignore_ascii_case(o)).unwrap_or(true));
+    // The saved copy of a generated mix is the user's playlist (no RustySound
+    // mark), but saving that mix again replaces it, so say so.
+    let mix_copy = is_saved_mix_copy(
+        &app_settings.read().discover_saved_mix_playlists,
+        &playlist.server_id,
+        &playlist.id,
+    );
     let note = if auto_imported {
         Some("Auto-imported from a playlist file on the server, so it's read-only here.".to_string())
+    } else if mix_copy {
+        Some("Saved from a RustySound mix. Saving that mix again replaces this playlist.".to_string())
     } else {
         playlist.comment.clone().filter(|c| !c.trim().is_empty())
     };
@@ -195,23 +207,64 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         }
     };
 
-    let toggle_star = {
-        let playlist = playlist.clone();
+    // Subsonic has no readable "favorite playlist" (Navidrome 0.64 accepts
+    // star on a playlist id but never reports it back), so the playlist menu
+    // offers what favorites really are: starring every song in it, labelled
+    // as such. Optimistic, rolled back for the songs a failed call missed.
+    let all_starred = count > 0 && songs.read().iter().all(|s| s.starred.is_some());
+    let star_all = {
         let server = server.clone();
-        move |_| {
+        move || {
             menu_at.set(None);
+            confirm_unstar.set(false);
             let Some(server) = server.clone() else { return };
-            let should = !starred();
-            let id = playlist.id.clone();
+            let should = !songs.peek().iter().all(|s| s.starred.is_some());
+            let before: Vec<Option<String>> = songs.peek().iter().map(|s| s.starred.clone()).collect();
+            let ids: Vec<String> = songs
+                .peek()
+                .iter()
+                .filter(|s| s.starred.is_some() != should)
+                .map(|s| s.id.clone())
+                .collect();
+            if ids.is_empty() {
+                return;
+            }
+            let marker = should.then(|| "local".to_string());
+            songs.with_mut(|list| list.iter_mut().for_each(|s| s.starred = marker.clone()));
             spawn(async move {
-                let client = NavidromeClient::new(server);
-                let result = if should {
-                    client.star(&id, "playlist").await
-                } else {
-                    client.unstar(&id, "playlist").await
+                let total = ids.len();
+                let client = NavidromeClient::new(server.clone());
+                let done = match client.star_songs(&ids, should).await {
+                    Ok(done) => done,
+                    Err((done, err)) => {
+                        status.set(Some(format!("Couldn't update Favorites for {} songs: {err}", total - done)));
+                        done
+                    }
                 };
-                if result.is_ok() {
-                    starred.set(should);
+                let updated: std::collections::HashSet<&String> = ids.iter().take(done).collect();
+                songs.with_mut(|list| {
+                    for (song, prior) in list.iter_mut().zip(before.iter()) {
+                        if !updated.contains(&song.id) && prior.is_some() != should {
+                            song.starred = prior.clone();
+                        }
+                    }
+                });
+                // Keep the queue and the player's heart in step.
+                let in_set = |s: &Song| s.server_id == server.id && updated.contains(&s.id);
+                queue.with_mut(|items| items.iter_mut().filter(|s| in_set(s)).for_each(|s| s.starred = marker.clone()));
+                if now_playing.peek().as_ref().map(|s| in_set(s)).unwrap_or(false) {
+                    now_playing.with_mut(|s| {
+                        if let Some(s) = s.as_mut() {
+                            s.starred = marker.clone();
+                        }
+                    });
+                }
+                if done == total {
+                    status.set(Some(if should {
+                        format!("Added {done} songs to Favorites.")
+                    } else {
+                        format!("Removed {done} songs from Favorites.")
+                    }));
                 }
             });
         }
@@ -493,9 +546,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         },
                     }
                     MenuItem {
-                        label: if starred() { "Unfavorite".to_string() } else { "Favorite".to_string() },
-                        icon: if starred() { "star-filled".to_string() } else { "star".to_string() },
-                        onclick: toggle_star,
+                        label: if all_starred { "Remove Songs from Favorites".to_string() } else { "Add Songs to Favorites".to_string() },
+                        icon: if all_starred { "heart-filled".to_string() } else { "heart".to_string() },
+                        detail: Some(count.to_string()),
+                        disabled: count == 0,
+                        testid: "playlist-menu-favorite-songs".to_string(),
+                        onclick: {
+                            let mut star_all = star_all.clone();
+                            move |_| {
+                                if all_starred {
+                                    menu_at.set(None);
+                                    confirm_unstar.set(true);
+                                } else {
+                                    star_all();
+                                }
+                            }
+                        },
                     }
                     if can_download {
                         MenuItem {
@@ -540,6 +606,19 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             },
                         }
                     }
+                }
+            }
+
+            if confirm_unstar() {
+                Menu {
+                    message: format!("Remove all {count} songs in “{}” from Favorites?", playlist.name),
+                    on_close: move |_| confirm_unstar.set(false),
+                    testid: "playlist-unstar-confirm".to_string(),
+                    actions: vec![MenuAction::new("remove", "Remove from Favorites", "heart").danger()],
+                    on_action: {
+                        let mut star_all = star_all.clone();
+                        move |_: String| star_all()
+                    },
                 }
             }
 
