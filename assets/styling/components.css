@@ -2329,6 +2329,61 @@ button.rs-bar__art {
   position: relative;
 }
 
+/* Full height of the list; the window of mounted rows sits inside it. */
+.rs-vlist__sizer {
+  position: relative;
+}
+
+/* Inset lists paint placeholder rows (art, title, subtitle) under the whole
+   list, and the window of real rows covers them with the list surface. If a
+   fling outruns the window for a frame, the gap shows rows about to fill in,
+   never an empty or black area. Painted by CSS alone: no DOM, no script.
+   --rs-vrow (the row height) is set by VirtualList. */
+.rs-vlist.rs-list > .rs-vlist__sizer {
+  --rh: var(--rs-vrow, 58px);
+  background-image:
+    linear-gradient(to bottom, transparent calc((var(--rh) - 44px) / 2), var(--skeleton) 0 calc((var(--rh) + 44px) / 2), transparent 0),
+    linear-gradient(to bottom, transparent calc(var(--rh) / 2 - 12px), var(--skeleton) 0 calc(var(--rh) / 2 - 2px), transparent 0),
+    linear-gradient(to bottom, transparent calc(var(--rh) / 2 + 4px), var(--skeleton) 0 calc(var(--rh) / 2 + 12px), transparent 0);
+  background-size: 44px var(--rh), 38% var(--rh), 22% var(--rh);
+  background-position: 12px 0, 68px 0, 68px 0;
+  background-repeat: repeat-y;
+}
+
+.rs-vlist.rs-list .rs-vlist__window {
+  background: var(--surface);
+}
+
+/* Placeholder rows after the loaded ones while a paged list fetches its next
+   page. Laid out like a track row (44px art, two lines). Still, not
+   shimmering: a fling passes many of them, and a still placeholder costs no
+   repaints. */
+.rs-vlist__ghost {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 0 4px 0 12px;
+  box-sizing: border-box;
+}
+
+.rs-vlist__ghost-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-thumb);
+}
+
+.rs-vlist__ghost-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rs-vlist__ghost .rs-skel {
+  animation: none;
+}
+
 .rs-list .rs-vlist__window > li + li::before {
   content: "";
   position: absolute;

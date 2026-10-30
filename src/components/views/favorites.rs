@@ -488,20 +488,22 @@ fn FavoriteSongs(
     }
 }
 
-/// An empty block that asks for the next page when it scrolls into view.
-/// Re-keyed after every page so the observer fires again if it is still
-/// visible after the grid grew.
+/// A spinner under a growing grid that asks for the next page well before it
+/// scrolls into view: an invisible trigger reaches a few screens above it, so
+/// a fast scroll finds tiles already there. Re-keyed after every page so the
+/// observer fires again if the trigger is still visible after the grid grew.
 #[component]
 pub(super) fn MoreSentinel(on_visible: EventHandler<()>) -> Element {
     rsx! {
-        div {
-            class: "rs-personal-more",
-            aria_hidden: "true",
-            onvisible: move |evt| {
-                if evt.data().is_intersecting().unwrap_or(false) {
-                    on_visible.call(());
-                }
-            },
+        div { class: "rs-personal-more", aria_hidden: "true",
+            div {
+                class: "rs-personal-more__trigger",
+                onvisible: move |evt| {
+                    if evt.data().is_intersecting().unwrap_or(false) {
+                        on_visible.call(());
+                    }
+                },
+            }
             span { class: "rs-spinner rs-spinner--page" }
         }
     }

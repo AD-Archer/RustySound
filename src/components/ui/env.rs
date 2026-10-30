@@ -181,6 +181,26 @@ pub fn cover_art_url(
     }
 }
 
+/// Like [`cover_art_url`], for an `<img src>` in a list, grid or Cover Flow.
+/// Safe to call while rendering: no file reads, no data URLs. Native builds
+/// get the local cover route, which serves the image cache off the main
+/// thread; the web build gets the server URL.
+pub fn cover_art_src(
+    servers: &[ServerConfig],
+    server_id: &str,
+    cover_art: Option<&str>,
+    size_px: u32,
+) -> Option<String> {
+    let cover_art = cover_art.filter(|value| !value.trim().is_empty())?;
+    let server = servers.iter().find(|server| server.id == server_id)?;
+    let url = NavidromeClient::new(server.clone()).get_cover_art_display_url(cover_art, size_px);
+    if url.is_empty() {
+        None
+    } else {
+        Some(url)
+    }
+}
+
 /// Cross-platform timer for UI delays (long-press, pulses).
 pub async fn sleep_ms(ms: u64) {
     #[cfg(target_arch = "wasm32")]

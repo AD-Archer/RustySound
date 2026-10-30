@@ -563,6 +563,42 @@ pub fn is_song_downloaded(_song: &Song) -> bool {
     false
 }
 
+/// Which of `songs` (`(server_id, song_id)` pairs) are downloaded, as
+/// `server::song` keys. Same answer as [`is_song_downloaded`] per song, from
+/// one listing of the audio cache instead of about a dozen file-system calls
+/// per song, so a paged list of thousands of songs stays cheap.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn downloaded_song_keys(songs: &[(String, String)]) -> HashSet<String> {
+    let Some(dir) = audio_cache_dir() else {
+        return HashSet::new();
+    };
+    let Ok(entries) = fs::read_dir(dir) else {
+        return HashSet::new();
+    };
+    let stems: HashSet<String> = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let name = entry.file_name().into_string().ok()?;
+            let (stem, ext) = name.rsplit_once('.')?;
+            is_cached_audio_extension(ext).then(|| stem.to_string())
+        })
+        .collect();
+    if stems.is_empty() {
+        return HashSet::new();
+    }
+    songs
+        .iter()
+        .filter(|(server_id, song_id)| {
+            stems.contains(&format!(
+                "{}__{}",
+                sanitize_file_component(server_id),
+                sanitize_file_component(song_id)
+            ))
+        })
+        .map(|(server_id, song_id)| format!("{server_id}::{song_id}"))
+        .collect()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub fn is_album_downloaded(server_id: &str, album_id: &str) -> bool {
     list_downloaded_collections().iter().any(|entry| {

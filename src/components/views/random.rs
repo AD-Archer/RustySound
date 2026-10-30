@@ -8,7 +8,7 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
 };
 use crate::components::ui::{
-    cover_art_url, use_layout, CoverFlow, CoverFlowItem, EmptyState, InsetList, Button,
+    cover_art_src, use_layout, CoverFlow, CoverFlowItem, EmptyState, InsetList, Button,
     ButtonVariant, Skeleton, Stage, TrackRow,
 };
 use crate::components::{AppView, IsPlayingSignal, Navigation, ShuffleEnabledSignal};
@@ -248,7 +248,7 @@ pub fn RandomView() -> Element {
                     (None, n) if n > 0 => format!("{n} songs"),
                     _ => String::new(),
                 },
-                art: cover_art_url(&servers, &album.server_id, album.cover_art.as_deref(), 300)
+                art: cover_art_src(&servers, &album.server_id, album.cover_art.as_deref(), 300)
                     .into_iter()
                     .collect(),
             })

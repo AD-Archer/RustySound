@@ -14,8 +14,15 @@ use crate::components::views::library::shared::{
 use crate::components::Icon;
 use dioxus::prelude::*;
 
-const PAGE: u32 = 100;
+const PAGE: u32 = 200;
 const ROW_H: f64 = 58.0;
+/// Placeholder rows after the loaded ones while the next page is on its way,
+/// so a fling runs into rows that are about to fill in, not the list's end.
+const GHOST_ROWS: usize = 24;
+/// Ask for the next page this far (px) before the loaded rows run out: a whole
+/// page, so the next page is requested as soon as the user starts into the
+/// last one. Repeated flicks cover thousands of px while a server answers.
+const PREFETCH_PX: u32 = (PAGE as f64 * ROW_H) as u32;
 /// Playing from a row queues at most this many songs from that row on.
 const CONTEXT_QUEUE_MAX: usize = 500;
 
@@ -240,6 +247,7 @@ pub fn SongsView() -> Element {
                     row_height: ROW_H,
                     class: "rs-list rs-library-songlist".to_string(),
                     testid: "song-list".to_string(),
+                    ghost_rows: if !done && error.is_none() { GHOST_ROWS } else { 0 },
                     render_row: move |row: usize| {
                         let index = visible.read().get(row).copied();
                         let song = index.and_then(|i| pager.items.read().get(i).cloned());
@@ -268,7 +276,11 @@ pub fn SongsView() -> Element {
                     },
                 }
                 if !done && error.is_none() {
-                    LoadMore { key: "{offset}", on_near_end: move |_| load_more() }
+                    LoadMore {
+                        key: "{offset}",
+                        lead_px: PREFETCH_PX + (GHOST_ROWS as f64 * ROW_H) as u32,
+                        on_near_end: move |_| load_more(),
+                    }
                 }
                 PageFoot { loading, error: error.clone(), on_retry: move |_| load_more() }
             }

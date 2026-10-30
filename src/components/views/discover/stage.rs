@@ -6,7 +6,7 @@ use super::actions::{play_album, use_player, Toast};
 use super::data::HomeData;
 use crate::api::discovery::DiscoverAlbum;
 use crate::api::ServerConfig;
-use crate::components::ui::{cover_art_url, CoverFlow, CoverFlowItem, IconButton, IconButtonSize, Stage};
+use crate::components::ui::{cover_art_src, CoverFlow, CoverFlowItem, IconButton, IconButtonSize, Stage};
 use crate::components::{AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -32,7 +32,7 @@ fn flow_items(albums: &[DiscoverAlbum], servers: &[ServerConfig], cover_px: u32)
                 title: album.name.clone(),
                 subtitle: album.artist.clone(),
                 reason: pick.reason.clone(),
-                art: cover_art_url(servers, &album.server_id, album.cover_art.as_deref(), cover_px * 2)
+                art: cover_art_src(servers, &album.server_id, album.cover_art.as_deref(), cover_px * 2)
                     .into_iter()
                     .collect(),
             }

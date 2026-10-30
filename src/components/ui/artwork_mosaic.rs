@@ -1,7 +1,7 @@
 //! 2×2 cover mosaic for mixes and playlists.
 
 use crate::api::ServerConfig;
-use crate::components::ui::env::cover_art_url;
+use crate::components::ui::env::cover_art_src;
 use crate::components::ui::Artwork;
 use dioxus::prelude::*;
 
@@ -34,7 +34,7 @@ pub fn ArtworkMosaic(
         .take(4)
         .map(|(server_id, cover)| {
             servers.and_then(|servers| {
-                cover_art_url(&servers.read(), server_id, Some(cover), tile * 2)
+                cover_art_src(&servers.read(), server_id, Some(cover), tile * 2)
             })
         })
         .collect();
