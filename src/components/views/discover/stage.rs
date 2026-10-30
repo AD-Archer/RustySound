@@ -1,14 +1,12 @@
-//! The Discover stage: title row with the server pill, Cover Flow of picks,
-//! and a quiet Play for the centred album.
+//! Home's stage: the title row (with the server status, which opens
+//! Settings) and Cover Flow of recently played albums. Tapping the centre
+//! cover opens the album; the round play button beside the caption plays it.
 
-use super::actions::{use_player, Toast};
-use super::DiscoverData;
+use super::actions::{play_album, use_player, Toast};
+use super::data::HomeData;
 use crate::api::discovery::DiscoverAlbum;
-use crate::api::{NavidromeClient, QueueSourceKind, ServerConfig};
-use crate::components::ui::{
-    cover_art_url, CoverFlow, CoverFlowItem, IconButton, IconButtonSize, PillButton, PillVariant,
-    Stage,
-};
+use crate::api::ServerConfig;
+use crate::components::ui::{cover_art_url, CoverFlow, CoverFlowItem, IconButton, IconButtonSize, Stage};
 use crate::components::{AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -17,7 +15,9 @@ use dioxus::prelude::*;
 const COVER_COMPACT: u32 = 148;
 const COVER_WIDE: u32 = 216;
 
-/// Index Cover Flow rests on: the third pick, so covers sit on both sides.
+/// Index Cover Flow rests on: the third most recent, so covers sit on both
+/// sides (starting on the newest leaves the left half of the stage empty).
+/// The newest is two flips to the left.
 pub fn initial_centre(count: usize) -> usize {
     (count / 2).min(2)
 }
@@ -40,24 +40,24 @@ fn flow_items(albums: &[DiscoverAlbum], servers: &[ServerConfig], cover_px: u32)
         .collect()
 }
 
-/// The black stage at the top of Discover.
+/// The black stage at the top of Home.
 /// * `wide`: Mac toolbar row, larger covers and the scrubber.
 /// * `pull`: pull-to-refresh distance (compact), drawn as an indicator.
 #[component]
-pub fn DiscoverStage(wide: bool, pull: Signal<f64>) -> Element {
-    let data = use_context::<DiscoverData>();
+pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
+    let data = use_context::<HomeData>();
     let navigation = use_context::<Navigation>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let toast = use_context::<Toast>();
-    let player = use_player();
-    let mut starting = use_signal(|| false);
     let cover_px = if wide { COVER_WIDE } else { COVER_COMPACT };
 
+    // Recently played; a library nobody has played yet shows its newest albums.
     let picks = use_memo(move || {
-        data.stage
-            .read()
-            .as_ref()
-            .map(|section| section.stage.clone())
+        let recent = data.recent.read();
+        let recent = recent.as_ref()?;
+        if recent.is_empty() {
+            return data.new_albums.read().clone();
+        }
+        Some(recent.clone())
     });
     let items = use_memo(move || {
         picks
@@ -75,105 +75,57 @@ pub fn DiscoverStage(wide: bool, pull: Signal<f64>) -> Element {
             });
         }
     };
-
-    let play_centre = move |_| {
-        if *starting.peek() {
-            return;
-        }
-        let index = *data.centre.peek();
-        let Some(pick) = picks.peek().as_ref().and_then(|list| list.get(index).cloned()) else {
-            return;
-        };
-        let server = servers
-            .peek()
-            .iter()
-            .find(|s| s.id == pick.album.server_id)
-            .cloned();
-        let Some(server) = server else {
-            return;
-        };
-        starting.set(true);
-        spawn(async move {
-            let album = pick.album;
-            match NavidromeClient::new(server).get_album(&album.id).await {
-                Ok((_, songs)) if !songs.is_empty() => {
-                    let source = format!("{}::{}", album.server_id, album.id);
-                    if let Err(message) = player.play(songs, QueueSourceKind::Album, source, false) {
-                        toast.show(message, true);
-                    }
-                }
-                Ok(_) => toast.show(format!("“{}” has no playable songs.", album.name), true),
-                Err(_) => toast.show(format!("Couldn't load “{}”.", album.name), true),
-            }
-            starting.set(false);
-        });
-    };
-
     let refreshing = (data.refreshing)();
 
     rsx! {
         Stage {
-            class: if wide { "rs-discover__stage rs-discover__stage--wide".to_string() } else { "rs-discover__stage".to_string() },
-            label: "Discover highlights".to_string(),
+            class: if wide { "rs-home__stage rs-home__stage--wide".to_string() } else { "rs-home__stage".to_string() },
+            label: "Recently played".to_string(),
             if !wide {
                 PullIndicator { pull, refreshing }
             }
-            div { class: "rs-discover__bar",
-                h1 { class: "rs-discover__title", "Discover" }
+            div { class: "rs-home__bar",
+                h1 { class: "rs-home__title", "Home" }
                 if wide {
-                    button {
-                        r#type: "button",
-                        class: "rs-discover__search",
-                        onclick: move |_| navigation.navigate_to(AppView::SearchView {}),
-                        Icon { name: "search".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                        span { "Search artists, albums or songs" }
-                    }
                     IconButton {
                         icon: "refresh-cw".to_string(),
-                        label: "Refresh Discover".to_string(),
+                        label: "Refresh Home".to_string(),
                         quiet: true,
                         size: IconButtonSize::Small,
                         disabled: refreshing,
-                        class: if refreshing { "rs-discover__spin".to_string() } else { String::new() },
-                        testid: "discover-refresh".to_string(),
+                        class: if refreshing { "rs-home__spin".to_string() } else { String::new() },
+                        testid: "home-refresh".to_string(),
                         onclick: move |_| data.refresh(),
                     }
                 }
-                ServerPill {}
+                ServerStatus {}
             }
             match items() {
                 None => rsx! {
                     FlowSkeleton { cover_px, wide }
                 },
                 Some(list) if list.is_empty() => rsx! {
-                    div { class: "rs-discover__stage-empty",
-                        p { class: "rs-discover__stage-empty-title", "Nothing on the stage yet" }
-                        p { "Play some albums and Discover fills up with picks from your library." }
+                    div { class: "rs-home__stage-empty",
+                        p { class: "rs-home__stage-empty-title", "Nothing played yet" }
+                        p { "Albums you play show up here." }
                     }
                 },
                 Some(list) => rsx! {
-                    CoverFlow {
-                        key: "{data.flow_key}",
-                        initial: initial_centre(list.len()),
-                        items: list,
-                        cover_px,
-                        wide,
-                        label: "Albums to revisit and try".to_string(),
-                        on_open: open_album,
-                        on_select: move |index| {
-                            let mut centre = data.centre;
-                            centre.set(index);
-                        },
-                    }
-                    div { class: "rs-discover__stage-actions",
-                        PillButton {
-                            label: if starting() { "Starting…".to_string() } else { "Play".to_string() },
-                            icon: "play".to_string(),
-                            variant: PillVariant::Mini,
-                            disabled: starting(),
-                            testid: "coverflow-play".to_string(),
-                            onclick: play_centre,
+                    div { class: "rs-home__flow",
+                        CoverFlow {
+                            key: "{data.flow_key}",
+                            initial: initial_centre(list.len()),
+                            items: list,
+                            cover_px,
+                            wide,
+                            label: "Recently played albums".to_string(),
+                            on_open: open_album,
+                            on_select: move |index| {
+                                let mut centre = data.centre;
+                                centre.set(index);
+                            },
                         }
+                        CentrePlay { picks }
                     }
                 },
             }
@@ -181,9 +133,41 @@ pub fn DiscoverStage(wide: bool, pull: Signal<f64>) -> Element {
     }
 }
 
-/// Status pill: the active server (count when several), opens Settings.
+/// The round play button beside the caption: plays the centred album.
+/// Its own component, so flipping covers re-renders only this button.
 #[component]
-fn ServerPill() -> Element {
+fn CentrePlay(picks: Memo<Option<Vec<DiscoverAlbum>>>) -> Element {
+    let data = use_context::<HomeData>();
+    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let toast = use_context::<Toast>();
+    let player = use_player();
+    let name = picks
+        .read()
+        .as_ref()
+        .and_then(|list| list.get((data.centre)()).map(|pick| pick.album.name.clone()))
+        .unwrap_or_default();
+    rsx! {
+        button {
+            r#type: "button",
+            class: "rs-home__play",
+            aria_label: "Play {name}",
+            title: "Play",
+            "data-testid": "coverflow-play",
+            onclick: move |_| {
+                let index = *data.centre.peek();
+                if let Some(pick) = picks.peek().as_ref().and_then(|list| list.get(index).cloned()) {
+                    play_album(player, toast, servers, pick.album);
+                }
+            },
+            Icon { name: "play".to_string(), class: "rs-ic".to_string() }
+        }
+    }
+}
+
+/// The active server as a status dot and its name in plain text (count when
+/// several). Opens Settings.
+#[component]
+fn ServerStatus() -> Element {
     let navigation = use_context::<Navigation>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let settings = use_context::<Signal<AppSettings>>();
@@ -213,21 +197,22 @@ fn ServerPill() -> Element {
         ("rs-led", "connected")
     };
     let aria = if extra > 0 {
-        format!("Servers: {name} and {extra} more, {state}. Open Settings")
+        format!("{name} and {extra} more servers, {state}. Open Settings")
     } else {
-        format!("Server: {name}, {state}. Open Settings")
+        format!("{name}, {state}. Open Settings")
     };
     rsx! {
         button {
             r#type: "button",
-            class: "rs-discover__server",
+            class: "rs-home__server",
             aria_label: "{aria}",
+            title: "Settings",
             "data-testid": "settings-open",
             onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
             span { class: "{led}" }
-            span { class: "rs-discover__server-name", "{name}" }
+            span { class: "rs-home__server-name", "{name}" }
             if extra > 0 {
-                span { class: "rs-discover__server-count", "+{extra}" }
+                span { class: "rs-home__server-count", "+{extra}" }
             }
         }
     }
@@ -238,14 +223,14 @@ fn ServerPill() -> Element {
 fn FlowSkeleton(cover_px: u32, wide: bool) -> Element {
     rsx! {
         div {
-            class: "rs-discover__flow-skel",
-            class: if wide { "rs-discover__flow-skel--wide" },
+            class: "rs-home__flow-skel",
+            class: if wide { "rs-home__flow-skel--wide" },
             style: "--cover:{cover_px}px",
             aria_busy: "true",
-            aria_label: "Loading picks",
-            div { class: "rs-discover__flow-skel-side" }
-            div { class: "rs-discover__flow-skel-cover" }
-            div { class: "rs-discover__flow-skel-side" }
+            aria_label: "Loading recently played",
+            div { class: "rs-home__flow-skel-side" }
+            div { class: "rs-home__flow-skel-cover" }
+            div { class: "rs-home__flow-skel-side" }
         }
     }
 }
@@ -268,12 +253,25 @@ fn PullIndicator(pull: Signal<f64>, refreshing: bool) -> Element {
     };
     rsx! {
         div {
-            class: "rs-discover__pull",
-            class: if refreshing { "rs-discover__pull--busy" },
+            class: "rs-home__pull",
+            class: if refreshing { "rs-home__pull--busy" },
             style: "{style}",
             role: "status",
             aria_label: if refreshing { "Refreshing" } else if progress >= 1.0 { "Release to refresh" } else { "Pull to refresh" },
             Icon { name: "refresh-cw".to_string(), class: "rs-ic rs-ic--sm".to_string() }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::initial_centre;
+
+    #[test]
+    fn flow_rests_with_covers_on_both_sides() {
+        assert_eq!(initial_centre(0), 0);
+        assert_eq!(initial_centre(1), 0);
+        assert_eq!(initial_centre(3), 1);
+        assert_eq!(initial_centre(24), 2);
     }
 }

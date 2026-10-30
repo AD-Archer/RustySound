@@ -1,21 +1,28 @@
-//! Album and song shelves for the "New" and "Rewind" segments.
+//! Home's library shelves, top to bottom: Playlists (with mixes), Songs you
+//! might like, Albums you might like, New in your library and Rewind.
+//! Each reads only its own signal; `None` shows a skeleton and an empty list
+//! hides the shelf.
 
-use super::actions::{use_player, Toast};
-use super::DiscoverData;
-use crate::api::discovery::{DiscoverAlbum, DiscoverSong, REWIND_MONTH_CHOICES};
+use super::cards::{AlbumCard, PlaylistCard, SongCard};
+use super::data::HomeData;
+use super::mixes::MixCard;
+use super::shelf::{Shelf, ShelfSkeleton};
+use crate::api::discovery::{DiscoverAlbum, DiscoverSong, HomePlaylist, REWIND_MONTH_CHOICES};
 use crate::api::Song;
-use crate::components::ui::{
-    Artwork, InsetList, ListInset, ListRow, SectionHeader, Segmented, Skeleton, TrackRow,
-};
-use crate::components::{AppView, Navigation};
+use crate::components::ui::Segmented;
 use crate::db::{save_settings, AppSettings};
 use dioxus::prelude::*;
 
-/// Rows shown before "See All".
-const COLLAPSED_ROWS: usize = 6;
-
-/// Label for a Rewind window.
+/// Short label for a Rewind window in the shelf header.
 pub fn window_label(months: u32) -> String {
+    match months {
+        12 => "1 yr".to_string(),
+        m => format!("{m} mo"),
+    }
+}
+
+/// Spoken label for a Rewind window.
+pub fn window_name(months: u32) -> String {
     match months {
         12 => "1 year".to_string(),
         1 => "1 month".to_string(),
@@ -23,107 +30,149 @@ pub fn window_label(months: u32) -> String {
     }
 }
 
-/// "New in your library" (from the stage section).
+/// Playlists: generated mixes (tagged "Mix") then the user's playlists.
 #[component]
-pub fn NewShelf() -> Element {
-    let data = use_context::<DiscoverData>();
-    let albums = data
-        .stage
-        .read()
-        .as_ref()
-        .map(|section| section.new_in_library.clone());
-    rsx! {
-        AlbumShelf {
-            title: "New in your library".to_string(),
-            albums,
-            empty: "Nothing new on your server lately.".to_string(),
-            testid: "new-albums".to_string(),
-        }
-    }
-}
-
-/// A titled list of albums with reasons; rows open the album.
-/// `albums: None` shows a skeleton.
-#[component]
-pub fn AlbumShelf(
-    title: String,
-    albums: Option<Vec<DiscoverAlbum>>,
-    empty: String,
-    testid: String,
-) -> Element {
-    let navigation = use_context::<Navigation>();
-    let mut expanded = use_signal(|| false);
-    let total = albums.as_ref().map(Vec::len).unwrap_or(0);
-    let can_expand = total > COLLAPSED_ROWS;
-    let shown = if expanded() { total } else { total.min(COLLAPSED_ROWS) };
-    rsx! {
-        SectionHeader {
-            title: title.clone(),
-            action: can_expand.then(|| if expanded() { "Show Less" } else { "See All" }.to_string()),
-            on_action: if can_expand { Some(EventHandler::new(move |_: MouseEvent| expanded.toggle())) } else { None },
-        }
-        match albums {
-            None => rsx! {
-                Skeleton { rows: 4 }
-            },
-            Some(list) if list.is_empty() => rsx! {
-                InsetList { inset: ListInset::Text, label: title.clone(),
-                    li { class: "rs-discover__quiet", "{empty}" }
-                }
-            },
-            Some(list) => rsx! {
-                InsetList { label: title.clone(), testid: testid.clone(),
-                    for pick in list.into_iter().take(shown) {
-                        ListRow {
-                            key: "{pick.album.server_id}::{pick.album.id}",
-                            title: pick.album.name.clone(),
-                            subtitle: pick.album.artist.clone(),
-                            why: pick.reason.clone(),
-                            testid: "discover-album".to_string(),
-                            leading: rsx! {
-                                Artwork {
-                                    cover_art: pick.album.cover_art.clone(),
-                                    server_id: pick.album.server_id.clone(),
-                                    size_px: 44,
-                                    placeholder: "album".to_string(),
-                                }
-                            },
-                            onclick: move |_| {
-                                navigation.navigate_to(AppView::AlbumDetailView {
-                                    album_id: pick.album.id.clone(),
-                                    server_id: pick.album.server_id.clone(),
-                                })
-                            },
-                        }
+pub fn PlaylistsShelf() -> Element {
+    let data = use_context::<HomeData>();
+    let title = "Playlists".to_string();
+    let testid = "shelf-playlists".to_string();
+    let items = data.playlists.read();
+    match items.as_ref() {
+        None => rsx! {
+            ShelfSkeleton { title, testid }
+        },
+        Some(list) if list.is_empty() => rsx! {},
+        Some(list) => rsx! {
+            Shelf { title, testid,
+                for item in list.iter() {
+                    match item {
+                        HomePlaylist::Mix(mix) => rsx! {
+                            MixCard { key: "{item.key()}", mix: mix.clone() }
+                        },
+                        HomePlaylist::Playlist(playlist) => rsx! {
+                            PlaylistCard { key: "{item.key()}", playlist: playlist.clone() }
+                        },
                     }
                 }
-            },
+            }
+        },
+    }
+}
+
+/// Songs you might like: tap plays the shelf from that song.
+#[component]
+pub fn SongsShelf() -> Element {
+    let data = use_context::<HomeData>();
+    // One shared queue for every card (no per-card list clones).
+    let queue = use_memo(move || {
+        data.songs
+            .read()
+            .as_ref()
+            .map(|list| list.iter().map(|p| p.song.clone()).collect::<Vec<Song>>())
+            .unwrap_or_default()
+    });
+    let title = "Songs You Might Like".to_string();
+    let testid = "shelf-songs".to_string();
+    let songs = data.songs.read();
+    match songs.as_ref() {
+        None => rsx! {
+            ShelfSkeleton { title, testid }
+        },
+        Some(list) if list.is_empty() => rsx! {},
+        Some(list) => rsx! {
+            Shelf { title, testid,
+                for (index, pick) in list.iter().enumerate() {
+                    SongCard {
+                        key: "{pick.song.server_id}::{pick.song.id}",
+                        pick: pick.clone(),
+                        index,
+                        queue,
+                    }
+                }
+            }
+        },
+    }
+}
+
+/// A shelf of album cards from one of Home's album signals.
+#[component]
+fn AlbumShelf(
+    title: String,
+    testid: String,
+    albums: Option<Vec<DiscoverAlbum>>,
+    #[props(default)] show_reason: bool,
+    #[props(default)] control: Option<Element>,
+) -> Element {
+    match albums {
+        None => rsx! {
+            ShelfSkeleton { title, testid }
+        },
+        Some(list) if list.is_empty() => rsx! {},
+        Some(list) => rsx! {
+            Shelf { title, testid, control,
+                for pick in list {
+                    AlbumCard {
+                        key: "{pick.album.server_id}::{pick.album.id}",
+                        pick: pick.clone(),
+                        show_reason,
+                    }
+                }
+            }
+        },
+    }
+}
+
+/// Albums you might like ("Because you play X" as the quiet third line).
+#[component]
+pub fn AlbumsLikeShelf() -> Element {
+    let data = use_context::<HomeData>();
+    let albums = data.albums_like.read().clone();
+    rsx! {
+        AlbumShelf {
+            title: "Albums You Might Like".to_string(),
+            testid: "shelf-albums".to_string(),
+            albums,
+            show_reason: true,
         }
     }
 }
 
-/// The Rewind segment: window picker (3 / 6 / 12 months), albums and songs.
+/// New in your library ("Added 2 days ago").
 #[component]
-pub fn RewindPanel(wide: bool) -> Element {
-    let data = use_context::<DiscoverData>();
+pub fn NewShelf() -> Element {
+    let data = use_context::<HomeData>();
+    let albums = data.new_albums.read().clone();
+    rsx! {
+        AlbumShelf {
+            title: "New in Your Library".to_string(),
+            testid: "shelf-new".to_string(),
+            albums,
+            show_reason: true,
+        }
+    }
+}
+
+/// Haven't heard in a while: albums played a lot but not within the chosen
+/// window, with a small 3 / 6 / 12 month control in the header (remembered
+/// per device). Falls back to songs when no album qualifies.
+#[component]
+pub fn RewindShelf() -> Element {
+    let data = use_context::<HomeData>();
     let mut settings = use_context::<Signal<AppSettings>>();
     let months = (data.rewind_months)();
-    let selected = REWIND_MONTH_CHOICES
-        .iter()
-        .position(|m| *m == months)
-        .unwrap_or(1);
-    let options: Vec<String> = REWIND_MONTH_CHOICES.iter().map(|m| window_label(*m)).collect();
-
-    // Show a skeleton while the chosen window is (re)loading.
+    // Skeleton while the chosen window (re)loads.
     let section = data
         .rewind
         .read()
         .clone()
-        .flatten()
         .filter(|section| section.months == months);
-    let albums = section.as_ref().map(|s| s.albums.clone());
-    let songs = section.map(|s| s.songs);
+    let title = "Haven't Heard in a While".to_string();
+    let testid = "shelf-rewind".to_string();
 
+    let selected = REWIND_MONTH_CHOICES
+        .iter()
+        .position(|m| *m == months)
+        .unwrap_or(1);
     let pick = move |index: usize| {
         let Some(months) = REWIND_MONTH_CHOICES.get(index).copied() else {
             return;
@@ -138,107 +187,82 @@ pub fn RewindPanel(wide: bool) -> Element {
             let _ = save_settings(next).await;
         });
     };
-
-    let window = window_label(months);
-    let shelves = rsx! {
-        div { class: "rs-discover__col",
-            AlbumShelf {
-                title: "Albums".to_string(),
-                albums,
-                empty: format!("No albums you played a lot but not in the last {window}."),
-                testid: "rewind-albums".to_string(),
-            }
-        }
-        div { class: "rs-discover__col",
-            SongShelf { songs, window: window.clone() }
+    let control = rsx! {
+        Segmented {
+            options: REWIND_MONTH_CHOICES.iter().map(|m| window_label(*m)).collect::<Vec<_>>(),
+            selected,
+            inline: true,
+            label: format!("Not played in the last {}", window_name(months)),
+            testid: "rewind-window".to_string(),
+            on_select: pick,
         }
     };
 
-    rsx! {
-        div { class: "rs-discover__window",
-            Segmented {
-                options,
-                selected,
-                inline: true,
-                label: "Rewind window".to_string(),
-                testid: "rewind-window".to_string(),
-                on_select: pick,
+    match section {
+        // Switching windows reads the cached snapshot, so this is brief.
+        None => rsx! {
+            ShelfSkeleton { title, testid }
+        },
+        // 3 months is the widest window: empty there means empty everywhere.
+        Some(section) if section.albums.is_empty() && section.songs.is_empty() && months == 3 => rsx! {},
+        Some(section) if section.albums.is_empty() && section.songs.is_empty() => rsx! {
+            // Nothing for this window: keep the control so a shorter one can be tried.
+            section { class: "rs-shelf", "data-testid": "{testid}",
+                div { class: "rs-shelf__hd",
+                    h2 { class: "rs-shelf__title", "{title}" }
+                    div { class: "rs-shelf__control", {control} }
+                }
+                p { class: "rs-home__note",
+                    "Nothing you played a lot has been quiet for {window_name(months)}."
+                }
             }
-            p { class: "rs-discover__window-note", "Played a lot, not in the last {window}" }
-        }
-        if wide {
-            div { class: "rs-discover__cols", {shelves} }
-        } else {
-            {shelves}
-        }
+        },
+        Some(section) if section.albums.is_empty() => rsx! {
+            RewindSongs { title, testid, control, picks: section.songs }
+        },
+        Some(section) => rsx! {
+            AlbumShelf {
+                title,
+                testid,
+                albums: Some(section.albums),
+                show_reason: true,
+                control,
+            }
+        },
     }
 }
 
-/// Rewind songs as track rows (tap plays from that song; long-press for the menu).
+/// Rewind as song cards (when no album qualifies but songs do).
 #[component]
-fn SongShelf(songs: Option<Vec<DiscoverSong>>, window: String) -> Element {
-    let player = use_player();
-    let toast = use_context::<Toast>();
-    let mut expanded = use_signal(|| false);
-    let total = songs.as_ref().map(Vec::len).unwrap_or(0);
-    let can_expand = total > COLLAPSED_ROWS;
-    let shown = if expanded() { total } else { total.min(COLLAPSED_ROWS) };
-    let queue: Vec<Song> = songs
-        .as_ref()
-        .map(|list| list.iter().map(|s| s.song.clone()).collect())
-        .unwrap_or_default();
+fn RewindSongs(title: String, testid: String, control: Element, picks: Vec<DiscoverSong>) -> Element {
+    let queue = use_memo(use_reactive!(|picks| picks
+        .iter()
+        .map(|p| p.song.clone())
+        .collect::<Vec<Song>>()));
     rsx! {
-        SectionHeader {
-            title: "Songs".to_string(),
-            action: can_expand.then(|| if expanded() { "Show Less" } else { "See All" }.to_string()),
-            on_action: if can_expand { Some(EventHandler::new(move |_: MouseEvent| expanded.toggle())) } else { None },
-        }
-        match songs {
-            None => rsx! {
-                Skeleton { rows: 4 }
-            },
-            Some(list) if list.is_empty() => rsx! {
-                InsetList { inset: ListInset::Text, label: "Songs".to_string(),
-                    li { class: "rs-discover__quiet", "No songs you played a lot but not in the last {window}." }
+        Shelf { title, testid, control,
+            for (index, pick) in picks.iter().enumerate() {
+                SongCard {
+                    key: "{pick.song.server_id}::{pick.song.id}",
+                    pick: pick.clone(),
+                    index,
+                    queue,
                 }
-            },
-            Some(list) => rsx! {
-                InsetList { label: "Rewind songs".to_string(), testid: "rewind-songs".to_string(),
-                    for (index, pick) in list.into_iter().take(shown).enumerate() {
-                        TrackRow {
-                            key: "{pick.song.server_id}::{pick.song.id}",
-                            song: pick.song.clone(),
-                            subtitle: format!(
-                                "{} · {}",
-                                pick.song.artist.clone().unwrap_or_default(),
-                                pick.reason
-                            ),
-                            show_duration: false,
-                            index,
-                            on_play: {
-                                let queue = queue.clone();
-                                move |_| {
-                                    if let Err(message) = player.play_at(queue.clone(), index) {
-                                        toast.show(message, true);
-                                    }
-                                }
-                            },
-                        }
-                    }
-                }
-            },
+            }
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::window_label;
+    use super::{window_label, window_name};
 
     #[test]
     fn window_labels() {
-        assert_eq!(window_label(3), "3 months");
-        assert_eq!(window_label(6), "6 months");
-        assert_eq!(window_label(12), "1 year");
+        assert_eq!(window_label(3), "3 mo");
+        assert_eq!(window_label(6), "6 mo");
+        assert_eq!(window_label(12), "1 yr");
+        assert_eq!(window_name(6), "6 months");
+        assert_eq!(window_name(12), "1 year");
     }
 }

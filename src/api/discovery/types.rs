@@ -3,7 +3,7 @@
 //! Every type is `Clone + PartialEq` so it can be used as a Dioxus prop, and
 //! `Serialize + Deserialize` so whole sections can be cached.
 
-use crate::api::models::{Album, Song};
+use crate::api::models::{Album, Playlist, Song};
 use crate::db::AppSettings;
 use serde::{Deserialize, Serialize};
 
@@ -18,6 +18,10 @@ pub enum ReasonKind {
     NewInLibrary,
     /// By an in-library artist similar to one the user plays a lot.
     BecauseYouPlay,
+    /// Recently played (Home's Cover Flow).
+    RecentlyPlayed,
+    /// From the server's similar-songs data for an artist the user plays.
+    SimilarTo,
 }
 
 /// An album from the user's server, with a one-line reason it is shown.
@@ -38,9 +42,12 @@ pub struct DiscoverAlbum {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DiscoverSong {
     pub song: Song,
-    /// e.g. "Last played 2 years ago · 58 plays".
+    /// e.g. "Last played 2 years ago · 58 plays", "Similar to Mira Okafor".
     pub reason: String,
     pub kind: ReasonKind,
+    /// The library artist this was found through (similar-songs picks).
+    #[serde(default)]
+    pub because_artist: Option<String>,
 }
 
 /// Which generator produced a [`Mix`].
@@ -188,12 +195,42 @@ pub struct StageSection {
     pub generated_on: String,
 }
 
-/// Generated mixes and rewind songs. "For You" segment.
+/// Generated mixes plus the songs picked from the same similarity data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MixesSection {
     /// 0–5 mixes in display order: Discovery, Deep Cuts, Rewind, then artist radios.
     pub mixes: Vec<Mix>,
+    /// "Songs you might like": in-library songs similar to artists the user
+    /// plays, not played much yet (≤ 20). Built from the mixes' requests.
+    #[serde(default)]
+    pub songs_like: Vec<DiscoverSong>,
     pub generated_on: String,
+}
+
+/// One card on Home's Playlists shelf: a server playlist or a generated mix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum HomePlaylist {
+    /// A playlist on one of the user's servers (`playlist.server_id`).
+    Playlist(Playlist),
+    /// A generated mix (plays from the card; "Save as Playlist" keeps it).
+    Mix(Mix),
+}
+
+impl HomePlaylist {
+    /// Stable list key.
+    pub fn key(&self) -> String {
+        match self {
+            Self::Playlist(p) => format!("playlist:{}:{}", p.server_id, p.id),
+            Self::Mix(m) => format!("mix:{}", m.id),
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        match self {
+            Self::Playlist(p) => &p.name,
+            Self::Mix(m) => &m.name,
+        }
+    }
 }
 
 /// The "Rewind" segment for one window, from [`super::load_discover_rewind`].

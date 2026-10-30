@@ -15,7 +15,8 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 /// Prefix for every Discover section entry in the persistent cache.
-pub const SECTION_PREFIX: &str = "view:discover:v1:";
+/// v2: `MixesSection` gained `songs_like` (Home shelves).
+pub const SECTION_PREFIX: &str = "view:discover:v2:";
 const SALT_PREFIX: &str = "view:discover-salt:v1:";
 /// Section results live a day; the date in the key retires them anyway.
 const SECTION_TTL_HOURS: u32 = 24;

@@ -1,5 +1,14 @@
-//! Discover data: Cover Flow picks, generated mixes, rewind shelves and
+//! Home and Discover data: recently played, playlists plus generated mixes,
+//! songs and albums you might like, new albums, rewind shelves and
 //! recommendations from outside the library. No UI lives here.
+//!
+//! # Home entry points (library-first shelves; see `home.rs`)
+//! - [`load_recently_played`]: the Cover Flow stage (fresh, 1 request per server).
+//! - [`load_new_in_library`], [`load_discover_rewind`]: snapshot reads.
+//! - [`load_home_playlists`]: the user's playlists plus the generated mixes.
+//! - [`load_songs_you_might_like`], [`load_albums_you_might_like`]: in-library
+//!   picks from the server's similarity data.
+//! - [`load_discover_off_server`]: the bottom "outside your server" shelf.
 //!
 //! # Entry points
 //! - [`load_discover`]: everything at once (stage → mixes → off-server).
@@ -23,6 +32,7 @@
 #![allow(dead_code)]
 
 mod cache;
+mod home;
 mod http;
 mod library;
 mod mixes;
@@ -33,6 +43,10 @@ mod stage;
 mod types;
 mod util;
 
+pub use home::{
+    load_albums_you_might_like, load_home_playlists, load_new_in_library, load_recently_played,
+    load_songs_you_might_like,
+};
 pub use rewind::{DEFAULT_REWIND_MONTHS, REWIND_MONTH_CHOICES};
 pub use types::*;
 
@@ -132,11 +146,16 @@ pub async fn load_discover(servers: &[ServerConfig], settings: &AppSettings, ref
 }
 
 /// Start fresh picks for today: bumps the day's seed and drops cached Discover
-/// sections and album lists, so the next loader calls refetch and reshuffle.
+/// sections, album lists, the playlists list and the recently-played fetch,
+/// so the next loader calls refetch and reshuffle.
 /// Synchronous and cheap; makes no network requests itself.
 pub fn refresh_discover(servers: &[ServerConfig]) {
     let active: Vec<ServerConfig> = servers.iter().filter(|s| s.active).cloned().collect();
     cache::bump_salt(&util::today_key(), &active);
+    home::clear_recent_memo();
+    for server in &active {
+        let _ = crate::cache_service::remove_by_prefix(&format!("api:getPlaylists:v1:{}", server.id));
+    }
 }
 
 /// Cover Flow items plus the "New in your library" album shelf.
@@ -218,7 +237,7 @@ async fn because_you_play(ctx: &LoadContext, snapshot: &LibrarySnapshot) -> Vec<
     picks.into_iter().flatten().collect()
 }
 
-/// Generated mixes ("For You").
+/// Generated mixes, plus "Songs you might like" from the same requests.
 ///
 /// Server requests (cold): the shared snapshot, plus ≤ 3 `getSimilarSongs2`
 /// (Discovery), ≤ 2 `getSimilarSongs2` (artist radios) and ≤ 3 `getAlbum`
@@ -283,6 +302,15 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
     let (discovery_lists, radio_lists, deep_results) =
         futures_util::join!(discovery_future, radio_future, deep_future);
 
+    // "Songs you might like" comes from the same similar-songs lists.
+    let similar_lists: Vec<(ArtistSeed, Vec<Song>)> = discovery_seeds
+        .iter()
+        .cloned()
+        .zip(discovery_lists.iter().cloned())
+        .chain(radio_seeds.iter().cloned().zip(radio_lists.iter().cloned()))
+        .collect();
+    let songs_like = mixes::select_songs_like(&mix_ctx, &similar_lists, mixes::SONGS_LIKE_SIZE);
+
     let mut mixes = Vec::new();
     mixes.extend(mixes::build_discovery_mix(&mix_ctx, &discovery_seeds, discovery_lists));
     mixes.extend(mixes::build_deep_cuts(
@@ -296,6 +324,7 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
 
     let section = MixesSection {
         mixes,
+        songs_like,
         generated_on: ctx.date.clone(),
     };
     if snapshot.servers_ok > 0 {
