@@ -37,7 +37,7 @@ pub(super) fn CompactPlayer() -> Element {
             button {
                 r#type: "button",
                 class: "rs-mini__open",
-                aria_label: "Open Now Playing: {title}",
+                // Named by its visible text, with the action read first.
                 onclick: {
                     let song = song.clone();
                     let mut song_details = song_details.clone();
@@ -50,6 +50,7 @@ pub(super) fn CompactPlayer() -> Element {
                     eager: true,
                     placeholder: if radio { "radio".to_string() } else { "music".to_string() },
                 }
+                span { class: "rs-sr-only", "Open Now Playing: " }
                 span { class: "rs-mini__meta",
                     span { class: "rs-mini__title", style: "display:block", "{title}" }
                     if !subtitle.is_empty() {

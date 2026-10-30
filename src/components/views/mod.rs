@@ -9,7 +9,6 @@ mod downloads;
 mod discover;
 mod favorites;
 mod library;
-pub(super) mod home_layout;
 mod playlist_detail;
 mod playlists;
 mod queue;

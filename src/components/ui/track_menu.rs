@@ -479,7 +479,6 @@ pub fn TrackMenu(
                     class: "rs-menu__tile",
                     role: "menuitemcheckbox",
                     aria_checked: if starred { "true" } else { "false" },
-                    aria_pressed: if starred { "true" } else { "false" },
                     disabled: radio,
                     "data-testid": "track-menu-favorite",
                     onclick: toggle_favorite,

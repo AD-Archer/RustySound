@@ -8,7 +8,7 @@ pub(super) mod tiles;
 
 use crate::api::{Album, NavidromeClient, ServerConfig};
 use crate::components::ui::{InsetList, ListInset, ListRow, SectionHeader};
-use crate::components::{AppView, HomeFeedState, Navigation};
+use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 use tiles::AlbumTile;
 
@@ -18,17 +18,12 @@ const RECENT_LIMIT: usize = 12;
 pub fn LibraryView() -> Element {
     let navigation = use_context::<Navigation>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let home_feed = use_context::<HomeFeedState>();
 
-    // Prefer the albums the shell already cached; fetch only when missing.
+    // Newest albums across the active servers (the API layer caches the list).
     let recent = use_resource(move || {
-        let cached = (home_feed.recent_albums)();
         let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
         async move {
-            if let Some(albums) = cached.filter(|list| !list.is_empty()) {
-                return albums.into_iter().take(RECENT_LIMIT).collect::<Vec<Album>>();
-            }
-            let mut albums = Vec::new();
+            let mut albums: Vec<Album> = Vec::new();
             for server in active {
                 let client = NavidromeClient::new(server);
                 if let Ok(mut list) = client.get_albums("newest", RECENT_LIMIT as u32, 0).await {

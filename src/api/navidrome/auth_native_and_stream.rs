@@ -1,4 +1,8 @@
 // Authentication, native song feed mapping, and stream/cover-art utilities.
+
+/// Largest cover-art edge requested from the server, in pixels.
+const COVER_ART_MAX_PX: u32 = 1200;
+
 impl NavidromeClient {
     pub fn new(server: ServerConfig) -> Self {
         Self { server }
@@ -311,10 +315,9 @@ impl NavidromeClient {
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {
-        #[cfg(target_arch = "wasm32")]
-        let requested_size = size.min(160);
-        #[cfg(not(target_arch = "wasm32"))]
-        let requested_size = size;
+        // `Artwork` asks for twice its rendered edge (retina). Cap it so a huge
+        // hero never pulls a full-resolution original.
+        let requested_size = size.min(COVER_ART_MAX_PX);
 
         let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
 

@@ -11,7 +11,8 @@ const LONG_PRESS_SLOP_PX: f64 = 10.0;
 
 /// One song in a list (`li`), for use inside an `InsetList`.
 ///
-/// Tap/click/Enter plays (`on_play`). The track menu opens on a touch
+/// Tap/click/Enter/Space plays (`on_play`, through a real `<button>`). The
+/// "…" button is its sibling, not its child. The track menu opens on a touch
 /// long-press (450 ms, cancelled by moving more than 10px; the tap that ends
 /// a long-press does not also play), on right-click (`contextmenu`), on the
 /// "…" button, or with the context-menu key / Shift+F10.
@@ -64,32 +65,20 @@ pub fn TrackRow(
 
     rsx! {
         li { "data-index": index.map(|i| i.to_string()),
+            // The row is a plain container: the play button and the "…" button
+            // sit side by side inside it (no interactive nesting). Pointer and
+            // context-menu handlers live here so a long-press or right-click
+            // anywhere on the row opens the menu.
             div {
-                class: "rs-trow",
+                class: "rs-trow rs-trow--split",
                 class: if !numbered { "rs-trow--art" },
                 class: if playing { "rs-trow--playing" },
-                role: "button",
-                tabindex: "0",
-                aria_label: "{song.title}",
-                aria_current: if playing { Some("true") } else { None },
                 "data-testid": "track-row",
-                onclick: move |_| {
-                    if *long_pressed.peek() {
-                        long_pressed.set(false);
-                        return;
-                    }
-                    on_play.call(());
-                },
                 onkeydown: {
                     let open_menu = open_menu.clone();
                     move |evt: KeyboardEvent| {
                         let key = evt.key();
-                        if key == Key::Enter || key == Key::Character(" ".to_string()) {
-                            evt.prevent_default();
-                            on_play.call(());
-                        } else if key == Key::ContextMenu
-                            || (key == Key::F10 && evt.modifiers().shift())
-                        {
+                        if key == Key::ContextMenu || (key == Key::F10 && evt.modifiers().shift()) {
                             evt.prevent_default();
                             open_menu(None);
                         }
@@ -142,49 +131,64 @@ pub fn TrackRow(
                 onpointerup: move |_| press_origin.set(None),
                 onpointercancel: move |_| press_origin.set(None),
 
-                if let Some(n) = number {
-                    if playing {
-                        span {
-                            class: "rs-eq",
-                            class: if live { "rs-eq--live" },
-                            role: "img",
-                            aria_label: "Now playing",
-                            i {}
-                            i {}
-                            i {}
+                // Play. Its accessible name is its visible text (number or
+                // "Now playing", title, artist, marks, duration).
+                button {
+                    r#type: "button",
+                    class: "rs-trow__main",
+                    aria_current: if playing { Some("true") } else { None },
+                    onclick: move |_| {
+                        if *long_pressed.peek() {
+                            long_pressed.set(false);
+                            return;
+                        }
+                        on_play.call(());
+                    },
+
+                    if let Some(n) = number {
+                        if playing {
+                            span {
+                                class: "rs-eq",
+                                class: if live { "rs-eq--live" },
+                                role: "img",
+                                aria_label: "Now playing",
+                                i {}
+                                i {}
+                                i {}
+                            }
+                        } else {
+                            span { class: "rs-trow__n", "{n}" }
                         }
                     } else {
-                        span { class: "rs-trow__n", "{n}" }
-                    }
-                } else {
-                    Artwork {
-                        cover_art: song.cover_art.clone(),
-                        server_id: song.server_id.clone(),
-                        size_px: 44,
-                    }
-                }
-                div { class: "rs-trow__meta",
-                    div { class: "rs-trow__title", "{song.title}" }
-                    if let Some(sub) = sub {
-                        div { class: "rs-trow__sub", "{sub}" }
-                    }
-                }
-                if starred || downloaded {
-                    span { class: "rs-trow__marks",
-                        if starred {
-                            span { class: "rs-trow__star", role: "img", aria_label: "Favorite",
-                                Icon { name: "star-filled".to_string(), class: "rs-ic rs-ic--xs".to_string() }
-                            }
-                        }
-                        if downloaded {
-                            span { class: "rs-trow__dl", role: "img", aria_label: "Downloaded",
-                                Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
-                            }
+                        Artwork {
+                            cover_art: song.cover_art.clone(),
+                            server_id: song.server_id.clone(),
+                            size_px: 44,
                         }
                     }
-                }
-                if show_duration && song.duration > 0 {
-                    span { class: "rs-trow__dur", "{duration}" }
+                    span { class: "rs-trow__meta",
+                        span { class: "rs-trow__title", "{song.title}" }
+                        if let Some(sub) = sub {
+                            span { class: "rs-trow__sub", "{sub}" }
+                        }
+                    }
+                    if starred || downloaded {
+                        span { class: "rs-trow__marks",
+                            if starred {
+                                span { class: "rs-trow__star", role: "img", aria_label: "Favorite",
+                                    Icon { name: "star-filled".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                                }
+                            }
+                            if downloaded {
+                                span { class: "rs-trow__dl", role: "img", aria_label: "Downloaded",
+                                    Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                                }
+                            }
+                        }
+                    }
+                    if show_duration && song.duration > 0 {
+                        span { class: "rs-trow__dur", "{duration}" }
+                    }
                 }
                 button {
                     r#type: "button",

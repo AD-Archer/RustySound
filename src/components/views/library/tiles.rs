@@ -19,16 +19,10 @@ pub fn AlbumTile(album: Album, #[props(default = true)] show_artist: bool) -> El
     } else {
         String::new()
     };
-    let label = if album.artist.is_empty() {
-        album.name.clone()
-    } else {
-        format!("{}, {}", album.name, album.artist)
-    };
     rsx! {
         button {
             r#type: "button",
             class: "rs-library-tile",
-            aria_label: "{label}",
             "data-testid": "album-tile",
             onclick: move |_| navigation.navigate_to(target.clone()),
             div { class: "rs-library-tile__art",

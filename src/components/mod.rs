@@ -25,16 +25,7 @@ pub struct PlaybackPositionSignal(pub Signal<f64>);
 pub struct SeekRequestSignal(pub Signal<Option<(String, f64)>>);
 
 #[derive(Clone)]
-pub struct SidebarOpenSignal(pub Signal<bool>);
-
-#[derive(Clone)]
 pub struct PreviewPlaybackSignal(pub Signal<bool>);
-
-// Only the shell's old home warm-up uses this now (Discover refreshes itself);
-// remove with that warm-up.
-#[derive(Clone)]
-#[allow(dead_code)]
-pub struct HomeRefreshSignal(pub Signal<u64>);
 
 #[derive(Clone)]
 pub struct IsPlayingSignal(pub Signal<bool>);
