@@ -1,0 +1,20 @@
+{
+  "name": "rustysound-tests",
+  "private": true,
+  "description": "Dev-only test harness for RustySound: mock Subsonic server, Playwright e2e and perf suites. Not part of the app build.",
+  "type": "module",
+  "scripts": {
+    "mock-server": "bun tests/mock-server/server.ts",
+    "mock-selftest": "bun tests/mock-server/selftest.ts",
+    "test:e2e": "playwright test --config tests/playwright.config.ts",
+    "test:redesign": "REDESIGN=1 playwright test --config tests/playwright.config.ts",
+    "perf": "PERF=1 playwright test --config tests/playwright.config.ts",
+    "browsers": "playwright install chromium webkit firefox"
+  },
+  "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "@types/bun": "1.4.4",
+    "@types/node": "24.10.1"
+  }
+}

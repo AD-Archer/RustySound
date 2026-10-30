@@ -1,3 +1,4 @@
+pub mod discovery;
 pub mod lyrics;
 pub mod models;
 pub mod navidrome;

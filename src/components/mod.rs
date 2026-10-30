@@ -8,8 +8,8 @@ mod cached_image;
 mod icons;
 mod navigation;
 mod player;
-mod sidebar;
 mod song_details;
+pub mod ui;
 mod views;
 
 use dioxus::prelude::Signal;
@@ -25,13 +25,7 @@ pub struct PlaybackPositionSignal(pub Signal<f64>);
 pub struct SeekRequestSignal(pub Signal<Option<(String, f64)>>);
 
 #[derive(Clone)]
-pub struct SidebarOpenSignal(pub Signal<bool>);
-
-#[derive(Clone)]
 pub struct PreviewPlaybackSignal(pub Signal<bool>);
-
-#[derive(Clone)]
-pub struct HomeRefreshSignal(pub Signal<u64>);
 
 #[derive(Clone)]
 pub struct IsPlayingSignal(pub Signal<bool>);
@@ -41,11 +35,9 @@ pub struct ShuffleEnabledSignal(pub Signal<bool>);
 
 pub use add_to_menu::*;
 pub use app::*;
-pub use app_view::{view_instance_key, view_label, AppView};
+pub use app_view::AppView;
 pub use audio_manager::*;
 pub use icons::*;
 pub use navigation::Navigation;
-pub use player::*;
-pub use sidebar::*;
 pub use song_details::*;
 // Views are accessed via views::ViewName

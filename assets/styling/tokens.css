@@ -1,0 +1,408 @@
+/* ==========================================================================
+   RustySound "Stage" design tokens
+   --------------------------------------------------------------------------
+   Two materials:
+     STAGE  black with a radial lift, where artwork lives (Cover Flow, Now
+            Playing, album headers, the floating player). Identical in light
+            and dark appearance.
+     PAGE   calm grouped lists. Light and dark variants, per theme.
+
+   Themes:      [data-theme="stage" | "graphite" | "tape"]   (stage = default)
+   Appearance:  [data-appearance="system" | "light" | "dark"]
+                light/dark win; "system" (or no attribute) follows
+                prefers-color-scheme.
+
+   The shell sets these attributes on <html> and on the .rs-app root, so every
+   selector below is a bare attribute selector that matches either.
+
+   Every colour in base.css, components.css and views/*.css comes from here.
+   ========================================================================== */
+
+:root {
+  /* ---- Type ------------------------------------------------------------ */
+  --font-sys: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", system-ui, sans-serif;
+  --font-display: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", system-ui, sans-serif;
+  --fs-large: 34px;   --lh-large: 41px;   /* large title (phone)          */
+  --fs-title1: 28px;  --lh-title1: 34px;
+  --fs-title2: 22px;  --lh-title2: 27px;  /* album header                 */
+  --fs-title3: 20px;  --lh-title3: 25px;  /* now playing song title       */
+  --fs-title: 17px;   --lh-title: 22px;   /* section titles, nav          */
+  --fs-body: 15px;    --lh-body: 1.4;     /* body (14 on Mac, see base)   */
+  --fs-callout: 14px;
+  --fs-sub: 13px;     --lh-sub: 1.35;     /* secondary                    */
+  --fs-foot: 12px;
+  --fs-cap: 11px;
+  --fs-tab: 10px;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semibold: 600;
+  --fw-bold: 700;
+  --track-tight: -0.01em;
+  --track-title: 0.01em;
+
+  /* ---- Spacing (4pt grid, plus the 2/6 half-steps the mocks use) ------- */
+  --sp-0: 0;
+  --sp-1: 2px;
+  --sp-2: 4px;
+  --sp-3: 6px;
+  --sp-4: 8px;
+  --sp-5: 12px;
+  --sp-6: 16px;
+  --sp-7: 20px;
+  --sp-8: 24px;
+  --sp-9: 32px;
+  --sp-10: 44px;
+  --gutter: 16px;          /* page side padding, compact               */
+  --gutter-wide: 32px;     /* page side padding, wide                  */
+
+  /* ---- Radius ---------------------------------------------------------- */
+  --r-cover: 2px;          /* cover flow covers                        */
+  --r-art: 3px;            /* large artwork                            */
+  --r-thumb: 4px;          /* 44px list thumbs                         */
+  --r-seg-thumb: 7px;
+  --r-nav: 7px;            /* sidebar items                            */
+  --r-btn: 8px;            /* small square buttons                     */
+  --r-seg: 9px;
+  --r-button: 10px;        /* text buttons (style A), toasts           */
+  --r-button-sm: 8px;      /* small text buttons                       */
+  --r-tag: 4px;            /* badges and tags: 1px line border         */
+  --r-list: 12px;          /* inset grouped lists                      */
+  --r-menu: 13px;
+  --r-bar: 14px;           /* floating player                          */
+  --r-sheet: 16px;
+  /* No capsule radius: the owner ruled out pills. Round things (status
+     dots, avatars, switch knobs) use 50%. */
+
+  /* ---- Sizes ----------------------------------------------------------- */
+  --touch: 44px;
+  --thumb: 44px;
+  --thumb-sm: 40px;
+  --row-h: 58px;
+  --row-h-wide: 62px;
+  --row-h-track: 46px;
+  --tabbar-h: 49px;        /* content height; safe area is added       */
+  --mini-h: 58px;
+  --bar-h: 64px;
+  --sidebar-w: 236px;
+  --sep-inset: 68px;       /* separator starts at the text, not the art */
+  --sep-inset-track: 46px;
+
+  /* ---- Motion ---------------------------------------------------------- */
+  --ease-out: cubic-bezier(.2, .7, .2, 1);
+  --ease-sheet: cubic-bezier(.32, .72, 0, 1);
+  --dur-fast: .15s;
+  --dur-med: .25s;
+  --dur-flow: .45s;
+
+  /* ---- Safe areas ------------------------------------------------------ */
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+
+  /* ---- Stage material (same in every appearance) ----------------------- */
+  --stage-bg: radial-gradient(120% 90% at 50% 0%, #26282c 0%, #000 62%);
+  --stage-bg-tall: radial-gradient(120% 70% at 50% 0%, #26282c 0%, #000 62%) #000;
+  --stage-base: #000;
+  --stage-ink: #fff;
+  --stage-muted: #9a9ca2;
+  --stage-faint: #74777e;
+  --stage-past: #4f5258;
+  --stage-trough: #2a2b2f;
+  --stage-thumb: #55575d;
+  --stage-line: #2c2d31;
+  --stage-field: #1c1c1e;
+  --stage-field-line: #333336;
+  --stage-badge-line: #3a3c41;
+  --stage-btn-ink: #8db8f5;     /* button text on the stage; 7.8:1 on the fill */
+  --stage-hover: rgba(255, 255, 255, .08);
+  --stage-pressed: rgba(255, 255, 255, .1);
+  --stage-vol-track: #3a3c41;
+  --stage-vol-fill: #c9cbd0;
+  --stage-cover-blank: #222;
+  --stage-shadow: 0 10px 30px rgba(0, 0, 0, .45);
+  --stage-shadow-wide: 0 10px 30px rgba(0, 0, 0, .25);
+
+  /* ---- Status ---------------------------------------------------------- */
+  --ok: #34c759;
+  --warn: #b25e00;
+  --warn-tint: rgba(255, 159, 10, .14);
+  --danger: #d1242f;
+  --danger-tint: rgba(229, 72, 77, .12);
+  --rating: #f5a623;
+
+  /* ---- Overlays -------------------------------------------------------- */
+  --scrim: rgba(0, 0, 0, .42);
+  --scrim-blur: 2.5px;
+  --menu-shadow: 0 16px 44px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
+  --seg-shadow: 0 1px 2px rgba(0, 0, 0, .24), 0 0 0 .5px rgba(0, 0, 0, .08);
+}
+
+/* ==========================================================================
+   PAGE material: light appearance (default)
+   ========================================================================== */
+
+/* Stage theme, light */
+:root,
+[data-appearance] {
+  --page: #e6e7ea;
+  --surface: #f8f8f9;
+  --ink: #1d1e20;
+  --muted: #606369;           /* 4.87:1 on page, 5.68:1 on surface       */
+  --faint: #8a8d93;
+  --line: #d6d8dc;
+  --sidebar-bg: color-mix(in srgb, var(--page) 92%, var(--surface));
+  /* Secondary text on a tinted (selected) row. Declared here, on every
+     [data-appearance] element, so it follows each theme's --muted and --ink. */
+  --muted-strong: color-mix(in srgb, var(--muted) 70%, var(--ink));
+
+  --accent: #2a7be4;           /* icons, progress, ticks                  */
+  --accent-fill: #2270d6;      /* text-bearing fills: white is 4.82:1     */
+  --accent-hi: #7db5f6;        /* gloss top                               */
+  --accent-lo: #1b60c0;        /* gloss bottom                            */
+  --accent-text: #1a64c8;      /* AA on page and surface                  */
+  --accent-ink: #fff;          /* text on an accent fill                  */
+  --tint: rgba(42, 123, 228, .1);
+  --tint-strong: rgba(42, 123, 228, .16);
+
+  /* Text buttons (ui/button.rs). Ink measured on the fill over --page:
+     #1456ad is 4.94:1, the danger ink 4.64:1, white on --danger-fill 5.85:1. */
+  --btn-fill: rgba(120, 120, 128, .14);
+  --btn-fill-hover: rgba(120, 120, 128, .22);
+  --btn-ink: #1456ad;
+  --btn-danger-ink: #b3202a;
+  --danger-fill: #c4202b;
+
+  --seg-trough: #d6d8dc;
+  --seg-thumb: #f8f8f9;
+  --menu: #f8f8f9;
+  --menu-gap: #dcdde1;
+  --menu-line: #e1e2e5;
+  --menu-hl: color-mix(in srgb, var(--ink) 9%, var(--menu));
+  --scroll-thumb: rgba(29, 30, 32, .22);
+  --scroll-thumb-hover: rgba(29, 30, 32, .38);
+  --skeleton: #dcdee2;
+  --skeleton-hi: #eceef0;
+  color-scheme: light;
+}
+
+/* Graphite theme, light: a darker, cooler neutral page */
+[data-theme="graphite"] {
+  --page: #d7d9dc;
+  --surface: #eceef0;
+  --ink: #17181a;
+  --muted: #55585e;
+  --faint: #7a7d83;
+  --line: #c5c8cd;
+  --accent: #2a7be4;
+  --accent-hi: #7db5f6;
+  --accent-lo: #1b60c0;
+  --accent-text: #15559f;
+  --accent-fill: #2270d6;
+  --accent-ink: #fff;
+  --tint: rgba(42, 123, 228, .12);
+  --tint-strong: rgba(42, 123, 228, .2);
+  --btn-ink: #124f9e;          /* 4.91:1 on the fill over the page        */
+  --btn-danger-ink: #9e1c25;
+  --seg-trough: #c5c8cd;
+  --seg-thumb: #eceef0;
+  --menu: #eceef0;
+  --menu-gap: #cfd2d6;
+  --menu-line: #d6d8dc;
+  --skeleton: #cdd0d4;
+  --skeleton-hi: #e0e2e5;
+}
+
+/* Tape theme, light: warm paper with a signal-orange accent */
+[data-theme="tape"] {
+  --page: #e9e6e1;
+  --surface: #f9f7f4;
+  --ink: #1f1c19;
+  --muted: #6b645d;
+  --faint: #8d867e;
+  --line: #dbd6cf;
+  --accent: #ff5b1f;
+  --accent-hi: #ffa47a;
+  --accent-lo: #d93f05;
+  --accent-text: #b23a0a;      /* orange is 2.9:1 on paper; this is 4.9:1 */
+  --accent-fill: #ff5b1f;
+  --accent-ink: #160b05;       /* dark text on orange fills (6.2:1)       */
+  --tint: rgba(255, 91, 31, .12);
+  --tint-strong: rgba(255, 91, 31, .2);
+  --btn-ink: #96300a;          /* 5.36:1 on the fill over the page        */
+  --seg-trough: #dbd6cf;
+  --seg-thumb: #f9f7f4;
+  --menu: #f9f7f4;
+  --menu-gap: #e0dbd4;
+  --menu-line: #e6e1da;
+  --skeleton: #ddd8d1;
+  --skeleton-hi: #eeeae5;
+}
+
+/* ==========================================================================
+   PAGE material: dark appearance, explicit
+   ========================================================================== */
+
+[data-appearance="dark"] {
+  --page: #18191b;
+  --surface: #222326;
+  --ink: #ececee;
+  --muted: #8d9097;
+  --faint: #6f727a;
+  --line: #34363a;
+  --accent: #4a90ee;
+  --accent-hi: #8cc0fa;
+  --accent-lo: #2a6fd0;
+  --accent-text: #5a9cf2;      /* 5.0:1 on the dark menu, 6.3:1 on page   */
+  --accent-fill: #2c71d4;      /* white is 4.75:1 (#4a90ee would be 3.2)  */
+  --accent-ink: #fff;
+  --tint: rgba(74, 144, 238, .16);
+  --tint-strong: rgba(74, 144, 238, .24);
+  --btn-fill: rgba(120, 120, 128, .24);
+  --btn-fill-hover: rgba(120, 120, 128, .32);
+  --btn-ink: #8db8f5;          /* 5.81:1 on the fill over --surface       */
+  --btn-danger-ink: #ff8a8d;   /* 5.23:1 on the fill over --surface       */
+  --danger-fill: #c8303a;      /* white is 5.33:1                         */
+  --seg-trough: #2a2b2f;
+  --seg-thumb: #4a4c52;
+  --menu: #2a2b2f;
+  --menu-gap: #1c1d20;
+  --menu-line: #393b40;
+  --scroll-thumb: rgba(236, 236, 238, .2);
+  --scroll-thumb-hover: rgba(236, 236, 238, .34);
+  --skeleton: #26272a;
+  --skeleton-hi: #303135;
+  --warn: #ffb340;
+  --danger: #ff6b6f;
+  color-scheme: dark;
+}
+
+[data-appearance="dark"][data-theme="graphite"] {
+  --page: #0e0f10;
+  --surface: #18191b;
+  --ink: #ececee;
+  --muted: #8a8d93;
+  --faint: #6a6d73;
+  --line: #2a2c30;
+  --btn-ink: #8db8f5;
+  --btn-danger-ink: #ff8a8d;
+  --seg-trough: #222326;
+  --seg-thumb: #3e4045;
+  --menu: #222326;
+  --menu-gap: #141516;
+  --menu-line: #313338;
+  --skeleton: #1d1e20;
+  --skeleton-hi: #26272a;
+}
+
+[data-appearance="dark"][data-theme="tape"] {
+  --page: #1a1816;
+  --surface: #24211e;
+  --ink: #ede9e4;
+  --muted: #948d85;
+  --faint: #756f68;
+  --line: #38332e;
+  --accent: #ff6a33;
+  --accent-hi: #ffa47a;
+  --accent-lo: #d94a12;
+  --accent-text: #ff7a45;
+  --accent-fill: #ff6a33;
+  --accent-ink: #160b05;
+  --tint: rgba(255, 106, 51, .16);
+  --tint-strong: rgba(255, 106, 51, .26);
+  --btn-ink: #ffa07a;          /* 6.04:1 on the fill over --surface       */
+  --seg-trough: #2c2824;
+  --seg-thumb: #4d4640;
+  --menu: #2c2824;
+  --menu-gap: #1e1b19;
+  --menu-line: #3e3833;
+  --skeleton: #2a2623;
+  --skeleton-hi: #34302c;
+}
+
+/* ==========================================================================
+   PAGE material: dark appearance, following the system
+   (same values as above; keep the blocks in sync)
+   ========================================================================== */
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance]),
+  [data-appearance="system"] {
+    --page: #18191b;
+    --surface: #222326;
+    --ink: #ececee;
+    --muted: #8d9097;
+    --faint: #6f727a;
+    --line: #34363a;
+    --accent: #4a90ee;
+    --accent-hi: #8cc0fa;
+    --accent-lo: #2a6fd0;
+    --accent-text: #5a9cf2;
+    --accent-fill: #2c71d4;
+    --accent-ink: #fff;
+    --tint: rgba(74, 144, 238, .16);
+    --tint-strong: rgba(74, 144, 238, .24);
+    --btn-fill: rgba(120, 120, 128, .24);
+    --btn-fill-hover: rgba(120, 120, 128, .32);
+    --btn-ink: #8db8f5;          /* 5.81:1 on the fill over --surface       */
+    --btn-danger-ink: #ff8a8d;   /* 5.23:1 on the fill over --surface       */
+    --danger-fill: #c8303a;      /* white is 5.33:1                         */
+    --seg-trough: #2a2b2f;
+    --seg-thumb: #4a4c52;
+    --menu: #2a2b2f;
+    --menu-gap: #1c1d20;
+    --menu-line: #393b40;
+    --scroll-thumb: rgba(236, 236, 238, .2);
+    --scroll-thumb-hover: rgba(236, 236, 238, .34);
+    --skeleton: #26272a;
+    --skeleton-hi: #303135;
+    --warn: #ffb340;
+    --danger: #ff6b6f;
+    color-scheme: dark;
+  }
+
+  :root:not([data-appearance])[data-theme="graphite"],
+  [data-appearance="system"][data-theme="graphite"] {
+    --page: #0e0f10;
+    --surface: #18191b;
+    --ink: #ececee;
+    --muted: #8a8d93;
+    --faint: #6a6d73;
+    --line: #2a2c30;
+    --btn-ink: #8db8f5;
+    --btn-danger-ink: #ff8a8d;
+    --seg-trough: #222326;
+    --seg-thumb: #3e4045;
+    --menu: #222326;
+    --menu-gap: #141516;
+    --menu-line: #313338;
+    --skeleton: #1d1e20;
+    --skeleton-hi: #26272a;
+  }
+
+  :root:not([data-appearance])[data-theme="tape"],
+  [data-appearance="system"][data-theme="tape"] {
+    --page: #1a1816;
+    --surface: #24211e;
+    --ink: #ede9e4;
+    --muted: #948d85;
+    --faint: #756f68;
+    --line: #38332e;
+    --accent: #ff6a33;
+    --accent-hi: #ffa47a;
+    --accent-lo: #d94a12;
+    --accent-text: #ff7a45;
+    --accent-fill: #ff6a33;
+    --accent-ink: #160b05;
+    --tint: rgba(255, 106, 51, .16);
+    --tint-strong: rgba(255, 106, 51, .26);
+    --btn-ink: #ffa07a;          /* 6.04:1 on the fill over --surface       */
+    --seg-trough: #2c2824;
+    --seg-thumb: #4d4640;
+    --menu: #2c2824;
+    --menu-gap: #1e1b19;
+    --menu-line: #3e3833;
+    --skeleton: #2a2623;
+    --skeleton-hi: #34302c;
+  }
+}

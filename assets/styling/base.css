@@ -1,0 +1,244 @@
+/* ==========================================================================
+   RustySound base: reset, typography, browser surfaces, platform tweaks.
+   Loaded after tokens.css.
+   ========================================================================== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sys);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+  overscroll-behavior: none;
+  touch-action: manipulation;
+}
+
+/* The app root. Owns the type ramp. */
+.rs-app {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  overflow: hidden;
+  background: var(--page);
+  color: var(--ink);
+  font-family: var(--font-sys);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  caret-color: var(--accent);
+  accent-color: var(--accent);
+}
+
+/* Mac reads one step smaller, as in the Mac mock. */
+.rs-app[data-platform="macos"][data-layout="wide"],
+.rs-app[data-platform="web"][data-layout="wide"] {
+  font-size: var(--fs-callout);
+}
+
+/* :where() keeps these at element specificity, so a one-class rule such as
+   .rs-btn--tinted { color } wins without help. */
+:where(.rs-app) button,
+:where(.rs-app) input,
+:where(.rs-app) select,
+:where(.rs-app) textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.rs-app :where(button) {
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rs-app :where(button:disabled) {
+  cursor: default;
+}
+
+.rs-app :where(svg) {
+  display: block;
+  flex: none;
+}
+
+.rs-app :where(img) {
+  display: block;
+}
+
+.rs-app :where(h1, h2, h3, h4, p) {
+  margin: 0;
+}
+
+.rs-app :where(ul, ol) {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-app :where(a) {
+  color: var(--accent-text);
+  text-decoration: none;
+  text-underline-offset: .18em;
+}
+
+/* ---- Browser surfaces ------------------------------------------------- */
+
+::selection {
+  background: var(--tint-strong);
+  color: inherit;
+}
+
+/* One class of specificity: a component that draws its own ring (a field on
+   :focus-within, a Cover Flow cover) sets `outline: none` on the inner
+   element with a single class and wins. */
+:where(.rs-app) :focus {
+  outline: none;
+}
+
+:where(.rs-app) :focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Containers focused from code so keyboard and screen-reader focus lands in
+   them (Now Playing, menus, sheets: tabindex="-1") never draw a ring. They
+   are not tab stops, and WebKit counts a programmatic focus as
+   :focus-visible, which outlined the whole Now Playing sheet. Their
+   controls keep their own rings. */
+:where(.rs-app) [tabindex="-1"]:focus,
+:where(.rs-app) [tabindex="-1"]:focus-visible {
+  outline: none;
+}
+
+.rs-app input,
+.rs-app textarea {
+  caret-color: var(--accent);
+}
+
+.rs-app ::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+/* Scrollbars. Apple platforms keep the system's overlay scrollbars: any
+   ::-webkit-scrollbar rule (and scrollbar-color/-width in WebKit) switches
+   WKWebView to classic always-on bars with a permanent gutter. Elsewhere a
+   thin themed bar reads better than the platform default on the dark stage. */
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) * {
+  scrollbar-width: thin;
+  scrollbar-color: var(--scroll-thumb) transparent;
+}
+
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-thumb {
+  background: var(--scroll-thumb);
+  border: 3px solid transparent;
+  border-radius: 5px;
+  background-clip: padding-box;
+}
+
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-thumb:hover {
+  background: var(--scroll-thumb-hover);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.rs-app:not([data-platform="macos"]):not([data-platform="ios"]) ::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* The audio elements are driven from code and never shown. */
+audio {
+  display: none;
+}
+
+/* ---- Utilities -------------------------------------------------------- */
+
+.num,
+.rs-num {
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.rs-truncate {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---- Platform tweaks -------------------------------------------------- */
+
+[data-platform="ios"] .rs-app,
+.rs-app[data-platform="ios"] {
+  -webkit-tap-highlight-color: transparent;
+  -webkit-touch-callout: none;
+}
+
+/* Text inputs at 16px stop iOS zooming the page on focus. */
+.rs-app[data-platform="ios"] input,
+.rs-app[data-platform="ios"] textarea,
+.rs-app[data-platform="ios"] select,
+.rs-app[data-platform="web"][data-layout="compact"] input,
+.rs-app[data-platform="web"][data-layout="compact"] textarea {
+  font-size: max(16px, 1em);
+}
+
+/* WebKitGTK repaints reflections and backdrop blur slowly. */
+.rs-app[data-platform="linux"] .rs-cover,
+.rs-app[data-platform="linux"] .rs-hero-art {
+  -webkit-box-reflect: unset;
+}
+
+.rs-app[data-platform="linux"] .rs-scrim {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+/* ---- Reduced motion (the one place !important is allowed) ------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: .01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: .01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

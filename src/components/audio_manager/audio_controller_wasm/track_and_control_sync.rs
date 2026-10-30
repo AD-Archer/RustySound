@@ -25,9 +25,9 @@
         let servers = servers.clone();
         let app_settings = app_settings.clone();
         let volume = volume.clone();
-        let mut now_playing = now_playing.clone();
+        let now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
-        let mut playback_position = playback_position.clone();
+        let playback_position = playback_position.clone();
         let mut audio_state = audio_state.clone();
         let mut seek_request = seek_request.clone();
         let mut last_song_id = last_song_id.clone();

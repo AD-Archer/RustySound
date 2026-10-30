@@ -6,11 +6,11 @@ type: project
 
 RustySound is a cross-platform Navidrome/Subsonic music client written in Rust using the Dioxus framework.
 
-**Tech stack:** Rust 2021, Dioxus 0.7.3, Tailwind CSS (compiled), SQLite (rusqlite), async/Tokio, WASM for web target.
+**Tech stack:** Rust 2021, Dioxus 0.7, token-based CSS (no Tailwind), SQLite (rusqlite), async/Tokio, WASM for web target.
 
 **Platforms:** Web (WASM), Desktop (macOS/Windows/Linux via WebView), iOS/Android.
 
-**CSS loading:** Desktop inlines CSS via `include_str!()` in `src/main.rs`; web loads via `asset!()` stylesheet links. Both go through `GlobalStyles` component. Load order: tailwind.css → themes.css (which imports per-theme files in `assets/styling/themes/`) → app.css.
+**CSS loading:** `src/styles.rs` is the one registry. Desktop and iOS inline CSS via `include_str!()`; web loads `asset!()` stylesheet links. Both go through the `GlobalStyles` component. Load order: tokens.css → base.css → components.css → views/*.css.
 
 **State:** Dioxus signals + context providers (`AppSettings`, `now_playing`, `queue`, `servers`, etc.) initialized in `AppShell` (`src/components/app.rs`).
 
@@ -18,4 +18,4 @@ RustySound is a cross-platform Navidrome/Subsonic music client written in Rust u
 
 **Routing:** `AppView` enum in `src/components/app_view.rs`.
 
-**Key custom CSS classes:** `.app-container`, `.glass`, `.page-shell`, `.player-shell`, `.sidebar-shell` — all in `assets/styling/app.css` using `--rs-*` CSS variables.
+**Key CSS classes:** the `rs-` UI kit in `assets/styling/components.css` (`.rs-view`, `.rs-list`, `.rs-row`, `.rs-btn`, `.rs-menu`, …); every colour comes from `tokens.css`.

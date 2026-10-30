@@ -1,0 +1,36 @@
+# Weekly dependency updates, grouped per ecosystem. Patch updates (and minor
+# ones for crates at 1.0+) merge automatically once the Check workflow passes
+# (.github/workflows/check.yml); the rest wait for review.
+version: 2
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      rust:
+        update-types: [minor, patch]
+    ignore:
+      # The dx CLI in CI must match the dioxus crates, so dioxus moves by hand.
+      - dependency-name: "dioxus*"
+        update-types: ["version-update:semver-major", "version-update:semver-minor"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      actions:
+        patterns: ["*"]
+
+  - package-ecosystem: bun
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      test-tools:
+        update-types: [minor, patch]

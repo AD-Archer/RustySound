@@ -1,4 +1,8 @@
 // Authentication, native song feed mapping, and stream/cover-art utilities.
+
+/// Largest cover-art edge requested from the server, in pixels.
+const COVER_ART_MAX_PX: u32 = 1200;
+
 impl NavidromeClient {
     pub fn new(server: ServerConfig) -> Self {
         Self { server }
@@ -102,6 +106,28 @@ impl NavidromeClient {
     fn invalidate_favorites_cache(&self) {
         let _ = cache_remove_prefix(&format!("api:getStarred2:v1:{}", self.server.id));
         let _ = cache_remove_prefix("view:favorites:v1:");
+    }
+
+    /// After a star/unstar: drop every cached response that carries the old
+    /// `starred` value, so a reopened page shows the new state. Song stars
+    /// show inside cached albums and playlists, so those go too.
+    fn invalidate_after_star(&self, id: &str, item_type: &str) {
+        match item_type {
+            "playlist" => self.invalidate_playlist_cache(),
+            "album" => {
+                self.invalidate_favorites_cache();
+                let _ = cache_remove_prefix(&format!("api:getAlbum:v1:{}:{}", self.server.id, id));
+            }
+            "artist" => {
+                self.invalidate_favorites_cache();
+                let _ = cache_remove_prefix(&format!("api:getArtist:v1:{}:{}", self.server.id, id));
+            }
+            _ => {
+                self.invalidate_favorites_cache();
+                let _ = cache_remove_prefix(&format!("api:getAlbum:v1:{}:", self.server.id));
+                let _ = cache_remove_prefix(&format!("api:getPlaylist:v1:{}:", self.server.id));
+            }
+        }
     }
 
     fn invalidate_playlist_cache(&self) {
@@ -213,7 +239,9 @@ impl NavidromeClient {
             let bitrate = json_pick_u32(&value, &["bitrate"]);
             let starred = match json_pick_bool(&value, &["starred", "isStarred"]) {
                 Some(true) => Some("native".to_string()),
-                _ => json_pick_string(&value, &["starredAt", "starred"]),
+                // `starred: false` must not fall through to the string read ("false").
+                Some(false) => None,
+                None => json_pick_string(&value, &["starredAt", "starred"]),
             };
             let user_rating =
                 json_pick_u32(&value, &["userRating", "user_rating", "rating"]).map(|value| {
@@ -309,10 +337,9 @@ impl NavidromeClient {
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {
-        #[cfg(target_arch = "wasm32")]
-        let requested_size = size.min(160);
-        #[cfg(not(target_arch = "wasm32"))]
-        let requested_size = size;
+        // `Artwork` asks for twice its rendered edge (retina). Cap it so a huge
+        // hero never pulls a full-resolution original.
+        let requested_size = size.min(COVER_ART_MAX_PX);
 
         let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
 
@@ -339,6 +366,33 @@ impl NavidromeClient {
         );
 
         remote_url
+    }
+
+    /// Cover URL for an `<img>` in the UI. Cheap enough to call while rendering:
+    /// native webview builds get the local cover route (served and cached off the
+    /// main thread, see `offline_art::use_cover_art_handler`), never a data URL;
+    /// the web build gets the server URL.
+    pub fn get_cover_art_display_url(&self, cover_art_id: &str, size: u32) -> String {
+        #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+        {
+            let requested_size = size.min(COVER_ART_MAX_PX);
+            let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
+            if normalized_cover_art_id.is_empty() {
+                return String::new();
+            }
+            let remote_url =
+                self.build_cover_art_network_url(&normalized_cover_art_id, requested_size);
+            crate::offline_art::cover_art_display_url(
+                &self.server.id,
+                &normalized_cover_art_id,
+                requested_size,
+                &remote_url,
+            )
+        }
+        #[cfg(not(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile"))))]
+        {
+            self.get_cover_art_url(cover_art_id, size)
+        }
     }
 
     fn build_cover_art_network_url(&self, cover_art_id: &str, requested_size: u32) -> String {

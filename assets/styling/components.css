@@ -1,0 +1,2462 @@
+/* ==========================================================================
+   RustySound UI kit (src/components/ui/**). One section per component.
+   Class names: rs-<block>, rs-<block>__<element>, rs-<block>--<modifier>.
+   Every colour comes from tokens.css. Phase-2 views style themselves in
+   views/*.css and do not restyle these classes.
+   ========================================================================== */
+
+/* ---- Icons ------------------------------------------------------------- */
+
+.rs-ic { width: 20px; height: 20px; }
+.rs-ic--xs { width: 13px; height: 13px; }
+.rs-ic--sm { width: 16px; height: 16px; }
+.rs-ic--md { width: 22px; height: 22px; }
+.rs-ic--lg { width: 26px; height: 26px; }
+.rs-ic--xl { width: 38px; height: 38px; }
+.rs-ic--xxl { width: 44px; height: 44px; }
+
+/* ==========================================================================
+   SHELL
+   ========================================================================== */
+
+.rs-app[data-layout="wide"] {
+  display: grid;
+  grid-template-columns: var(--sidebar-w) minmax(0, 1fr);
+}
+
+.rs-content {
+  position: relative;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  /* The player bar sizes itself to the content column, not the window. */
+  container: rs-content / inline-size;
+}
+
+.rs-main {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-y: contain;
+  touch-action: pan-y;
+}
+
+.rs-app[data-layout="compact"] .rs-main {
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
+}
+
+.rs-app[data-layout="compact"][data-player="on"] .rs-main {
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 24px);
+}
+
+.rs-app[data-layout="wide"][data-player="on"] .rs-main {
+  padding-bottom: calc(var(--bar-h) + 32px);
+}
+
+.rs-outlet {
+  min-height: 100%;
+}
+
+/* ---- macOS window chrome ------------------------------------------------
+   The desktop window has a transparent, title-less titlebar over a
+   full-size content view (main.rs), like Music, Notes and Finder. The
+   content column starts below a --titlebar-h band, the sidebar's first item
+   clears the traffic lights, and both bands drag the window
+   (WindowDragRegion). Other platforms keep --titlebar-h at 0. */
+.rs-app {
+  --titlebar-h: 0px;
+}
+
+.rs-app[data-platform="macos"][data-layout="wide"] {
+  --titlebar-h: 28px;
+}
+
+.rs-app[data-platform="macos"][data-layout="wide"] .rs-content {
+  padding-top: var(--titlebar-h);
+}
+
+.rs-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: var(--titlebar-h);
+  /* Above Now Playing (99/100) so the window can still be moved while it is
+     open; below menus and sheets (210+). */
+  z-index: 101;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Under Now Playing: the sheet's top-left controls overlap this band. */
+.rs-drag--sidebar {
+  height: var(--sidebar-top);
+  z-index: 1;
+}
+
+/* A view: page material.
+
+   Wide layouts centre view content in the space beside the sidebar: the
+   view's side padding grows so a column of at most --view-max sits in the
+   middle, and never shrinks below the gutter. Padding (not a max-width on
+   each child) keeps children's own margins and lets every child, stage bands
+   included, share one column edge.
+   * --view-max: the column width. 1040px by default; .rs-view--narrow is a
+     760px reading measure for list-only pages; a view root may set its own.
+   * --view-pad: the resulting side padding. Flush views (detail pages,
+     Random) pad their inner sections with it so they line up the same way.
+   * .rs-view--full opts out: grids, shelves and stages use the whole width
+     with the normal gutter. */
+.rs-view {
+  --view-max: 1040px;
+  --view-pad: max(var(--gutter-wide), calc((100% - var(--view-max)) / 2));
+  min-height: 100%;
+  background: var(--page);
+  color: var(--ink);
+  padding: calc(var(--safe-top) + 8px) var(--gutter) 24px;
+}
+
+.rs-view--narrow { --view-max: 760px; }
+.rs-view--full { --view-pad: var(--gutter-wide); }
+
+/* :where() keeps this at one class, so .rs-view--flush (declared after it)
+   and a view's own root class can still set their padding. */
+:where(.rs-app[data-layout="wide"]) .rs-view {
+  padding: 24px var(--view-pad) 32px;
+}
+
+.rs-view--flush {
+  padding: 0;
+}
+
+.rs-large-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-large);
+  line-height: var(--lh-large);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-title);
+  text-wrap: balance;
+}
+
+.rs-app[data-layout="wide"] .rs-large-title {
+  font-size: var(--fs-title1);
+  line-height: var(--lh-title1);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-page-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin: var(--sp-4) 0 var(--sp-6);
+}
+
+/* ---- Offline banner --------------------------------------------------- */
+
+.rs-banner {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin: calc(var(--safe-top) + 12px) var(--gutter) 0;
+  padding: 10px 10px 10px 14px;
+  border-radius: var(--r-list);
+  background: var(--warn-tint);
+  border: 1px solid color-mix(in srgb, var(--warn) 30%, transparent);
+  color: var(--ink);
+}
+
+.rs-app[data-layout="wide"] .rs-banner {
+  margin: 16px var(--gutter-wide) 0;
+}
+
+.rs-banner__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-banner__title {
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-banner__sub {
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+/* ---- Boot / initializing overlay ------------------------------------- */
+
+.rs-boot {
+  position: fixed;
+  inset: 0;
+  z-index: 300;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 24px);
+  background: var(--stage-bg-tall);
+  color: var(--stage-ink);
+  animation: rs-fade-in var(--dur-med) var(--ease-out);
+}
+
+.rs-boot__inner {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  text-align: center;
+}
+
+.rs-boot__mark {
+  width: 64px;
+  height: 64px;
+  border-radius: 14px;
+  margin-bottom: var(--sp-4);
+  -webkit-box-reflect: below 3px linear-gradient(transparent 62%, rgba(255, 255, 255, .22));
+}
+
+.rs-boot__title {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-tight);
+  margin-top: var(--sp-6);
+}
+
+.rs-boot__msg {
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+  max-width: 34ch;
+}
+
+.rs-boot__progress {
+  width: 100%;
+  margin-top: var(--sp-5);
+}
+
+.rs-boot__meta {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin-top: var(--sp-3);
+  font-size: var(--fs-foot);
+  color: var(--stage-muted);
+}
+
+.rs-boot__fill {
+  transition: width .5s var(--ease-out);
+}
+
+.rs-boot__log {
+  width: 100%;
+  max-height: 176px;
+  overflow-y: auto;
+  margin-top: var(--sp-5);
+  padding: var(--sp-4);
+  border-radius: var(--r-btn);
+  background: var(--stage-field);
+  border: 1px solid var(--stage-field-line);
+  text-align: left;
+  font: 11px/1.35 ui-monospace, "SF Mono", Menlo, monospace;
+  color: var(--stage-muted);
+  overflow-wrap: anywhere;
+}
+
+/* ---- Capsule (transport loading, transient notes) -------------------- */
+
+.rs-capsule {
+  position: fixed;
+  left: 50%;
+  top: calc(var(--safe-top) + 12px);
+  z-index: 230;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  max-width: calc(100vw - 32px);
+  padding: 8px 14px 8px 10px;
+  border-radius: var(--r-button);
+  background: var(--stage-base);
+  color: var(--stage-ink);
+  border: 1px solid var(--stage-line);
+  box-shadow: var(--stage-shadow);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  pointer-events: none;
+  animation: rs-drop-in var(--dur-med) var(--ease-out);
+}
+
+.rs-capsule--error {
+  border-color: color-mix(in srgb, var(--danger) 60%, var(--stage-line));
+}
+
+.rs-spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .22);
+  border-top-color: var(--stage-ink);
+  animation: rs-spin .8s linear infinite;
+}
+
+.rs-spinner--page {
+  border-color: var(--line);
+  border-top-color: var(--accent);
+}
+
+/* ---- Edge swipe (compact; ui/edge_swipe.js) --------------------------
+   While a swipe is up the page (.rs-main) follows the finger by transform
+   only, over a dim layer the script adds behind it and fades out as the page
+   leaves. The class is added once per gesture, never per move. */
+
+.rs-edge-under {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background: rgba(0, 0, 0, .12);
+}
+
+.rs-main.rs-edge-drag {
+  will-change: transform;
+}
+
+.rs-edge-drag--back {
+  box-shadow: -1px 0 0 var(--line), -10px 0 28px rgba(0, 0, 0, .18);
+}
+
+.rs-edge-drag--forward {
+  box-shadow: 1px 0 0 var(--line), 10px 0 28px rgba(0, 0, 0, .18);
+}
+
+/* Fixed children of the moving page would re-anchor to it and jump. */
+.rs-edge-drag .rs-library-index {
+  visibility: hidden;
+}
+
+/* ==========================================================================
+   STAGE
+   ========================================================================== */
+
+.rs-stage {
+  background: var(--stage-bg);
+  color: var(--stage-ink);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.rs-stage--tall {
+  background: var(--stage-bg-tall);
+}
+
+.rs-stage :focus-visible {
+  outline-color: var(--accent-hi);
+}
+
+/* ==========================================================================
+   COVER FLOW
+   ========================================================================== */
+
+.rs-flow {
+  --cover: 148px;
+  position: relative;
+  height: calc(var(--cover) + 32px);
+  margin-top: var(--sp-5);
+  perspective: 900px;
+  outline: none;
+  touch-action: pan-y;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.rs-flow--wide {
+  height: calc(var(--cover) + 40px);
+  margin-top: 18px;
+  perspective: 1100px;
+}
+
+.rs-cover {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: var(--cover);
+  height: var(--cover);
+  margin-left: calc(var(--cover) / -2);
+  padding: 0;
+  border-radius: var(--r-cover);
+  background: var(--stage-cover-blank);
+  overflow: visible;
+  -webkit-box-reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
+}
+
+.rs-flow--ready .rs-cover {
+  transition: transform var(--dur-flow) var(--ease-out), opacity var(--dur-flow), scale .2s;
+}
+
+.rs-cover img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: var(--r-cover);
+  pointer-events: none;
+  -webkit-user-drag: none;
+}
+
+.rs-cover::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: var(--r-cover);
+  background: #000;
+  opacity: var(--shade, 0);
+  pointer-events: none;
+}
+
+.rs-flow--ready .rs-cover::after {
+  transition: opacity var(--dur-flow);
+}
+
+.rs-cover--mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  overflow: hidden;
+}
+
+.rs-cover--mosaic img {
+  border-radius: 0;
+}
+
+.rs-cover__blank {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--stage-faint);
+}
+
+.rs-flow:focus-visible .rs-cover--on {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 3px;
+}
+
+.rs-cover--pulse {
+  scale: .97;
+}
+
+.rs-flow-caption {
+  min-height: 54px;
+  padding: 0 24px;
+  text-align: center;
+}
+
+.rs-flow--wide + .rs-flow-caption {
+  padding-top: 2px;
+}
+
+.rs-flow-caption strong {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 16px;
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-flow-caption span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-callout);
+  color: var(--stage-muted);
+}
+
+.rs-flow-caption em {
+  display: block;
+  margin-top: 1px;
+  font-style: normal;
+  font-size: var(--fs-sub);
+  color: var(--stage-faint);
+}
+
+.rs-flow-scrub {
+  display: block;
+  width: 320px;
+  max-width: calc(100% - 48px);
+  height: 14px;
+  margin: var(--sp-5) auto 0;
+  background: transparent;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+.rs-flow-scrub::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .14);
+}
+
+.rs-flow-scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 44px;
+  height: 8px;
+  margin-top: -2px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .5);
+}
+
+.rs-flow-scrub::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .14);
+}
+
+.rs-flow-scrub::-moz-range-thumb {
+  width: 44px;
+  height: 8px;
+  border: 0;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, .5);
+}
+
+/* ==========================================================================
+   LISTS
+   ========================================================================== */
+
+.rs-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  overflow: hidden;
+}
+
+.rs-list > li {
+  position: relative;
+}
+
+.rs-list > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--rs-sep, var(--sep-inset));
+  right: 0;
+  z-index: 1;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
+}
+
+.rs-list--text { --rs-sep: 16px; }
+.rs-list--icons { --rs-sep: 52px; }
+.rs-list--tracks { --rs-sep: var(--sep-inset-track); }
+
+.rs-list + .rs-list,
+.rs-list + .rs-list-foot + .rs-list {
+  margin-top: var(--sp-7);
+}
+
+.rs-list-foot {
+  margin: 10px 4px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  width: 100%;
+  min-height: var(--row-h);
+  padding: 7px 12px;
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.rs-row--compact {
+  min-height: var(--touch);
+}
+
+.rs-app[data-layout="wide"] .rs-row {
+  min-height: var(--row-h-wide);
+  padding: 8px 14px 8px 12px;
+}
+
+.rs-app[data-layout="wide"] .rs-row--compact {
+  min-height: 40px;
+  padding-block: 4px;
+}
+
+:is(button, a).rs-row {
+  cursor: pointer;
+  transition: background-color var(--dur-fast);
+}
+
+@media (hover: hover) {
+  :is(button, a).rs-row:hover { background: var(--tint); }
+}
+
+:is(button, a).rs-row:active { background: var(--tint-strong); }
+
+/* On a tinted row, secondary text steps up: plain --muted falls under 4.5:1
+   on the dark tints. */
+@media (hover: hover) {
+  :is(button, a).rs-row:hover :is(.rs-row__sub, .rs-row__why, .rs-row__detail) {
+    color: var(--muted-strong);
+  }
+}
+
+:is(button, a).rs-row:active :is(.rs-row__sub, .rs-row__why, .rs-row__detail) {
+  color: var(--muted-strong);
+}
+
+.rs-row__lead {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+}
+
+.rs-row__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-row__title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  font-weight: var(--fw-medium);
+}
+
+.rs-row__title > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-row__sub,
+.rs-row__why {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--muted);
+}
+
+.rs-row__detail {
+  flex: none;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.rs-row__chev {
+  flex: none;
+  color: var(--faint);
+}
+
+.rs-row__fresh {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.rs-badge {
+  flex: none;
+  padding: 1px 5px;
+  border: 1px solid var(--line);
+  border-radius: var(--r-thumb);
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+/* ---- Section header --------------------------------------------------- */
+
+.rs-hd {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin: var(--sp-7) 4px var(--sp-4);
+}
+
+.rs-hd:first-child {
+  margin-top: var(--sp-2);
+}
+
+.rs-hd__title {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-hd__action {
+  font-size: var(--fs-body);
+  color: var(--accent-text);
+  white-space: nowrap;
+}
+
+.rs-app[data-layout="wide"] .rs-hd__action {
+  font-size: var(--fs-sub);
+}
+
+@media (hover: hover) {
+  .rs-hd__action:hover { text-decoration: underline; }
+}
+
+/* ==========================================================================
+   CONTROLS
+   ========================================================================== */
+
+/* ---- Segmented -------------------------------------------------------- */
+
+.rs-seg {
+  display: flex;
+  padding: 2px;
+  border-radius: var(--r-seg);
+  background: var(--seg-trough);
+}
+
+.rs-seg__btn {
+  flex: 1;
+  height: 28px;
+  padding: 0 var(--sp-5);
+  border-radius: var(--r-seg-thumb);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  /* --muted is under 4.5:1 on the trough; this is 5.1:1 or better. */
+  color: var(--muted-strong);
+  white-space: nowrap;
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.rs-seg__btn[aria-pressed="true"] {
+  background: var(--seg-thumb);
+  color: var(--ink);
+  font-weight: var(--fw-semibold);
+  box-shadow: var(--seg-shadow);
+}
+
+.rs-seg--inline {
+  display: inline-flex;
+  border-radius: var(--r-btn);
+}
+
+.rs-seg--inline .rs-seg__btn {
+  flex: none;
+  padding: 0 16px;
+  border-radius: 6px;
+}
+
+.rs-seg--stage {
+  background: var(--stage-trough);
+}
+
+.rs-seg--stage .rs-seg__btn {
+  color: var(--stage-muted);
+}
+
+.rs-seg--stage .rs-seg__btn[aria-pressed="true"] {
+  background: var(--stage-thumb);
+  color: var(--stage-ink);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .4);
+}
+
+/* ---- Buttons (ui/button.rs): style A, rounded rectangles ------------- */
+
+.rs-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-width: 0;
+  height: var(--touch);
+  padding: 0 18px;
+  border-radius: var(--r-button);
+  font-size: 16px;
+  font-weight: var(--fw-semibold);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color var(--dur-fast), color var(--dur-fast), opacity var(--dur-fast);
+}
+
+.rs-app[data-layout="wide"] .rs-btn {
+  height: 36px;
+  padding: 0 16px;
+  font-size: var(--fs-callout);
+}
+
+.rs-btn--small,
+.rs-app[data-layout="wide"] .rs-btn--small {
+  height: 32px;
+  padding: 0 12px;
+  border-radius: var(--r-button-sm);
+  font-size: var(--fs-callout);
+}
+
+.rs-app[data-layout="wide"] .rs-btn--small {
+  height: 28px;
+  padding: 0 10px;
+  font-size: var(--fs-sub);
+}
+
+/* Tinted: the default. Quiet grey fill, accent text. */
+.rs-btn--tinted {
+  background: var(--btn-fill);
+  color: var(--btn-ink);
+}
+
+@media (hover: hover) {
+  .rs-btn--tinted:hover:not(:disabled) { background: var(--btn-fill-hover); }
+}
+
+.rs-btn--tinted:active:not(:disabled) { background: var(--btn-fill-hover); }
+
+/* Plain: accent text, no box (Preview, See All, Edit). Keeps a 44px
+   touch height on compact layouts. */
+.rs-btn--plain {
+  height: auto;
+  min-height: var(--touch);
+  padding: 0 4px;
+  background: none;
+  color: var(--btn-ink);
+  font-size: var(--fs-callout);
+  font-weight: var(--fw-medium);
+}
+
+.rs-app[data-layout="wide"] .rs-btn--plain {
+  height: auto;
+  min-height: 28px;
+  padding: 0 4px;
+}
+
+@media (hover: hover) {
+  .rs-btn--plain:hover:not(:disabled) { text-decoration: underline; text-underline-offset: .18em; }
+}
+
+/* Filled: only the single primary action of a sheet or form. */
+.rs-btn--filled {
+  background: var(--accent-fill);
+  color: var(--accent-ink);
+}
+
+@media (hover: hover) {
+  .rs-btn--filled:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-fill) 88%, #000); }
+}
+
+.rs-btn--filled:active:not(:disabled) { background: var(--accent-lo); }
+
+/* Destructive. */
+.rs-btn--danger:is(.rs-btn--tinted, .rs-btn--plain) { color: var(--btn-danger-ink); }
+
+.rs-btn--danger.rs-btn--filled {
+  background: var(--danger-fill);
+  color: #fff;
+}
+
+@media (hover: hover) {
+  .rs-btn--danger.rs-btn--filled:hover:not(:disabled) { background: color-mix(in srgb, var(--danger-fill) 86%, #000); }
+}
+
+.rs-btn--block {
+  display: flex;
+  flex: 1;
+  width: 100%;
+}
+
+.rs-btn:disabled,
+.rs-btn[aria-disabled="true"] {
+  opacity: .45;
+  cursor: default;
+}
+
+/* On the black stage: a lighter fill and the light accent. */
+.rs-stage .rs-btn--tinted,
+.rs-mini .rs-btn--tinted,
+.rs-bar .rs-btn--tinted {
+  background: rgba(120, 120, 128, .28);
+  color: var(--stage-btn-ink);
+}
+
+@media (hover: hover) {
+  .rs-stage .rs-btn--tinted:hover:not(:disabled) { background: rgba(120, 120, 128, .38); }
+}
+
+.rs-stage .rs-btn--plain { color: var(--stage-btn-ink); }
+
+/* ---- Icon buttons ----------------------------------------------------- */
+
+.rs-iconbtn {
+  width: var(--touch);
+  height: var(--touch);
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-btn);
+  color: inherit;
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.rs-iconbtn--sm {
+  width: 32px;
+  height: 32px;
+}
+
+.rs-iconbtn--lg {
+  width: 56px;
+  height: 56px;
+}
+
+.rs-iconbtn--quiet { color: var(--muted); }
+.rs-iconbtn--accent { color: var(--accent); }
+.rs-iconbtn[aria-pressed="true"] { color: var(--accent); }
+.rs-iconbtn--rated { color: var(--rating); }
+
+@media (hover: hover) {
+  .rs-iconbtn:hover:not(:disabled) { background: var(--tint); }
+  .rs-stage .rs-iconbtn:hover:not(:disabled),
+  .rs-mini .rs-iconbtn:hover:not(:disabled),
+  .rs-bar .rs-iconbtn:hover:not(:disabled) { background: var(--stage-hover); }
+}
+
+.rs-iconbtn:disabled {
+  opacity: .38;
+  cursor: default;
+}
+
+.rs-stage .rs-iconbtn--quiet { color: var(--stage-muted); }
+
+/* Round tinted play button in list rows. */
+.rs-playbtn {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--accent);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.rs-playbtn svg { margin-left: 2px; }
+
+@media (hover: hover) {
+  .rs-row:hover .rs-playbtn,
+  .rs-playbtn:hover { background: var(--accent); color: var(--accent-ink); }
+}
+
+/* Round check tick (selection). */
+.rs-check {
+  width: 22px;
+  height: 22px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  border: 1.5px solid var(--line);
+  color: transparent;
+}
+
+.rs-check--on {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+/* ---- Switch (ui/switch.rs) -------------------------------------------- */
+
+.rs-switch {
+  position: relative;
+  width: 51px;
+  height: 31px;
+  flex: none;
+  /* Round ends: a switch track holds a round knob; it is not a pill. */
+  border-radius: 16px;
+  background: var(--seg-trough);
+  cursor: pointer;
+  transition: background-color var(--dur-med) var(--ease-out);
+}
+
+.rs-switch__knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 27px;
+  height: 27px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, .2), 0 0 0 .5px rgba(0, 0, 0, .06);
+  transition: transform var(--dur-med) var(--ease-out);
+}
+
+.rs-switch[aria-checked="true"] {
+  background: var(--ok);
+}
+
+.rs-switch[aria-checked="true"] .rs-switch__knob {
+  transform: translateX(20px);
+}
+
+.rs-switch:disabled {
+  opacity: .45;
+  cursor: default;
+}
+
+.rs-app[data-layout="wide"] .rs-switch {
+  width: 40px;
+  height: 24px;
+  border-radius: 12px;
+}
+
+.rs-app[data-layout="wide"] .rs-switch__knob {
+  width: 20px;
+  height: 20px;
+}
+
+.rs-app[data-layout="wide"] .rs-switch[aria-checked="true"] .rs-switch__knob {
+  transform: translateX(16px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-switch,
+  .rs-switch__knob { transition: none; }
+}
+
+/* ---- Text field ------------------------------------------------------- */
+
+.rs-field {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  height: 36px;
+  padding: 0 10px;
+  border-radius: 10px;
+  background: var(--seg-trough);
+  color: var(--muted);
+}
+
+.rs-field input {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  outline: none;
+}
+
+.rs-field input::placeholder {
+  /* Pulled toward ink: plain --muted is under 4.5:1 on the field trough. */
+  color: color-mix(in srgb, var(--muted) 75%, var(--ink));
+}
+
+/* One ring per field: the field draws it, the input inside does not
+   (base.css keeps the global :focus-visible ring at one class, so the
+   input's `outline: none` above wins). */
+.rs-field:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.rs-field__clear {
+  width: 20px;
+  height: 20px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--faint);
+  color: var(--surface);
+  cursor: pointer;
+}
+
+.rs-field input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
+}
+
+/* ==========================================================================
+   ARTWORK
+   ========================================================================== */
+
+.rs-art {
+  position: relative;
+  flex: none;
+  overflow: hidden;
+  border-radius: var(--r-thumb);
+  background: var(--line);
+}
+
+.rs-art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.rs-art--round {
+  border-radius: 50%;
+}
+
+.rs-art--hero {
+  border-radius: var(--r-art);
+}
+
+.rs-art__ph {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  place-items: center;
+  color: var(--muted);
+}
+
+.rs-art__ph-icon {
+  width: 100%;
+  height: 100%;
+}
+
+.rs-stage .rs-art,
+.rs-mini .rs-art,
+.rs-bar .rs-art {
+  background: var(--stage-trough);
+}
+
+.rs-stage .rs-art__ph,
+.rs-mini .rs-art__ph,
+.rs-bar .rs-art__ph {
+  color: var(--stage-faint);
+}
+
+.rs-mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  overflow: hidden;
+  border-radius: var(--r-thumb);
+  background: var(--line);
+}
+
+.rs-mosaic img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* ==========================================================================
+   TRACK ROW
+   ========================================================================== */
+
+.rs-trow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  width: 100%;
+  min-height: var(--row-h-track);
+  padding: 0 4px 0 12px;
+  color: inherit;
+  cursor: pointer;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+  transition: background-color var(--dur-fast);
+}
+
+.rs-trow--art {
+  min-height: var(--row-h);
+  padding-block: 7px;
+}
+
+/* Kit TrackRow: the row is a container; .rs-trow__main (play) fills it up
+   to the sibling "…" button and carries the padding, so the whole row is
+   one hit area. */
+.rs-trow--split {
+  padding-block: 0;
+  padding-left: 0;
+}
+
+.rs-trow__main {
+  flex: 1;
+  min-width: 0;
+  align-self: stretch;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding-left: 12px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-trow--art .rs-trow__main {
+  padding-block: 7px;
+}
+
+/* Inset, so the list's rounded clip doesn't cut the ring. */
+.rs-trow__main:focus-visible {
+  outline-offset: -2px;
+  border-radius: var(--r-btn);
+}
+
+.rs-trow__meta,
+.rs-trow__title,
+.rs-trow__sub {
+  display: block;
+}
+
+@media (hover: hover) {
+  .rs-trow:hover { background: var(--tint); }
+  .rs-trow:hover :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) { color: var(--muted-strong); }
+}
+
+.rs-trow--pressed :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur),
+.rs-trow:active :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) { color: var(--muted-strong); }
+
+.rs-trow--pressed,
+.rs-trow:active { background: var(--tint-strong); }
+
+.rs-trow__n {
+  width: 22px;
+  flex: none;
+  text-align: right;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-trow__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-trow__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-trow--art .rs-trow__title {
+  font-weight: var(--fw-medium);
+}
+
+.rs-trow__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+  color: var(--muted);
+}
+
+/* The song that's playing: the whole row carries an accent wash, not just the
+   title, so it reads at a glance in any list (and on the Now Playing stage). */
+.rs-trow--playing {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.rs-trow--playing.rs-trow--pressed,
+.rs-trow--playing:active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+/* Secondary text on the wash keeps 4.5:1. */
+.rs-trow--playing :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) {
+  color: var(--muted-strong);
+}
+
+.rs-trow--playing .rs-trow__title {
+  color: var(--accent-text);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-trow__marks {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex: none;
+}
+
+.rs-trow__star { color: var(--accent); }
+.rs-trow__dl { color: var(--muted); }
+
+.rs-trow__dur {
+  flex: none;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-trow__more {
+  width: 36px;
+  height: 36px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-btn);
+  color: var(--muted);
+}
+
+@media (hover: hover) {
+  .rs-trow__more:hover { color: var(--ink); background: var(--tint); }
+}
+
+/* Now-playing equaliser bars. */
+.rs-eq {
+  width: 22px;
+  height: 14px;
+  flex: none;
+  display: flex;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 2px;
+}
+
+.rs-eq i {
+  width: 3px;
+  border-radius: 1px;
+  background: var(--accent);
+  height: 40%;
+}
+
+.rs-eq i:nth-child(2) { height: 100%; }
+.rs-eq i:nth-child(3) { height: 70%; }
+
+.rs-eq--live i {
+  animation: rs-eq .9s var(--ease-out) infinite alternate;
+}
+
+.rs-eq--live i:nth-child(2) { animation-delay: -.3s; }
+.rs-eq--live i:nth-child(3) { animation-delay: -.6s; }
+
+/* ==========================================================================
+   MENUS AND SHEETS
+   ========================================================================== */
+
+.rs-scrim {
+  position: fixed;
+  inset: 0;
+  z-index: 210;
+  background: var(--scrim);
+  -webkit-backdrop-filter: blur(var(--scrim-blur));
+  backdrop-filter: blur(var(--scrim-blur));
+  animation: rs-fade-in var(--dur-fast) linear;
+}
+
+.rs-scrim--clear {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+
+.rs-menu {
+  width: 270px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow: hidden;
+  border-radius: var(--r-menu);
+  background: var(--menu);
+  color: var(--ink);
+  box-shadow: var(--menu-shadow);
+}
+
+.rs-menu--popover {
+  position: fixed;
+  z-index: 220;
+  max-height: calc(100dvh - 16px);
+  overflow-y: auto;
+  animation: rs-pop-in var(--dur-fast) var(--ease-out);
+  transform-origin: top left;
+}
+
+.rs-menu__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 12px 16px 12px 14px;
+}
+
+.rs-menu__head-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-menu__head-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-semibold);
+}
+
+.rs-menu__head-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  /* The dark menu surface is lighter than the page; --muted is 4.4:1 there. */
+  color: var(--muted-strong);
+}
+
+.rs-menu__tiles {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  height: 64px;
+}
+
+.rs-menu__tile {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  font-size: 11.5px;
+  color: var(--ink);
+}
+
+.rs-menu__tile + .rs-menu__tile {
+  border-left: .5px solid var(--menu-line);
+}
+
+.rs-menu__tile[aria-pressed="true"] { color: var(--accent-text); }
+
+.rs-menu__gap {
+  height: 8px;
+  background: var(--menu-gap);
+}
+
+.rs-menu__item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  width: 100%;
+  min-height: 44px;
+  padding: 0 16px;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  text-align: left;
+}
+
+.rs-app[data-layout="wide"] .rs-menu__item {
+  min-height: 36px;
+  font-size: var(--fs-callout);
+}
+
+.rs-menu__item + .rs-menu__item::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  border-top: .5px solid var(--menu-line);
+}
+
+.rs-menu__item svg { color: var(--ink); }
+.rs-menu__item .rs-menu__sub { color: var(--muted); }
+
+.rs-menu__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Muted trailing text (a count, a progress figure). --muted is under 4.5:1
+   on the dark menu surface. */
+.rs-menu__detail {
+  margin-left: auto;
+  font-size: var(--fs-sub);
+  color: var(--muted-strong);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-menu__head-sub--wrap { white-space: normal; }
+
+.rs-menu__item:disabled { color: var(--muted); }
+
+.rs-menu__item--danger,
+.rs-menu__item--danger svg { color: var(--danger); }
+
+@media (hover: hover) {
+  .rs-menu__item:hover:not(:disabled),
+  .rs-menu__tile:hover { background: var(--menu-hl); }
+}
+
+.rs-menu__item:active:not(:disabled),
+.rs-menu__tile:active { background: var(--menu-hl); }
+
+.rs-menu__stars {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: 6px 10px;
+}
+
+.rs-menu__star {
+  width: 40px;
+  height: 40px;
+  display: grid;
+  place-items: center;
+  border-radius: var(--r-btn);
+  color: var(--muted);
+}
+
+.rs-menu__star--on { color: var(--rating); }
+
+.rs-menu__note {
+  padding: 10px 16px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+/* ---- Sheet ------------------------------------------------------------ */
+
+.rs-sheet {
+  position: fixed;
+  left: calc(var(--safe-left) + 8px);
+  right: calc(var(--safe-right) + 8px);
+  bottom: calc(var(--safe-bottom) + 8px);
+  z-index: 215;
+  max-height: calc(100dvh - var(--safe-top) - var(--safe-bottom) - 40px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--r-sheet);
+  background: var(--page);
+  color: var(--ink);
+  box-shadow: var(--menu-shadow);
+  animation: rs-sheet-up .32s var(--ease-sheet);
+}
+
+.rs-sheet__grab {
+  width: 36px;
+  height: 5px;
+  flex: none;
+  margin: 6px auto 0;
+  border-radius: 3px;
+  background: var(--line);
+}
+
+.rs-sheet__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: 48px;
+  padding: 4px 6px 4px 16px;
+}
+
+.rs-sheet__title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-sheet__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 var(--gutter) var(--gutter);
+}
+
+.rs-app[data-layout="wide"] .rs-sheet {
+  left: 50%;
+  right: auto;
+  top: 50%;
+  bottom: auto;
+  width: min(520px, calc(100vw - 48px));
+  max-height: min(720px, calc(100dvh - 64px));
+  transform: translate(-50%, -50%);
+  animation: rs-pop-center var(--dur-med) var(--ease-out);
+}
+
+.rs-app[data-layout="wide"] .rs-sheet__grab {
+  display: none;
+}
+
+/* A track menu shown as a bottom sheet: the menu fills the sheet. */
+.rs-sheet--menu {
+  background: transparent;
+  box-shadow: none;
+  overflow-y: auto;
+  gap: var(--sp-4);
+}
+
+.rs-sheet--menu .rs-menu {
+  width: 100%;
+  flex: none;
+}
+
+.rs-sheet--menu .rs-menu__cancel {
+  justify-content: center;
+  font-weight: var(--fw-semibold);
+  color: var(--accent-text);
+}
+
+/* ==========================================================================
+   PROGRESS
+   ========================================================================== */
+
+/* The one glossy thing: an inset trough with a three-stop blue fill. */
+.rs-track {
+  position: relative;
+  height: 7px;
+  border-radius: 4px;
+  background: var(--stage-trough);
+  box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6);
+}
+
+/* Fill and knob move by transform (set inline per tick), never by width or
+   left, so playback ticks stay on the compositor. The clip keeps the rounded
+   ends; the rail is full width so translateX(%) maps to the track. */
+.rs-track__clip {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  border-radius: inherit;
+}
+
+.rs-track__fill {
+  position: absolute;
+  inset: 0;
+  transform-origin: left center;
+  will-change: transform;
+  background: linear-gradient(var(--accent-hi), var(--accent) 50%, var(--accent-lo));
+}
+
+.rs-track__rail {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.rs-track__knob {
+  position: absolute;
+  left: 0;
+  top: 50%;
+  width: 13px;
+  height: 13px;
+  margin: -6.5px 0 0 -6.5px;
+  border-radius: 50%;
+  background: var(--stage-ink);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .5);
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+  pointer-events: none;
+}
+
+.rs-track--active .rs-track__knob,
+.rs-track:focus-within .rs-track__knob { opacity: 1; }
+
+@media (hover: hover) {
+  .rs-track:hover .rs-track__knob { opacity: 1; }
+}
+
+.rs-track__input {
+  position: absolute;
+  left: 0;
+  top: -10px;
+  width: 100%;
+  height: calc(100% + 20px);
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.rs-track__input:disabled {
+  cursor: default;
+}
+
+.rs-track--page {
+  background: var(--line);
+  box-shadow: inset 0 1px 1px rgba(0, 0, 0, .12);
+}
+
+.rs-track--thin {
+  height: 4px;
+  border-radius: 2px;
+  box-shadow: none;
+  background: var(--stage-vol-track);
+}
+
+.rs-track--thin .rs-track__fill {
+  background: var(--stage-vol-fill);
+}
+
+.rs-track--live .rs-track__fill {
+  transform: none;
+  opacity: .35;
+}
+
+.rs-time {
+  flex: none;
+  min-width: 36px;
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-medium);
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-time--end { text-align: right; }
+
+/* ==========================================================================
+   EMPTY AND LOADING
+   ========================================================================== */
+
+.rs-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 48px 24px;
+  text-align: center;
+}
+
+.rs-empty__icon {
+  width: 56px;
+  height: 56px;
+  display: grid;
+  place-items: center;
+  margin-bottom: var(--sp-2);
+  border-radius: 50%;
+  background: var(--tint);
+  color: var(--accent);
+}
+
+.rs-empty__title {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-empty__msg {
+  max-width: 36ch;
+  color: var(--muted);
+}
+
+.rs-empty__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--sp-4);
+  margin-top: var(--sp-4);
+}
+
+.rs-skel {
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--skeleton) 0%, var(--skeleton-hi) 50%, var(--skeleton) 100%);
+  background-size: 200% 100%;
+  animation: rs-shimmer 1.4s linear infinite;
+}
+
+.rs-skel-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: var(--row-h);
+  padding: 7px 12px;
+}
+
+.rs-skel-row__lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+/* ==========================================================================
+   NAVIGATION
+   ========================================================================== */
+
+/* ---- Tab bar (compact) ------------------------------------------------ */
+
+.rs-tabbar {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 60;
+  display: flex;
+  height: calc(var(--tabbar-h) + var(--safe-bottom));
+  padding: 0 calc(var(--safe-right) + 8px) var(--safe-bottom) calc(var(--safe-left) + 8px);
+  background: var(--page);
+  border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
+}
+
+.rs-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  padding-top: 2px;
+  color: var(--muted);
+  font-size: var(--fs-tab);
+  font-weight: var(--fw-medium);
+  letter-spacing: .01em;
+}
+
+.rs-tab svg {
+  width: 28px;
+  height: 26px;
+}
+
+.rs-tab[aria-current="page"] {
+  color: var(--accent-text);
+}
+
+/* ---- Sidebar (wide) --------------------------------------------------- */
+
+.rs-sidebar {
+  --sidebar-top: calc(var(--safe-top) + 16px);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow-y: auto;
+  padding: var(--sidebar-top) 10px 12px;
+  background: var(--sidebar-bg);
+  border-right: 1px solid var(--line);
+}
+
+/* The first item sits below the traffic lights, as in Notes and Music. */
+.rs-app[data-platform="macos"] .rs-sidebar {
+  --sidebar-top: 52px;
+}
+
+.rs-side__grp {
+  margin: 0 0 14px;
+}
+
+.rs-side__head {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  margin: 0 0 4px;
+  padding: 0 10px;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  color: var(--muted);
+  text-align: left;
+}
+
+@media (hover: hover) {
+  button.rs-side__head:hover { color: var(--ink); }
+}
+
+.rs-nav {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  border-radius: var(--r-nav);
+  color: var(--ink);
+  font-size: var(--fs-sub);
+  text-align: left;
+  transition: background-color var(--dur-fast);
+}
+
+.rs-nav svg {
+  width: 18px;
+  height: 18px;
+  color: var(--accent);
+}
+
+@media (hover: hover) {
+  .rs-nav:hover { background: var(--tint); }
+}
+
+.rs-nav[aria-current="page"] {
+  background: var(--tint-strong);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-side__foot {
+  margin-top: auto;
+}
+
+.rs-side__server {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin-top: 6px;
+  padding: 8px 10px 2px;
+  border-top: 1px solid var(--line);
+  font-size: var(--fs-foot);
+  color: var(--muted);
+}
+
+.rs-side__server span:last-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-led {
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--ok);
+}
+
+.rs-led--off { background: var(--faint); }
+.rs-led--warn { background: var(--warn); }
+
+/* ==========================================================================
+   PLAYER
+   ========================================================================== */
+
+/* ---- Mini player (compact): a strip of the stage ---------------------- */
+
+.rs-mini {
+  position: fixed;
+  left: calc(var(--safe-left) + 8px);
+  right: calc(var(--safe-right) + 8px);
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 8px);
+  z-index: 61;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: var(--mini-h);
+  padding: 0 6px 0 9px;
+  border-radius: var(--r-bar);
+  background: var(--stage-base);
+  color: var(--stage-ink);
+  border: 1px solid var(--stage-line);
+  box-shadow: var(--stage-shadow);
+  animation: rs-rise-in var(--dur-med) var(--ease-out);
+}
+
+.rs-mini__open {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 100%;
+  text-align: left;
+}
+
+.rs-mini__meta {
+  flex: 1;
+  min-width: 0;
+  margin-top: -3px;
+}
+
+.rs-mini__title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-body);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-mini__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+}
+
+.rs-mini .rs-iconbtn {
+  color: var(--stage-ink);
+}
+
+.rs-mini__line {
+  position: absolute;
+  left: 59px;
+  right: 14px;
+  bottom: 4px;
+  height: 2px;
+  overflow: hidden;
+  border-radius: 1px;
+  background: rgba(255, 255, 255, .16);
+  pointer-events: none;
+}
+
+.rs-mini__line i {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  will-change: transform;
+  background: var(--accent);
+}
+
+/* ---- Player bar (wide) ------------------------------------------------ */
+
+.rs-bar {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  bottom: 16px;
+  z-index: 50;
+  display: grid;
+  /* Now playing | transport + progress | extras. The middle never shrinks
+     below its content (so the times cannot run into the extras); the
+     container queries below take items out as the column narrows. */
+  grid-template-columns: minmax(150px, 1fr) minmax(min-content, 1.7fr) auto;
+  align-items: center;
+  gap: 20px;
+  height: var(--bar-h);
+  padding: 0 14px 0 10px;
+  border-radius: var(--r-bar);
+  background: var(--stage-base);
+  color: var(--stage-ink);
+  border: 1px solid var(--stage-line);
+  box-shadow: var(--stage-shadow-wide);
+  font-size: var(--fs-callout);
+  animation: rs-rise-in var(--dur-med) var(--ease-out);
+}
+
+.rs-bar__np {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+
+.rs-bar__art {
+  flex: none;
+  border-radius: var(--r-thumb);
+}
+
+button.rs-bar__art {
+  padding: 0;
+  overflow: hidden;
+}
+
+/* The artist keeps its width; the album gets what is left. */
+.rs-bar__artists {
+  display: inline-flex;
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rs-bar__album {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.rs-bar__sep {
+  flex: none;
+  color: var(--stage-faint);
+}
+
+.rs-bar__title:disabled {
+  cursor: default;
+}
+
+.rs-bar__meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-bar__title {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: var(--fw-semibold);
+  text-align: left;
+}
+
+.rs-bar__sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+}
+
+.rs-bar__sub button {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+}
+
+@media (hover: hover) {
+  .rs-bar__title:hover,
+  .rs-bar__sub button:hover { color: var(--stage-ink); text-decoration: underline; text-underline-offset: .18em; }
+}
+
+.rs-bar__mid {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+}
+
+.rs-bar__transport {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.rs-bar .rs-iconbtn {
+  width: 34px;
+  height: 34px;
+  color: var(--stage-ink);
+}
+
+.rs-bar .rs-iconbtn--quiet {
+  color: var(--stage-muted);
+}
+
+.rs-bar .rs-iconbtn[aria-pressed="true"] {
+  color: var(--accent-hi);
+}
+
+.rs-bar .rs-iconbtn--rated {
+  color: var(--rating);
+}
+
+.rs-bar__progress {
+  flex: 1;
+  min-width: 56px;
+}
+
+.rs-bar .rs-time {
+  min-width: 40px;
+}
+
+/* Wraps controls the narrowest bars drop (see the container queries). */
+.rs-bar__optional {
+  display: contents;
+}
+
+.rs-bar__rt {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+
+.rs-bar__rt .rs-iconbtn {
+  width: 32px;
+  height: 32px;
+  color: var(--stage-muted);
+}
+
+.rs-bar__rt .rs-iconbtn[aria-pressed="true"] {
+  color: var(--stage-ink);
+  background: var(--stage-pressed);
+}
+
+.rs-bar__fmt {
+  flex: none;
+  margin-right: 6px;
+  padding: 1px 5px;
+  border: 1px solid var(--stage-badge-line);
+  border-radius: var(--r-thumb);
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .02em;
+  color: var(--stage-muted);
+  white-space: nowrap;
+}
+
+.rs-bar__vol {
+  width: 70px;
+  margin-left: 6px;
+}
+
+.rs-bar__live {
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .06em;
+  color: var(--stage-muted);
+}
+
+/* Rating popover anchored to the rating button. */
+.rs-rate {
+  position: relative;
+}
+
+.rs-rate__pop {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 6px;
+  border-radius: var(--r-button);
+  background: var(--stage-base);
+  border: 1px solid var(--stage-line);
+  box-shadow: var(--stage-shadow);
+  transform: translateX(-50%);
+  animation: rs-fade-in var(--dur-fast) linear;
+}
+
+.rs-rate__pop .rs-iconbtn {
+  width: 30px;
+  height: 30px;
+  color: var(--stage-muted);
+}
+
+.rs-rate__pop .rs-iconbtn--rated {
+  color: var(--rating);
+}
+
+.rs-rate > .rs-iconbtn {
+  position: relative;
+}
+
+.rs-rate__value {
+  position: absolute;
+  right: 2px;
+  bottom: 1px;
+  font-size: 9px;
+  font-weight: var(--fw-bold);
+  line-height: 1;
+}
+
+.rs-rate__clear {
+  padding: 0 8px;
+  font-size: var(--fs-foot);
+  color: var(--stage-muted);
+}
+
+/* Narrower content columns drop extras first, then rarely used controls,
+   so the title and artist stay readable down to the 900px minimum window.
+   Everything dropped here is also in Now Playing and the Playback menu. */
+@container rs-content (max-width: 1220px) {
+  .rs-bar__fmt { display: none; }
+}
+
+@container rs-content (max-width: 1080px) {
+  .rs-bar__vol { display: none; }
+}
+
+@container rs-content (max-width: 920px) {
+  .rs-bar { gap: 16px; padding-right: 10px; }
+  .rs-bar__wide-only { display: none; }
+  .rs-bar__album,
+  .rs-bar__album-sep { display: none; }
+}
+
+@container rs-content (max-width: 780px) {
+  .rs-bar { left: 12px; right: 12px; gap: 12px; }
+  .rs-bar__optional { display: none; }
+}
+
+/* The sidebar gives up a little width in small windows. */
+@media (max-width: 1100px) {
+  .rs-app[data-layout="wide"] { --sidebar-w: 208px; }
+}
+
+/* Playback error note, floating above the player. */
+.rs-player-error {
+  position: fixed;
+  left: 50%;
+  z-index: 62;
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 20px);
+  width: max-content;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 8px 14px;
+  border-radius: var(--r-list);
+  background: var(--stage-base);
+  border: 1px solid color-mix(in srgb, var(--danger) 60%, var(--stage-line));
+  color: var(--stage-ink);
+  font-size: var(--fs-sub);
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.rs-app[data-layout="wide"] .rs-player-error {
+  position: absolute;
+  bottom: calc(var(--bar-h) + 28px);
+}
+
+/* ==========================================================================
+   VIRTUAL LIST
+   ========================================================================== */
+
+.rs-vlist {
+  position: relative;
+}
+
+.rs-vlist--scroll {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.rs-vlist__window {
+  position: absolute;
+  left: 0;
+  right: 0;
+}
+
+.rs-vlist__window {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-vlist__window > li {
+  position: relative;
+}
+
+/* Full height of the list; the window of mounted rows sits inside it. */
+.rs-vlist__sizer {
+  position: relative;
+}
+
+/* Inset lists paint placeholder rows (art, title, subtitle) under the whole
+   list, and the window of real rows covers them with the list surface. If a
+   fling outruns the window for a frame, the gap shows rows about to fill in,
+   never an empty or black area. Painted by CSS alone: no DOM, no script.
+   --rs-vrow (the row height) is set by VirtualList. */
+.rs-vlist.rs-list > .rs-vlist__sizer {
+  --rh: var(--rs-vrow, 58px);
+  background-image:
+    linear-gradient(to bottom, transparent calc((var(--rh) - 44px) / 2), var(--skeleton) 0 calc((var(--rh) + 44px) / 2), transparent 0),
+    linear-gradient(to bottom, transparent calc(var(--rh) / 2 - 12px), var(--skeleton) 0 calc(var(--rh) / 2 - 2px), transparent 0),
+    linear-gradient(to bottom, transparent calc(var(--rh) / 2 + 4px), var(--skeleton) 0 calc(var(--rh) / 2 + 12px), transparent 0);
+  background-size: 44px var(--rh), 38% var(--rh), 22% var(--rh);
+  background-position: 12px 0, 68px 0, 68px 0;
+  background-repeat: repeat-y;
+}
+
+.rs-vlist.rs-list .rs-vlist__window {
+  background: var(--surface);
+}
+
+/* Placeholder rows after the loaded ones while a paged list fetches its next
+   page. Laid out like a track row (44px art, two lines). Still, not
+   shimmering: a fling passes many of them, and a still placeholder costs no
+   repaints. */
+.rs-vlist__ghost {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  padding: 0 4px 0 12px;
+  box-sizing: border-box;
+}
+
+.rs-vlist__ghost-thumb {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-thumb);
+}
+
+.rs-vlist__ghost-lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.rs-vlist__ghost .rs-skel {
+  animation: none;
+}
+
+.rs-list .rs-vlist__window > li + li::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: var(--rs-sep, var(--sep-inset));
+  right: 0;
+  z-index: 1;
+  border-top: 1px solid var(--line);
+  pointer-events: none;
+}
+
+/* ==========================================================================
+   KEYFRAMES
+   ========================================================================== */
+
+@keyframes rs-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes rs-drop-in {
+  from { opacity: 0; transform: translate(-50%, -8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+@keyframes rs-rise-in {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes rs-pop-in {
+  from { opacity: 0; transform: scale(.94); }
+  to { opacity: 1; transform: none; }
+}
+
+@keyframes rs-pop-center {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(.96); }
+  to { opacity: 1; transform: translate(-50%, -50%); }
+}
+
+@keyframes rs-sheet-up {
+  from { transform: translateY(105%); }
+  to { transform: none; }
+}
+
+@keyframes rs-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes rs-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -100% 0; }
+}
+
+@keyframes rs-eq {
+  from { transform: scaleY(.35); }
+  to { transform: scaleY(1); }
+}
+
+.rs-eq--live i { transform-origin: bottom; }

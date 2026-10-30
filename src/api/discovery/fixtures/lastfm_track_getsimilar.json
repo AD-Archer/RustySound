@@ -1,0 +1,18 @@
+{
+  "similartracks": {
+    "track": {
+      "name": "Ray of Light",
+      "playcount": 2211450,
+      "mbid": "",
+      "match": 0.98,
+      "url": "https://www.last.fm/music/Madonna/_/Ray+of+Light",
+      "streamable": { "#text": "0", "fulltrack": "0" },
+      "duration": 321,
+      "artist": { "name": "Madonna", "mbid": "79239441-bfd5-4981-a70c-55c3f15c1287", "url": "https://www.last.fm/music/Madonna" },
+      "image": [
+        { "#text": "https://lastfm.freetls.fastly.net/i/u/34s/2a96cbd8b46e442fc41c2b86b821562f.png", "size": "small" }
+      ]
+    },
+    "@attr": { "artist": "Cher" }
+  }
+}

@@ -5,10 +5,16 @@ mod cache;
 mod cache_service;
 mod components;
 mod db;
+#[cfg(feature = "desktop")]
+mod desktop_window;
 mod diagnostics;
+// iOS 27 SDK: UIScene life-cycle bridge for tao 0.34 (see the module docs).
+#[cfg(target_os = "ios")]
+mod ios_scene;
 mod offline_art;
 mod offline_audio;
 mod storage;
+mod styles;
 
 use components::AppView;
 
@@ -46,44 +52,6 @@ const APPLE_TOUCH_ICON: Asset = asset!("/assets/apple-touch-icon.png");
 const WEB_MANIFEST: &str = "/assets/site.webmanifest";
 #[cfg(not(feature = "desktop"))]
 const WEB_MANIFEST: Asset = asset!("/assets/site.webmanifest");
-
-#[cfg(not(any(feature = "desktop", target_os = "ios")))]
-const APP_CSS: Asset = asset!("/assets/styling/app.css");
-
-#[cfg(not(any(feature = "desktop", target_os = "ios")))]
-const THEMES_CSS: Asset = asset!("/assets/styling/themes.css");
-
-#[cfg(not(any(feature = "desktop", target_os = "ios")))]
-const TAILWIND_CSS: Asset = asset!("/assets/tailwind.css");
-
-#[cfg(any(feature = "desktop", target_os = "ios"))]
-const APP_CSS_INLINE: &str = include_str!("../assets/styling/app.css");
-#[cfg(any(feature = "desktop", target_os = "ios"))]
-const THEMES_CSS_INLINE: &str = concat!(
-    include_str!("../assets/styling/themes/shared/base.css"),
-    "\n",
-    include_str!("../assets/styling/themes/rusty/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/spot/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/fruit/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/navi/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/y2k/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/aero/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/aqua/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/material/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/fluent/theme.css"),
-    "\n",
-    include_str!("../assets/styling/themes/hig/theme.css")
-);
-#[cfg(any(feature = "desktop", target_os = "ios"))]
-const TAILWIND_CSS_INLINE: &str = include_str!("../assets/tailwind.css");
 
 #[cfg(feature = "desktop")]
 fn desktop_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
@@ -137,7 +105,7 @@ fn desktop_app_icon() -> Option<dioxus::desktop::tao::window::Icon> {
 fn main() {
     #[cfg(feature = "desktop")]
     {
-        use dioxus::desktop::{Config, WindowBuilder};
+        use dioxus::desktop::Config;
         #[cfg(target_os = "linux")]
         {
             // Linux WebKit can stutter on some Wayland/driver combinations.
@@ -147,7 +115,7 @@ fn main() {
             }
         }
 
-        let mut window = WindowBuilder::new().with_title("RustySound");
+        let mut window = desktop_window::main_window();
         if let Some(icon) = desktop_app_icon() {
             window = window.with_window_icon(Some(icon.clone()));
 
@@ -172,6 +140,10 @@ fn main() {
 
         config = config
             .with_window(window)
+            // The stock index titles the page "Dioxus app"; Mission Control and
+            // the web inspector show document.title.
+            .with_custom_index(DESKTOP_INDEX_HTML.to_string())
+            .with_on_window(|window, _| desktop_window::keep_on_screen(&window))
             // Set native WebView background before HTML/CSS load to avoid startup white flash.
             .with_background_color((9, 9, 11, 255))
             // Keep this explicit on Linux to avoid known DMA-BUF rendering glitches.
@@ -181,32 +153,10 @@ fn main() {
         {
             config = config.with_custom_head(
                 r#"<style>
-                html, body { background: #09090b !important; }
-                .app-container {
-                  background: linear-gradient(180deg, #09090b 0%, #12141a 100%) !important;
-                }
-                .app-container::before { display: none !important; }
-                .glass {
-                  background: rgba(24, 24, 27, 0.96) !important;
-                  backdrop-filter: none !important;
-                  -webkit-backdrop-filter: none !important;
-                }
+                /* WebKitGTK: keep scrolling cheap. */
                 .main-scroll {
-                  scroll-behavior: auto !important;
-                  overscroll-behavior: contain !important;
-                }
-                @media (min-width: 1200px) {
-                  .app-container {
-                    background: #09090b !important;
-                  }
-                  .main-scroll [class*="transition"],
-                  .main-scroll [class*="animate-"] {
-                    transition: none !important;
-                    animation: none !important;
-                  }
-                  .main-scroll [class*="shadow"] {
-                    box-shadow: none !important;
-                  }
+                  scroll-behavior: auto;
+                  overscroll-behavior: contain;
                 }
                 </style>"#
                     .to_string(),
@@ -219,14 +169,32 @@ fn main() {
         return;
     }
 
+    // Must run before launch: UIKit instantiates the scene delegate by class name.
+    #[cfg(target_os = "ios")]
+    ios_scene::install();
+
     #[cfg(not(feature = "desktop"))]
     dioxus::launch(App);
 }
 
+/// dioxus-desktop's index page with our title and language.
+#[cfg(feature = "desktop")]
+const DESKTOP_INDEX_HTML: &str = r#"<!DOCTYPE html>
+<html lang="en">
+    <head>
+        <title>RustySound</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    </head>
+    <body>
+        <div id="main"></div>
+    </body>
+</html>
+"#;
+
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
     use dioxus::desktop::muda::{
-        accelerator::{Accelerator, Code, CMD_OR_CTRL},
+        accelerator::{Accelerator, Code, Modifiers, CMD_OR_CTRL},
         Menu, MenuItem, PredefinedMenuItem, Submenu,
     };
 
@@ -266,62 +234,89 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
             &PredefinedMenuItem::paste(None),
             &PredefinedMenuItem::separator(),
             &PredefinedMenuItem::select_all(None),
+            &PredefinedMenuItem::separator(),
+            // Find jumps to Search, as Cmd+F does in the web build.
+            &MenuItem::with_id(
+                "rustysound-find",
+                "Find…",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyF)),
+            ),
         ])
         .expect("failed to build macOS edit menu");
 
+    // Same items and order as the sidebar (Queue lives under Library there).
+    let go_item = |id: &str, label: &str, code: Code| {
+        MenuItem::with_id(id, label, true, Some(Accelerator::new(Some(CMD_OR_CTRL), code)))
+    };
     let go_menu = Submenu::new("Go", true);
     go_menu
         .append_items(&[
-            &MenuItem::with_id(
-                "rustysound-go-home",
-                "Home",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit1)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-search",
-                "Search",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyL)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-albums",
-                "Albums",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit2)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-artists",
-                "Artists",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit3)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-playlists",
-                "Playlists",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit4)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-songs",
-                "Songs",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit5)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-queue",
-                "Queue",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit6)),
-            ),
-            &MenuItem::with_id(
-                "rustysound-go-downloads",
-                "Downloads",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Digit7)),
-            ),
+            &go_item("rustysound-go-home", "Home", Code::Digit1),
+            &go_item("rustysound-go-search", "Search", Code::KeyL),
+            &PredefinedMenuItem::separator(),
+            &go_item("rustysound-go-playlists", "Playlists", Code::Digit2),
+            &go_item("rustysound-go-artists", "Artists", Code::Digit3),
+            &go_item("rustysound-go-albums", "Albums", Code::Digit4),
+            &go_item("rustysound-go-songs", "Songs", Code::Digit5),
+            &go_item("rustysound-go-favorites", "Favorites", Code::Digit6),
+            &go_item("rustysound-go-downloads", "Downloads", Code::Digit7),
+            &PredefinedMenuItem::separator(),
+            &go_item("rustysound-go-radio", "Radio", Code::Digit8),
+            &go_item("rustysound-go-stats", "Stats", Code::Digit9),
+            &PredefinedMenuItem::separator(),
+            &go_item("rustysound-go-queue", "Queue", Code::Digit0),
         ])
         .expect("failed to build macOS Go menu");
+
+    // Playback drives the player bar's own buttons (by id, through the app),
+    // so it behaves exactly like clicking them. Space stays with the page's
+    // key handler (it must not fire while typing); ⌘→ / ⌘← are taken by the
+    // menu before the page sees them, so they never double-fire.
+    let playback_menu = Submenu::new("Playback", true);
+    playback_menu
+        .append_items(&[
+            &MenuItem::with_id(
+                "rustysound-play-pause",
+                "Play/Pause",
+                true,
+                Some(Accelerator::new(None, Code::Space)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "rustysound-next",
+                "Next",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowRight)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-previous",
+                "Previous",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowLeft)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "rustysound-shuffle",
+                "Shuffle",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyS)),
+            ),
+            &MenuItem::with_id(
+                "rustysound-repeat",
+                "Repeat",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyR)),
+            ),
+            &PredefinedMenuItem::separator(),
+            &MenuItem::with_id(
+                "rustysound-now-playing",
+                "Now Playing",
+                true,
+                Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyN)),
+            ),
+        ])
+        .expect("failed to build macOS Playback menu");
 
     let window_menu = Submenu::new("Window", true);
     window_menu
@@ -336,7 +331,7 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         .expect("failed to build macOS window menu");
     window_menu.set_as_windows_menu_for_nsapp();
 
-    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &window_menu])
+    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &playback_menu, &window_menu])
         .expect("failed to attach macOS menu items");
 
     menu
@@ -344,6 +339,12 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
 
 #[component]
 fn App() -> Element {
+    #[cfg(feature = "desktop")]
+    desktop_window::use_window_geometry_persistence();
+    // iOS: give tao's window to the UIScene bridge (see ios_scene.rs).
+    #[cfg(target_os = "ios")]
+    ios_scene::use_scene_window();
+
     rsx! {
         document::Title { "RustySound" }
         // Favicon and icons
@@ -386,40 +387,24 @@ fn App() -> Element {
             document::Link { rel: "manifest", href: WEB_MANIFEST }
         }
 
-        // Theme color for mobile browsers
+        // The native apps behave like apps (no pinch zoom; Dynamic Type covers text size).
+        // The web build must allow zoom.
         document::Meta {
             name: "viewport",
-            content: "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover",
+            content: if cfg!(target_arch = "wasm32") {
+                "width=device-width, initial-scale=1, viewport-fit=cover"
+            } else {
+                "width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover"
+            },
         }
-        document::Meta { name: "theme-color", content: "#a38449" }
+        // Theme color for mobile browsers: the Stage's black.
+        document::Meta { name: "theme-color", content: "#000000" }
         document::Meta { name: "mobile-web-app-capable", content: "yes" }
         document::Meta { name: "apple-mobile-web-app-status-bar-style", content: "default" }
         document::Meta { name: "apple-mobile-web-app-title", content: "RustySound" }
 
-        GlobalStyles {}
+        styles::GlobalStyles {}
 
         Router::<AppView> {}
-    }
-}
-
-#[component]
-fn GlobalStyles() -> Element {
-    #[cfg(any(feature = "desktop", target_os = "ios"))]
-    {
-        return rsx! {
-            document::Style { {TAILWIND_CSS_INLINE} }
-            // Theme variables/overrides must come before app.css so tokens are defined first.
-            document::Style { {THEMES_CSS_INLINE} }
-            document::Style { {APP_CSS_INLINE} }
-        };
-    }
-
-    #[cfg(not(any(feature = "desktop", target_os = "ios")))]
-    {
-        return rsx! {
-            document::Stylesheet { href: TAILWIND_CSS }
-            document::Stylesheet { href: THEMES_CSS }
-            document::Stylesheet { href: APP_CSS }
-        };
     }
 }

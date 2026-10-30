@@ -125,10 +125,55 @@ pub struct AppSettings {
     pub artwork_download_preference: ArtworkDownloadPreference,
     #[serde(default)]
     pub custom_css: String,
+    // Appearance (agent G1)
+    /// Light/dark choice, separate from the theme: "system" (default), "light" or "dark".
+    #[serde(default = "default_appearance")]
+    pub appearance: String,
     #[serde(default = "default_home_layout_json")]
     pub home_layout_json: String,
     #[serde(default = "default_home_feed_load_profile")]
     pub home_feed_load_profile: String,
+    // Discovery (Discover screen). All optional; empty strings mean "not set".
+    /// Last.fm API key. Enables Last.fm similar artists/albums/tracks off-server.
+    #[serde(default)]
+    pub lastfm_api_key: String,
+    /// Last.fm username. Seeds discovery from the user's Last.fm top artists.
+    #[serde(default)]
+    pub lastfm_username: String,
+    /// ListenBrainz username. Enables "fresh releases" from artists the user listens to.
+    #[serde(default)]
+    pub listenbrainz_username: String,
+    /// Show recommendations from outside the user's servers.
+    #[serde(default = "default_discovery_offserver_enabled")]
+    pub discovery_offserver_enabled: bool,
+    /// Resolve 30-second previews (iTunes) for off-server items.
+    #[serde(default = "default_discovery_previews_enabled")]
+    pub discovery_previews_enabled: bool,
+    // Discover (agent D)
+    /// Rewind window on Discover, in months (3, 6 or 12). Remembered per device.
+    #[serde(default = "default_discover_rewind_months")]
+    pub discover_rewind_months: u32,
+    /// JSON map of Discover mix id to the server playlist it was saved as:
+    /// `{"<mix id>": {"server_id": "...", "playlist_id": "..."}}`. Re-saving a
+    /// mix replaces that playlist instead of making a new one.
+    #[serde(default = "default_discover_saved_mix_playlists")]
+    pub discover_saved_mix_playlists: String,
+}
+
+fn default_discover_rewind_months() -> u32 {
+    6
+}
+
+fn default_discover_saved_mix_playlists() -> String {
+    "{}".to_string()
+}
+
+fn default_discovery_offserver_enabled() -> bool {
+    false
+}
+
+fn default_discovery_previews_enabled() -> bool {
+    true
 }
 
 fn default_lyrics_request_timeout_secs() -> u32 {
@@ -181,6 +226,10 @@ fn default_download_limit_mb() -> u32 {
 
 fn default_artwork_download_preference() -> ArtworkDownloadPreference {
     ArtworkDownloadPreference::PreferServer
+}
+
+fn default_appearance() -> String {
+    "system".to_string()
 }
 
 fn default_home_layout_json() -> String {
@@ -286,8 +335,16 @@ impl Default for AppSettings {
             download_limit_mb: default_download_limit_mb(),
             artwork_download_preference: default_artwork_download_preference(),
             custom_css: String::new(),
+            appearance: default_appearance(),
             home_layout_json: default_home_layout_json(),
             home_feed_load_profile: default_home_feed_load_profile(),
+            lastfm_api_key: String::new(),
+            lastfm_username: String::new(),
+            listenbrainz_username: String::new(),
+            discovery_offserver_enabled: default_discovery_offserver_enabled(),
+            discovery_previews_enabled: default_discovery_previews_enabled(),
+            discover_rewind_months: default_discover_rewind_months(),
+            discover_saved_mix_playlists: default_discover_saved_mix_playlists(),
         }
     }
 }
@@ -688,4 +745,34 @@ fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
             e
         ))
     })
+}
+
+#[cfg(test)]
+mod discovery_settings_tests {
+    use super::*;
+
+    #[test]
+    fn old_settings_load_with_discovery_defaults() {
+        // Settings JSON saved before the discovery fields existed.
+        let legacy = r#"{"volume":0.5,"last_server_id":null,"theme":"rusty",
+            "crossfade_enabled":false,"crossfade_duration":3,"replay_gain":false}"#;
+        let settings: AppSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(settings.lastfm_api_key, "");
+        assert_eq!(settings.lastfm_username, "");
+        assert_eq!(settings.listenbrainz_username, "");
+        assert!(!settings.discovery_offserver_enabled);
+        assert!(settings.discovery_previews_enabled);
+        assert_eq!(settings.discover_rewind_months, 6);
+        assert_eq!(settings.discover_saved_mix_playlists, "{}");
+    }
+
+    #[test]
+    fn discovery_fields_round_trip() {
+        let mut settings = AppSettings::default();
+        settings.lastfm_username = "rj".to_string();
+        settings.discovery_previews_enabled = false;
+        let json = serde_json::to_string(&settings).unwrap();
+        let back: AppSettings = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, settings);
+    }
 }

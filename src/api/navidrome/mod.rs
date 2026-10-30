@@ -35,6 +35,8 @@ struct NativeAuthSession {
 
 #[derive(Debug, Clone, Copy)]
 pub enum NativeSongSortField {
+    /// Recently played. No caller since the old Home shelf went; kept as API.
+    #[allow(dead_code)]
     PlayDate,
     PlayCount,
 }
@@ -161,6 +163,8 @@ include!("library_browsing.rs");
 include!("bookmarks_favorites_and_playlists.rs");
 include!("playlist_mutations.rs");
 include!("radio_search_and_scrobble.rs");
+include!("artist_info.rs");
+include!("library_paging.rs");
 
 fn normalize_cover_art_id(cover_art_id: &str) -> String {
     let trimmed = cover_art_id.trim();
@@ -372,6 +376,7 @@ async fn read_icy_now_playing_from_url(stream_url: &str) -> Result<Option<IcyNow
     Ok(None)
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn parse_icy_metadata_block(block: &[u8]) -> Option<IcyNowPlaying> {
     let raw = String::from_utf8_lossy(block).replace('\0', "");
     let raw = raw.trim();
@@ -404,6 +409,7 @@ fn parse_icy_metadata_block(block: &[u8]) -> Option<IcyNowPlaying> {
     })
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn extract_icy_field(raw: &str, field: &str) -> Option<String> {
     let single = format!("{field}='");
     if let Some(start) = raw.find(&single) {

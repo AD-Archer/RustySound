@@ -1,10 +1,17 @@
+//! Random: a shuffle of the library. Random albums sit on a small stage band
+//! (Cover Flow, tap the centre cover to open it); random songs below play
+//! with "Play All", reshuffle with "Shuffle Again", and grow with "Load More".
+
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
 };
-use crate::components::views::home::SongRow;
-use crate::components::Icon;
+use crate::components::ui::{
+    cover_art_src, use_layout, CoverFlow, CoverFlowItem, EmptyState, InsetList, Button,
+    ButtonVariant, Skeleton, Stage, TrackRow,
+};
+use crate::components::{AppView, IsPlayingSignal, Navigation, ShuffleEnabledSignal};
 use dioxus::prelude::*;
 use std::collections::HashSet;
 
@@ -13,407 +20,350 @@ const RANDOM_VISIBLE_BASE: usize = 30;
 const RANDOM_VISIBLE_STEP: usize = 25;
 const RANDOM_CACHE_TTL_HOURS: u32 = 2;
 const RANDOM_MAX_POOL: usize = 500;
+const RANDOM_ALBUMS: u32 = 24;
 
-fn random_song_key(song: &Song) -> String {
+fn song_key(song: &Song) -> String {
     format!("{}::{}", song.server_id, song.id)
 }
 
-fn dedupe_random_songs(songs: Vec<Song>, limit: usize) -> Vec<Song> {
-    let mut seen = HashSet::<String>::new();
-    let mut output = Vec::<Song>::new();
-    for song in songs {
-        let key = random_song_key(&song);
-        if seen.insert(key) {
-            output.push(song);
-        }
-        if output.len() >= limit {
-            break;
-        }
-    }
-    output
-}
-
-fn extend_unique_songs(existing: &mut Vec<Song>, incoming: Vec<Song>, max_len: usize) {
-    let mut seen: HashSet<String> = existing.iter().map(random_song_key).collect();
+fn extend_unique(existing: &mut Vec<Song>, incoming: Vec<Song>, max_len: usize) {
+    let mut seen: HashSet<String> = existing.iter().map(song_key).collect();
     for song in incoming {
-        let key = random_song_key(&song);
-        if seen.insert(key) {
-            existing.push(song);
-        }
         if existing.len() >= max_len {
             break;
         }
+        if seen.insert(song_key(&song)) {
+            existing.push(song);
+        }
     }
 }
 
-fn random_cache_key(active_servers: &[ServerConfig]) -> String {
-    let mut ids: Vec<String> = active_servers
-        .iter()
-        .map(|server| server.id.clone())
-        .collect();
+fn cache_key(servers: &[ServerConfig]) -> String {
+    let mut ids: Vec<&str> = servers.iter().map(|s| s.id.as_str()).collect();
     ids.sort();
     format!("view:random:v1:{}:songs", ids.join("|"))
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-async fn random_yield() {
-    tokio::task::yield_now().await;
+/// Fisher-Yates with getrandom (wasm-compatible).
+fn shuffle<T>(items: &mut [T]) {
+    for i in (1..items.len()).rev() {
+        let mut bytes = [0u8; 4];
+        let _ = getrandom::getrandom(&mut bytes);
+        let j = u32::from_le_bytes(bytes) as usize % (i + 1);
+        items.swap(i, j);
+    }
 }
 
-#[cfg(target_arch = "wasm32")]
-async fn random_yield() {
-    gloo_timers::future::TimeoutFuture::new(0).await;
-}
-
-async fn fetch_random_songs_for_servers(
-    active_servers: &[ServerConfig],
-    per_server_limit: u32,
-) -> Vec<Song> {
+async fn fetch_random_songs(servers: &[ServerConfig], per_server: u32) -> Vec<Song> {
     let mut songs = Vec::<Song>::new();
-    for server in active_servers.iter().cloned() {
+    for server in servers.iter().cloned() {
         let client = NavidromeClient::new(server);
-        let mut fetched = client
-            .get_random_songs(per_server_limit)
-            .await
-            .unwrap_or_default();
+        let mut fetched = client.get_random_songs(per_server).await.unwrap_or_default();
         if fetched.is_empty() {
-            random_yield().await;
-            fetched = client
-                .get_random_songs(per_server_limit)
-                .await
-                .unwrap_or_default();
+            fetched = client.get_random_songs(per_server).await.unwrap_or_default();
         }
         songs.append(&mut fetched);
-        random_yield().await;
     }
+    shuffle(&mut songs);
+    let mut unique = Vec::new();
+    let cap = (per_server as usize * servers.len().max(1)).max(RANDOM_VISIBLE_BASE);
+    extend_unique(&mut unique, songs, cap);
+    unique
+}
 
-    shuffle_songs(&mut songs);
-    let cap = (per_server_limit as usize).saturating_mul(active_servers.len().max(1));
-    dedupe_random_songs(songs, cap.max(RANDOM_VISIBLE_BASE))
+async fn fetch_random_albums(servers: &[ServerConfig]) -> Vec<Album> {
+    let per_server = (RANDOM_ALBUMS / servers.len().max(1) as u32).max(8);
+    let mut albums = Vec::new();
+    for server in servers.iter().cloned() {
+        // The API layer caches album lists; a random one must be fresh.
+        let _ = crate::cache_service::remove_by_prefix(&format!(
+            "api:getAlbumList2:v1:{}:random:",
+            server.id
+        ));
+        if let Ok(mut list) = NavidromeClient::new(server)
+            .get_albums("random", per_server, 0)
+            .await
+        {
+            albums.append(&mut list);
+        }
+    }
+    shuffle(&mut albums);
+    albums.truncate(RANDOM_ALBUMS as usize);
+    albums
 }
 
 #[component]
 pub fn RandomView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let navigation = use_context::<Navigation>();
     let mut now_playing = use_context::<Signal<Option<Song>>>();
     let mut queue = use_context::<Signal<Vec<Song>>>();
     let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<crate::components::IsPlayingSignal>().0;
-    let shuffle_enabled = use_context::<crate::components::ShuffleEnabledSignal>().0;
+    let mut is_playing = use_context::<IsPlayingSignal>().0;
+    let shuffle_enabled = use_context::<ShuffleEnabledSignal>().0;
+    let layout = use_layout();
 
-    let refresh_counter = use_signal(|| 0u64);
-    let shuffled_songs = use_signal(Vec::<Song>::new);
-    let visible_count = use_signal(|| RANDOM_VISIBLE_BASE);
-    let loading = use_signal(|| false);
+    let mut generation = use_signal(|| 0u64);
+    let mut songs = use_signal(Vec::<Song>::new);
+    let mut albums = use_signal(|| None::<Vec<Album>>);
+    let mut visible = use_signal(|| RANDOM_VISIBLE_BASE);
+    let mut loading = use_signal(|| false);
 
-    {
-        let servers = servers.clone();
-        let mut shuffled_songs = shuffled_songs.clone();
-        let mut visible_count = visible_count.clone();
-        let mut loading = loading.clone();
-        let refresh_counter = refresh_counter.clone();
-        use_effect(move || {
-            let active_servers: Vec<ServerConfig> = servers()
-                .into_iter()
-                .filter(|server| server.active)
-                .collect();
-            let refresh_nonce = refresh_counter();
-            let cache_key = random_cache_key(&active_servers);
-
-            if active_servers.is_empty() {
-                shuffled_songs.set(Vec::new());
-                visible_count.set(RANDOM_VISIBLE_BASE);
-                loading.set(false);
-                return;
+    // Load on mount and on "Shuffle Again" (generation bump).
+    use_effect(move || {
+        let gen = generation();
+        let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+        if active.is_empty() {
+            songs.set(Vec::new());
+            albums.set(Some(Vec::new()));
+            return;
+        }
+        let key = cache_key(&active);
+        if gen == 0 {
+            if let Some(cached) = cache_get_json::<Vec<Song>>(&key) {
+                songs.set(cached);
             }
-
-            if refresh_nonce == 0 {
-                if let Some(cached) = cache_get_json::<Vec<Song>>(&cache_key) {
-                    shuffled_songs.set(cached);
-                }
+        }
+        loading.set(true);
+        let album_servers = active.clone();
+        spawn(async move {
+            let picked = fetch_random_albums(&album_servers).await;
+            albums.set(Some(picked));
+        });
+        spawn(async move {
+            let fetched = fetch_random_songs(&active, RANDOM_BATCH_PER_SERVER).await;
+            if !fetched.is_empty() {
+                visible.set(RANDOM_VISIBLE_BASE.min(fetched.len()));
+                let _ = cache_put_json(key, &fetched, Some(RANDOM_CACHE_TTL_HOURS));
+                songs.set(fetched);
             }
+            loading.set(false);
+        });
+    });
 
-            let mut shuffled_songs = shuffled_songs.clone();
-            let mut visible_count = visible_count.clone();
-            let mut loading = loading.clone();
-            loading.set(true);
-            spawn(async move {
-                let fetched =
-                    fetch_random_songs_for_servers(&active_servers, RANDOM_BATCH_PER_SERVER).await;
-                if !fetched.is_empty() {
-                    let new_visible = RANDOM_VISIBLE_BASE.min(fetched.len());
-                    shuffled_songs.set(fetched.clone());
-                    visible_count.set(new_visible);
-                    let _ = cache_put_json(cache_key, &fetched, Some(RANDOM_CACHE_TTL_HOURS));
+    let play_all = move |_| {
+        let list = songs.peek().clone();
+        if list.is_empty() {
+            return;
+        }
+        let list = assign_collection_queue_meta(
+            list,
+            QueueSourceKind::RandomMix,
+            "random_mix::play_all".to_string(),
+        );
+        now_playing.set(list.first().cloned());
+        queue.set(list);
+        queue_index.set(0);
+        is_playing.set(true);
+        if *shuffle_enabled.peek() {
+            let _ = apply_collection_shuffle_mode(queue, queue_index, now_playing, true);
+        }
+    };
+
+    let load_more = move |_| {
+        let len = songs.peek().len();
+        let shown = (*visible.peek()).min(len);
+        if shown < len {
+            visible.set((shown + RANDOM_VISIBLE_STEP).min(len));
+            return;
+        }
+        if *loading.peek() {
+            return;
+        }
+        let active: Vec<ServerConfig> = servers.peek().iter().filter(|s| s.active).cloned().collect();
+        if active.is_empty() {
+            return;
+        }
+        loading.set(true);
+        spawn(async move {
+            let fetched = fetch_random_songs(&active, RANDOM_BATCH_PER_SERVER).await;
+            if !fetched.is_empty() {
+                songs.with_mut(|existing| extend_unique(existing, fetched, RANDOM_MAX_POOL));
+                let merged = songs.peek().clone();
+                visible.set((shown + RANDOM_VISIBLE_STEP).min(merged.len()));
+                let _ = cache_put_json(cache_key(&active), &merged, Some(RANDOM_CACHE_TTL_HOURS));
+            }
+            loading.set(false);
+        });
+    };
+
+    // A single song plays alone; with shuffle on, similar songs follow it.
+    let mut play_one = move |song: Song| {
+        let single = normalize_manual_queue_songs(vec![song.clone()]);
+        queue.set(single.clone());
+        queue_index.set(0);
+        now_playing.set(single.first().cloned());
+        is_playing.set(true);
+        if !*shuffle_enabled.peek() {
+            return;
+        }
+        let server = servers.peek().iter().find(|s| s.id == song.server_id).cloned();
+        let Some(server) = server else { return };
+        spawn(async move {
+            let client = NavidromeClient::new(server);
+            let mut similar = client.get_similar_songs(&song.id, 40).await.unwrap_or_default();
+            if similar.is_empty() {
+                similar = client.get_similar_songs2(&song.id, 40).await.unwrap_or_default();
+            }
+            if similar.is_empty() {
+                similar = client.get_random_songs(40).await.unwrap_or_default();
+            }
+            let mut seen = HashSet::from([song_key(&song)]);
+            similar.retain(|candidate| seen.insert(song_key(candidate)));
+            let similar = normalize_manual_queue_songs(similar.into_iter().take(40).collect());
+            queue.with_mut(|items| {
+                let still_seed = items.len() == 1
+                    && items
+                        .first()
+                        .map(|e| e.id == song.id && e.server_id == song.server_id)
+                        .unwrap_or(false);
+                if still_seed {
+                    items.extend(similar);
                 }
-                loading.set(false);
             });
         });
-    }
-
-    let on_play_all = {
-        let shuffled_songs = shuffled_songs.clone();
-        let shuffle_enabled = shuffle_enabled.clone();
-        move |_| {
-            let songs = shuffled_songs();
-            if !songs.is_empty() {
-                let songs = assign_collection_queue_meta(
-                    songs,
-                    QueueSourceKind::RandomMix,
-                    "random_mix::play_all".to_string(),
-                );
-                queue.set(songs.clone());
-                queue_index.set(0);
-                now_playing.set(Some(songs[0].clone()));
-                is_playing.set(true);
-                if shuffle_enabled() {
-                    let _ = apply_collection_shuffle_mode(
-                        queue.clone(),
-                        queue_index.clone(),
-                        now_playing.clone(),
-                        true,
-                    );
-                }
-            }
-        }
     };
 
-    let on_refresh = {
-        let mut refresh_counter = refresh_counter.clone();
-        move |_: MouseEvent| {
-            refresh_counter.with_mut(|value| *value = value.saturating_add(1));
-        }
-    };
+    let has_servers = servers.read().iter().any(|s| s.active);
+    let list = songs.read().clone();
+    let shown = visible().min(list.len());
+    let busy = loading();
+    let current = now_playing
+        .read()
+        .as_ref()
+        .map(|s| (s.server_id.clone(), s.id.clone()));
+    let live = is_playing();
 
-    let on_load_more = {
-        let servers = servers.clone();
-        let shuffled_songs = shuffled_songs.clone();
-        let mut visible_count = visible_count.clone();
-        let mut loading = loading.clone();
-        move |_: MouseEvent| {
-            let current_len = shuffled_songs().len();
-            let current_visible = visible_count().min(current_len);
-            if current_visible < current_len {
-                visible_count.set((current_visible + RANDOM_VISIBLE_STEP).min(current_len));
-                return;
-            }
-
-            if loading() {
-                return;
-            }
-
-            let active_servers: Vec<ServerConfig> = servers()
-                .into_iter()
-                .filter(|server| server.active)
-                .collect();
-            if active_servers.is_empty() {
-                return;
-            }
-
-            let starting_visible = visible_count();
-            loading.set(true);
-            let mut shuffled_songs = shuffled_songs.clone();
-            let mut visible_count = visible_count.clone();
-            let mut loading = loading.clone();
-            spawn(async move {
-                let fetched =
-                    fetch_random_songs_for_servers(&active_servers, RANDOM_BATCH_PER_SERVER).await;
-                if !fetched.is_empty() {
-                    shuffled_songs.with_mut(|existing| {
-                        extend_unique_songs(existing, fetched, RANDOM_MAX_POOL);
-                    });
-                    let merged = shuffled_songs();
-                    let new_len = merged.len();
-                    visible_count.set((starting_visible + RANDOM_VISIBLE_STEP).min(new_len));
-                    let _ = cache_put_json(
-                        random_cache_key(&active_servers),
-                        &merged,
-                        Some(RANDOM_CACHE_TTL_HOURS),
-                    );
-                }
-                loading.set(false);
-            });
-        }
-    };
-
-    let songs = shuffled_songs();
-    let visible = visible_count().min(songs.len());
-    let display: Vec<Song> = songs.iter().take(visible).cloned().collect();
-    let has_active_servers = servers().iter().any(|server| server.active);
+    let flow_items: Option<Vec<CoverFlowItem>> = albums.read().as_ref().map(|albums| {
+        let servers = servers.read();
+        albums
+            .iter()
+            .map(|album| CoverFlowItem {
+                key: format!("{}:{}", album.server_id, album.id),
+                title: album.name.clone(),
+                subtitle: album.artist.clone(),
+                reason: match (album.year, album.song_count) {
+                    (Some(year), n) if n > 0 => format!("{year} · {n} songs"),
+                    (Some(year), _) => year.to_string(),
+                    (None, n) if n > 0 => format!("{n} songs"),
+                    _ => String::new(),
+                },
+                art: cover_art_src(&servers, &album.server_id, album.cover_art.as_deref(), 300)
+                    .into_iter()
+                    .collect(),
+            })
+            .collect()
+    });
+    let wide = !layout.is_compact();
 
     rsx! {
-        div { class: "space-y-8",
-            header { class: "page-header page-header--split",
-                div {
-                    h1 { class: "page-title", "Random Mix" }
-                    p { class: "page-subtitle", "A random selection from your library" }
+        div { class: "rs-view rs-view--flush", "data-testid": "random",
+            Stage { class: "rs-personal-band".to_string(), label: "Random albums".to_string(),
+                div { class: "rs-personal-band__head",
+                    h1 { class: "rs-large-title", "Random" }
                 }
-                div { class: "flex flex-wrap gap-6",
-                    button {
-                        class: "px-6 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-white font-medium transition-colors flex items-center gap-2",
-                        onclick: on_play_all,
-                        Icon {
-                            name: "play".to_string(),
-                            class: "w-4 h-4".to_string(),
+                match flow_items {
+                    None => rsx! {
+                        div { class: "rs-personal-band__empty", span { class: "rs-spinner" } }
+                    },
+                    Some(items) if items.is_empty() => rsx! {
+                        div { class: "rs-personal-band__empty",
+                            if has_servers { "No albums came back from the server." } else { "Connect a server to shuffle your library." }
                         }
-                        "Play All"
-                    }
-                    button {
-                        class: "px-6 py-2 rounded-xl bg-zinc-800 text-zinc-200 border border-zinc-700/60 hover:border-zinc-500 transition-colors flex items-center gap-2",
-                        onclick: on_refresh,
-                        Icon {
-                            name: "refresh-cw".to_string(),
-                            class: "w-4 h-4".to_string(),
-                        }
-                        "Refresh"
-                    }
-                }
-            }
-
-            if !display.is_empty() {
-                div { class: "space-y-1",
-                    for (index , song) in display.iter().enumerate() {
-                        SongRow {
-                            song: song.clone(),
-                            index: index + 1,
-                            show_download: true,
-                            onclick: {
-                                let song = song.clone();
-                                let servers = servers.clone();
-                                let shuffle_enabled = shuffle_enabled.clone();
-                                move |_| {
-                                    let single_queue =
-                                        normalize_manual_queue_songs(vec![song.clone()]);
-                                    queue.set(single_queue.clone());
-                                    queue_index.set(0);
-                                    now_playing.set(single_queue.first().cloned());
-                                    is_playing.set(true);
-                                    if shuffle_enabled() {
-                                        let seed_song = song.clone();
-                                        let servers_snapshot = servers();
-                                        let mut queue = queue.clone();
-                                        spawn(async move {
-                                            let mut similar = if let Some(server) = servers_snapshot
-                                                .iter()
-                                                .find(|entry| entry.id == seed_song.server_id)
-                                                .cloned()
-                                            {
-                                                let client = NavidromeClient::new(server);
-                                                let mut similar =
-                                                    client.get_similar_songs(&seed_song.id, 40)
-                                                        .await
-                                                        .unwrap_or_default();
-                                                if similar.is_empty() {
-                                                    similar = client
-                                                        .get_similar_songs2(&seed_song.id, 40)
-                                                        .await
-                                                        .unwrap_or_default();
-                                                }
-                                                if similar.is_empty() {
-                                                    similar =
-                                                        client.get_random_songs(40).await.unwrap_or_default();
-                                                }
-                                                similar
-                                            } else {
-                                                Vec::new()
-                                            };
-
-                                            if similar.is_empty() {
-                                                return;
-                                            }
-
-                                            let seed_key =
-                                                format!("{}::{}", seed_song.server_id, seed_song.id);
-                                            let mut seen = HashSet::<String>::new();
-                                            seen.insert(seed_key);
-                                            similar.retain(|candidate| {
-                                                seen.insert(format!(
-                                                    "{}::{}",
-                                                    candidate.server_id, candidate.id
-                                                ))
-                                            });
-                                            let similar =
-                                                normalize_manual_queue_songs(similar.into_iter().take(40).collect());
-
-                                            queue.with_mut(|items| {
-                                                let queue_is_seed_single = items.len() == 1
-                                                    && items
-                                                        .first()
-                                                        .map(|entry| {
-                                                            entry.id == seed_song.id
-                                                                && entry.server_id
-                                                                    == seed_song.server_id
-                                                        })
-                                                        .unwrap_or(false);
-                                                if !queue_is_seed_single {
-                                                    return;
-                                                }
-                                                items.extend(similar);
-                                            });
-                                        });
-                                    }
+                    },
+                    Some(items) => rsx! {
+                        CoverFlow {
+                            key: "{generation}",
+                            items,
+                            initial: 2,
+                            cover_px: if wide { 176 } else { 132 },
+                            wide,
+                            label: "Random albums".to_string(),
+                            on_open: move |index: usize| {
+                                let album = albums.peek().as_ref().and_then(|a| a.get(index).cloned());
+                                if let Some(album) = album {
+                                    navigation.navigate_to(AppView::AlbumDetailView {
+                                        album_id: album.id,
+                                        server_id: album.server_id,
+                                    });
                                 }
                             },
                         }
-                    }
+                    },
                 }
-                if has_active_servers {
-                    div { class: "flex justify-center pt-3",
-                        button {
-                            class: "px-4 py-2 rounded-xl bg-zinc-800/70 border border-zinc-700 text-zinc-200 hover:text-white hover:border-emerald-500/60 transition-colors text-sm font-medium",
-                            disabled: loading(),
-                            onclick: on_load_more,
-                            if loading() {
-                                "Loading..."
-                            } else if visible < songs.len() {
-                                "Load more"
-                            } else {
-                                "Load more random"
+            }
+
+            div { class: "rs-personal-page",
+                if !has_servers {
+                    EmptyState {
+                        icon: "shuffle".to_string(),
+                        title: "No servers connected".to_string(),
+                        message: "Add a Navidrome server to get random picks from your library.".to_string(),
+                        Button {
+                            label: "Add Server".to_string(),
+                            onclick: move |_| navigation.navigate_to(AppView::SettingsView {}),
+                        }
+                    }
+                } else {
+                    div { class: "rs-personal-actions",
+                        Button {
+                            label: "Play All".to_string(),
+                            icon: "play".to_string(),
+                            disabled: list.is_empty(),
+                            testid: "random-play-all".to_string(),
+                            onclick: play_all,
+                        }
+                        Button {
+                            label: "Shuffle Again".to_string(),
+                            icon: "refresh-cw".to_string(),
+                            variant: ButtonVariant::Tinted,
+                            disabled: busy,
+                            testid: "random-refresh".to_string(),
+                            onclick: move |_| generation.with_mut(|g| *g += 1),
+                        }
+                    }
+                    if list.is_empty() && busy {
+                        Skeleton { rows: 8 }
+                    } else if list.is_empty() {
+                        EmptyState {
+                            icon: "shuffle".to_string(),
+                            title: "No songs came back".to_string(),
+                            message: "Your server returned no random songs. Try shuffling again.".to_string(),
+                        }
+                    } else {
+                        InsetList { label: "Random songs".to_string(), testid: "random-songs".to_string(),
+                            for (index, song) in list.iter().take(shown).enumerate() {
+                                {
+                                    let playing = current
+                                        .as_ref()
+                                        .map(|(server, id)| *server == song.server_id && *id == song.id)
+                                        .unwrap_or(false);
+                                    let song_for_play = song.clone();
+                                    rsx! {
+                                        TrackRow {
+                                            key: "{song.server_id}:{song.id}",
+                                            song: song.clone(),
+                                            index,
+                                            playing,
+                                            live: playing && live,
+                                            on_play: move |_| play_one(song_for_play.clone()),
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        div { class: "rs-personal-foot",
+                            Button {
+                                label: if busy { "Loading…".to_string() } else { "Load More".to_string() },
+                                variant: ButtonVariant::Tinted,
+                                disabled: busy,
+                                testid: "random-load-more".to_string(),
+                                onclick: load_more,
                             }
                         }
                     }
                 }
-            } else if loading() {
-                div { class: "flex items-center justify-center py-20",
-                    Icon {
-                        name: "loader".to_string(),
-                        class: "w-8 h-8 text-zinc-500".to_string(),
-                    }
-                }
-            } else if !has_active_servers {
-                div { class: "flex flex-col items-center justify-center py-20",
-                    Icon {
-                        name: "shuffle".to_string(),
-                        class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
-                    }
-                    h2 { class: "text-xl font-semibold text-white mb-2", "No songs available" }
-                    p { class: "text-zinc-400", "Connect a server with music to get random picks" }
-                }
-            } else {
-                div { class: "flex flex-col items-center justify-center py-20",
-                    Icon {
-                        name: "shuffle".to_string(),
-                        class: "w-16 h-16 text-zinc-600 mb-4".to_string(),
-                    }
-                    h2 { class: "text-xl font-semibold text-white mb-2", "No songs available" }
-                    p { class: "text-zinc-400", "Try refreshing to load a new random mix" }
-                }
             }
         }
-    }
-}
-
-// Fisher-Yates shuffle using getrandom (wasm-compatible)
-fn shuffle_songs(songs: &mut Vec<Song>) {
-    let len = songs.len();
-    if len <= 1 {
-        return;
-    }
-
-    for i in (1..len).rev() {
-        let mut bytes = [0u8; 4];
-        let _ = getrandom::getrandom(&mut bytes);
-        let j = u32::from_le_bytes(bytes) as usize % (i + 1);
-        songs.swap(i, j);
     }
 }

@@ -150,6 +150,20 @@ else
     IOS_SDK="iphoneos"
 fi
 
+# The iOS SDK ships with Xcode, not the Command Line Tools. When xcode-select points at
+# the Command Line Tools, use Xcode from /Applications if it's installed. Checked before
+# the macOS build so a missing SDK fails fast.
+if ! xcrun --sdk "${IOS_SDK}" --show-sdk-path >/dev/null 2>&1 \
+    && [[ -z "${DEVELOPER_DIR:-}" && -d /Applications/Xcode.app/Contents/Developer ]]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+    echo "Using Xcode at ${DEVELOPER_DIR} for the iOS SDK."
+fi
+
+if ! xcrun --sdk "${IOS_SDK}" --show-sdk-path >/dev/null 2>&1; then
+    echo "Missing Apple SDK '${IOS_SDK}'. Install Xcode, or point DEVELOPER_DIR at it, then retry." >&2
+    exit 1
+fi
+
 mkdir -p "${MACOS_OUT_DIR}" "${IOS_OUT_DIR}"
 
 echo "Bundling macOS app (.app)..."
@@ -159,11 +173,6 @@ dx bundle \
     --features desktop \
     --release \
     --out-dir "${MACOS_OUT_DIR}"
-
-if ! xcrun --sdk "${IOS_SDK}" --show-sdk-path >/dev/null 2>&1; then
-    echo "Missing Apple SDK '${IOS_SDK}'. Install/enable Xcode + command line tools, then retry." >&2
-    exit 1
-fi
 
 echo "Bundling iOS app (.app) without signing..."
 env \
@@ -212,6 +221,19 @@ set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes array" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :UIBackgroundModes:0 string audio" "${IOS_PLIST_PATH}"
 
+# Adopt the UIScene life cycle: apps built with the iOS 27 SDK are killed at launch
+# without a scene manifest. src/ios_scene.rs registers RustySoundSceneDelegate and
+# attaches tao's window to the scene. Dioxus.toml [ios.raw] adds the same keys for
+# dx >= 0.7.10; set them here too so older dx versions (no [ios.raw]) also work.
+/usr/libexec/PlistBuddy -c "Delete :UIApplicationSceneManifest" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest dict" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UIApplicationSupportsMultipleScenes bool false" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations dict" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication array" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0 dict" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneConfigurationName string Default Configuration" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :UIApplicationSceneManifest:UISceneConfigurations:UIWindowSceneSessionRoleApplication:0:UISceneDelegateClassName string RustySoundSceneDelegate" "${IOS_PLIST_PATH}"
+
 # Allow streaming/audio URLs in WKWebView for sideload/dev builds (especially HTTP radio streams).
 /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" "${IOS_PLIST_PATH}"
@@ -220,7 +242,7 @@ set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia bool true" "${IOS_PLIST_PATH}"
 
 # Local-network servers (Navidrome on LAN) may require this usage description on device.
-/usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}" \
+/usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}" >/dev/null 2>&1 \
     || /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}"
 
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIcons" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true

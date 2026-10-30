@@ -1,14 +1,15 @@
 name: Build and Release
 
+# Runs on pushes to prod and on v* tags (releases), or by hand from the Actions
+# tab ("Run workflow"). Pull requests no longer trigger it: the Check workflow
+# covers them, and a PR branch isn't allowed to deploy to GitHub Pages.
 on:
   push:
     branches:
       - prod
     tags:
       - 'v*'
-  pull_request:
-    branches:
-      - prod
+  workflow_dispatch:
 
 # Sets permissions of the GITHUB_TOKEN for GitHub Pages deployment
 permissions:
@@ -57,7 +58,7 @@ jobs:
         mv Cargo.toml.tmp Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - run: cargo install dioxus-cli --version 0.7.3 --locked
+    - run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build web app
       run: dx bundle --platform web --release
     - name: Prepare web assets
@@ -81,7 +82,7 @@ jobs:
           type=ref,event=branch
           type=ref,event=pr
           type=sha,prefix=sha-
-          type=raw,value=latest
+          type=raw,value=latest,enable=${{ github.ref == 'refs/heads/prod' }}
     - name: Build and push Docker image
       uses: docker/build-push-action@v5
       with:
@@ -92,6 +93,8 @@ jobs:
 
   web-pages:
     needs: version
+    # The github-pages environment only accepts deployments from main and prod.
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/prod'
     runs-on: ubuntu-latest
     environment:
       name: github-pages
@@ -108,7 +111,7 @@ jobs:
         mv Cargo.toml.tmp Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - run: cargo install dioxus-cli --version 0.7.3 --locked
+    - run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build web app
       run: dx bundle --platform web --release
     - name: Prepare web assets for GitHub Pages
@@ -141,7 +144,7 @@ jobs:
         mv Cargo.toml.tmp Cargo.toml
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
-    - run: cargo install dioxus-cli --version 0.7.3 --locked
+    - run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build macOS + iOS bundles
       env:
         APP_VERSION: ${{ needs.version.outputs.semver }}
@@ -340,7 +343,7 @@ jobs:
     - uses: dtolnay/rust-toolchain@stable
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
-      run: cargo install dioxus-cli --version 0.7.3 --locked
+      run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Install Windows bundler tooling
       run: choco install nsis -y
     - name: Build Windows NSIS bundle
@@ -374,10 +377,17 @@ jobs:
       with:
         distribution: temurin
         java-version: '17'
-    - uses: android-actions/setup-android@v3
+    # The runner image ships the Android SDK. setup-android@v3 now fails while
+    # accepting newer SDK licences, so use the preinstalled one directly.
+    - name: Use the preinstalled Android SDK
+      run: |
+        echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+        echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+        echo "$ANDROID_HOME/platform-tools" >> "$GITHUB_PATH"
     - name: Install Android SDK components
       run: |
-        yes | sdkmanager --licenses >/dev/null
+        # New licence types can make this exit non-zero; installs below still fail if one is missing.
+        yes | sdkmanager --licenses >/dev/null || true
         sdkmanager \
           "platform-tools" \
           "platforms;android-33" \
@@ -388,7 +398,7 @@ jobs:
           "cmake;3.22.1"
     - uses: Swatinem/rust-cache@v2
     - name: Install Dioxus CLI
-      run: cargo install dioxus-cli --version 0.7.3 --locked
+      run: cargo install dioxus-cli --version 0.7.10 --locked
     - name: Build Android release APKs (ARM64 + x86_64)
       run: |
         export ANDROID_AAPT2_FROM_MAVEN_OVERRIDE="$ANDROID_HOME/build-tools/34.0.0/aapt2"
@@ -418,7 +428,7 @@ jobs:
   release:
     needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-apks]
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/prod' && github.event_name == 'push'
+    if: github.ref == 'refs/heads/prod' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
     - name: Download all artifacts
       uses: actions/download-artifact@v4

@@ -23,6 +23,32 @@ icon = "assets/web-app-manifest-512x512.png"
 # Ensure iOS keeps audio playback active while the app is backgrounded.
 background_modes = ["audio"]
 
+# Adopt the UIScene life cycle. Apps built with the iOS 27 SDK are killed at
+# launch without this manifest ("UIScene life cycle is required for apps built
+# with this SDK"). The delegate class is registered at startup by
+# src/ios_scene.rs, which attaches tao's window to the scene; keep the class
+# name in sync with SCENE_DELEGATE_CLASS there.
+[ios.raw]
+info_plist = """
+	<key>UIApplicationSceneManifest</key>
+	<dict>
+		<key>UIApplicationSupportsMultipleScenes</key>
+		<false/>
+		<key>UISceneConfigurations</key>
+		<dict>
+			<key>UIWindowSceneSessionRoleApplication</key>
+			<array>
+				<dict>
+					<key>UISceneConfigurationName</key>
+					<string>Default Configuration</string>
+					<key>UISceneDelegateClassName</key>
+					<string>RustySoundSceneDelegate</string>
+				</dict>
+			</array>
+		</dict>
+	</dict>
+"""
+
 [web.app]
 
 # HTML title tag content
@@ -80,16 +106,8 @@ icon = [
     "assets/favicon.icns",
 ]
 
-# The list of files to include in the bundle
-resources = [
-    "assets/tailwind.css",
-    "assets/styling/*",
-    "assets/*.png",
-    "assets/*.svg",
-    "assets/*.ico",
-    "assets/*.icns",
-    "assets/*.webmanifest",
-]
+# No extra bundle resources: icons and the web manifest are bundled through asset!(),
+# and the native builds compile the styles in (src/styles.rs).
 
 # macOS specific settings
 [bundle.macos]

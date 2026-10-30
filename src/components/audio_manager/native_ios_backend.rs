@@ -749,27 +749,106 @@ impl IosAudioPlayer {
         self.now_playing_artwork_url = None;
     }
 
+    /// Starts loading the lock-screen artwork for the current metadata.
+    ///
+    /// The image is fetched on a background thread and installed later by
+    /// [`IosAudioPlayer::install_artwork`]. This runs on the main thread with
+    /// the player lock held, so it must never wait on the network: a cover
+    /// request that hangs (server unreachable while the phone's network wakes
+    /// up after a long background) used to freeze the whole UI for the 60 s
+    /// URL timeout, once per song change.
     fn refresh_cached_artwork(&mut self) {
         let artwork_url = self
             .metadata
             .as_ref()
             .and_then(|meta| meta.artwork.clone())
             .filter(|url| !url.trim().is_empty());
+        // Cover URLs carry a fresh auth salt on every call; compare without it
+        // so a metadata refresh for the same cover keeps the current artwork.
+        let artwork_key = artwork_url.as_deref().map(artwork_cache_key);
 
-        if artwork_url == self.now_playing_artwork_url {
+        if artwork_key == self.now_playing_artwork_url {
             return;
         }
 
         self.clear_cached_artwork();
-        self.now_playing_artwork_url = artwork_url.clone();
+        self.now_playing_artwork_url = artwork_key.clone();
 
-        if let Some(url) = artwork_url {
-            if let Some(artwork) = make_now_playing_artwork(&url) {
-                self.now_playing_artwork = artwork;
-                ios_diag_log("player.artwork", "cached now-playing artwork");
-            } else {
-                ios_diag_log("player.artwork", "failed to cache now-playing artwork");
+        if let (Some(url), Some(key)) = (artwork_url, artwork_key) {
+            fetch_now_playing_artwork(url, key);
+        }
+    }
+
+    /// Installs artwork fetched by [`fetch_now_playing_artwork`] if it still
+    /// belongs to the current song. Main thread only. Returns whether it was
+    /// used; the caller keeps ownership of `image` either way.
+    fn install_artwork(&mut self, key: &str, image: *mut Object) -> bool {
+        if self.now_playing_artwork_url.as_deref() != Some(key) {
+            return false;
+        }
+        let artwork = unsafe {
+            let artwork_alloc: *mut Object = msg_send![class!(MPMediaItemArtwork), alloc];
+            if artwork_alloc.is_null() {
+                return false;
+            }
+            let artwork: *mut Object = msg_send![artwork_alloc, initWithImage: image];
+            artwork
+        };
+        if artwork.is_null() {
+            return false;
+        }
+        unsafe {
+            if !self.now_playing_artwork.is_null() {
+                let _: () = msg_send![self.now_playing_artwork, release];
             }
         }
+        self.now_playing_artwork = artwork;
+        let rate: f32 = unsafe { msg_send![self.player, rate] };
+        self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+        ios_diag_log("player.artwork", "cached now-playing artwork");
+        true
+    }
+}
+
+/// `url` without the per-request Subsonic auth params (`t`, `s`, `p`), which
+/// change on every call for the same cover.
+#[cfg(any(test, all(not(target_arch = "wasm32"), target_os = "ios")))]
+fn artwork_cache_key(url: &str) -> String {
+    let Some((base, query)) = url.split_once('?') else {
+        return url.to_string();
+    };
+    if base.starts_with("data:") {
+        return url.to_string();
+    }
+    let kept = query
+        .split('&')
+        .filter(|pair| {
+            let name = pair.split('=').next().unwrap_or_default();
+            !matches!(name, "t" | "s" | "p")
+        })
+        .collect::<Vec<_>>()
+        .join("&");
+    format!("{base}?{kept}")
+}
+
+#[cfg(test)]
+mod artwork_key_tests {
+    use super::artwork_cache_key;
+
+    #[test]
+    fn same_cover_with_a_new_salt_has_the_same_key() {
+        let a = "https://music.example/rest/getCoverArt?u=me&t=aaaa&s=1111&v=1.16.1&c=RustySound&id=al-1&size=512";
+        let b = "https://music.example/rest/getCoverArt?u=me&t=bbbb&s=2222&v=1.16.1&c=RustySound&id=al-1&size=512";
+        assert_eq!(artwork_cache_key(a), artwork_cache_key(b));
+        assert!(!artwork_cache_key(a).contains("t=aaaa"));
+    }
+
+    #[test]
+    fn different_covers_and_data_urls_differ() {
+        let a = "https://music.example/rest/getCoverArt?u=me&t=x&s=y&id=al-1&size=512";
+        let b = "https://music.example/rest/getCoverArt?u=me&t=x&s=y&id=al-2&size=512";
+        assert_ne!(artwork_cache_key(a), artwork_cache_key(b));
+        let data = "data:image/jpeg;base64,AAAA";
+        assert_eq!(artwork_cache_key(data), data);
     }
 }

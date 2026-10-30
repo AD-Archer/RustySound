@@ -12,6 +12,8 @@ pub enum AppView {
     HomeView {},
     #[route("/search")]
     SearchView {},
+    #[route("/library")]
+    LibraryView {},
     #[route("/songs")]
     SongsView {},
     #[route("/albums")]
@@ -50,12 +52,17 @@ pub enum AppView {
         playlist_id: String,
         server_id: String,
     },
+    /// A generated mix; `mix_id` is its slug (`api::discovery::mix_slug`).
+    #[route("/mix/:mix_id")]
+    MixDetailView { mix_id: String },
 }
 
+#[allow(dead_code)]
 pub fn view_label(view: &AppView) -> &'static str {
     match view {
         AppView::HomeView {} => "Home",
         AppView::SearchView {} => "Search",
+        AppView::LibraryView {} => "Library",
         AppView::SongsView {} => "Songs",
         AppView::Albums {} => "Albums",
         AppView::AlbumsWithGenre { .. } => "Albums",
@@ -72,37 +79,6 @@ pub fn view_label(view: &AppView) -> &'static str {
         AppView::AlbumDetailView { .. } => "Album",
         AppView::ArtistDetailView { .. } => "Artist",
         AppView::PlaylistDetailView { .. } => "Playlist",
-    }
-}
-
-pub fn view_instance_key(view: &AppView) -> String {
-    match view {
-        AppView::HomeView {} => "home".to_string(),
-        AppView::SearchView {} => "search".to_string(),
-        AppView::SongsView {} => "songs".to_string(),
-        AppView::Albums {} => "albums".to_string(),
-        AppView::AlbumsWithGenre { genre } => format!("albums:{genre}"),
-        AppView::ArtistsView {} => "artists".to_string(),
-        AppView::PlaylistsView {} => "playlists".to_string(),
-        AppView::RadioView {} => "radio".to_string(),
-        AppView::BookmarksView {} => "bookmarks".to_string(),
-        AppView::FavoritesView {} => "favorites".to_string(),
-        AppView::DownloadsView {} => "downloads".to_string(),
-        AppView::RandomView {} => "random".to_string(),
-        AppView::SettingsView {} => "settings".to_string(),
-        AppView::StatsView {} => "stats".to_string(),
-        AppView::QueueView {} => "queue".to_string(),
-        AppView::AlbumDetailView {
-            album_id,
-            server_id,
-        } => format!("album:{server_id}:{album_id}"),
-        AppView::ArtistDetailView {
-            artist_id,
-            server_id,
-        } => format!("artist:{server_id}:{artist_id}"),
-        AppView::PlaylistDetailView {
-            playlist_id,
-            server_id,
-        } => format!("playlist:{server_id}:{playlist_id}"),
+        AppView::MixDetailView { .. } => "Mix",
     }
 }

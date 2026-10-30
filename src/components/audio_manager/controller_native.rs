@@ -22,6 +22,10 @@ pub fn AudioController() -> Element {
     let last_ended_song = use_signal(|| None::<String>);
     let repeat_one_replayed_song = use_signal(|| None::<String>);
 
+    // Serves downloaded files to the webview <audio> element with Range support.
+    #[cfg(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))]
+    crate::offline_audio::protocol::use_offline_audio_handler();
+
     include!("audio_controller_native/polling_and_remote_actions.rs");
     include!("audio_controller_native/track_and_queue_sync.rs");
     include!("audio_controller_native/playback_state_and_bookmarks.rs");

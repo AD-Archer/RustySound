@@ -1,0 +1,603 @@
+/* views/discover.css: Home (route "/", views/discover/**).
+   View-specific styles only. Colours come from tokens.css; kit classes are
+   only positioned here (inside .rs-home__flow), never restyled. View classes
+   use the rs-home / rs-shelf / rs-hcard prefixes. */
+
+/* ==========================================================================
+   LAYOUT TOKENS
+   Cards per screen: ~2.3 on compact (the next card peeks in); on wide the
+   column count steps up with the window so shelves fill the content width.
+   The wide content width is the window minus the sidebar (--sidebar-w).
+   ========================================================================== */
+
+.rs-home {
+  --shelf-pad: var(--gutter);
+  --shelf-gap: 12px;
+  --card-cols: 2.3;
+  --card-gaps: calc(2 * var(--shelf-gap));
+}
+
+.rs-home--wide {
+  --shelf-pad: var(--gutter-wide);
+  --shelf-gap: 16px;
+  --card-cols: 3;
+  --card-gaps: calc(2 * var(--shelf-gap));
+}
+
+@media (min-width: 960px) {
+  .rs-home--wide { --card-cols: 4; --card-gaps: calc(3 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1196px) {
+  .rs-home--wide { --card-cols: 5; --card-gaps: calc(4 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1396px) {
+  .rs-home--wide { --card-cols: 6; --card-gaps: calc(5 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1596px) {
+  .rs-home--wide { --card-cols: 7; --card-gaps: calc(6 * var(--shelf-gap)); }
+}
+
+@media (min-width: 1796px) {
+  .rs-home--wide { --card-cols: 8; --card-gaps: calc(7 * var(--shelf-gap)); }
+}
+
+@media (min-width: 2036px) {
+  .rs-home--wide { --card-cols: 9; --card-gaps: calc(8 * var(--shelf-gap)); }
+}
+
+/* ==========================================================================
+   STAGE
+   ========================================================================== */
+
+.rs-home__stage {
+  position: relative;
+  padding: calc(var(--safe-top) + 10px) 0 18px;
+}
+
+.rs-home__stage--wide {
+  padding: 0 0 22px;
+}
+
+.rs-home__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: 6px var(--gutter) 0;
+}
+
+.rs-home__title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-large);
+  line-height: var(--lh-large);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-title);
+}
+
+.rs-home__stage--wide .rs-home__bar {
+  height: 52px;
+  padding: 0 12px 0 var(--gutter-wide);
+}
+
+.rs-home__stage--wide .rs-home__title {
+  font-family: inherit;
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  font-weight: var(--fw-semibold);
+  letter-spacing: var(--track-tight);
+}
+
+/* Settings: a gear at the end of the title row, with a status dot on it only
+   when no server is reachable. */
+.rs-home__settings {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  color: var(--stage-ink);
+}
+
+.rs-home__settings-dot {
+  position: absolute;
+  top: 7px;
+  right: 6px;
+  pointer-events: none;
+  box-shadow: 0 0 0 2px var(--stage-base);
+}
+
+/* Cover Flow with the play button beside the centred caption. The kit's
+   caption and scrubber are only placed on this grid, not restyled. */
+.rs-home__flow {
+  display: grid;
+  grid-template-columns: minmax(52px, 1fr) minmax(0, max-content) minmax(52px, 1fr);
+  align-items: center;
+  column-gap: var(--sp-4);
+}
+
+.rs-home__flow > .rs-flow {
+  grid-column: 1 / -1;
+  grid-row: 1;
+}
+
+.rs-home__flow > .rs-flow-caption {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  padding-inline: 0;
+}
+
+.rs-home__flow > .rs-flow-scrub {
+  grid-column: 1 / -1;
+  grid-row: 3;
+}
+
+/* A round icon button (not a pill): the stage's own translucent material. */
+.rs-home__play {
+  grid-column: 3;
+  grid-row: 2;
+  justify-self: start;
+  width: 44px;
+  height: 44px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .14);
+  color: var(--stage-ink);
+  cursor: pointer;
+  transition: background-color var(--dur-fast), scale var(--dur-fast);
+}
+
+.rs-home__play svg {
+  margin-left: 2px;
+}
+
+@media (hover: hover) {
+  .rs-home__play:hover { background: rgba(255, 255, 255, .24); }
+}
+
+.rs-home__play:active {
+  scale: .94;
+}
+
+.rs-home__stage-empty {
+  max-width: 420px;
+  margin: 0 auto;
+  padding: 56px 32px 48px;
+  text-align: center;
+  font-size: var(--fs-callout);
+  color: var(--stage-muted);
+}
+
+.rs-home__stage-empty p {
+  margin: 0;
+}
+
+.rs-home__stage-empty .rs-home__stage-empty-title {
+  margin-bottom: var(--sp-2);
+  font-size: 16px;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+}
+
+/* Loading placeholder with the flow + caption footprint. */
+.rs-home__flow-skel {
+  --cover: 148px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  height: calc(var(--cover) + 32px + 54px);
+  margin-top: var(--sp-5);
+}
+
+.rs-home__flow-skel--wide {
+  height: calc(var(--cover) + 40px + 54px + 26px);
+  margin-top: 18px;
+}
+
+.rs-home__flow-skel-cover,
+.rs-home__flow-skel-side {
+  border-radius: var(--r-cover);
+  background: linear-gradient(90deg, #17181a 0%, #24252a 50%, #17181a 100%);
+  background-size: 200% 100%;
+  animation: rs-shimmer 1.4s linear infinite;
+}
+
+.rs-home__flow-skel-cover {
+  width: var(--cover);
+  height: var(--cover);
+}
+
+.rs-home__flow-skel-side {
+  width: calc(var(--cover) * .28);
+  height: calc(var(--cover) * .86);
+  margin-top: calc(var(--cover) * .07);
+  opacity: .6;
+}
+
+/* Pull-to-refresh hint (compact). */
+.rs-home__pull {
+  position: absolute;
+  top: calc(var(--safe-top) + 4px);
+  left: 50%;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--stage-field-line);
+  border-radius: 50%;
+  background: var(--stage-field);
+  color: var(--stage-ink);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.rs-home__pull--busy svg,
+.rs-home__spin svg {
+  animation: rs-spin .9s linear infinite;
+}
+
+/* ==========================================================================
+   PAGE
+   ========================================================================== */
+
+.rs-home__page {
+  padding: 2px 0 var(--sp-8);
+}
+
+.rs-home__note {
+  margin: 0 var(--shelf-pad);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-home__note--top {
+  margin-top: var(--sp-6);
+}
+
+/* Plain accent text action ("Open Settings"): no box. */
+.rs-home__link {
+  padding: 0;
+  font: inherit;
+  font-weight: var(--fw-medium);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .rs-home__link:hover { text-decoration: underline; }
+}
+
+/* ==========================================================================
+   SHELF
+   ========================================================================== */
+
+.rs-shelf {
+  margin-top: var(--sp-7);
+}
+
+.rs-home--wide .rs-shelf {
+  margin-top: 26px;
+}
+
+.rs-shelf__hd {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: 32px;
+  margin: 0 var(--shelf-pad) var(--sp-4);
+}
+
+.rs-home--wide .rs-shelf__hd {
+  margin-right: calc(var(--shelf-pad) - 6px);
+}
+
+.rs-shelf__title {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-title3);
+  line-height: var(--lh-title3);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-tight);
+}
+
+.rs-home--wide .rs-shelf__title {
+  font-size: 19px;
+}
+
+.rs-shelf__arrows {
+  display: flex;
+  flex: none;
+  gap: 2px;
+  margin-left: auto;
+}
+
+.rs-shelf__row {
+  --card-w: calc((100% - var(--card-gaps)) / var(--card-cols));
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: var(--card-w);
+  gap: var(--shelf-gap);
+  padding: 0 var(--shelf-pad) 4px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scroll-padding-inline: var(--shelf-pad);
+  scrollbar-width: none;
+}
+
+.rs-shelf__row::-webkit-scrollbar {
+  display: none;
+}
+
+/* ==========================================================================
+   CARD
+   Square art, then title, subtitle and an optional quiet reason line. The
+   card is a size container so the overlay and "…" can sit relative to the
+   art's bottom edge (100cqw = the card's width = the art's height).
+   ========================================================================== */
+
+.rs-hcard {
+  position: relative;
+  min-width: 0;
+  container-type: inline-size;
+  scroll-snap-align: start;
+}
+
+.rs-hcard__main {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0 0 2px;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  -webkit-touch-callout: none;
+}
+
+.rs-hcard__art {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: var(--r-thumb);
+  background: var(--surface);
+}
+
+.rs-hcard__art--round {
+  border-radius: 50%;
+}
+
+/* A hairline so pale covers don't melt into the page. */
+.rs-hcard__art::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ink) 9%, transparent);
+  pointer-events: none;
+}
+
+/* A mix's 2×2 mosaic. */
+.rs-hcard__mosaic {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  width: 100%;
+  height: 100%;
+}
+
+.rs-hcard__mosaic .rs-art {
+  border-radius: 0;
+}
+
+.rs-hcard__main:active .rs-hcard__art {
+  scale: .98;
+}
+
+@media (hover: hover) {
+  .rs-hcard__main:hover .rs-hcard__art img { filter: brightness(.93); }
+}
+
+.rs-hcard__title,
+.rs-hcard__sub-text,
+.rs-hcard__why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-hcard__title {
+  margin-top: 7px;
+  font-size: var(--fs-callout);
+  line-height: 18px;
+  font-weight: var(--fw-medium);
+}
+
+.rs-hcard__sub {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: var(--fs-sub);
+  line-height: 17px;
+  color: var(--muted);
+}
+
+.rs-hcard__tag {
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 14px;
+  letter-spacing: .02em;
+}
+
+.rs-hcard__why {
+  font-size: var(--fs-foot);
+  line-height: 16px;
+  color: var(--muted);
+}
+
+/* Room for the "…" beside the title. */
+.rs-hcard--menu .rs-hcard__title,
+.rs-hcard--menu .rs-hcard__sub {
+  padding-right: 26px;
+}
+
+.rs-hcard__more {
+  position: absolute;
+  top: calc(100cqw + 2px);
+  right: -7px;
+}
+
+/* Round icon button over the art's corner (play an album, preview). */
+.rs-hcard__play {
+  position: absolute;
+  top: calc(100cqw - 44px);
+  right: 8px;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .58);
+  color: #fff;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+  cursor: pointer;
+  transition: opacity var(--dur-fast), background-color var(--dur-fast), scale var(--dur-fast);
+}
+
+.rs-hcard__play svg {
+  margin-left: 2px;
+}
+
+.rs-hcard__play--on {
+  background: var(--accent-fill);
+}
+
+.rs-hcard__play--on svg {
+  margin-left: 0;
+}
+
+.rs-hcard__play:active {
+  scale: .92;
+}
+
+@media (hover: hover) {
+  .rs-hcard__play:hover { background: rgba(0, 0, 0, .78); }
+  .rs-hcard__play--on:hover { background: var(--accent-fill); }
+}
+
+/* Album cards: the play button shows on hover or keyboard focus (wide). */
+.rs-hcard__play--hover {
+  opacity: 0;
+}
+
+.rs-hcard:hover .rs-hcard__play--hover,
+.rs-hcard__play--hover:focus-visible {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .rs-hcard__play--hover { display: none; }
+}
+
+/* ---- RustySound's mixes ----------------------------------------------
+   A mix is RustySound's, not one of the user's server playlists. Its card
+   art carries the app mark in the top-left corner (as generated playlists
+   do on other services) and its subtitle says "By RustySound"; the mix page
+   puts the mark with "Made by RustySound" right above the title. The mark is
+   decorative: the text says who made it. */
+.rs-mixmark {
+  display: block;
+  flex: none;
+  object-fit: contain;
+  pointer-events: none;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+/* Scales with the card (the card is an inline-size container): 20px on a
+   320px-wide phone, up to 32px on wide windows. A dark disc behind it keeps
+   the orange mark legible on busy or orange covers. */
+.rs-mixmark--card {
+  position: absolute;
+  z-index: 1;
+  top: clamp(5px, 4cqw, 9px);
+  left: clamp(5px, 4cqw, 9px);
+  width: clamp(20px, 13cqw, 32px);
+  height: clamp(20px, 13cqw, 32px);
+  padding: 2px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, .62);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, .4);
+}
+
+.rs-mixmark--title {
+  width: 20px;
+  height: 20px;
+}
+
+.rs-mixpage__by {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+  white-space: nowrap;
+}
+
+.rs-app[data-layout="wide"] .rs-mixmark--title {
+  width: 22px;
+  height: 22px;
+}
+
+/* The mosaic fills the hero's art box. */
+.rs-mixpage__art {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  border-radius: var(--r-art);
+}
+
+/* Loading cards. */
+.rs-shelf--loading .rs-hcard__art {
+  background: none;
+}
+
+.rs-hcard__skel-line {
+  width: 80%;
+  height: 11px;
+  margin-top: 9px;
+}
+
+.rs-hcard__skel-line--short {
+  width: 55%;
+  margin-top: 6px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-home__pull--busy svg,
+  .rs-home__spin svg,
+  .rs-home__flow-skel-cover,
+  .rs-home__flow-skel-side {
+    animation: none;
+  }
+
+  .rs-hcard__main:active .rs-hcard__art,
+  .rs-hcard__play:active,
+  .rs-home__play:active {
+    scale: none;
+  }
+}
