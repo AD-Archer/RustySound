@@ -1,8 +1,8 @@
 name: Check
 
 # Compiles every platform and runs the unit tests on pull requests into main.
-# Dependabot's patch and minor updates are merged by the second job, and only
-# after these checks pass; major updates wait for a person.
+# Dependabot's patch updates (and minor ones for 1.x+ crates) are merged by the
+# second job, only after these checks pass; everything else waits for a person.
 on:
   pull_request:
     branches: [main]
@@ -55,9 +55,16 @@ jobs:
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      # A merge commit, never a squash, to keep the history as it is.
+      # A merge commit, never a squash, to keep the history as it is. Patch
+      # updates always merge. Minor ones only for a single dependency at 1.0 or
+      # later: for 0.x crates (and grouped PRs, which can hide one) a "minor"
+      # bump is a breaking release, so those wait for review.
       - name: Merge
-        if: steps.meta.outputs.update-type != 'version-update:semver-major'
+        if: >-
+          steps.meta.outputs.update-type == 'version-update:semver-patch' ||
+          (steps.meta.outputs.update-type == 'version-update:semver-minor' &&
+           steps.meta.outputs.previous-version != '' &&
+           !startsWith(steps.meta.outputs.previous-version, '0.'))
         run: gh pr merge --merge "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
