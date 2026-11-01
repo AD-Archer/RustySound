@@ -127,8 +127,23 @@ pub fn Menu(
                                 div { class: "rs-menu__head-sub rs-menu__head-sub--wrap", "{message}" }
                             }
                         }
+                        button {
+                            r#type: "button",
+                            class: "rs-menu__head-close",
+                            aria_label: "Close",
+                            onclick: move |_| on_close.call(()),
+                            crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                        }
                     }
                     div { class: "rs-menu__gap", aria_hidden: "true" }
+                } else {
+                    button {
+                        r#type: "button",
+                        class: "rs-menu__head-close rs-menu__head-close--abs",
+                        aria_label: "Close",
+                        onclick: move |_| on_close.call(()),
+                        crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                    }
                 }
                 for action in actions.iter().cloned() {
                     MenuItem {
@@ -169,9 +184,9 @@ pub fn Menu(
     // (no transform, so the pop-in animation can own it).
     let style = match anchor {
         Some((x, y)) => format!(
-            "left:clamp(8px, {x:.0}px, calc(100vw - 278px));top:clamp(8px, {y:.0}px, calc(100dvh - 380px))"
+            "left:clamp(8px, min({x:.0}px, calc(100vw - 286px)), calc(100vw - 286px));top:clamp(8px, min({y:.0}px, calc(100dvh - 420px)), calc(100dvh - 420px))"
         ),
-        None => "left:calc(50% - 135px);top:28vh".to_string(),
+        None => "left:calc(50% - 143px);top:28vh".to_string(),
     };
     rsx! {
         div {

@@ -1111,7 +1111,7 @@ pub fn AppShell() -> Element {
             "data-layout": layout.attr(),
             "data-player": if player_on { "on" } else { "off" },
 
-            if !compact {
+            if !compact && !crate::components::ui::env::is_android_tv() {
                 Sidebar {}
             }
 
@@ -1148,7 +1148,7 @@ pub fn AppShell() -> Element {
                 PlayerBar {}
             }
 
-            if compact {
+            if compact && !crate::components::ui::env::is_android_tv() {
                 TabBar {}
             }
 

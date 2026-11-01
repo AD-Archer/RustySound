@@ -39,3 +39,5 @@ pub use search::SearchView;
 pub use settings::{EqualizerView, FirstRun, SettingsView};
 pub use songs::SongsView;
 pub use stats::StatsView;
+mod tv_home;
+pub use tv_home::TvHome;

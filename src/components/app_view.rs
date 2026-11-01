@@ -10,6 +10,8 @@ pub enum AppView {
     #[layout(AppShell)]
     #[route("/")]
     HomeView {},
+    #[route("/tv")]
+    TvHome {},
     #[route("/search")]
     SearchView {},
     #[route("/library")]
@@ -64,6 +66,7 @@ pub enum AppView {
 pub fn view_label(view: &AppView) -> &'static str {
     match view {
         AppView::HomeView {} => "Home",
+        AppView::TvHome {} => "TV",
         AppView::SearchView {} => "Search",
         AppView::LibraryView {} => "Library",
         AppView::SongsView {} => "Songs",

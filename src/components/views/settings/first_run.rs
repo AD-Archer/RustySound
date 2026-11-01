@@ -104,7 +104,12 @@ pub fn FirstRun() -> Element {
                             }
                         } else {
                             p { class: "rs-firstrun__line",
-                                "Your Navidrome library, with Cover Flow and fresh picks every day."
+                                "Your library, with Cover Flow and fresh picks every day."
+                            }
+                            div { class: "rs-firstrun__badges", aria_label: "Supported services",
+                                span { class: "rs-badge", "Navidrome" }
+                                span { class: "rs-badge", "Jellyfin" }
+                                span { class: "rs-badge", "Subsonic" }
                             }
                             div { class: "rs-firstrun__actions",
                                 Button {
@@ -131,7 +136,7 @@ pub fn FirstRun() -> Element {
                                 }
                             }
                             p { class: "rs-firstrun__note",
-                                "Works with Navidrome and other Subsonic-compatible servers."
+                                "Works with Navidrome, Jellyfin and Subsonic-compatible servers."
                             }
                         }
                     }

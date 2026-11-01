@@ -129,7 +129,7 @@ pub(crate) fn LyricsPanel(song: Song) -> Element {
                     }
                 }
                 IconButton {
-                    icon: "more".to_string(),
+                    icon: "eye".to_string(),
                     label: "Lyrics options".to_string(),
                     quiet: true,
                     size: IconButtonSize::Small,

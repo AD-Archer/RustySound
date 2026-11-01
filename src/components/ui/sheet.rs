@@ -119,6 +119,17 @@ pub fn MenuSheet(label: String, on_close: EventHandler<()>, children: Element) -
             role: "dialog",
             aria_label: "{label}",
             "data-sheet-swipe": "{swipe}",
+            div {
+                class: "rs-sheet__head rs-sheet__head--menu",
+                span { class: "rs-sheet__title", "{label}" }
+                button {
+                    r#type: "button",
+                    class: "rs-iconbtn rs-iconbtn--quiet",
+                    aria_label: "Close",
+                    onclick: move |_| on_close.call(()),
+                    crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                }
+            }
             {children}
             div { class: "rs-menu",
                 button {

@@ -39,7 +39,7 @@ pub fn TrackMenuHost() -> Element {
 
     let style = match request.anchor {
         Some((x, y)) => format!(
-            "left:clamp(8px, {x:.0}px, calc(100vw - 278px));top:clamp(8px, {y:.0}px, calc(100dvh - 480px))"
+            "left:clamp(8px, min({x:.0}px, calc(100vw - 286px)), calc(100vw - 286px));top:clamp(8px, min({y:.0}px, calc(100dvh - 520px)), calc(100dvh - 520px))"
         ),
         None => "left:50%;top:50%;transform:translate(-50%,-50%)".to_string(),
     };

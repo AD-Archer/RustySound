@@ -5,10 +5,11 @@
 use super::controls::{AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton};
 use super::playback_menu::PlaybackMenu;
 use crate::api::Song;
+use crate::components::remote_sync::{PlayOnChoices, RemoteSync};
 use crate::components::song_details::actions::format_badge;
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{
-    Artwork, IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, ProgressTrack,
+    Artwork, IconButton, IconButtonSize, Menu, PlaybackProgress, PlaybackTime, ProgressTrack,
     TrackVariant,
 };
 use crate::components::views::artist_links::ArtistNameLinks;
@@ -48,6 +49,8 @@ pub(super) fn WidePlayer() -> Element {
     let song_details = use_context::<SongDetailsController>();
     let navigation = use_context::<Navigation>();
     let view = use_route::<AppView>();
+    let sync = use_context::<RemoteSync>();
+    let mut devices_menu = use_signal(|| false);
 
     let song = now_playing();
     let on_queue = matches!(view, AppView::QueueView {});
@@ -121,7 +124,17 @@ pub(super) fn WidePlayer() -> Element {
                                         }
                                         if let Some(album) = song.album.clone().filter(|a| !a.trim().is_empty()) {
                                             span { class: "rs-bar__sep rs-bar__album-sep", aria_hidden: "true", "·" }
-                                            span { class: "rs-truncate rs-bar__album", title: "{album}", "{album}" }
+                                            if let Some(target) = album_target.clone() {
+                                                button {
+                                                    r#type: "button",
+                                                    class: "rs-bar__album rs-bar__album-btn",
+                                                    title: "{album}",
+                                                    onclick: move |_| navigation.navigate_to(target.clone()),
+                                                    "{album}"
+                                                }
+                                            } else {
+                                                span { class: "rs-truncate rs-bar__album", title: "{album}", "{album}" }
+                                            }
                                         }
                                     }
                                 }
@@ -154,6 +167,15 @@ pub(super) fn WidePlayer() -> Element {
                 if let Some(badge) = song.as_ref().and_then(format_badge) {
                     span { class: "rs-bar__fmt", "{badge}" }
                 }
+                if !sync.play_on().is_empty() || sync.active_elsewhere().is_some() {
+                    IconButton {
+                        icon: "airplay".to_string(),
+                        label: "Playback devices".to_string(),
+                        size: IconButtonSize::Small,
+                        class: "rs-bar__wide-only".to_string(),
+                        onclick: move |_| devices_menu.set(true),
+                    }
+                }
                 AddToMenuButton {}
                 IconButton {
                     icon: "lyrics".to_string(),
@@ -174,6 +196,13 @@ pub(super) fn WidePlayer() -> Element {
                 }
                 PlaybackMenu {}
                 VolumeControl {}
+            }
+            if devices_menu() {
+                Menu {
+                    label: "Playback devices".to_string(),
+                    on_close: move |_| devices_menu.set(false),
+                    PlayOnChoices { on_done: move |_| devices_menu.set(false) }
+                }
             }
         }
     }

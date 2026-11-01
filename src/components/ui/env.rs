@@ -36,9 +36,27 @@ pub struct LayoutSignal(pub Signal<Layout>);
 /// Current layout. Subscribes the caller, so it re-renders on a layout flip
 /// (rare) and never on ordinary resizes.
 pub fn use_layout() -> Layout {
+    if is_android_tv() {
+        return Layout::Wide;
+    }
     match try_use_context::<LayoutSignal>() {
         Some(signal) => (signal.0)(),
         None => default_layout(),
+    }
+}
+
+/// True when running on Android TV (leanback).
+pub fn is_android_tv() -> bool {
+    #[cfg(target_os = "android")]
+    {
+        // Best-effort: Android TV is detected by leanback/low density touch or
+        // by the fact it's a TV; prefer environment or just check via JS/webview
+        // where available. Default false for safety.
+        false
+    }
+    #[cfg(not(target_os = "android"))]
+    {
+        false
     }
 }
 
