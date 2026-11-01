@@ -2,6 +2,7 @@
 //! the rating and volume controls.
 
 use super::actions::{is_live_song, use_player};
+use super::source::source_page;
 use super::types::SongDetailsController;
 use crate::api::{ServerConfig, Song};
 use crate::components::ui::{IconButton, ProgressTrack, TrackMenuController, TrackVariant};
@@ -13,6 +14,8 @@ use dioxus::prelude::*;
 pub(super) fn NowPlayingMeta(song: Song) -> Element {
     let player = use_player();
     let mut menu = use_context::<TrackMenuController>();
+    let controller = use_context::<SongDetailsController>();
+    let navigation = use_context::<Navigation>();
     let radio = is_live_song(&song);
     let starred = song.starred.is_some();
     let title = if song.title.trim().is_empty() {
@@ -24,7 +27,27 @@ pub(super) fn NowPlayingMeta(song: Song) -> Element {
     rsx! {
         div { class: "rs-player-meta",
             div { class: "rs-player-meta__text",
-                h2 { class: "rs-player-meta__title", title: "{title}", "{title}" }
+                // The title opens where the song is playing from: its playlist
+                // or mix, otherwise its album.
+                if let Some(page) = source_page(&song) {
+                    h2 { class: "rs-player-meta__title",
+                        button {
+                            r#type: "button",
+                            class: "rs-player-meta__title-link",
+                            title: "{title}",
+                            aria_label: "{title}. {page.verb}",
+                            "data-testid": "now-playing-title-link",
+                            onclick: move |_| {
+                                let mut controller = controller;
+                                controller.close();
+                                navigation.navigate_to(page.view.clone());
+                            },
+                            "{title}"
+                        }
+                    }
+                } else {
+                    h2 { class: "rs-player-meta__title", title: "{title}", "{title}" }
+                }
                 if radio {
                     p { class: "rs-player-meta__artist",
                         "{song.album.clone().or(song.artist.clone()).unwrap_or_default()}"

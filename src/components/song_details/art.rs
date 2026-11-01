@@ -6,9 +6,15 @@
 
 use super::actions::{is_live_song, song_key, use_player};
 use super::gestures::song_token;
+use super::source::{source_page, SourcePage};
+use super::types::SongDetailsController;
 use crate::api::Song;
 use crate::components::ui::Artwork;
+use crate::components::Navigation;
 use dioxus::prelude::*;
+
+/// How far a press may move and still count as a tap on the big cover.
+const TAP_SLOP_PX: f64 = 10.0;
 
 /// How many covers wait on each side of the current one.
 const WAITING: usize = 3;
@@ -46,6 +52,17 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
     let waiting = if radio { Vec::new() } else { waiting() };
     let played = if radio { Vec::new() } else { played() };
     let title = song.title.clone();
+    let source = if radio { None } else { source_page(&song) };
+    let controller = use_context::<SongDetailsController>();
+    let navigation = use_context::<Navigation>();
+    let mut press_at = use_signal(|| None::<(f64, f64)>);
+    let open_source = move |page: Option<SourcePage>| {
+        if let Some(page) = page {
+            let mut controller = controller;
+            controller.close();
+            navigation.navigate_to(page.view);
+        }
+    };
     // Cover swipe (compact, gestures.js): which entry it starts on and which
     // ways it can go. Off for radio and on wide.
     let token = song_token((player.queue_index)(), &song_key(&song));
@@ -115,7 +132,41 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
                     }
                 }
             }
-            div { class: "rs-player-flow__cover",
+            div {
+                class: "rs-player-flow__cover",
+                class: if source.is_some() { "rs-player-flow__cover--link" },
+                role: if source.is_some() { "button" },
+                tabindex: if source.is_some() { "0" },
+                aria_label: source.as_ref().map(|p| format!("{} for {title}", p.verb)),
+                "data-testid": "now-playing-cover",
+                // Only a tap opens the page: gestures.js swallows a finished swipe's
+                // click, and a press that moved (a vertical drag with a mouse) is no tap.
+                onpointerdown: move |evt: PointerEvent| {
+                    let p = evt.client_coordinates();
+                    press_at.set(Some((p.x, p.y)));
+                },
+                onclick: {
+                    let source = source.clone();
+                    move |evt: MouseEvent| {
+                        let p = evt.client_coordinates();
+                        let tapped = press_at
+                            .take()
+                            .map(|(x, y)| (p.x - x).hypot(p.y - y) <= TAP_SLOP_PX)
+                            .unwrap_or(true);
+                        if tapped {
+                            open_source(source.clone());
+                        }
+                    }
+                },
+                onkeydown: {
+                    let source = source.clone();
+                    move |evt: KeyboardEvent| {
+                        if matches!(evt.key(), Key::Enter) || evt.key() == Key::Character(" ".into()) {
+                            evt.prevent_default();
+                            open_source(source.clone());
+                        }
+                    }
+                },
                 Artwork {
                     cover_art: song.cover_art.clone(),
                     server_id: song.server_id.clone(),

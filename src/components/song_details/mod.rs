@@ -23,6 +23,7 @@ mod lyrics;
 mod meta;
 mod overlay;
 mod panels;
+mod source;
 mod strip;
 mod transport;
 mod types;

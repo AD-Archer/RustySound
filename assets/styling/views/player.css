@@ -606,6 +606,29 @@
   letter-spacing: var(--track-tight);
 }
 
+/* The title opens the album, playlist or mix; it looks like the title, not a link. */
+.rs-player-meta__title-link {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-player-flow__cover--link {
+  cursor: pointer;
+}
+
+.rs-player-flow__cover--link:focus-visible {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 3px;
+}
+
 .rs-player-meta__artist {
   margin: 0;
   overflow: hidden;

@@ -135,6 +135,24 @@ test.describe("now playing", () => {
     expect(background).not.toBe("rgba(0, 0, 0, 0)");
   });
 
+  test("the title opens the album; playing a playlist, the cover opens the playlist", async ({ connected: page, mock }) => {
+    // From an album: the title opens that album.
+    await startPlayback(page, mock);
+    let now = await openNowPlaying(page);
+    await tid(now, "now-playing-title-link").click();
+    await expect(tid(page, "now-playing")).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/album/${mock.album.id}/`));
+
+    // From a playlist: the cover opens the playlist, not the song's album.
+    await page.goto(`/playlist/${mock.playlist.id}/${MOCK_SERVER_ID}`);
+    await waitForAppReady(page);
+    await tid(page, "playlist-play").click();
+    await expect.poll(async () => (await audioState(page))?.currentTime ?? 0, { timeout: 20_000 }).toBeGreaterThan(0.3);
+    now = await openNowPlaying(page);
+    await tid(now, "now-playing-cover").click();
+    await expect(page).toHaveURL(new RegExp(`/playlist/${mock.playlist.id}/`));
+  });
+
   test("lyrics options: menu, search sheet", async ({ connected: page, mock }) => {
     await startPlayback(page, mock);
     const now = await openNowPlaying(page);
