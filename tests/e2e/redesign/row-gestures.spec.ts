@@ -104,10 +104,21 @@ async function idle(page: Page) {
   await expect.poll(() => gestureState(page)).toBe("idle");
 }
 
+/** Brings `el` into view clear of the tab bar and player at the bottom:
+ *  "if needed" alone counts a row hidden under them as visible, and a drag
+ *  that starts near the bottom edge auto-scrolls the list. */
+async function centre(el: Locator) {
+  await el.scrollIntoViewIfNeeded();
+  const covered = await el.evaluate((node) => node.getBoundingClientRect().bottom > window.innerHeight - 180);
+  if (!covered) return;
+  await el.evaluate((node) => node.scrollIntoView({ block: "center" }));
+  await el.page().evaluate(() => new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r))));
+}
+
 /** Drags row `from`'s handle by `rows` rows. */
 async function dragHandle(page: Page, browserName: string, list: Locator, from: number, rows: number) {
   const handle = rowAt(list, from).locator('[data-testid="row-handle"]');
-  await handle.scrollIntoViewIfNeeded();
+  await centre(handle);
   const box = (await handle.boundingBox())!;
   const rowBox = (await rowAt(list, from).boundingBox())!;
   const start = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
@@ -119,7 +130,7 @@ async function dragHandle(page: Page, browserName: string, list: Locator, from: 
 /** Swipes row `index` rightwards by `fraction` of its width. */
 async function swipeRow(page: Page, browserName: string, list: Locator, index: number, fraction: number) {
   const row = rowAt(list, index);
-  await row.scrollIntoViewIfNeeded();
+  await centre(row);
   const box = (await row.boundingBox())!;
   const y = box.y + box.height / 2;
   // Start on the title, clear of the screen edge (the edge swipe's zone) and the art.
