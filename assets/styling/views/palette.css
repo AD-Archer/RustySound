@@ -1,0 +1,298 @@
+/* views/palette.css: the command palette and the keyboard shortcut sheet
+   (components/command_palette). Prefix: rs-palette-, rs-shortcuts-.
+
+   The palette is a small piece of stage: the dark material Now Playing and
+   Cover Flow live on, the same in every theme and appearance. It fades and
+   scales in once; base.css's reduced-motion rule makes that instant. */
+
+.rs-palette-scrim {
+  z-index: 230;
+}
+
+.rs-palette {
+  position: fixed;
+  z-index: 231;
+  top: max(calc(var(--safe-top) + 12px), 14dvh);
+  left: 50%;
+  width: min(640px, calc(100vw - 24px));
+  max-height: min(560px, calc(100dvh - var(--safe-top) - var(--safe-bottom) - 32px));
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: var(--r-sheet);
+  background: var(--stage-bg-tall);
+  color: var(--stage-ink);
+  box-shadow: var(--hero-shadow), inset 0 0 0 .5px var(--stage-glass);
+  transform: translateX(-50%);
+  animation: rs-palette-in var(--dur-fast) var(--ease-out);
+  color-scheme: dark;
+}
+
+@keyframes rs-palette-in {
+  from { opacity: 0; transform: translateX(-50%) scale(.97); }
+  to { opacity: 1; transform: translateX(-50%); }
+}
+
+/* ---- Field ---------------------------------------------------------- */
+
+.rs-palette__field {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  flex: none;
+  min-height: 54px;
+  padding: 0 var(--sp-6);
+  border-bottom: .5px solid var(--stage-line);
+}
+
+.rs-palette__glass {
+  color: var(--stage-muted);
+}
+
+.rs-palette__input {
+  flex: 1;
+  min-width: 0;
+  height: 52px;
+  border: 0;
+  outline: none;
+  background: transparent;
+  color: var(--stage-ink);
+  font: inherit;
+  font-size: var(--fs-title);
+}
+
+.rs-palette__input::placeholder {
+  color: var(--stage-faint);
+}
+
+.rs-palette__crumb {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex: none;
+  height: 26px;
+  padding: 0 var(--sp-4) 0 var(--sp-2);
+  border-radius: var(--r-tag);
+  border: 1px solid var(--stage-badge-line);
+  color: var(--stage-ink);
+  font-size: var(--fs-sub);
+}
+
+.rs-palette__crumb:hover {
+  background: var(--stage-hover);
+}
+
+.rs-palette__spin {
+  width: 14px;
+  height: 14px;
+}
+
+/* ---- List ----------------------------------------------------------- */
+
+.rs-palette__list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: var(--sp-2) var(--sp-3) var(--sp-4);
+  scrollbar-width: thin;
+}
+
+.rs-palette__list:empty {
+  display: none;
+}
+
+.rs-palette__heading {
+  padding: var(--sp-5) var(--sp-4) var(--sp-2);
+  color: var(--stage-faint);
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.rs-palette__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-height: 40px;
+  padding: var(--sp-2) var(--sp-4);
+  border-radius: var(--r-btn);
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rs-palette__row--active {
+  background: var(--stage-glass);
+}
+
+.rs-palette__lead {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  color: var(--stage-muted);
+}
+
+.rs-palette__row--active .rs-palette__lead {
+  color: var(--stage-ink);
+}
+
+.rs-palette__text {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-palette__title,
+.rs-palette__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-palette__title {
+  font-size: var(--fs-callout);
+}
+
+.rs-palette__title mark {
+  background: none;
+  color: var(--stage-btn-ink);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-palette__sub {
+  color: var(--stage-muted);
+  font-size: var(--fs-foot);
+}
+
+.rs-palette__kbd,
+.rs-palette__foot kbd,
+.rs-shortcuts kbd {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 var(--sp-2);
+  border-radius: var(--r-tag);
+  border: 1px solid var(--stage-badge-line);
+  font: inherit;
+  font-size: var(--fs-cap);
+  font-variant-numeric: tabular-nums;
+  color: var(--stage-muted);
+  white-space: nowrap;
+}
+
+.rs-palette__check {
+  color: var(--stage-btn-ink);
+}
+
+.rs-palette__chev {
+  color: var(--stage-faint);
+}
+
+.rs-palette__empty {
+  margin: 0;
+  padding: var(--sp-8) var(--sp-6);
+  color: var(--stage-muted);
+  font-size: var(--fs-callout);
+  text-align: center;
+}
+
+.rs-palette__sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---- Footer hints ---------------------------------------------------- */
+
+.rs-palette__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-3) var(--sp-6);
+  flex: none;
+  padding: var(--sp-4) var(--sp-6);
+  border-top: .5px solid var(--stage-line);
+  color: var(--stage-faint);
+  font-size: var(--fs-foot);
+}
+
+.rs-palette__foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+/* Compact: no keyboard, so no hints; the card sits under the status bar. */
+.rs-app[data-layout="compact"] .rs-palette {
+  top: calc(var(--safe-top) + 8px);
+}
+
+.rs-app[data-layout="compact"] .rs-palette__foot,
+.rs-app[data-layout="compact"] .rs-palette__kbd {
+  display: none;
+}
+
+/* ---- Keyboard Shortcuts sheet ---------------------------------------- */
+
+.rs-shortcuts + .rs-shortcuts {
+  margin-top: var(--sp-6);
+}
+
+.rs-shortcuts__group {
+  margin: 0 0 var(--sp-3);
+  color: var(--muted);
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+
+.rs-shortcuts__list {
+  margin: 0;
+  border-radius: var(--r-list);
+  background: var(--surface);
+}
+
+.rs-shortcuts__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  min-height: 38px;
+  padding: 0 var(--sp-6);
+}
+
+.rs-shortcuts__row + .rs-shortcuts__row {
+  border-top: .5px solid var(--line);
+}
+
+.rs-shortcuts__row dt {
+  font-size: var(--fs-callout);
+}
+
+.rs-shortcuts__row dd {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--fs-foot);
+}
+
+.rs-shortcuts kbd {
+  border-color: var(--line);
+  color: var(--ink);
+}

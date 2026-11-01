@@ -35,6 +35,8 @@ mod inline {
         "\n",
         include_str!("../assets/styling/views/ambient.css"),
         "\n",
+        include_str!("../assets/styling/views/palette.css"),
+        "\n",
         include_str!("../assets/styling/platform-ios.css")
     );
 }
@@ -53,6 +55,7 @@ mod linked {
     pub const VIEW_SETTINGS: Asset = asset!("/assets/styling/views/settings.css");
     pub const VIEW_SEARCH: Asset = asset!("/assets/styling/views/search.css");
     pub const VIEW_AMBIENT: Asset = asset!("/assets/styling/views/ambient.css");
+    pub const VIEW_PALETTE: Asset = asset!("/assets/styling/views/palette.css");
     pub const PLATFORM_IOS: Asset = asset!("/assets/styling/platform-ios.css");
 }
 
@@ -79,6 +82,7 @@ pub fn GlobalStyles() -> Element {
             document::Stylesheet { href: linked::VIEW_SETTINGS }
             document::Stylesheet { href: linked::VIEW_SEARCH }
             document::Stylesheet { href: linked::VIEW_AMBIENT }
+            document::Stylesheet { href: linked::VIEW_PALETTE }
             document::Stylesheet { href: linked::PLATFORM_IOS }
         }
     }

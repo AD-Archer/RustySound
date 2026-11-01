@@ -27,6 +27,54 @@ use crate::components::{
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
+/// Opens `song`'s album, closing Now Playing (the menu's and the command
+/// palette's "Go to Album").
+pub(crate) fn go_to_album(navigation: Navigation, mut song_details: SongDetailsController, song: &Song) {
+    if let Some(album_id) = song.album_id.clone() {
+        song_details.close();
+        navigation.navigate_to(AppView::AlbumDetailView {
+            album_id,
+            server_id: song.server_id.clone(),
+        });
+    }
+}
+
+/// Opens `song`'s artist, closing Now Playing; the first named artist of a
+/// "A feat. B" credit is looked up by name.
+pub(crate) fn go_to_artist(
+    navigation: Navigation,
+    mut song_details: SongDetailsController,
+    servers: Signal<Vec<ServerConfig>>,
+    song: &Song,
+) {
+    song_details.close();
+    let names = parse_artist_names(song.artist.as_deref().unwrap_or_default());
+    if names.len() <= 1 {
+        if let Some(artist_id) = song.artist_id.clone() {
+            navigation.navigate_to(AppView::ArtistDetailView {
+                artist_id,
+                server_id: song.server_id.clone(),
+            });
+            return;
+        }
+    }
+    let Some(name) = names.into_iter().next() else {
+        return;
+    };
+    let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
+        return;
+    };
+    let server_id = song.server_id.clone();
+    spawn(async move {
+        if let Some(artist_id) = resolve_artist_id(client, name).await {
+            navigation.navigate_to(AppView::ArtistDetailView {
+                artist_id,
+                server_id,
+            });
+        }
+    });
+}
+
 /// What the menu was opened for.
 #[derive(Clone, PartialEq, Debug)]
 pub struct TrackMenuRequest {
@@ -344,50 +392,17 @@ pub fn TrackMenu(
     // ---- Navigation ----------------------------------------------------------
     let go_album = {
         let song = song.clone();
-        let mut song_details = song_details.clone();
         move |_| {
             controller.close();
-            if let Some(album_id) = song.album_id.clone() {
-                song_details.close();
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id,
-                    server_id: song.server_id.clone(),
-                });
-            }
+            go_to_album(navigation, song_details, &song);
         }
     };
 
     let go_artist = {
         let song = song.clone();
-        let mut song_details = song_details.clone();
         move |_| {
             controller.close();
-            song_details.close();
-            let names = parse_artist_names(song.artist.as_deref().unwrap_or_default());
-            if names.len() <= 1 {
-                if let Some(artist_id) = song.artist_id.clone() {
-                    navigation.navigate_to(AppView::ArtistDetailView {
-                        artist_id,
-                        server_id: song.server_id.clone(),
-                    });
-                    return;
-                }
-            }
-            let Some(name) = names.into_iter().next() else {
-                return;
-            };
-            let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
-                return;
-            };
-            let server_id = song.server_id.clone();
-            spawn(async move {
-                if let Some(artist_id) = resolve_artist_id(client, name).await {
-                    navigation.navigate_to(AppView::ArtistDetailView {
-                        artist_id,
-                        server_id,
-                    });
-                }
-            });
+            go_to_artist(navigation, song_details, servers, &song);
         }
     };
 

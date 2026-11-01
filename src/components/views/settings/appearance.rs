@@ -2,18 +2,10 @@
 //! album art, custom CSS.
 
 use super::shared::{use_settings_ctx, Footnote, GroupTitle, SwitchRow};
-use crate::components::ui::env::{appearance_attr, stage_theme};
+use crate::components::ui::env::{appearance_attr, stage_theme, APPEARANCES, STAGE_THEMES as THEMES};
 use crate::components::ui::{Button, ButtonVariant, Segmented};
 use crate::components::Icon;
 use dioxus::prelude::*;
-
-const THEMES: [(&str, &str, &str); 3] = [
-    ("stage", "Stage", "Cool grey lists, blue accent."),
-    ("graphite", "Graphite", "Deeper neutrals, more contrast."),
-    ("tape", "Tape", "Warm paper, signal orange."),
-];
-
-const APPEARANCES: [(&str, &str); 3] = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
 
 #[component]
 pub(super) fn AppearanceSection() -> Element {
