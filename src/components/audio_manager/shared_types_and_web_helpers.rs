@@ -341,7 +341,6 @@ fn shortcut_action_from_key(event: &KeyboardEvent) -> Option<&'static str> {
     let key = event.key();
     let code = event.code();
     let key_code = event.key_code();
-    let meta_or_ctrl = event.meta_key() || event.ctrl_key();
 
     if key == "MediaTrackNext"
         || key == "MediaNextTrack"
@@ -375,23 +374,8 @@ fn shortcut_action_from_key(event: &KeyboardEvent) -> Option<&'static str> {
         return Some("toggle_play");
     }
 
-    if meta_or_ctrl && !event.alt_key() && !event.shift_key() {
-        if key == "ArrowRight" {
-            return Some("next");
-        }
-        if key == "ArrowLeft" {
-            return Some("previous");
-        }
-    }
-
-    if !event.meta_key()
-        && !event.ctrl_key()
-        && !event.alt_key()
-        && (key == " " || key == "Spacebar" || code == "Space")
-    {
-        return Some("toggle_play");
-    }
-
+    // Space, the arrows and the rest are the shortcut registry's
+    // (command_palette/shortcuts.rs); only hardware media keys stay here.
     None
 }
 

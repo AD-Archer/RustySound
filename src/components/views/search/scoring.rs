@@ -16,7 +16,7 @@ pub(super) fn normalize_text(text: &str) -> String {
 
 /// Tokenize a search query into meaningful words.
 /// Strips punctuation before splitting so "Don't" becomes "dont" (not "don" + "t").
-pub(super) fn tokenize(text: &str) -> Vec<String> {
+pub(crate) fn tokenize(text: &str) -> Vec<String> {
     normalize_text(text)
         .split_whitespace()
         .filter(|s| !s.is_empty())

@@ -35,6 +35,9 @@ pub use queue::QueueView;
 pub use radio::RadioView;
 pub use random::RandomView;
 pub use search::SearchView;
+// The command palette reuses Search's query path and Settings' Wrapped story.
+pub(crate) use search::{search_servers, tokenize};
+pub(crate) use wrapped::WrappedStory;
 pub use settings::{EqualizerView, FirstRun, SettingsView};
 pub use songs::SongsView;
 pub use stats::StatsView;

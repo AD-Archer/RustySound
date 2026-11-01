@@ -211,6 +211,7 @@ const DESKTOP_INDEX_HTML: &str = r#"<!DOCTYPE html>
 
 #[cfg(all(feature = "desktop", target_os = "macos"))]
 fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
+    use crate::components::command_palette::{menu_accelerator, menu_item, ActionId};
     use dioxus::desktop::muda::{
         accelerator::{Accelerator, Code, Modifiers, CMD_OR_CTRL},
         Menu, MenuItem, PredefinedMenuItem, Submenu,
@@ -219,11 +220,13 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
     let menu = Menu::new();
 
     let app_menu = Submenu::new("RustySound", true);
+    // Accelerators that are also page shortcuts come from the shortcut
+    // registry (command_palette/shortcuts.rs), so menu and page agree.
     let settings_item = MenuItem::with_id(
         "rustysound-open-settings",
         "Settings...",
         true,
-        Some(Accelerator::new(Some(CMD_OR_CTRL), Code::Comma)),
+        menu_accelerator(ActionId::GoSettings),
     );
     app_menu
         .append_items(&[
@@ -254,12 +257,7 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
             &PredefinedMenuItem::select_all(None),
             &PredefinedMenuItem::separator(),
             // Find jumps to Search, as Cmd+F does in the web build.
-            &MenuItem::with_id(
-                "rustysound-find",
-                "Find…",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::KeyF)),
-            ),
+            &MenuItem::with_id("rustysound-find", "Find…", true, menu_accelerator(ActionId::GoSearch)),
         ])
         .expect("failed to build macOS edit menu");
 
@@ -270,8 +268,11 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
     let go_menu = Submenu::new("Go", true);
     go_menu
         .append_items(&[
+            &menu_item(ActionId::Palette, "Command Palette…"),
+            &PredefinedMenuItem::separator(),
             &go_item("rustysound-go-home", "Home", Code::Digit1),
-            &go_item("rustysound-go-search", "Search", Code::KeyL),
+            // ⌘L is Lyrics now; Edit › Find (⌘F) goes to Search.
+            &MenuItem::with_id("rustysound-go-search", "Search", true, None),
             &PredefinedMenuItem::separator(),
             &go_item("rustysound-go-playlists", "Playlists", Code::Digit2),
             &go_item("rustysound-go-artists", "Artists", Code::Digit3),
@@ -301,17 +302,12 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
                 Some(Accelerator::new(None, Code::Space)),
             ),
             &PredefinedMenuItem::separator(),
-            &MenuItem::with_id(
-                "rustysound-next",
-                "Next",
-                true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowRight)),
-            ),
+            &MenuItem::with_id("rustysound-next", "Next", true, menu_accelerator(ActionId::Next)),
             &MenuItem::with_id(
                 "rustysound-previous",
                 "Previous",
                 true,
-                Some(Accelerator::new(Some(CMD_OR_CTRL), Code::ArrowLeft)),
+                menu_accelerator(ActionId::Previous),
             ),
             &PredefinedMenuItem::separator(),
             &MenuItem::with_id(
@@ -333,6 +329,8 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
                 true,
                 Some(Accelerator::new(Some(CMD_OR_CTRL | Modifiers::ALT), Code::KeyN)),
             ),
+            &menu_item(ActionId::Lyrics, "Lyrics"),
+            &menu_item(ActionId::UpNext, "Up Next"),
         ])
         .expect("failed to build macOS Playback menu");
 
@@ -349,7 +347,14 @@ fn macos_menu_bar() -> dioxus::desktop::muda::Menu {
         .expect("failed to build macOS window menu");
     window_menu.set_as_windows_menu_for_nsapp();
 
-    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &playback_menu, &window_menu])
+    // "?" has no ⌘ form, so the item shows no accelerator.
+    let help_menu = Submenu::new("Help", true);
+    help_menu
+        .append_items(&[&menu_item(ActionId::Shortcuts, "Keyboard Shortcuts")])
+        .expect("failed to build macOS Help menu");
+    help_menu.set_as_help_menu_for_nsapp();
+
+    menu.append_items(&[&app_menu, &edit_menu, &go_menu, &playback_menu, &window_menu, &help_menu])
         .expect("failed to attach macOS menu items");
 
     menu

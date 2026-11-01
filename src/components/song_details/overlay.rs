@@ -85,10 +85,10 @@ fn dismiss(mut controller: SongDetailsController, mut closing: Signal<bool>) {
     });
 }
 
-/// The A key opens ambient mode (shown next to its menu row).
+/// The A key opens ambient mode (shown next to its menu row). Its binding
+/// lives in the shortcut registry with the app's other keys.
 fn is_ambient_key(evt: &KeyboardEvent) -> bool {
-    matches!(evt.key(), Key::Character(ref c) if c.eq_ignore_ascii_case("a"))
-        && !evt.modifiers().intersects(Modifiers::META | Modifiers::CONTROL | Modifiers::ALT)
+    crate::components::command_palette::event_runs(crate::components::command_palette::ActionId::Ambient, evt)
 }
 
 /// Ambient mode over the sheet, with the sheet's synced lyrics. A sibling
