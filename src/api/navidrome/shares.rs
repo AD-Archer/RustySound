@@ -73,7 +73,7 @@ impl NavidromeClient {
             Ok(response) if response.status().is_success() => response
                 .json::<SubsonicResponse>()
                 .await
-                .map(|json| json.subsonic_response.status == "ok")
+                .map(|json| subsonic_ok(&json).is_ok())
                 .unwrap_or(false),
             // 501 (sharing off), 404 (a plain Subsonic server), offline.
             _ => false,

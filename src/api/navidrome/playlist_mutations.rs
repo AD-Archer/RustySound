@@ -13,20 +13,7 @@ impl NavidromeClient {
                 ("name".to_string(), trimmed.to_string()),
             ],
         );
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         let _ = cache_remove_prefix(&format!(
             "api:getPlaylist:v1:{}:{}",
@@ -54,20 +41,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url_owned("createPlaylist", params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        let json = self.subsonic_get(&url).await?;
 
         let playlist_id = json.subsonic_response.playlist.map(|p| p.id.clone());
         self.invalidate_playlist_cache();
@@ -89,20 +63,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url_owned("updatePlaylist", params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         let _ = cache_remove_prefix(&format!(
             "api:getPlaylist:v1:{}:{}",
@@ -137,20 +98,7 @@ impl NavidromeClient {
 
     pub async fn delete_playlist(&self, playlist_id: &str) -> Result<(), String> {
         let url = self.build_url("deletePlaylist", &[("id", playlist_id)]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or_else(|| "Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         let _ = cache_remove_prefix(&format!(
             "api:getPlaylist:v1:{}:{}",
@@ -180,20 +128,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url_owned("updatePlaylist", params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         let _ = cache_remove_prefix(&format!(
             "api:getPlaylist:v1:{}:{}",
@@ -224,20 +159,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url_owned("updatePlaylist", params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         let _ = cache_remove_prefix(&format!(
             "api:getPlaylist:v1:{}:{}",

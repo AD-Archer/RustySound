@@ -75,7 +75,7 @@ pub fn migrate(conn: &Connection) -> rusqlite::Result<()> {
 }
 
 fn now_secs() -> i64 {
-    chrono::Utc::now().timestamp()
+    (crate::time::now_ms() / 1000.0) as i64
 }
 
 fn iso(secs: i64) -> Option<String> {

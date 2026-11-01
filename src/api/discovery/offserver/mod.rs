@@ -223,10 +223,14 @@ async fn library_artist_names(servers: &[ServerConfig]) -> Option<HashSet<String
 
 /// True when some server's `search3` finds this album by this artist.
 async fn album_in_library(servers: &[ServerConfig], artist: &str, title: &str) -> Result<bool, String> {
+    let results = join_all(servers.iter().cloned().map(|server| async move {
+        server_call(NavidromeClient::new(server).search(title, 0, 8, 0)).await
+    }))
+    .await;
     let mut last_error = None;
     let mut any_ok = false;
-    for server in servers.iter().cloned() {
-        match server_call(NavidromeClient::new(server).search(title, 0, 8, 0)).await {
+    for result in results {
+        match result {
             Ok(result) => {
                 any_ok = true;
                 if result.albums.iter().any(|album| {
@@ -274,13 +278,11 @@ pub async fn load(
 
     // 1. Server similar artists (same calls/cached keys as the stage section).
     let navidrome_future = join_all(seeds.iter().cloned().map(|seed| {
-        let server = servers.iter().find(|s| s.id == seed.server_id).cloned();
+        let client = NavidromeClient::for_id(servers, &seed.server_id);
         async move {
-            let server = server.ok_or_else(|| "Server not active".to_string())?;
-            let info = server_call(
-                NavidromeClient::new(server).get_artist_info2(&seed.artist_id, SIMILAR_COUNT, true),
-            )
-            .await?;
+            let client = client.ok_or_else(|| "Server not active".to_string())?;
+            let info =
+                server_call(client.get_artist_info2(&seed.artist_id, SIMILAR_COUNT, true)).await?;
             Ok::<_, String>(navidrome_items(&seed, &info))
         }
     }));

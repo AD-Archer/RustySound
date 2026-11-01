@@ -10,6 +10,12 @@ const COVER_ART_MAX_PX: u32 = 1200;
 const SUBSONIC_ONLY_URL: &str = "unsupported://subsonic-only";
 
 impl NavidromeClient {
+    /// A client for the configured server with this id, for server-only
+    /// features (library calls go through `MusicClient::for_source`).
+    pub fn for_id(servers: &[ServerConfig], id: &str) -> Option<Self> {
+        ServerConfig::find(servers, id).cloned().map(Self::new)
+    }
+
     pub fn new(server: ServerConfig) -> Self {
         Self { server }
     }
@@ -308,6 +314,7 @@ impl NavidromeClient {
         songs
     }
 
+    #[deprecated(note = "use get_native_song_page(\"play_count\", false, start, end - start)")]
     pub async fn get_native_songs(
         &self,
         sort: NativeSongSortField,
@@ -318,42 +325,9 @@ impl NavidromeClient {
         if end < start {
             return Ok(Vec::new());
         }
-
-        let url = self.native_base_url(&format!(
-            "api/song?_start={}&_end={}&_sort={}&_order={}",
-            start,
-            end,
-            sort.as_query_value(),
-            order.as_query_value()
-        ));
-
-        for attempt in 0..2 {
-            let session = self.ensure_native_auth_session().await?;
-            let response = HTTP_CLIENT
-                .get(&url)
-                .header("x-nd-authorization", format!("Bearer {}", session.token))
-                .header("x-nd-client-unique-id", session.client_unique_id)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            if response.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
-                self.clear_native_auth_session();
-                continue;
-            }
-
-            if !response.status().is_success() {
-                return Err(format!(
-                    "Native songs request failed with status {}",
-                    response.status()
-                ));
-            }
-
-            let payload: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-            return Ok(self.normalize_native_song_list(payload));
-        }
-
-        Err("Native songs request could not be authorized.".to_string())
+        let NativeSortOrder::Desc = order;
+        self.get_native_song_page(sort.as_query_value(), false, start, end - start)
+            .await
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {

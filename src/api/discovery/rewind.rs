@@ -59,7 +59,7 @@ pub fn select_rewind_albums(
         })
         .collect();
     candidates.sort_by_key(|a| std::cmp::Reverse(a.play_count.unwrap_or(0)));
-    dedupe_by(&mut candidates, |a| format!("{}::{}", a.server_id, a.id));
+    dedupe_by(&mut candidates, |a| a.key());
     let mut picked = SeededRng::new(seed).pick_ordered(&candidates, limit * 2, limit);
     picked.sort_by_key(|a| std::cmp::Reverse(a.play_count.unwrap_or(0)));
     picked
@@ -84,7 +84,7 @@ pub fn select_rewind_songs(songs: &[Song], now: i64, cutoff_days: i64, limit: us
         })
         .collect();
     candidates.sort_by_key(|s| std::cmp::Reverse(s.play_count.unwrap_or(0)));
-    dedupe_by(&mut candidates, |s| format!("{}::{}", s.server_id, s.id));
+    dedupe_by(&mut candidates, |s| s.key());
     candidates
         .into_iter()
         .take(limit)

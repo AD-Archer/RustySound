@@ -35,18 +35,15 @@ struct NativeAuthSession {
     client_unique_id: String,
 }
 
+/// Sort field for the deprecated `get_native_songs`; goes with it.
 #[derive(Debug, Clone, Copy)]
 pub enum NativeSongSortField {
-    /// Recently played. No caller since the old Home shelf went; kept as API.
-    #[allow(dead_code)]
-    PlayDate,
     PlayCount,
 }
 
 impl NativeSongSortField {
     fn as_query_value(self) -> &'static str {
         match self {
-            Self::PlayDate => "play_date",
             Self::PlayCount => "play_count",
         }
     }
@@ -55,14 +52,6 @@ impl NativeSongSortField {
 #[derive(Debug, Clone, Copy)]
 pub enum NativeSortOrder {
     Desc,
-}
-
-impl NativeSortOrder {
-    fn as_query_value(self) -> &'static str {
-        match self {
-            Self::Desc => "DESC",
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -150,6 +139,35 @@ fn json_pick_bool(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
             }
         }
         _ => None,
+    }
+}
+
+/// The one Subsonic status check: `Ok` for `status="ok"`, else the
+/// server's error message.
+fn subsonic_ok(json: &SubsonicResponse) -> Result<(), String> {
+    if json.subsonic_response.status == "ok" {
+        return Ok(());
+    }
+    Err(json
+        .subsonic_response
+        .error
+        .as_ref()
+        .map(|e| e.message.clone())
+        .unwrap_or_else(|| "Unknown error".to_string()))
+}
+
+/// Sends a Subsonic request and checks its status.
+async fn subsonic_send(request: reqwest::RequestBuilder) -> Result<SubsonicResponse, String> {
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+    subsonic_ok(&json)?;
+    Ok(json)
+}
+
+impl NavidromeClient {
+    /// GET a Subsonic URL from `build_url` and check its status.
+    async fn subsonic_get(&self, url: &str) -> Result<SubsonicResponse, String> {
+        subsonic_send(HTTP_CLIENT.get(url)).await
     }
 }
 

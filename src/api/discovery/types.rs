@@ -184,17 +184,6 @@ pub struct OffServerStatus {
     pub external_requests: u32,
 }
 
-/// Cover Flow + album shelves. Cheapest section; load it first.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct StageSection {
-    /// Curated albums for Cover Flow (≤ 9), each with a reason line.
-    pub stage: Vec<DiscoverAlbum>,
-    /// Recently added albums, newest first (≤ 20). "New" segment.
-    pub new_in_library: Vec<DiscoverAlbum>,
-    /// Local date (YYYY-MM-DD) this was generated for.
-    pub generated_on: String,
-}
-
 /// Generated mixes plus the songs picked from the same similarity data.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct MixesSection {
@@ -224,13 +213,6 @@ impl HomePlaylist {
             Self::Mix(m) => format!("mix:{}", m.id),
         }
     }
-
-    pub fn name(&self) -> &str {
-        match self {
-            Self::Playlist(p) => &p.name,
-            Self::Mix(m) => &m.name,
-        }
-    }
 }
 
 /// The "Rewind" segment for one window, from [`super::load_discover_rewind`].
@@ -252,14 +234,6 @@ pub struct OffServerSection {
     pub items: Vec<OffServerItem>,
     pub status: OffServerStatus,
     pub generated_on: String,
-}
-
-/// Everything the Discover screen shows, from [`super::load_discover`].
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
-pub struct DiscoverFeed {
-    pub stage: StageSection,
-    pub mixes: MixesSection,
-    pub off_server: OffServerSection,
 }
 
 /// Discovery-relevant settings, read from [`AppSettings`]. Empty strings become `None`.

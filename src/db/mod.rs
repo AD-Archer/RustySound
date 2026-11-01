@@ -62,6 +62,38 @@ pub enum ArtworkDownloadPreference {
     PreferId3,
 }
 
+// Downloads (native only) and the smart cache use these; the smart cache
+// switches to them in refactor chunk D2, until then they're native only.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+impl ArtworkDownloadPreference {
+    /// Whether to fetch the cover with this id. Navidrome's `mf-` ids are
+    /// the art embedded in the file (ID3); other ids are the server's art.
+    pub fn includes(self, cover_art_id: &str) -> bool {
+        let id3 = cover_art_id.trim().to_ascii_lowercase().starts_with("mf-");
+        match self {
+            Self::ServerOnly => !id3,
+            Self::Id3Only => id3,
+            Self::PreferServer | Self::PreferId3 => true,
+        }
+    }
+
+    /// The cover ids to fetch for a song, in order: its own cover, then its
+    /// album's, each only when [`Self::includes`] it.
+    pub fn song_covers(self, song: &Song) -> Vec<String> {
+        let mut covers = Vec::new();
+        for id in [song.cover_art.as_deref(), song.album_id.as_deref()]
+            .into_iter()
+            .flatten()
+            .map(str::trim)
+        {
+            if !id.is_empty() && self.includes(id) && !covers.iter().any(|c: &String| c == id) {
+                covers.push(id.to_string());
+            }
+        }
+        covers
+    }
+}
+
 /// Volume levelling (ReplayGain) mode.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
@@ -74,16 +106,16 @@ pub enum VolumeLevelling {
     Auto,
 }
 
-/// App settings stored in the database
+/// App settings stored in the database. Fields that were dropped
+/// (`last_server_id`, `replay_gain`, `home_layout_json`,
+/// `home_feed_load_profile`, `discover_rewind_months`) may still be in saved
+/// settings; serde ignores unknown keys, so those files load as before.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppSettings {
     pub volume: f64,
-    pub last_server_id: Option<String>,
     pub theme: String,
     pub crossfade_enabled: bool,
     pub crossfade_duration: u32, // seconds
-    /// Unused since `volume_levelling`; kept so old settings files still load.
-    pub replay_gain: bool,
     /// Start the next song with no gap (preloaded one song ahead).
     #[serde(default = "default_gapless_playback")]
     pub gapless_playback: bool,
@@ -154,10 +186,6 @@ pub struct AppSettings {
     /// Light/dark choice, separate from the theme: "system" (default), "light" or "dark".
     #[serde(default = "default_appearance")]
     pub appearance: String,
-    #[serde(default = "default_home_layout_json")]
-    pub home_layout_json: String,
-    #[serde(default = "default_home_feed_load_profile")]
-    pub home_feed_load_profile: String,
     // Discovery (Discover screen). All optional; empty strings mean "not set".
     /// Last.fm API key. Enables Last.fm similar artists/albums/tracks off-server.
     #[serde(default)]
@@ -175,9 +203,6 @@ pub struct AppSettings {
     #[serde(default = "default_discovery_previews_enabled")]
     pub discovery_previews_enabled: bool,
     // Discover (agent D)
-    /// Rewind window on Discover, in months (3, 6 or 12). Remembered per device.
-    #[serde(default = "default_discover_rewind_months")]
-    pub discover_rewind_months: u32,
     /// JSON map of Discover mix id to the server playlist it was saved as:
     /// `{"<mix id>": {"server_id": "...", "playlist_id": "..."}}`. Re-saving a
     /// mix replaces that playlist instead of making a new one.
@@ -214,10 +239,6 @@ fn default_playback_rate() -> f64 {
 
 fn default_gapless_playback() -> bool {
     true
-}
-
-fn default_discover_rewind_months() -> u32 {
-    6
 }
 
 fn default_discover_saved_mix_playlists() -> String {
@@ -288,14 +309,6 @@ fn default_appearance() -> String {
     "system".to_string()
 }
 
-fn default_home_layout_json() -> String {
-    String::new()
-}
-
-fn default_home_feed_load_profile() -> String {
-    "standard".to_string()
-}
-
 /// Orders saved before the server provider existed get it at the front,
 /// once: the user's own lyrics need no third-party call.
 fn add_server_lyrics_provider(settings: &mut AppSettings) {
@@ -360,17 +373,6 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
     settings.auto_download_playlist_count = settings.auto_download_playlist_count.clamp(0, 25);
     settings.download_limit_count = settings.download_limit_count.clamp(25, 20000);
     settings.download_limit_mb = settings.download_limit_mb.clamp(256, 131072);
-    settings.home_feed_load_profile = match settings
-        .home_feed_load_profile
-        .trim()
-        .to_ascii_lowercase()
-        .as_str()
-    {
-        "conservative" => "conservative".to_string(),
-        "super" => "super".to_string(),
-        _ => "standard".to_string(),
-    };
-
     settings
 }
 
@@ -378,11 +380,9 @@ impl Default for AppSettings {
     fn default() -> Self {
         Self {
             volume: 0.8,
-            last_server_id: None,
             theme: "rusty".to_string(),
             crossfade_enabled: false,
             crossfade_duration: 3,
-            replay_gain: false,
             gapless_playback: default_gapless_playback(),
             volume_levelling: VolumeLevelling::default(),
             replay_gain_preamp_db: 0.0,
@@ -415,14 +415,11 @@ impl Default for AppSettings {
             artwork_download_preference: default_artwork_download_preference(),
             custom_css: String::new(),
             appearance: default_appearance(),
-            home_layout_json: default_home_layout_json(),
-            home_feed_load_profile: default_home_feed_load_profile(),
             lastfm_api_key: String::new(),
             lastfm_username: String::new(),
             listenbrainz_username: String::new(),
             discovery_offserver_enabled: default_discovery_offserver_enabled(),
             discovery_previews_enabled: default_discovery_previews_enabled(),
-            discover_rewind_months: default_discover_rewind_months(),
             discover_saved_mix_playlists: default_discover_saved_mix_playlists(),
             playback_rate: default_playback_rate(),
             queue_sync_enabled: default_queue_sync_enabled(),
@@ -978,21 +975,49 @@ mod lyrics_provider_migration_tests {
 }
 
 #[cfg(test)]
+mod artwork_preference_tests {
+    use super::*;
+
+    #[test]
+    fn song_covers_follow_the_preference() {
+        let song = Song {
+            cover_art: Some("mf-abc".into()),
+            album_id: Some(" al-1 ".into()),
+            ..Default::default()
+        };
+        use ArtworkDownloadPreference::*;
+        assert_eq!(PreferServer.song_covers(&song), vec!["mf-abc", "al-1"]);
+        assert_eq!(ServerOnly.song_covers(&song), vec!["al-1"]);
+        assert_eq!(Id3Only.song_covers(&song), vec!["mf-abc"]);
+        let same = Song {
+            cover_art: Some("al-1".into()),
+            album_id: Some("al-1".into()),
+            ..Default::default()
+        };
+        assert_eq!(PreferId3.song_covers(&same), vec!["al-1"]);
+        assert!(PreferServer.song_covers(&Song::default()).is_empty());
+    }
+}
+
+#[cfg(test)]
 mod discovery_settings_tests {
     use super::*;
 
     #[test]
     fn old_settings_load_with_discovery_defaults() {
-        // Settings JSON saved before the discovery fields existed.
+        // Settings JSON saved before the discovery fields existed, with
+        // fields that have since been dropped.
         let legacy = r#"{"volume":0.5,"last_server_id":null,"theme":"rusty",
-            "crossfade_enabled":false,"crossfade_duration":3,"replay_gain":false}"#;
+            "crossfade_enabled":false,"crossfade_duration":3,"replay_gain":false,
+            "home_layout_json":"","home_feed_load_profile":"super",
+            "discover_rewind_months":12}"#;
         let settings: AppSettings = serde_json::from_str(legacy).unwrap();
+        assert_eq!(settings.volume, 0.5);
         assert_eq!(settings.lastfm_api_key, "");
         assert_eq!(settings.lastfm_username, "");
         assert_eq!(settings.listenbrainz_username, "");
         assert!(!settings.discovery_offserver_enabled);
         assert!(settings.discovery_previews_enabled);
-        assert_eq!(settings.discover_rewind_months, 6);
         assert_eq!(settings.discover_saved_mix_playlists, "{}");
     }
 

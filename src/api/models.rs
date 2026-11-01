@@ -78,6 +78,11 @@ impl ServerConfig {
     pub fn is_jellyfin(&self) -> bool {
         self.kind == ServerKind::Jellyfin
     }
+
+    /// The configured server with this id.
+    pub fn find<'a>(servers: &'a [ServerConfig], id: &str) -> Option<&'a ServerConfig> {
+        servers.iter().find(|server| server.id == id)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -294,8 +299,104 @@ impl Default for SearchResult {
     }
 }
 
+/// `server_id::id`, the identity of an item across sources. Saved data
+/// (offline downloads, the smart cache, playlist sync) stores this form, so
+/// it must not change. Local items use `server_id = "local"` and Jellyfin
+/// items their server's id, like any other source.
+pub fn item_key(server_id: &str, id: &str) -> String {
+    format!("{server_id}::{id}")
+}
+
+macro_rules! impl_item_identity {
+    ($($kind:ty),+) => {$(
+        // Not every kind has a caller yet: the views switch to these in
+        // refactor chunks B-D.
+        #[allow(dead_code)]
+        impl $kind {
+            /// [`item_key`]: `server_id::id`, for keys and dedup.
+            pub fn key(&self) -> String {
+                item_key(&self.server_id, &self.id)
+            }
+
+            /// Same item on the same source (cheaper than comparing keys).
+            pub fn same_as(&self, other: &Self) -> bool {
+                self.id == other.id && self.server_id == other.server_id
+            }
+        }
+    )+};
+}
+
+impl_item_identity!(Song, Album, Artist, Playlist);
+
+// Only downloads (native) call this so far; the views switch to it in
+// refactor chunks B-D.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+impl Song {
+    /// An internet-radio entry: no seeking, no queue actions, no scrobbles.
+    /// Stations are queued as songs with the "Radio" source name and their
+    /// stream URL; library songs never carry a stream URL.
+    pub fn is_radio(&self) -> bool {
+        self.server_name == "Radio"
+            || self
+                .stream_url
+                .as_deref()
+                .is_some_and(|url| !url.trim().is_empty())
+    }
+}
+
+#[deprecated(note = "use crate::format::clock")]
 pub fn format_duration(seconds: u32) -> String {
-    let mins = seconds / 60;
-    let secs = seconds % 60;
-    format!("{}:{:02}", mins, secs)
+    crate::format::clock(seconds as f64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn song(server_id: &str, id: &str) -> Song {
+        Song {
+            id: id.to_string(),
+            server_id: server_id.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn keys_keep_the_saved_server_id_and_id_form() {
+        assert_eq!(song("srv-1", "mf-9").key(), "srv-1::mf-9");
+        assert_eq!(song("local", "a1b2").key(), "local::a1b2");
+        // Jellyfin ids are GUIDs and keep their dashes.
+        assert_eq!(
+            song("jf", "0b2c1d4e-5f60-7182-93a4-b5c6d7e8f901").key(),
+            "jf::0b2c1d4e-5f60-7182-93a4-b5c6d7e8f901"
+        );
+        let album = Album { id: "al-1".into(), server_id: "s".into(), ..Default::default() };
+        let artist = Artist { id: "ar-1".into(), server_id: "s".into(), ..Default::default() };
+        let playlist = Playlist { id: "pl-1".into(), server_id: "s".into(), ..Default::default() };
+        assert_eq!(album.key(), "s::al-1");
+        assert_eq!(artist.key(), "s::ar-1");
+        assert_eq!(playlist.key(), "s::pl-1");
+        assert_eq!(item_key("s", "x"), song("s", "x").key());
+    }
+
+    #[test]
+    fn same_as_needs_both_the_id_and_the_source() {
+        assert!(song("a", "1").same_as(&song("a", "1")));
+        assert!(!song("a", "1").same_as(&song("b", "1")));
+        assert!(!song("a", "1").same_as(&song("a", "2")));
+        let mut retitled = song("a", "1");
+        retitled.title = "Other".into();
+        assert!(song("a", "1").same_as(&retitled));
+    }
+
+    #[test]
+    fn radio_is_the_radio_source_or_a_stream_url() {
+        assert!(!song("s", "1").is_radio());
+        let by_name = Song { server_name: "Radio".into(), ..song("s", "1") };
+        assert!(by_name.is_radio());
+        let by_url = Song { stream_url: Some("https://radio.example/live".into()), ..song("s", "1") };
+        assert!(by_url.is_radio());
+        let blank_url = Song { stream_url: Some("  ".into()), ..song("s", "1") };
+        assert!(!blank_url.is_radio());
+    }
 }

@@ -5,23 +5,6 @@
 // views keep loaded pages in memory for as long as they are mounted.
 
 impl NavidromeClient {
-    async fn subsonic_get(&self, url: &str) -> Result<SubsonicResponse, String> {
-        let response = HTTP_CLIENT
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or_else(|| "Unknown error".to_string()));
-        }
-        Ok(json)
-    }
-
     /// One page of `getAlbumList2`. `genre` switches to `type=byGenre`.
     pub async fn get_album_page(
         &self,
