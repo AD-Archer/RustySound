@@ -169,6 +169,7 @@ include!("artist_info.rs");
 include!("opensubsonic.rs");
 include!("play_queue.rs");
 include!("library_paging.rs");
+include!("shares.rs");
 
 fn normalize_cover_art_id(cover_art_id: &str) -> String {
     let trimmed = cover_art_id.trim();

@@ -49,6 +49,8 @@ pub struct SubsonicResponseInner {
     pub play_queue_by_index: Option<PlayQueuePayload>,
     #[serde(default, alias = "nowPlaying")]
     pub now_playing: Option<NowPlayingPayload>,
+    #[serde(default)]
+    pub shares: Option<SharesPayload>,
 }
 
 #[derive(Debug, Deserialize)]

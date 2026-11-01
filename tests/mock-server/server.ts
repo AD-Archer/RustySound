@@ -8,6 +8,8 @@
 // - lrclib.net stand-in at /lrclib/api/{search,get} (tests route lrclib.net here).
 // - Permissive CORS, including OPTIONS preflight.
 // - In-memory state; restart to reset. POST /__mock/reset also resets it.
+// - Share links: createShare / getShares (MOCK_SHARING=0 answers them 501, like Navidrome
+//   with EnableSharing off). GET /__mock/shares lists what was created.
 // - Sync scopes: a server URL of <base>/t/<tag> gets its own play queue, playback
 //   reports and players (getPlayQueue, reportPlayback, getNowPlaying…), so parallel
 //   tests don't see each other's queues. Everything else is shared. Test hooks:
@@ -28,6 +30,7 @@ const LATENCY_MS = Number(process.env.MOCK_LATENCY_MS ?? "0") || 0;
 // Reported on /__mock/health so the test setup can refuse a server older than its source.
 const STARTED_AT = Date.now();
 const QUIET = process.env.MOCK_QUIET === "1";
+const SHARING = process.env.MOCK_SHARING !== "0";
 /** MOCK_ART=1 serves the abstract SVG covers in ./art instead of generated PNGs. */
 const ART: string[] =
   process.env.MOCK_ART === "1"
@@ -58,6 +61,14 @@ interface State {
   nextRadio: number;
   nowPlaying: Map<string, number>;
   tokens: Set<string>;
+  shares: Share[];
+}
+
+interface Share {
+  id: string;
+  ids: string[];
+  description: string;
+  created: number;
 }
 
 function freshState(): State {
@@ -78,6 +89,7 @@ function freshState(): State {
     nextRadio: 100,
     nowPlaying: new Map(),
     tokens: new Set(),
+    shares: [],
   };
 }
 
@@ -280,6 +292,31 @@ function playlistJson(p: Library["playlists"][number]) {
     coverArt: p.id,
     readonly: p.owner !== USER,
   });
+}
+
+/** Navidrome with sharing off: the share endpoints answer a bare 501. */
+function notImplemented(): Response {
+  return new Response("Not Implemented", { status: 501, headers: CORS });
+}
+
+function shareJson(sh: Share) {
+  const entry = sh.ids.flatMap((id) => {
+    const song = S.lib.songById.get(id);
+    if (song) return [songJson(song)];
+    const album = S.lib.albumById.get(id);
+    if (album) return album.songIds.map((sid) => songJson(S.lib.songById.get(sid)!));
+    const pl = S.lib.playlists.find((p) => p.id === id);
+    return pl ? pl.songIds.map((sid) => songJson(S.lib.songById.get(sid)!)) : [];
+  });
+  return {
+    id: sh.id,
+    url: `${BASE}/share/${sh.id}`,
+    description: sh.description,
+    username: USER,
+    created: new Date(sh.created).toISOString(),
+    visitCount: 0,
+    entry,
+  };
 }
 
 function clean<T extends Record<string, unknown>>(obj: T): T {
@@ -610,6 +647,21 @@ const handlers: Record<string, Handler> = {
     const size = Math.min(500, p.int("size", 10));
     const list = page(albumList(p), size, p.int("offset", 0)).map(albumJson);
     return sub({ albumList2: { album: list } });
+  },
+
+  getShares: () => (SHARING ? sub({ shares: { share: S.shares.map(shareJson) } }) : notImplemented()),
+  createShare: (p) => {
+    if (!SHARING) return notImplemented();
+    const ids = p.all("id").filter((id) => findAny(id) || S.lib.playlists.some((pl) => pl.id === id));
+    if (!ids.length) return subErr(70, "Data not found");
+    const share: Share = {
+      id: `sh${(S.shares.length + 1).toString(36)}${hashString(ids.join(",")).toString(36).slice(0, 5)}`,
+      ids,
+      description: p.get("description") ?? "",
+      created: Date.now(),
+    };
+    S.shares.push(share);
+    return sub({ shares: { share: [shareJson(share)] } });
   },
 
   getSong: (p) => {
@@ -1190,6 +1242,9 @@ async function handle(req: Request): Promise<Response> {
     S = freshState();
     SCOPES.clear();
     return json({ ok: true });
+  }
+  if (url.pathname === "/__mock/shares") {
+    return json(S.shares.map((sh) => ({ ...sh, url: `${BASE}/share/${sh.id}` })));
   }
   if (url.pathname === "/__mock/fixtures") {
     // Handy for tests: ids for the known fixture entities.

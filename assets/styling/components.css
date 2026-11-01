@@ -1859,6 +1859,14 @@
   color: var(--accent-ink);
 }
 
+/* Output choices are device names: one line each, cut short if long. */
+.rs-menu__choices--names .rs-menu__choice {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 @media (hover: hover) {
   .rs-menu__choice:hover:not([aria-checked="true"]) {
     background: color-mix(in srgb, var(--menu-hl) 60%, var(--ink) 8%);

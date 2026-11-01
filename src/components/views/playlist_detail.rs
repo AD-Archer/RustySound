@@ -13,7 +13,7 @@ mod edits;
 use crate::api::*;
 use crate::components::ui::{
     use_layout, Menu, MenuAction, MenuGap, MenuItem, Artwork, EmptyState,
-    Button, ButtonVariant, RowGestureList, RowSwipe, SectionHeader, TrackRow, UndoToast,
+    Button, ButtonVariant, RowGestureList, RowSwipe, SectionHeader, StatusToast, TrackRow, UndoToast,
     VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
@@ -25,7 +25,9 @@ use crate::components::views::library::shared::{
     is_auto_imported, song_key, songs_summary, use_downloaded_keys, use_now_playing, use_player,
     use_song_patches, ErrorState, ListSkeleton,
 };
-use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
+use crate::components::{
+    can_share, share_link, AddIntent, AddMenuController, AppView, Navigation, ShareTarget,
+};
 use crate::db::AppSettings;
 use crate::offline_audio::{
     mark_collection_downloaded, mark_playlist_auto_download_tracked,
@@ -49,6 +51,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let toast = use_context::<StatusToast>();
+    // The data resource below takes `server_id`.
+    let share_server = server_id.clone();
     let layout = use_layout();
     let player = use_player();
     let mut retry = use_signal(|| 0u32);
@@ -483,6 +488,29 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             disabled: dl_busy() || count == 0,
                             testid: "playlist-download".to_string(),
                             onclick: download.clone(),
+                        }
+                    }
+                    if can_share(&servers.read(), &share_server, app_settings.read().offline_mode) {
+                        MenuItem {
+                            label: "Share Link…".to_string(),
+                            icon: "share".to_string(),
+                            testid: "playlist-menu-share".to_string(),
+                            onclick: {
+                                let playlist = playlist.clone();
+                                let server_id = share_server.clone();
+                                move |_| {
+                                    menu_at.set(None);
+                                    share_link(
+                                        &servers.peek(),
+                                        toast,
+                                        ShareTarget {
+                                            server_id: server_id.clone(),
+                                            id: playlist.id.clone(),
+                                            title: playlist.name.clone(),
+                                        },
+                                    );
+                                }
+                            },
                         }
                     }
                     MenuGap {}

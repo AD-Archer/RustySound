@@ -337,6 +337,8 @@
   margin-right: -6px;
 }
 
+.rs-player-panels__airplay { flex: none; }
+
 /* Wide: the same stage as a large overlay; cover left, panels right. */
 .rs-player-np-scrim {
   position: fixed;

@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    Menu, MenuGap, MenuItem, Artwork, EmptyState, Button, ButtonVariant,
+    Menu, MenuGap, MenuItem, Artwork, EmptyState, Button, ButtonVariant, StatusToast,
 };
 use crate::components::views::album_song_row::AlbumTracks;
 use crate::components::views::artist_links::ArtistNameLinks;
@@ -12,7 +12,9 @@ use crate::components::views::library::shared::{
     use_servers,
     songs_summary, use_player, use_song_patches, ErrorState, ListSkeleton,
 };
-use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::components::{
+    can_share, share_link, AddIntent, AddMenuController, AppView, Icon, Navigation, ShareTarget,
+};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -43,6 +45,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let toast = use_context::<StatusToast>();
     let player = use_player();
     let mut retry = use_signal(|| 0u32);
     let mut songs = use_signal(Vec::<Song>::new);
@@ -395,6 +398,28 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         icon: "artist".to_string(),
                         disabled: album.artist_id.is_none(),
                         onclick: go_artist,
+                    }
+                    if can_share(&servers.read(), &album.server_id, app_settings.read().offline_mode) {
+                        MenuItem {
+                            label: "Share Link…".to_string(),
+                            icon: "share".to_string(),
+                            testid: "album-menu-share".to_string(),
+                            onclick: {
+                                let album = album.clone();
+                                move |_| {
+                                    menu_at.set(None);
+                                    share_link(
+                                        &servers.peek(),
+                                        toast,
+                                        ShareTarget {
+                                            server_id: album.server_id.clone(),
+                                            id: album.id.clone(),
+                                            title: album.name.clone(),
+                                        },
+                                    );
+                                }
+                            },
+                        }
                     }
                     MenuGap {}
                     div { class: "rs-menu__note", "Rate album" }
