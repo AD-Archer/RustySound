@@ -31,11 +31,41 @@
 //   unlock()                   inside a user gesture: lifts per-element
 //                              autoplay limits on both elements
 //   clear()                    stops and empties both elements
+//
+// window.__rsAudioDeck.setSinkId(id) -> Promise: sends every element of every
+// deck to the output `id` ("" = system default; Chromium's setSinkId). Decks
+// installed later start on it too. On failure the old output stays.
 
 (() => {
   if (window.__rsAudioDeck) return;
 
   const decks = {};
+  // The chosen output; `window.__rsSinkId` holds a choice made before the
+  // first deck existed.
+  let sinkId = window.__rsSinkId || "";
+
+  function sinkAll(elements) {
+    return Promise.all(
+      elements
+        .filter((el) => typeof el.setSinkId === "function" && el.sinkId !== sinkId)
+        .map((el) => el.setSinkId(sinkId)),
+    );
+  }
+
+  async function setSinkId(id) {
+    const elements = Object.values(decks).flatMap((d) => [d.current(), d.standby()]);
+    const before = sinkId;
+    sinkId = String(id || "");
+    window.__rsSinkId = sinkId;
+    try {
+      await sinkAll(elements);
+    } catch (err) {
+      sinkId = before;
+      window.__rsSinkId = before;
+      await sinkAll(elements).catch(() => {});
+      throw err;
+    }
+  }
   // The most a gapless start begins early.
   const MAX_LEAD_MS = 400;
 
@@ -57,6 +87,7 @@
     let cur = document.getElementById(id) || make(id);
     let next = document.getElementById(nextId) || make(nextId);
     const both = [cur, next];
+    if (sinkId) sinkAll(both).catch(() => {});
 
     let armed = null;      // { src, from, to, volume, fadeMs, meta }
     let pendingArm = null; // an arm that waits for a crossfade to finish
@@ -328,5 +359,5 @@
     return deck;
   }
 
-  window.__rsAudioDeck = { install };
+  window.__rsAudioDeck = { install, setSinkId };
 })();

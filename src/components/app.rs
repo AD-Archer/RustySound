@@ -142,7 +142,7 @@ fn playback_menu_button(id: &str) -> Option<&'static str> {
 /// items run exactly the bar's actions. Falls back to the Now Playing copy
 /// (`np-<id>`) when the bar's button is not mounted.
 #[cfg(all(feature = "desktop", target_os = "macos"))]
-fn press_player_button(id: &str) {
+pub(crate) fn press_player_button(id: &str) {
     let _ = document::eval(&format!(
         r#"(() => {{
   const button = document.getElementById("{id}") || document.getElementById("np-{id}");
@@ -284,6 +284,10 @@ pub fn AppShell() -> Element {
     let track_menu_request = use_signal(|| None::<TrackMenuRequest>);
     let track_menu_change = use_signal(|| None::<SongChange>);
     use_context_provider(|| TrackMenuController::new(track_menu_request, track_menu_change));
+    // Where the sound goes (Now Playing's Output row).
+    crate::components::audio_output::use_audio_output_provider();
+    // "Link copied" and other app-wide status lines.
+    use_context_provider(crate::components::ui::StatusToast::new);
     // The main scroller's position comes from a passive JS listener, not an
     // `onscroll` handler (see `use_main_scroll_provider`).
     let _main_scroll: MainScroll = use_main_scroll_provider();
@@ -384,6 +388,10 @@ pub fn AppShell() -> Element {
             }
         });
     }
+
+    // The Mac menu bar item follows the song and play state.
+    #[cfg(all(feature = "desktop", target_os = "macos"))]
+    crate::menu_bar::use_menu_bar_controls(now_playing, is_playing);
 
     // Cmd+F / Ctrl+F jumps to Search from anywhere (the macOS menu's Find item
     // does the same through muda when it gets the key first).
@@ -1135,6 +1143,8 @@ pub fn AppShell() -> Element {
             SongDetailsOverlay { controller: song_details.clone() }
 
             TrackMenuHost {}
+
+            crate::components::ui::StatusToastHost {}
 
             QuickListenCapsule {}
 

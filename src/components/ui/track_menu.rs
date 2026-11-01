@@ -20,8 +20,8 @@ use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest};
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{
-    quick_listen_id, AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
-    Preview, SongDetailsController, SongDetailsTab,
+    can_share, quick_listen_id, share_link, ui::StatusToast, AddIntent, AddMenuController, AppView,
+    Icon, IsPlayingSignal, Navigation, Preview, ShareTarget, SongDetailsController, SongDetailsTab,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -194,6 +194,7 @@ pub fn TrackMenu(
     let song_details = use_context::<SongDetailsController>();
     let navigation = use_context::<Navigation>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let toast = use_context::<StatusToast>();
     let mut rate_open = use_signal(|| false);
 
     let downloaded = {
@@ -220,6 +221,7 @@ pub fn TrackMenu(
     let is_downloaded = downloaded().unwrap_or(false);
     let can_quick_listen = player.is_none() && !radio && !local && !app_settings.read().offline_mode;
     let quick_listening = (preview.current)().as_deref() == Some(quick_listen_id(&song).as_str());
+    let can_share_song = !radio && can_share(&servers.read(), &song.server_id, app_settings.read().offline_mode);
 
     // ---- Quick Listen ---------------------------------------------------
     // Starts inside the click (the page keeps the user gesture for play()).
@@ -466,6 +468,22 @@ pub fn TrackMenu(
         move |_| open_details(SongDetailsTab::Details)
     };
 
+    let share = {
+        let song = song.clone();
+        move |_| {
+            controller.close();
+            share_link(
+                &servers.peek(),
+                toast,
+                ShareTarget {
+                    server_id: song.server_id.clone(),
+                    id: song.id.clone(),
+                    title: song.title.clone(),
+                },
+            );
+        }
+    };
+
     let subtitle = song.artist.clone().unwrap_or_default();
     let is_popover = popover_style.is_some();
 
@@ -687,6 +705,17 @@ pub fn TrackMenu(
                 onclick: show_info,
                 "Song Info"
                 Icon { name: "info".to_string(), class: "rs-ic".to_string() }
+            }
+            if can_share_song {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    "data-testid": "track-menu-share",
+                    onclick: share,
+                    "Share Link…"
+                    Icon { name: "share".to_string(), class: "rs-ic".to_string() }
+                }
             }
             if let Some(remove) = remove.clone() {
                 div { class: "rs-menu__gap", aria_hidden: "true" }

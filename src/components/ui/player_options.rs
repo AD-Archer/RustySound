@@ -1,10 +1,11 @@
-//! Sleep Timer and Playback Speed rows for the track menu, shown when Now
-//! Playing opens it for the playing song (`TrackMenuController::open_for_player`),
-//! under a quiet "Also playing on Mac" line while another player is playing.
+//! Output, Sleep Timer and Playback Speed rows for the track menu, shown when
+//! Now Playing opens it for the playing song
+//! (`TrackMenuController::open_for_player`), under a quiet "Also playing on
+//! Mac" line while another player is playing.
 
 use crate::components::{
-    set_playback_speed, speed_label, Icon, PlaybackSync, SleepChoice, SleepTimer,
-    PLAYBACK_SPEEDS, SLEEP_CHOICES,
+    set_playback_speed, speed_label, AudioOutput, Icon, OutputPicker, PlaybackSync, SleepChoice,
+    SleepTimer, PLAYBACK_SPEEDS, SLEEP_CHOICES,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -12,20 +13,26 @@ use dioxus::prelude::*;
 /// Which of the player rows the menu opens with, if any.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub enum PlayerMenu {
-    /// Both rows closed.
+    /// All rows closed.
     Closed,
+    Output,
     Sleep,
     Speed,
 }
 
-/// Two expanding rows, like "Rate": Sleep Timer (15/30/45 min, 1 hour, End
-/// of Track, Off) and Playback Speed (0.75×–2×). Picking a choice closes the
-/// menu through `on_done`. `radio`: speed is fixed at 1× for live streams.
+/// Expanding rows, like "Rate": Output (the current device; see
+/// `audio_output`), Sleep Timer (15/30/45 min, 1 hour, End of Track, Off)
+/// and Playback Speed (0.75×–2×). Picking a choice closes the menu through
+/// `on_done`. `radio`: speed is fixed at 1× for live streams. On iPhone,
+/// Output opens the AirPlay sheet instead of expanding.
 #[component]
 pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -> Element {
     let timer = use_context::<SleepTimer>();
     let settings = use_context::<Signal<AppSettings>>();
+    let output = use_context::<AudioOutput>();
     let expanded = use_signal(|| open);
+    let picker = (output.picker)();
+    let output_open = expanded() == PlayerMenu::Output && picker != OutputPicker::AirPlay;
     let sleep_open = expanded() == PlayerMenu::Sleep;
     let speed_open = expanded() == PlayerMenu::Speed && !radio;
     let mode = (timer.mode)();
@@ -51,6 +58,89 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                 span { class: "rs-menu__label", "Also playing on {other.device}" }
                 span { class: "rs-menu__detail rs-menu__label", "{other.title}" }
                 Icon { name: "headphones".to_string(), class: "rs-ic".to_string() }
+            }
+        }
+        if picker != OutputPicker::Hidden {
+            button {
+                r#type: "button",
+                class: "rs-menu__item",
+                role: "menuitem",
+                aria_haspopup: if picker != OutputPicker::AirPlay { "menu" },
+                aria_expanded: if picker != OutputPicker::AirPlay { if output_open { "true" } else { "false" } },
+                "data-testid": "track-menu-output",
+                onclick: move |_| match picker {
+                    OutputPicker::AirPlay => {
+                        output.open_system_picker();
+                        on_done.call(());
+                    }
+                    OutputPicker::Devices => {
+                        if !output_open {
+                            output.refresh();
+                        }
+                        toggle(PlayerMenu::Output);
+                    }
+                    _ => toggle(PlayerMenu::Output),
+                },
+                span { class: "rs-menu__label", "Output" }
+                span { class: "rs-menu__detail", "data-testid": "track-menu-output-route", "{output.route_label()}" }
+                Icon {
+                    name: if picker == OutputPicker::AirPlay { "airplay".to_string() } else { "volume-2".to_string() },
+                    class: "rs-ic".to_string(),
+                }
+            }
+        }
+        if output_open {
+            div {
+                class: "rs-menu__choices rs-menu__choices--names",
+                role: "group",
+                aria_label: "Output",
+                "data-testid": "output-choices",
+                if picker == OutputPicker::SoundSettings {
+                    button {
+                        r#type: "button",
+                        class: "rs-menu__choice",
+                        role: "menuitem",
+                        "data-testid": "output-sound-settings",
+                        onclick: move |_| {
+                            output.open_system_picker();
+                            on_done.call(());
+                        },
+                        "Sound Settings…"
+                    }
+                } else {
+                    for (index, device) in (output.devices)().into_iter().enumerate() {
+                        button {
+                            key: "{device.id}",
+                            r#type: "button",
+                            class: "rs-menu__choice",
+                            role: "menuitemradio",
+                            aria_checked: if *output.selected.read() == device.id { "true" } else { "false" },
+                            title: "{device.label}",
+                            "data-testid": "output-choice-{index}",
+                            onclick: {
+                                let device = device.clone();
+                                move |_| {
+                                    output.choose(device.clone());
+                                    on_done.call(());
+                                }
+                            },
+                            "{device.label}"
+                        }
+                    }
+                    if (output.can_ask)() {
+                        button {
+                            r#type: "button",
+                            class: "rs-menu__choice",
+                            role: "menuitem",
+                            "data-testid": "output-ask",
+                            onclick: move |_| {
+                                output.ask();
+                                on_done.call(());
+                            },
+                            "Other Device…"
+                        }
+                    }
+                }
             }
         }
         button {

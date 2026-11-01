@@ -8,6 +8,9 @@ mod db;
 #[cfg(feature = "desktop")]
 mod desktop_window;
 mod diagnostics;
+// The Mac menu bar item (current song, Play/Pause, Next, Previous).
+#[cfg(any(test, all(feature = "desktop", target_os = "macos")))]
+mod menu_bar;
 // iOS 27 SDK: UIScene life-cycle bridge for tao 0.34 (see the module docs).
 #[cfg(target_os = "ios")]
 mod ios_scene;
@@ -131,7 +134,11 @@ fn main() {
 
         #[cfg(target_os = "macos")]
         {
-            config = config.with_menu(macos_menu_bar());
+            // Clicking the menu bar item opens its menu, without also
+            // bringing the window forward ("Show RustySound" does that).
+            config = config
+                .with_menu(macos_menu_bar())
+                .with_tray_icon_show_window_on_click(false);
         }
 
         #[cfg(not(target_os = "macos"))]

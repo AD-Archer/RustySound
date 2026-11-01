@@ -93,6 +93,9 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         // Playback speed (a gauge).
         "speed" => (Stroke, r#"<path d="M4.3 17.5a8.5 8.5 0 1 1 15.4 0"/><path d="m12 13.6 3.6-4.1"/><circle cx="12" cy="13.6" r="1.1" fill="currentColor"/>"#),
         // Quick Listen (a 30-second preview).
+        // AirPlay audio: rings over a solid triangle.
+        "airplay" => (Stroke, r#"<path d="M7.3 16.2a7.5 7.5 0 1 1 9.4 0"/><path d="M9.4 13.6a4 4 0 1 1 5.2 0"/><path d="M12 15.2 16.3 20.5H7.7Z" fill="currentColor"/>"#),
+        "share" => (Stroke, r#"<path d="M12 3.5v11"/><path d="m8 7.3 4-3.8 4 3.8"/><path d="M8.5 10.5H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/>"#),
         "headphones" => (Stroke, r#"<path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>"#),
         "eye" => (Stroke, r#"<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>"#),
         "eye-off" => (Stroke, r#"<path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4"/><path d="M6.3 7.4C3.9 9.1 2.5 12 2.5 12S6 18.5 12 18.5c1.8 0 3.3-.6 4.6-1.4"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3.5 3.5 17 17"/>"#),

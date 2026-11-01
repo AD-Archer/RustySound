@@ -32,6 +32,7 @@ mod segmented;
 mod sheet;
 mod sidebar;
 mod skeleton;
+mod status_toast;
 mod stage;
 mod switch;
 mod tab_bar;
@@ -72,6 +73,7 @@ pub use sheet::Sheet;
 pub use sidebar::Sidebar;
 pub use skeleton::Skeleton;
 pub use stage::Stage;
+pub use status_toast::{StatusToast, StatusToastHost};
 pub use switch::Switch;
 pub use tab_bar::TabBar;
 pub use track_menu::{
