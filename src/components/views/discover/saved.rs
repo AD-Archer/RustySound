@@ -195,6 +195,7 @@ mod tests {
             username: "u".into(),
             password: "p".into(),
             active,
+            ..Default::default()
         }
     }
 

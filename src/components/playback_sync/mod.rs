@@ -13,8 +13,8 @@ pub use continue_capsule::ContinueCapsule;
 pub use logic::*;
 
 use crate::api::{
-    client_name, device_from_client_name, NavidromeClient, ServerConfig, ServerPlayQueue, Song,
-    SyncSupport,
+    client_name, device_from_client_name, Capabilities, MusicClient, NavidromeClient, ServerConfig,
+    ServerPlayQueue, Song, SyncSupport,
 };
 use crate::components::{
     effective_rate, IsPlayingSignal, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
@@ -126,10 +126,15 @@ impl RestoreSignals {
     }
 }
 
+/// Whether this server keeps a play queue for us.
+fn syncs_queue(server: &ServerConfig) -> bool {
+    Capabilities::of(server).play_queue_sync
+}
+
 /// Every active server's saved queue (those that have one).
 pub async fn fetch_server_queues(servers: &[ServerConfig]) -> Vec<(ServerConfig, ServerPlayQueue)> {
     let mut found = Vec::new();
-    for server in servers.iter().filter(|s| s.active) {
+    for server in servers.iter().filter(|s| s.active && syncs_queue(s)) {
         let client = NavidromeClient::new(server.clone());
         let support = client.sync_support().await;
         if let Ok(Some(queue)) = client.get_play_queue(support).await {
@@ -259,9 +264,10 @@ struct QueueSave {
 }
 
 /// The current server's part of the queue (other servers' songs and radio
-/// can't go in its queue), with the current song's index in it.
+/// can't go in its queue), with the current song's index in it. Nothing
+/// for servers that keep no queue (Jellyfin).
 fn plan_queue_save(queue: &[Song], index: usize, current: &Song, position_ms: u64, servers: &[ServerConfig]) -> Option<QueueSave> {
-    let server = servers.iter().find(|s| s.id == current.server_id)?.clone();
+    let server = servers.iter().find(|s| s.id == current.server_id && syncs_queue(s))?.clone();
     let at_index = queue
         .get(index)
         .filter(|s| s.id == current.id && s.server_id == current.server_id)
@@ -342,8 +348,8 @@ fn send_reports(servers: &[ServerConfig], reports: Vec<PlaybackReport>) {
             }
             next
         }) {
-            let client = NavidromeClient::new(server);
-            if !client.sync_support().await.playback_report {
+            let client = MusicClient::new(server);
+            if !client.reports_playback().await {
                 // `scrobble_song` reports for servers without the extension.
                 continue;
             }
@@ -607,6 +613,7 @@ pub fn PlaybackSyncHost(ready: Signal<bool>) -> Element {
                         current
                             .and_then(|id| servers.iter().find(|s| s.id == id).cloned())
                             .or_else(|| servers.iter().find(|s| s.active).cloned())
+                            .filter(syncs_queue)
                     };
                     if let (Some(server), false) = (server, settings.peek().offline_mode) {
                         let username = server.username.clone();
@@ -652,8 +659,8 @@ fn save_before_exit(save: Option<QueueSave>, stop: Option<PlaybackReport>, serve
             }
             if let Some(report) = stop {
                 if let Some(server) = servers.into_iter().find(|s| s.id == report.server_id) {
-                    let client = NavidromeClient::new(server);
-                    if client.sync_support().await.playback_report {
+                    let client = MusicClient::new(server);
+                    if client.reports_playback().await {
                         let _ = client
                             .report_playback(&report.song_id, report.state, report.position_ms, report.rate)
                             .await;
@@ -676,8 +683,8 @@ mod tests {
 
     fn servers() -> Vec<ServerConfig> {
         vec![
-            ServerConfig { id: "a".into(), name: "A".into(), url: "http://a".into(), username: "u".into(), password: "p".into(), active: true },
-            ServerConfig { id: "b".into(), name: "B".into(), url: "http://b".into(), username: "u".into(), password: "p".into(), active: true },
+            ServerConfig { id: "a".into(), name: "A".into(), url: "http://a".into(), username: "u".into(), password: "p".into(), active: true, ..Default::default() },
+            ServerConfig { id: "b".into(), name: "B".into(), url: "http://b".into(), username: "u".into(), password: "p".into(), active: true, ..Default::default() },
         ]
     }
 
@@ -708,6 +715,15 @@ mod tests {
         // Playing a local song saves nothing and reports nothing.
         assert!(plan_queue_save(&queue, 1, &queue[1], 0, &servers()).is_none());
         assert!(!can_sync(&queue[1]));
+    }
+
+    #[test]
+    fn jellyfin_servers_keep_no_queue() {
+        let jelly = ServerConfig { id: "j".into(), ..ServerConfig::jellyfin("J".into(), "http://j".into(), "u".into(), "uid".into(), "t".into()) };
+        let queue = vec![song("1", "j"), song("2", "j")];
+        assert!(plan_queue_save(&queue, 0, &queue[0], 0, &[jelly]).is_none());
+        // Its songs still report playback.
+        assert!(can_sync(&queue[0]));
     }
 
     #[test]

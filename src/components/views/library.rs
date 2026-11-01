@@ -7,8 +7,8 @@ pub(super) mod shared;
 pub(super) mod song_flow;
 pub(super) mod tiles;
 
-use crate::api::{Album, NavidromeClient, ServerConfig};
-use crate::components::ui::{InsetList, ListInset, ListRow, SectionHeader};
+use crate::api::{Album, MusicClient, ServerConfig};
+use crate::components::ui::{radio_available, InsetList, ListInset, ListRow, SectionHeader};
 use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 use tiles::AlbumTile;
@@ -26,7 +26,7 @@ pub fn LibraryView() -> Element {
         async move {
             let mut albums: Vec<Album> = Vec::new();
             for server in active {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(mut list) = client.get_albums("newest", RECENT_LIMIT as u32, 0).await {
                     albums.append(&mut list);
                 }
@@ -50,13 +50,16 @@ pub fn LibraryView() -> Element {
         ("Favorites", "heart", "library-favorites", AppView::FavoritesView {}),
         ("Downloads", "download", "library-downloads", AppView::DownloadsView {}),
     ];
-    let more: [(&str, &str, &str, AppView); 5] = [
+    let mut more: Vec<(&str, &str, &str, AppView)> = vec![
         ("Radio", "radio", "library-radio", AppView::RadioView {}),
         ("Random Mix", "shuffle", "library-random", AppView::RandomView {}),
         ("Bookmarks", "bookmark", "library-bookmarks", AppView::BookmarksView {}),
         ("Up Next", "queue", "library-queue", AppView::QueueView {}),
         ("Stats", "stats", "library-stats", AppView::StatsView {}),
     ];
+    if !radio_available(&servers.read()) {
+        more.retain(|item| item.2 != "library-radio");
+    }
 
     rsx! {
         div { class: "rs-view rs-library-home", "data-testid": "library",

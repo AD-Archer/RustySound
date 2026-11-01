@@ -137,7 +137,7 @@
                                         spawn(async move {
                                             if let Some(server) = servers_snapshot
                                                 .iter()
-                                                .find(|s| s.id == server_id)
+                                                .find(|s| s.id == server_id && Capabilities::of(s).bookmarks)
                                                 .cloned()
                                             {
                                                 let client = NavidromeClient::new(server);

@@ -1,6 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::api::{
-    fetch_lyrics_with_fallback, normalize_lyrics_provider_order, LyricsQuery, NavidromeClient,
+    fetch_lyrics_with_fallback, normalize_lyrics_provider_order, LyricsQuery, MusicClient,
 };
 use crate::api::{ServerConfig, Song};
 use crate::db::AppSettings;
@@ -897,7 +897,7 @@ pub async fn sync_downloaded_collection_metadata(servers: &[ServerConfig]) -> us
 
     let mut synced = 0usize;
     for (server_id, server) in active_servers {
-        let client = NavidromeClient::new(server.clone());
+        let client = MusicClient::new(server.clone());
 
         if let Some(album_ids) = album_ids_by_server.get(&server_id) {
             for album_id in album_ids {
@@ -1547,7 +1547,7 @@ fn song_cover_art_candidates(song: &Song, preference: ArtworkDownloadPreference)
 
 #[cfg(not(target_arch = "wasm32"))]
 fn warm_song_cover_art(
-    client: &NavidromeClient,
+    client: &MusicClient,
     song: &Song,
     preference: ArtworkDownloadPreference,
     seen_requests: &mut HashSet<String>,
@@ -1634,7 +1634,7 @@ pub async fn run_auto_download_pass(
     );
 
     for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server.clone());
+        let client = MusicClient::new(server.clone());
 
         if let Ok((starred_artists, starred_albums, mut starred_songs)) = client.get_starred().await
         {
@@ -1866,7 +1866,7 @@ pub async fn refresh_downloaded_cache(
             ..Song::default()
         };
 
-        let client = NavidromeClient::new(server);
+        let client = MusicClient::new(server.clone());
         report.artwork_refreshed += warm_song_cover_art(
             &client,
             &song,
@@ -1874,7 +1874,7 @@ pub async fn refresh_downloaded_cache(
             &mut seen_cover_requests,
         );
 
-        if let Some(warmed) = warm_song_lyrics(&song, &client.server, settings).await {
+        if let Some(warmed) = warm_song_lyrics(&song, &server, settings).await {
             report.lyrics_attempted += 1;
             if warmed {
                 report.lyrics_warmed += 1;
@@ -1934,7 +1934,7 @@ pub async fn prefetch_song_audio_with_origin(
         return Ok(());
     };
 
-    let client = NavidromeClient::new(server);
+    let client = MusicClient::new(server.clone());
     let _active_download_guard = ActiveDownloadGuard::new(song);
     let stream_url = client.get_stream_url(&song.id);
     let response = AUDIO_HTTP_CLIENT
@@ -1976,7 +1976,7 @@ pub async fn prefetch_song_audio_with_origin(
     );
 
     // Warm lyrics alongside audio download so offline playback has text available.
-    let _ = warm_song_lyrics(song, &client.server, settings).await;
+    let _ = warm_song_lyrics(song, &server, settings).await;
 
     let size_budget_mb = if settings.downloads_enabled {
         settings.download_limit_mb

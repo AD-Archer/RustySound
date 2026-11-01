@@ -160,7 +160,7 @@ fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
         .and_then(|server| {
             song.cover_art
                 .as_ref()
-                .map(|cover| NavidromeClient::new(server.clone()).get_cover_art_url(cover, 512))
+                .map(|cover| MusicClient::new(server.clone()).get_cover_art_url(cover, 512))
         });
 
     NativeTrackMetadata {

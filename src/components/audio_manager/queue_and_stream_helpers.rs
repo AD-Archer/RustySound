@@ -77,7 +77,7 @@ pub(crate) async fn generate_queue_extension_from_seed(
         let random_batch = ((limit as u32).saturating_mul(2)).clamp(30, 120);
         for _pass in 0..2 {
             for server in active_servers.iter().cloned() {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(random_songs) = client.get_random_songs(random_batch).await {
                     extend_unique_queue_candidates(
                         random_songs,
@@ -340,7 +340,7 @@ pub(crate) fn spawn_shuffle_queue(
                 .find(|s| s.id == seed.server_id)
                 .cloned()
             {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
                     songs.extend(similar);
                 }
@@ -349,7 +349,7 @@ pub(crate) fn spawn_shuffle_queue(
 
         if songs.is_empty() {
             for server in active_servers.iter().cloned() {
-                let client = NavidromeClient::new(server.clone());
+                let client = MusicClient::new(server.clone());
                 if let Ok(server_songs) = client.get_random_songs(25).await {
                     songs.extend(server_songs);
                 }
@@ -408,7 +408,7 @@ pub(crate) fn spawn_shuffle_queue(
                 .find(|s| s.id == seed.server_id)
                 .cloned()
             {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
                     songs.extend(similar);
                 }
@@ -417,7 +417,7 @@ pub(crate) fn spawn_shuffle_queue(
 
         if songs.is_empty() {
             for server in active_servers.iter().cloned() {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(server_songs) = client.get_random_songs(25).await {
                     songs.extend(server_songs);
                 }
@@ -515,7 +515,7 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
         .iter()
         .find(|s| s.id == song.server_id)
         .map(|server| {
-            let client = NavidromeClient::new(server.clone());
+            let client = MusicClient::new(server.clone());
             client.get_stream_url(song_id)
         })
 }
@@ -550,7 +550,7 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig], offline_mode: bool)
         .iter()
         .find(|s| s.id == song.server_id)
         .map(|server| {
-            let client = NavidromeClient::new(server.clone());
+            let client = MusicClient::new(server.clone());
             client.get_stream_url(song_id)
         })
 }
@@ -563,10 +563,11 @@ fn can_save_server_bookmark(song: &Song) -> bool {
 }
 
 /// Reports a play the old way, with `scrobble`: `finished` false updates
-/// "Now Playing", true counts the play. Servers with the `playbackReport`
-/// extension get reportPlayback from playback sync instead (it scrobbles on
-/// `stopped`), so they're skipped here rather than counted twice. A
-/// finished song is also handed to playback sync for that `stopped`.
+/// "Now Playing", true counts the play. Servers that take playback reports
+/// (the `playbackReport` extension, and Jellyfin) get them from playback
+/// sync instead (they count the play on `stopped`), so they're skipped here
+/// rather than counted twice. A finished song is also handed to playback
+/// sync for that `stopped`.
 fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
     // No server hears about local plays; they're counted in the local index.
     if crate::local_music::is_local_song(song) {
@@ -582,8 +583,8 @@ fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
     if let Some(server) = server {
         let song_id = song.id.clone();
         spawn(async move {
-            let client = NavidromeClient::new(server);
-            if client.sync_support().await.playback_report {
+            let client = MusicClient::new(server);
+            if client.reports_playback().await {
                 return;
             }
             let _ = client.scrobble(&song_id, finished).await;

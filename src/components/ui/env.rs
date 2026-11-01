@@ -1,6 +1,6 @@
 //! Shared kit plumbing: layout, platform, theme mapping, timers, art URLs.
 
-use crate::api::{NavidromeClient, ServerConfig};
+use crate::api::{MusicClient, ServerConfig};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -176,7 +176,7 @@ pub fn cover_art_url(
         return crate::local_music::cover_art_data_url(cover_art);
     }
     let server = servers.iter().find(|server| server.id == server_id)?;
-    let url = NavidromeClient::new(server.clone()).get_cover_art_url(cover_art, size_px);
+    let url = MusicClient::new(server.clone()).get_cover_art_url(cover_art, size_px);
     if url.is_empty() {
         None
     } else {
@@ -200,7 +200,7 @@ pub fn cover_art_src(
         return crate::local_music::cover_art_src(cover_art);
     }
     let server = servers.iter().find(|server| server.id == server_id)?;
-    let url = NavidromeClient::new(server.clone()).get_cover_art_display_url(cover_art, size_px);
+    let url = MusicClient::new(server.clone()).get_cover_art_display_url(cover_art, size_px);
     if url.is_empty() {
         None
     } else {

@@ -825,7 +825,7 @@ fn web_sync_media_session_metadata(song: Option<&Song>, servers: &[ServerConfig]
             .and_then(|server| {
                 song.cover_art
                     .as_ref()
-                    .map(|cover| NavidromeClient::new(server.clone()).get_cover_art_url(cover, 512))
+                    .map(|cover| MusicClient::new(server.clone()).get_cover_art_url(cover, 512))
             });
 
         serde_json::json!({

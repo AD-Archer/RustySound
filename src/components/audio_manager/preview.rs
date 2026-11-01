@@ -14,7 +14,7 @@
 //! progress from 0 to 1, updated on `timeupdate`.
 
 use super::{ramp_output_volume, set_output_volume};
-use crate::api::{NavidromeClient, ServerConfig, Song};
+use crate::api::{MusicClient, ServerConfig, Song};
 use crate::components::ui::env::sleep_ms;
 use crate::components::{IsPlayingSignal, VolumeSignal};
 use dioxus::core::{current_scope_id, Runtime, Task};
@@ -232,7 +232,7 @@ impl Preview {
         let Some(server) = servers.iter().find(|s| s.id == song.server_id).cloned() else {
             return;
         };
-        let url = NavidromeClient::new(server).get_stream_url(&song.id);
+        let url = MusicClient::new(server).get_stream_url(&song.id);
         let start = quick_listen_start(f64::from(song.duration));
         self.play(id, url, start, Some(song), |_| {});
     }

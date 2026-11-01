@@ -13,7 +13,7 @@
 //! Servers with sharing turned off are remembered for the session, and the
 //! menus stop offering the item (`can_share`).
 
-use crate::api::{known_share_support, NavidromeClient, ServerConfig};
+use crate::api::{known_share_support, Capabilities, NavidromeClient, ServerConfig};
 use crate::components::ui::StatusToast;
 #[allow(unused_imports)]
 use dioxus::prelude::*;
@@ -29,12 +29,11 @@ pub struct ShareTarget {
 }
 
 /// Whether menus offer "Share Link…" for an item on `server_id`: online, a
-/// configured server (not music on the device), and not known to have
-/// sharing off.
+/// configured server that has share links (not Jellyfin, not music on the
+/// device), and not known to have sharing off.
 pub fn can_share(servers: &[ServerConfig], server_id: &str, offline: bool) -> bool {
     !offline
-        && !crate::local_music::is_local(server_id)
-        && servers.iter().any(|s| s.id == server_id)
+        && Capabilities::for_source(servers, server_id).sharing
         && known_share_support(server_id) != Some(false)
 }
 

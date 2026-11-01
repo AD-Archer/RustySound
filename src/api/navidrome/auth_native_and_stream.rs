@@ -3,6 +3,12 @@
 /// Largest cover-art edge requested from the server, in pixels.
 const COVER_ART_MAX_PX: u32 = 1200;
 
+/// What a Subsonic call builds for a Jellyfin server: a URL no request can
+/// load, so a feature only Subsonic has fails at once instead of asking the
+/// Jellyfin server for `/rest/…`. Views hide those features from
+/// `Capabilities`; this covers any call site that doesn't.
+const SUBSONIC_ONLY_URL: &str = "unsupported://subsonic-only";
+
 impl NavidromeClient {
     pub fn new(server: ServerConfig) -> Self {
         Self { server }
@@ -62,6 +68,9 @@ impl NavidromeClient {
         if is_offline_mode() {
             return "offline://network-blocked".to_string();
         }
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
 
@@ -75,6 +84,9 @@ impl NavidromeClient {
     fn build_url_owned(&self, endpoint: &str, extra_params: Vec<(String, String)>) -> String {
         if is_offline_mode() {
             return "offline://network-blocked".to_string();
+        }
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
         }
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
@@ -94,6 +106,9 @@ impl NavidromeClient {
     }
 
     fn native_base_url(&self, path: &str) -> String {
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         format!(
             "{}/{}",
             self.server.url.trim_end_matches('/'),
@@ -401,6 +416,9 @@ impl NavidromeClient {
     }
 
     fn build_cover_art_network_url(&self, cover_art_id: &str, requested_size: u32) -> String {
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         let auth = self.auth_params_for_binary();
         format!(
             "{}/rest/getCoverArt?{}&id={}&size={}",
@@ -413,6 +431,9 @@ impl NavidromeClient {
 
     #[allow(dead_code)]
     pub fn get_stream_url(&self, song_id: &str) -> String {
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         let auth = self.auth_params_for_binary();
         format!(
             "{}/rest/stream?{}&id={}",

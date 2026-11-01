@@ -1,10 +1,17 @@
 //! Sidebar for the wide layout.
 
-use crate::api::ServerConfig;
+use crate::api::{Capabilities, ServerConfig};
 use crate::components::ui::WindowDragRegion;
 use crate::components::{AppView, Icon, Navigation, PageMotion, SongDetailsController};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
+
+/// Whether any active server keeps radio stations. With no server yet, Radio
+/// stays (most servers do). Also used by the Library page's Radio tile.
+pub fn radio_available(servers: &[ServerConfig]) -> bool {
+    let mut active = servers.iter().filter(|s| s.active).peekable();
+    active.peek().is_none() || active.any(|s| Capabilities::of(s).internet_radio)
+}
 
 /// Home, Search; Library (Playlists, Artists, Albums, Songs, Favorites,
 /// Downloads); Radio, Stats; Settings with the server status at the bottom.
@@ -68,7 +75,7 @@ pub fn Sidebar() -> Element {
         }
     };
 
-    let groups: [(Option<&str>, Vec<(&str, &str, &str, AppView)>); 3] = [
+    let mut groups: [(Option<&str>, Vec<(&str, &str, &str, AppView)>); 3] = [
         (
             None,
             vec![
@@ -95,6 +102,10 @@ pub fn Sidebar() -> Element {
             ],
         ),
     ];
+    // Radio stations live on Subsonic servers; with only Jellyfin ones there's nothing to show.
+    if !radio_available(&servers.read()) {
+        groups[2].1.retain(|item| item.2 != "nav-radio");
+    }
 
     rsx! {
         aside { class: "rs-sidebar", aria_label: "Sidebar",

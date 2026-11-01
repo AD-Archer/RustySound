@@ -5,7 +5,7 @@ use super::cache::{memo_get, memo_put};
 use super::http::server_call;
 use super::util::normalize_name;
 use crate::api::models::{Album, ServerConfig, Song};
-use crate::api::navidrome::{NativeSongSortField, NativeSortOrder, NavidromeClient};
+use crate::api::MusicClient;
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -63,17 +63,12 @@ pub async fn load_snapshot(servers: &[ServerConfig], memo_key: &str) -> LibraryS
     }
 
     let per_server = join_all(servers.iter().cloned().map(|server| async move {
-        let client = NavidromeClient::new(server);
+        let client = MusicClient::new(server);
         let (newest, frequent, recent, top) = futures_util::join!(
             server_call(client.get_albums("newest", NEWEST_SIZE, 0)),
             server_call(client.get_albums("frequent", FREQUENT_SIZE, 0)),
             server_call(client.get_albums("recent", RECENT_SIZE, 0)),
-            server_call(client.get_native_songs(
-                NativeSongSortField::PlayCount,
-                NativeSortOrder::Desc,
-                0,
-                TOP_SONGS,
-            )),
+            server_call(client.get_most_played_songs(TOP_SONGS)),
         );
         let ok = newest.is_ok() || frequent.is_ok() || recent.is_ok();
         (

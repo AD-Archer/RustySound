@@ -1,13 +1,54 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// Which API a server speaks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum ServerKind {
+    /// Subsonic / OpenSubsonic (Navidrome and friends). Servers saved before
+    /// Jellyfin support load as this.
+    #[default]
+    Subsonic,
+    Jellyfin,
+}
+
+// The native database stores the kind as text; the web build saves JSON.
+#[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+impl ServerKind {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Subsonic => "subsonic",
+            Self::Jellyfin => "jellyfin",
+        }
+    }
+
+    /// The stored text back to a kind; anything unknown is Subsonic.
+    pub fn from_stored(value: &str) -> Self {
+        if value.trim().eq_ignore_ascii_case("jellyfin") {
+            Self::Jellyfin
+        } else {
+            Self::Subsonic
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct ServerConfig {
     pub id: String,
     pub name: String,
     pub url: String,
     pub username: String,
+    /// Subsonic only. Jellyfin servers keep an access token instead and
+    /// leave this empty.
     pub password: String,
     pub active: bool,
+    #[serde(default)]
+    pub kind: ServerKind,
+    /// Jellyfin: the signed-in user's id.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub user_id: String,
+    /// Jellyfin: the access token from `AuthenticateByName`.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub access_token: String,
 }
 
 impl ServerConfig {
@@ -19,7 +60,23 @@ impl ServerConfig {
             username,
             password,
             active: true,
+            ..Default::default()
         }
+    }
+
+    /// A Jellyfin server, signed in as `user_id` with `access_token`.
+    #[cfg(test)]
+    pub fn jellyfin(name: String, url: String, username: String, user_id: String, access_token: String) -> Self {
+        Self {
+            kind: ServerKind::Jellyfin,
+            user_id,
+            access_token,
+            ..Self::new(name, url, username, String::new())
+        }
+    }
+
+    pub fn is_jellyfin(&self) -> bool {
+        self.kind == ServerKind::Jellyfin
     }
 }
 

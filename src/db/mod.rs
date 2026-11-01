@@ -555,7 +555,8 @@ fn save_servers_inner(
 
     for server in servers {
         tx.execute(
-            "INSERT INTO servers (id, name, url, username, password, active) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            "INSERT INTO servers (id, name, url, username, password, active, kind, user_id, access_token)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             rusqlite::params![
                 &server.id,
                 &server.name,
@@ -563,6 +564,9 @@ fn save_servers_inner(
                 &server.username,
                 &server.password,
                 if server.active { "1" } else { "0" },
+                server.kind.as_str(),
+                &server.user_id,
+                &server.access_token,
             ],
         )
         .map_err(|e| DbError::new(e.to_string()))?;
@@ -586,7 +590,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
     let conn = get_db_connection()?;
 
     let mut stmt = conn
-        .prepare("SELECT id, name, url, username, password, active FROM servers")
+        .prepare("SELECT id, name, url, username, password, active, kind, user_id, access_token FROM servers")
         .map_err(|e| DbError::new(e.to_string()))?;
 
     let servers = stmt
@@ -598,6 +602,9 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
                 username: row.get(3)?,
                 password: row.get(4)?,
                 active: row.get::<_, String>(5)? == "1",
+                kind: crate::api::ServerKind::from_stored(&row.get::<_, String>(6)?),
+                user_id: row.get(7)?,
+                access_token: row.get(8)?,
             })
         })
         .map_err(|e| DbError::new(e.to_string()))?
@@ -804,6 +811,29 @@ pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
     LocalStorage::get(format!("rustysound.{key}")).ok()
 }
 
+/// Jellyfin support added the server's kind and its Jellyfin sign-in to the
+/// servers table. Existing rows become Subsonic servers.
+#[cfg(not(target_arch = "wasm32"))]
+fn add_server_kind_columns(conn: &rusqlite::Connection) -> Result<(), DbError> {
+    let existing = conn
+        .prepare("PRAGMA table_info(servers)")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(|e| DbError::new(e.to_string()))?;
+    for (column, default) in [("kind", "subsonic"), ("user_id", ""), ("access_token", "")] {
+        if !existing.iter().any(|name| name == column) {
+            conn.execute(
+                &format!("ALTER TABLE servers ADD COLUMN {column} TEXT NOT NULL DEFAULT '{default}'"),
+                [],
+            )
+            .map_err(|e| DbError::new(e.to_string()))?;
+        }
+    }
+    Ok(())
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn initialize_database() -> Result<(), DbError> {
     let conn = get_db_connection()?;
@@ -821,6 +851,7 @@ pub async fn initialize_database() -> Result<(), DbError> {
         [],
     )
     .map_err(|e| DbError::new(e.to_string()))?;
+    add_server_kind_columns(&conn)?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings (
@@ -960,5 +991,57 @@ mod discovery_settings_tests {
         let json = serde_json::to_string(&settings).unwrap();
         let back: AppSettings = serde_json::from_str(&json).unwrap();
         assert_eq!(back, settings);
+    }
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
+mod server_kind_migration_tests {
+    use super::*;
+    use crate::api::ServerKind;
+
+    fn kinds(conn: &rusqlite::Connection) -> Vec<(String, String, String)> {
+        conn.prepare("SELECT kind, user_id, access_token FROM servers ORDER BY id")
+            .unwrap()
+            .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect()
+    }
+
+    #[test]
+    fn saved_servers_load_as_subsonic_and_jellyfin_round_trips() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        // The table as it was before Jellyfin support, with one saved server.
+        conn.execute(
+            "CREATE TABLE servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL,
+             username TEXT NOT NULL, password TEXT NOT NULL, active TEXT NOT NULL DEFAULT '1')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO servers VALUES ('a', 'Home', 'http://h', 'u', 'p', '1')", []).unwrap();
+        add_server_kind_columns(&conn).unwrap();
+        // Running it again is harmless.
+        add_server_kind_columns(&conn).unwrap();
+        assert_eq!(kinds(&conn), vec![("subsonic".into(), String::new(), String::new())]);
+
+        let jelly = ServerConfig {
+            id: "b".into(),
+            ..ServerConfig::jellyfin("Jelly".into(), "http://j".into(), "u".into(), "uid".into(), "tok".into())
+        };
+        save_servers_inner(&mut conn, &[jelly]).unwrap();
+        assert_eq!(kinds(&conn), vec![("jellyfin".into(), "uid".into(), "tok".into())]);
+        assert_eq!(ServerKind::from_stored("jellyfin"), ServerKind::Jellyfin);
+        assert_eq!(ServerKind::from_stored("anything"), ServerKind::Subsonic);
+    }
+
+    #[test]
+    fn web_saved_servers_without_a_kind_are_subsonic() {
+        let old = r#"[{"id":"a","name":"A","url":"http://a","username":"u","password":"p","active":true}]"#;
+        let servers: Vec<ServerConfig> = serde_json::from_str(old).unwrap();
+        assert_eq!(servers[0].kind, ServerKind::Subsonic);
+        assert!(servers[0].access_token.is_empty());
+        // Subsonic servers save without the Jellyfin fields.
+        let json = serde_json::to_string(&servers[0]).unwrap();
+        assert!(json.contains(r#""kind":"subsonic""#) && !json.contains("access_token"));
     }
 }

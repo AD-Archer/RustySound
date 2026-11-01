@@ -4,7 +4,7 @@ use super::controls::{
     AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton, RatingButton,
     RepeatButton, ShuffleButton,
 };
-use crate::api::{NavidromeClient, ServerConfig, Song};
+use crate::api::{MusicClient, ServerConfig, Song};
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{
     Artwork, IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, ProgressTrack,
@@ -221,7 +221,7 @@ fn FavoriteButton() -> Element {
                 let should_star = song.starred.is_none();
                 let (mut now_playing, mut queue) = (now_playing, queue);
                 spawn(async move {
-                    let client = NavidromeClient::new(server);
+                    let client = MusicClient::new(server);
                     let result = if should_star {
                         client.star(&song.id, "song").await
                     } else {

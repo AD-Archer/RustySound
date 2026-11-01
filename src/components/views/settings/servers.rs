@@ -4,7 +4,7 @@
 use super::server_form::{format_connection_error, ServerSheet};
 use super::local_music::LocalMusicGroup;
 use super::shared::{use_settings_ctx, ActionRow, Footnote};
-use crate::api::{NavidromeClient, ServerConfig};
+use crate::api::{MusicClient, ServerConfig};
 use crate::components::ui::{
     Button, ButtonVariant, EmptyState, Sheet, Switch,
 };
@@ -60,7 +60,7 @@ pub(super) fn ServersSection() -> Element {
             });
             spawn(async move {
                 let id = server.id.clone();
-                let result = NavidromeClient::new(server).ping().await;
+                let result = MusicClient::new(server).ping().await;
                 reach.with_mut(|map| {
                     map.insert(
                         id,
