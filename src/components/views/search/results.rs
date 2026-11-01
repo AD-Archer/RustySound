@@ -3,9 +3,12 @@
 
 use super::scoring::TopHit;
 use crate::api::{Album, Artist, SearchResult, Song};
-use crate::components::audio_manager::normalize_manual_queue_songs;
-use crate::components::ui::{Artwork, InsetList, ListInset, ListRow, SectionHeader, TrackRow};
-use crate::components::{AppView, Icon, IsPlayingSignal, Navigation};
+use crate::components::ui::{
+    ArtistTile, Artwork, InsetList, ListInset, ListRow, RowGestureList, RowSwipe, SectionHeader,
+    StatusToast, TrackRow,
+};
+use crate::components::views::library::shared::use_now_playing;
+use crate::components::{use_player, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 /// Songs shown at most, even after "See All" (a search is not a library view).
@@ -30,17 +33,13 @@ fn preview_len(kind: Kind, wide: bool) -> usize {
 }
 
 /// Replaces the queue with one song and plays it (as the old Search did).
-fn use_play_song() -> impl FnMut(Song) + Copy {
-    let mut now_playing = use_context::<Signal<Option<Song>>>();
-    let mut queue = use_context::<Signal<Vec<Song>>>();
-    let mut queue_index = use_context::<Signal<usize>>();
-    let mut is_playing = use_context::<IsPlayingSignal>().0;
+fn use_play_song() -> impl Fn(Song) + Copy {
+    let player = use_player();
+    let toast = use_context::<StatusToast>();
     move |song: Song| {
-        let single = normalize_manual_queue_songs(vec![song]);
-        queue.set(single.clone());
-        queue_index.set(0);
-        now_playing.set(single.first().cloned());
-        is_playing.set(true);
+        if let Err(message) = player.play(vec![song], 0, None) {
+            toast.show(message, true);
+        }
     }
 }
 
@@ -52,8 +51,8 @@ pub(super) fn Results(
     on_open: EventHandler<()>,
 ) -> Element {
     let navigation = use_context::<Navigation>();
-    let now_playing = use_context::<Signal<Option<Song>>>();
-    let mut play = use_play_song();
+    let (playing_key, live) = use_now_playing();
+    let play = use_play_song();
     let mut expanded = use_signal(|| None::<Kind>);
 
     let shown = |kind: Kind, total: usize| -> usize {
@@ -92,10 +91,7 @@ pub(super) fn Results(
         });
     };
 
-    let playing_key = now_playing
-        .read()
-        .as_ref()
-        .map(|s| format!("{}:{}", s.server_id, s.id));
+    let playing_key = playing_key();
     let artists = &results.artists[..shown(Kind::Artists, results.artists.len())];
     let albums = &results.albums[..shown(Kind::Albums, results.albums.len())];
     let songs = &results.songs[..shown(Kind::Songs, results.songs.len())];
@@ -128,11 +124,10 @@ pub(super) fn Results(
             }
             ul { class: "rs-search-artists", aria_label: "Artists",
                 for artist in artists.iter().cloned() {
-                    li { key: "{artist.server_id}:{artist.id}",
-                        ArtistCard {
-                            artist: artist.clone(),
-                            onclick: move |_| open_artist(artist.clone()),
-                        }
+                    // The tile opens the artist; the click bubbles here to
+                    // remember the search.
+                    li { key: "{artist.key()}", onclick: move |_| on_open.call(()),
+                        ArtistTile { artist }
                     }
                 }
             }
@@ -176,19 +171,28 @@ pub(super) fn Results(
                 on_action: songs_handler,
                 testid: "search-songs-all".to_string(),
             }
+            // Swipe a song for Play Next / Add to….
+            RowGestureList { id: "search-songs", swipe: RowSwipe::Browse,
             InsetList { inset: ListInset::Art, label: "Songs".to_string(),
                 for (index, song) in songs.iter().cloned().enumerate() {
-                    TrackRow {
-                        key: "{song.server_id}:{song.id}",
-                        playing: playing_key.as_deref() == Some(format!("{}:{}", song.server_id, song.id).as_str()),
-                        index,
-                        song: song.clone(),
-                        on_play: move |_| {
-                            on_open.call(());
-                            play(song.clone());
-                        },
+                    {
+                        let playing = playing_key.as_deref() == Some(song.key().as_str());
+                        rsx! {
+                            TrackRow {
+                                key: "{song.key()}",
+                                playing,
+                                live: playing && live(),
+                                index,
+                                song: song.clone(),
+                                on_play: move |_| {
+                                    on_open.call(());
+                                    play(song.clone());
+                                },
+                            }
+                        }
                     }
                 }
+            }
             }
             if expanded() == Some(Kind::Songs) && results.songs.len() > SONG_CAP {
                 p { class: "rs-list-foot", "Showing the best {SONG_CAP} songs. Add a word to narrow it down." }
@@ -254,31 +258,3 @@ fn TopHitCard(hit: TopHit, on_activate: EventHandler<MouseEvent>) -> Element {
     }
 }
 
-/// A round artist thumb with name and album count.
-#[component]
-pub fn ArtistCard(artist: Artist, onclick: EventHandler<MouseEvent>) -> Element {
-    let count = if artist.album_count == 1 {
-        "1 album".to_string()
-    } else {
-        format!("{} albums", artist.album_count)
-    };
-    rsx! {
-        button {
-            r#type: "button",
-            class: "rs-search-artist",
-            "data-testid": "artist-card",
-            onclick: move |evt| onclick.call(evt),
-            Artwork {
-                cover_art: artist.cover_art.clone(),
-                server_id: artist.server_id.clone(),
-                size_px: 96,
-                fill: true,
-                round: true,
-                placeholder: "artist".to_string(),
-                class: "rs-search-artist__art".to_string(),
-            }
-            span { class: "rs-search-artist__name", "{artist.name}" }
-            span { class: "rs-search-artist__count", "{count}" }
-        }
-    }
-}

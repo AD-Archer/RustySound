@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::{AppView, Navigation};
+use crate::components::{use_servers, AppView, Navigation};
 use dioxus::prelude::*;
 
 pub(crate) fn parse_artist_names(artist_text: &str) -> Vec<String> {
@@ -136,7 +136,7 @@ pub fn ArtistNameLinks(
     #[props(default = "rs-library-names__link".to_string())] button_class: String,
     #[props(default = "rs-library-names__sep".to_string())] separator_class: String,
 ) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let navigation = use_context::<Navigation>();
 
     let artist_parts = parse_artist_names(&artist_text);
@@ -185,7 +185,7 @@ pub fn ArtistNameLinks(
                                 return;
                             }
 
-                            let Some(client) = MusicClient::for_source(&servers(), &server_id) else {
+                            let Some(client) = MusicClient::for_source(&servers.peek(), &server_id) else {
                                 eprintln!(
                                     "[artist-nav.link.missing-server] server_id={} artist='{}'",
                                     server_id, artist_name

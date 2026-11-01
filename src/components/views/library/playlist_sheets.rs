@@ -1,12 +1,10 @@
 //! Create, rename and delete sheets for playlists (list and detail pages).
 
-use crate::api::{NavidromeClient, Playlist, ServerConfig};
+use super::shared::{active_servers, playlists_changed};
+use crate::api::{NavidromeClient, Playlist};
 use crate::components::ui::{Button, ButtonVariant, Sheet};
+use crate::components::use_servers;
 use dioxus::prelude::*;
-
-fn server_for(servers: &[ServerConfig], server_id: &str) -> Option<ServerConfig> {
-    servers.iter().find(|s| s.id == server_id).cloned()
-}
 
 /// Name field plus the primary action, shared by Create and Rename.
 #[component]
@@ -66,7 +64,7 @@ fn NameForm(
 /// New empty playlist on the single active server.
 #[component]
 pub fn CreatePlaylistSheet(on_close: EventHandler<()>, on_created: EventHandler<()>) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let name = use_signal(String::new);
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
@@ -80,7 +78,7 @@ pub fn CreatePlaylistSheet(on_close: EventHandler<()>, on_created: EventHandler<
             error.set(Some("Give the playlist a name.".to_string()));
             return;
         }
-        let active: Vec<ServerConfig> = servers.peek().iter().filter(|s| s.active).cloned().collect();
+        let active = active_servers(&servers.peek());
         if active.len() != 1 {
             error.set(Some("Turn on exactly one server in Settings to create playlists.".to_string()));
             return;
@@ -93,6 +91,7 @@ pub fn CreatePlaylistSheet(on_close: EventHandler<()>, on_created: EventHandler<
             match client.create_playlist(&value, None, &[]).await {
                 Ok(_) => {
                     client.refresh_playlist_cache();
+                    playlists_changed();
                     on_created.call(());
                 }
                 Err(err) => {
@@ -127,7 +126,7 @@ pub fn RenamePlaylistSheet(
     on_close: EventHandler<()>,
     on_renamed: EventHandler<String>,
 ) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let name = use_signal(|| playlist.name.clone());
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
@@ -147,7 +146,7 @@ pub fn RenamePlaylistSheet(
                 on_close.call(());
                 return;
             }
-            let Some(server) = server_for(&servers.peek(), &playlist.server_id) else {
+            let Some(client) = NavidromeClient::for_id(&servers.peek(), &playlist.server_id) else {
                 error.set(Some("This playlist's server isn't configured any more.".to_string()));
                 return;
             };
@@ -155,10 +154,10 @@ pub fn RenamePlaylistSheet(
             busy.set(true);
             error.set(None);
             spawn(async move {
-                let client = NavidromeClient::new(server);
                 match client.rename_playlist(&playlist_id, &value).await {
                     Ok(_) => {
                         client.refresh_playlist_cache();
+                        playlists_changed();
                         on_renamed.call(value);
                     }
                     Err(err) => {
@@ -194,7 +193,7 @@ pub fn DeletePlaylistSheet(
     on_close: EventHandler<()>,
     on_deleted: EventHandler<()>,
 ) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let mut busy = use_signal(|| false);
     let mut error = use_signal(|| None::<String>);
 
@@ -204,7 +203,7 @@ pub fn DeletePlaylistSheet(
             if busy() {
                 return;
             }
-            let Some(server) = server_for(&servers.peek(), &playlist.server_id) else {
+            let Some(client) = NavidromeClient::for_id(&servers.peek(), &playlist.server_id) else {
                 error.set(Some("This playlist's server isn't configured any more.".to_string()));
                 return;
             };
@@ -212,10 +211,10 @@ pub fn DeletePlaylistSheet(
             busy.set(true);
             error.set(None);
             spawn(async move {
-                let client = NavidromeClient::new(server);
                 match client.delete_playlist(&playlist_id).await {
                     Ok(_) => {
                         client.refresh_playlist_cache();
+                        playlists_changed();
                         on_deleted.call(());
                     }
                     Err(err) => {

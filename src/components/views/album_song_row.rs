@@ -4,7 +4,7 @@
 use crate::api::Song;
 use crate::components::ui::{InsetList, ListInset, RowGestureList, RowSwipe, SectionHeader, TrackRow};
 
-use crate::components::views::library::shared::{song_key, use_downloaded_keys, use_now_playing};
+use crate::components::views::library::shared::{use_downloaded_keys, use_now_playing};
 use dioxus::prelude::*;
 
 /// Splits `songs` into discs. The Song model carries no disc number, so a
@@ -58,7 +58,7 @@ pub fn AlbumTracks(songs: Signal<Vec<Song>>, on_play: EventHandler<usize>) -> El
                 for index in start..end {
                     {
                         let song = list[index].clone();
-                        let key = song_key(&song);
+                        let key = song.key();
                         let playing = playing_key.as_deref() == Some(key.as_str());
                         let number = song.track.filter(|t| *t > 0).unwrap_or((index - start + 1) as u32);
                         rsx! {

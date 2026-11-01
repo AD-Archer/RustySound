@@ -1,28 +1,30 @@
 //! Library tab: the grouped list of library areas plus a "Recently Added"
 //! shelf. Also the parent of the pieces the Library views share.
 
+pub(super) mod add_songs;
 pub(super) mod hero;
 pub(super) mod playlist_sheets;
 pub(super) mod shared;
+pub(super) mod sidebar_playlists;
 pub(super) mod song_flow;
 pub(super) mod tiles;
 
-use crate::api::{Album, MusicClient, ServerConfig};
-use crate::components::ui::{radio_available, InsetList, ListInset, ListRow, SectionHeader};
-use crate::components::{AppView, Navigation};
+use crate::api::{Album, MusicClient};
+use crate::components::ui::{radio_available, AlbumTile, InsetList, ListInset, ListRow, SectionHeader};
+use crate::components::{use_servers, AppView, Navigation};
 use dioxus::prelude::*;
-use tiles::AlbumTile;
+use shared::active_servers;
 
 const RECENT_LIMIT: usize = 12;
 
 #[component]
 pub fn LibraryView() -> Element {
     let navigation = use_context::<Navigation>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
 
     // Newest albums across the active servers (the API layer caches the list).
     let recent = use_resource(move || {
-        let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+        let active = active_servers(&servers());
         async move {
             let mut albums: Vec<Album> = Vec::new();
             for server in active {
@@ -133,7 +135,7 @@ pub fn LibraryView() -> Element {
                         div { class: "rs-library-shelf", role: "list", aria_label: "Recently Added",
                             for album in albums {
                                 div {
-                                    key: "{album.server_id}:{album.id}",
+                                    key: "{album.key()}",
                                     class: "rs-library-shelf__cell",
                                     role: "listitem",
                                     AlbumTile { album: album.clone() }

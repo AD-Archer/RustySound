@@ -18,11 +18,10 @@ mod shelf;
 mod shelves;
 mod stage;
 
-use crate::api::ServerConfig;
-use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{use_layout, MainScroll};
+use crate::components::use_servers;
 use crate::db::AppSettings;
-use actions::{NoticeCapsule, Toast};
+use crate::time::{now_ms, sleep_ms};
 use data::use_home_data;
 pub use mix_detail::MixDetailView;
 use dioxus::prelude::*;
@@ -35,15 +34,14 @@ use stage::HomeStage;
 /// Pull distance (after damping) that triggers a refresh.
 pub const PULL_TRIGGER_PX: f64 = 64.0;
 /// A trackpad gesture ends after this long without wheel events.
-const WHEEL_IDLE_MS: u64 = 220;
+const WHEEL_IDLE_MS: f64 = 220.0;
 
 #[component]
 pub fn HomeView() -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let settings = use_context::<Signal<AppSettings>>();
     let main_scroll = try_use_context::<MainScroll>();
     let wide = !use_layout().is_compact();
-    use_context_provider(Toast::new);
     use_context_provider(|| HomeMenus(Signal::new(None)));
     // Discover's previews stop when Home goes away; a Quick Listen plays on.
     let preview = use_context::<Preview>();
@@ -54,7 +52,10 @@ pub fn HomeView() -> Element {
     // Trackpad pull on wide: counts only gestures that start at the top, so the
     // momentum of a fast scroll up never refreshes by accident.
     let mut wheel_gesture = use_signal(|| None::<bool>);
-    let mut wheel_events = use_signal(|| 0u64);
+    // Debounced: each wheel event only pushes the deadline back, and one
+    // task per gesture waits for it to pass.
+    let mut wheel_deadline = use_signal(|| 0.0f64);
+    let mut wheel_waiting = use_signal(|| false);
 
     // No server, or every server switched off: the first-run welcome handles both.
     if servers.read().is_empty() || data.active.read().is_empty() {
@@ -120,21 +121,27 @@ pub fn HomeView() -> Element {
                         armed
                     }
                 };
-                let event = *wheel_events.peek() + 1;
-                wheel_events.set(event);
-                spawn(async move {
-                    sleep_ms(WHEEL_IDLE_MS).await;
-                    if *wheel_events.peek() != event {
-                        return;
-                    }
-                    wheel_gesture.set(None);
-                    if *pull.peek() >= PULL_TRIGGER_PX {
-                        data.refresh();
-                    }
-                    if *pull.peek() != 0.0 {
-                        pull.set(0.0);
-                    }
-                });
+                wheel_deadline.set(now_ms() + WHEEL_IDLE_MS);
+                if !*wheel_waiting.peek() {
+                    wheel_waiting.set(true);
+                    spawn(async move {
+                        loop {
+                            let left = *wheel_deadline.peek() - now_ms();
+                            if left <= 0.0 {
+                                break;
+                            }
+                            sleep_ms(left.ceil() as u64).await;
+                        }
+                        wheel_waiting.set(false);
+                        wheel_gesture.set(None);
+                        if *pull.peek() >= PULL_TRIGGER_PX {
+                            data.refresh();
+                        }
+                        if *pull.peek() != 0.0 {
+                            pull.set(0.0);
+                        }
+                    });
+                }
                 let dy = evt.delta().strip_units().y;
                 if !armed || dy >= 0.0 {
                     return;
@@ -162,7 +169,6 @@ pub fn HomeView() -> Element {
                 OffServerShelf {}
             }
             HomeMenuHost {}
-            NoticeCapsule {}
         }
     }
 }

@@ -4,18 +4,16 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, Menu, MenuGap, MenuItem, Artwork, EmptyState, IconButton,
-    IconButtonSize, SearchField, VirtualList,
+    use_layout, Artwork, EmptyState, ErrorState, IconButton, ListRow, Menu, MenuGap, MenuItem,
+    NoServers, SearchField, Skeleton, VirtualList,
 };
 use crate::components::views::library::playlist_sheets::{
     CreatePlaylistSheet, DeletePlaylistSheet, RenamePlaylistSheet,
 };
 use crate::components::views::library::shared::{
-    use_servers,
-    active_servers, format_total, is_auto_imported, use_debounced, use_player, ErrorState,
-    ListSkeleton, NoServers,
+    active_servers, is_auto_imported, load_playlists, use_debounced,
 };
-use crate::components::{AddIntent, AddMenuController, AppView, Icon, Navigation};
+use crate::components::{use_player, use_servers, AddIntent, AddMenuController, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const SORTS: [(&str, &str); 4] = [
@@ -52,20 +50,12 @@ fn subtitle_for(playlist: &Playlist, me: &[String]) -> String {
     let mut text = format!("{} {noun}", playlist.song_count);
     if playlist.duration > 0 {
         // Subsonic playlist durations are seconds.
-        text.push_str(&format!(" · {}", format_total(playlist.duration as u64)));
+        text.push_str(&format!(" · {}", crate::format::total(playlist.duration as u64)));
     }
     if let Some(owner) = owner_line(playlist, me) {
         text.push_str(&format!(" · by {owner}"));
     }
     text
-}
-
-/// Loads the songs of a playlist and plays them (row menu Play / Shuffle).
-async fn fetch_playlist_songs(server: ServerConfig, playlist_id: String) -> Result<Vec<Song>, String> {
-    MusicClient::new(server)
-        .get_playlist(&playlist_id)
-        .await
-        .map(|(_, songs)| songs)
 }
 
 #[component]
@@ -90,20 +80,7 @@ pub fn PlaylistsView() -> Element {
     let playlists = use_resource(move || {
         let _ = refresh();
         let active = active_servers(&servers());
-        async move {
-            let mut all = Vec::new();
-            let mut last_error = None;
-            for server in active {
-                match MusicClient::new(server).get_playlists().await {
-                    Ok(list) => all.extend(list),
-                    Err(err) => last_error = Some(err),
-                }
-            }
-            match (all.is_empty(), last_error) {
-                (true, Some(err)) => Err(err),
-                _ => Ok(all),
-            }
-        }
+        async move { load_playlists(active).await }
     });
 
     let me: Vec<String> = servers.read().iter().map(|s| s.username.clone()).collect();
@@ -154,26 +131,16 @@ pub fn PlaylistsView() -> Element {
         names
     });
 
-    let server_of = move |playlist: &Playlist| {
-        servers
-            .peek()
-            .iter()
-            .find(|s| s.id == playlist.server_id)
-            .cloned()
-    };
-
+    // Row menu Play / Shuffle: load the playlist's songs, then play them.
     let mut play_playlist = move |playlist: Playlist, shuffle: bool| {
-        let Some(server) = server_of(&playlist) else {
+        let Some(client) = MusicClient::for_source(&servers.peek(), &playlist.server_id) else {
             return;
         };
         status.set(None);
         spawn(async move {
-            match fetch_playlist_songs(server, playlist.id.clone()).await {
+            match client.get_playlist(&playlist.id).await.map(|(_, songs)| songs) {
                 Ok(songs) => {
-                    let source = Some((
-                        QueueSourceKind::Playlist,
-                        format!("{}::{}", playlist.server_id, playlist.id),
-                    ));
+                    let source = Some((QueueSourceKind::Playlist, playlist.key()));
                     let result = if shuffle {
                         player.shuffle_play(songs, source)
                     } else {
@@ -199,7 +166,7 @@ pub fn PlaylistsView() -> Element {
 
     let body = match &*playlists.read() {
         _ if !has_servers => rsx! { NoServers {} },
-        None => rsx! { ListSkeleton { rows: 8 } },
+        None => rsx! { Skeleton { rows: 8 } },
         Some(Err(err)) => {
             let err = err.clone();
             rsx! {
@@ -250,47 +217,22 @@ pub fn PlaylistsView() -> Element {
                     };
                     let for_menu = playlist.clone();
                     rsx! {
-                        li { "data-index": "{i}",
-                            div { class: "rs-row rs-library-prow",
-                                button {
-                                    r#type: "button",
-                                    class: "rs-library-prow__open",
-                                    "data-testid": "playlist-row",
-                                    oncontextmenu: {
-                                        let for_menu = for_menu.clone();
-                                        move |evt: MouseEvent| {
-                                            evt.prevent_default();
-                                            let p = evt.client_coordinates();
-                                            row_menu.set(Some(RowMenu { playlist: for_menu.clone(), anchor: Some((p.x, p.y)) }));
-                                        }
-                                    },
-                                    onclick: move |_| navigation.navigate_to(target.clone()),
-                                    Artwork {
-                                        cover_art: playlist.cover_art.clone(),
-                                        server_id: playlist.server_id.clone(),
-                                        size_px: 44,
-                                        placeholder: "playlist".to_string(),
-                                    }
-                                    span { class: "rs-row__meta",
-                                        span { class: "rs-row__title", span { "{playlist.name}" } }
-                                        span { class: "rs-row__sub", style: "display:block", "{subtitle}" }
-                                    }
+                        ListRow {
+                            title: playlist.name.clone(),
+                            subtitle,
+                            leading: rsx! {
+                                Artwork {
+                                    cover_art: playlist.cover_art.clone(),
+                                    server_id: playlist.server_id.clone(),
+                                    size_px: 44,
+                                    placeholder: "playlist".to_string(),
                                 }
-                                IconButton {
-                                    icon: "more-horizontal".to_string(),
-                                    label: format!("More for {}", playlist.name),
-                                    quiet: true,
-                                    size: IconButtonSize::Medium,
-                                    class: "rs-library-prow__more".to_string(),
-                                    onclick: {
-                                        let for_menu = for_menu.clone();
-                                        move |evt: MouseEvent| {
-                                            let p = evt.client_coordinates();
-                                            row_menu.set(Some(RowMenu { playlist: for_menu.clone(), anchor: Some((p.x - 250.0, p.y + 12.0)) }));
-                                        }
-                                    },
-                                }
-                            }
+                            },
+                            testid: "playlist-row".to_string(),
+                            onclick: move |_| navigation.navigate_to(target.clone()),
+                            on_menu: move |anchor: Option<(f64, f64)>| {
+                                row_menu.set(Some(RowMenu { playlist: for_menu.clone(), anchor }));
+                            },
                         }
                     }
                 },

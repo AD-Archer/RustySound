@@ -14,7 +14,9 @@
 
 use crate::api::Song;
 use crate::components::ui::{cover_art_src, CoverFlow, CoverFlowItem};
-use crate::components::views::library::shared::{song_key, use_now_playing, use_servers};
+use crate::components::use_servers;
+use crate::components::views::library::shared::use_now_playing;
+use crate::format::thousands;
 use dioxus::prelude::*;
 use std::collections::HashMap;
 
@@ -83,25 +85,13 @@ fn lead_song(run: &Run, playing: Option<usize>) -> usize {
     playing.filter(|&i| run.contains(i)).unwrap_or(run.start)
 }
 
-fn grouped(n: usize) -> String {
-    let digits = n.to_string();
-    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
-    for (i, ch) in digits.chars().enumerate() {
-        if i > 0 && (digits.len() - i) % 3 == 0 {
-            out.push(',');
-        }
-        out.push(ch);
-    }
-    out
-}
-
 /// Caption line 3: the album and where the song sits ("Glass Weather · 3 of 40",
 /// or "… · 3–12 of 1,200" for a run).
 fn position_line(song: &Song, run: &Run, total: usize) -> String {
     let place = if run.len > 1 {
-        format!("{}–{} of {}", run.start + 1, run.start + run.len, grouped(total))
+        format!("{}–{} of {}", run.start + 1, run.start + run.len, thousands(total as u64))
     } else {
-        format!("{} of {}", run.start + 1, grouped(total))
+        format!("{} of {}", run.start + 1, thousands(total as u64))
     };
     match song.album.as_deref().filter(|a| !a.trim().is_empty()) {
         Some(album) => format!("{album} · {place}"),
@@ -148,7 +138,7 @@ pub fn SongFlow(
 
     let playing_index = use_memo(move || {
         let key = playing_key()?;
-        songs.read().iter().position(|song| song_key(song) == key)
+        songs.read().iter().position(|song| song.key() == key)
     });
     let items = use_memo(move || {
         let songs = songs.read();
@@ -171,7 +161,7 @@ pub fn SongFlow(
                         .clone()
                 });
                 CoverFlowItem {
-                    key: format!("{}:{}", run.start, song_key(first)),
+                    key: format!("{}:{}", run.start, first.key()),
                     title: song.title.clone(),
                     subtitle: song.artist.clone().unwrap_or_default(),
                     reason: position_line(song, run, total),
@@ -317,6 +307,5 @@ mod tests {
         s.album = Some("Glass Weather".to_string());
         assert_eq!(position_line(&s, &Run { start: 2, len: 1 }, 40), "Glass Weather · 3 of 40");
         assert_eq!(position_line(&s, &Run { start: 2, len: 10 }, 1200), "Glass Weather · 3–12 of 1,200");
-        assert_eq!(grouped(1234567), "1,234,567");
     }
 }

@@ -115,9 +115,9 @@ pub async fn save_mix(
 pub async fn save_and_remember(
     mix: Mix,
     servers: Vec<ServerConfig>,
-    mut settings: dioxus::prelude::Signal<crate::db::AppSettings>,
+    settings: dioxus::prelude::Signal<crate::db::AppSettings>,
 ) -> Result<String, String> {
-    use dioxus::prelude::{ReadableExt, WritableExt};
+    use dioxus::prelude::ReadableExt;
     if settings.peek().offline_mode {
         return Err("Saving a playlist needs a connection.".to_string());
     }
@@ -126,12 +126,11 @@ pub async fn save_and_remember(
     match save_mix(&servers, &mix, prior).await {
         Ok(outcome) => {
             if let Some(saved) = outcome.saved.clone() {
-                let mut next = settings.peek().clone();
-                let mut map = parse_saved(&next.discover_saved_mix_playlists);
-                map.insert(mix.id.clone(), saved);
-                next.discover_saved_mix_playlists = serialize_saved(&map);
-                settings.set(next.clone());
-                let _ = crate::db::save_settings(next).await;
+                crate::components::update_settings(settings, |next| {
+                    let mut map = parse_saved(&next.discover_saved_mix_playlists);
+                    map.insert(mix.id.clone(), saved);
+                    next.discover_saved_mix_playlists = serialize_saved(&map);
+                });
             }
             Ok(saved_message(&mix, &outcome))
         }

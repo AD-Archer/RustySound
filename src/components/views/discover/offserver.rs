@@ -3,16 +3,14 @@
 //! from the server: tapping one (or its play icon) plays a 30-second preview,
 //! and "Find" (link out) lives in the card's "…" menu.
 
-use super::actions::Toast;
 use super::cards::CARD_ART_PX;
 use super::data::HomeData;
 use super::mixes::{HomeMenu, HomeMenus};
 use crate::components::{Preview, PreviewEnd};
 use super::shelf::{Card, Shelf, ShelfSkeleton};
 use crate::api::discovery::{OffServerItem, OffServerKind};
-use crate::components::ui::{Artwork, Menu, MenuItem, PreviewRing};
-use crate::components::{AppView, Icon, Navigation};
-use crate::db::AppSettings;
+use crate::components::ui::{Artwork, Menu, MenuItem, PreviewRing, StatusToast};
+use crate::components::{use_setting, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const TITLE: &str = "Outside your server";
@@ -24,8 +22,10 @@ const TESTID: &str = "shelf-offserver";
 #[component]
 pub fn OffServerShelf() -> Element {
     let data = use_context::<HomeData>();
-    let settings = use_context::<Signal<AppSettings>>();
     let navigation = use_context::<Navigation>();
+    let configured = use_setting(|s| {
+        !s.lastfm_api_key.trim().is_empty() || !s.listenbrainz_username.trim().is_empty()
+    });
     if !(data.offserver_enabled)() || (data.offline)() {
         return rsx! {};
     }
@@ -36,11 +36,7 @@ pub fn OffServerShelf() -> Element {
         };
     };
     if section.items.is_empty() {
-        let configured = {
-            let s = settings.read();
-            !s.lastfm_api_key.trim().is_empty() || !s.listenbrainz_username.trim().is_empty()
-        };
-        if configured {
+        if configured() {
             return rsx! {};
         }
         return rsx! {
@@ -105,7 +101,7 @@ pub fn find_label(url: &str) -> String {
 }
 
 /// Start or stop `item`'s preview (main playback pauses meanwhile and resumes after).
-fn toggle_preview(preview: Preview, toast: Toast, item: &OffServerItem) {
+fn toggle_preview(preview: Preview, toast: StatusToast, item: &OffServerItem) {
     let Some(url) = item.preview_url.clone() else {
         return;
     };
@@ -121,7 +117,7 @@ fn toggle_preview(preview: Preview, toast: Toast, item: &OffServerItem) {
 #[component]
 fn OffServerCard(item: OffServerItem) -> Element {
     let preview = use_context::<Preview>();
-    let toast = use_context::<Toast>();
+    let toast = use_context::<StatusToast>();
     let menus = use_context::<HomeMenus>();
     let previewing = (preview.current)().as_deref() == Some(item.id.as_str());
     let is_artist = item.kind == OffServerKind::Artist;
@@ -202,7 +198,7 @@ pub fn youtube_music_search_url(item: &OffServerItem) -> String {
 #[component]
 pub fn OffServerMenu(item: OffServerItem, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> Element {
     let preview = use_context::<Preview>();
-    let toast = use_context::<Toast>();
+    let toast = use_context::<StatusToast>();
     let previewing = (preview.current)().as_deref() == Some(item.id.as_str());
     let find = item.external_url.as_deref().map(find_label).unwrap_or_default();
     let youtube = youtube_music_search_url(&item);

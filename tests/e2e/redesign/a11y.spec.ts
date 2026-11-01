@@ -51,7 +51,7 @@ const SCREENS: Screen[] = [
   {
     name: "Search",
     path: () => "/search",
-    ready: "artist-card",
+    ready: "artist-tile",
     open: async (page) => {
       await tid(page, "search-input").fill("Paper Comets");
     },

@@ -3,12 +3,11 @@
 
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
-use crate::components::ui::{use_layout, Artwork, EmptyState, SearchField, VirtualList};
-use crate::components::views::library::shared::{
-    use_servers,
-    active_servers, has_sources, use_debounced, ErrorState, ListSkeleton, NoServers,
+use crate::components::ui::{
+    use_layout, Artwork, EmptyState, ErrorState, NoServers, SearchField, Skeleton, VirtualList,
 };
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::views::library::shared::{active_servers, has_sources, use_debounced};
+use crate::components::{use_servers, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const ROW_H: f64 = 56.0;
@@ -143,7 +142,7 @@ if(m&&l){{m.scrollTop+=l.getBoundingClientRect().top-m.getBoundingClientRect().t
 
     let body = match &*artists.read() {
         _ if !has_servers => rsx! { NoServers {} },
-        None => rsx! { ListSkeleton { rows: 10, round: true } },
+        None => rsx! { Skeleton { rows: 10, round: true } },
         Some(Err(err)) => {
             let err = err.clone();
             rsx! {

@@ -4,10 +4,7 @@
 //! reorder by their handle and swipe for Remove / Add to… at any time
 //! (`song_details::queue_rows`), so there is no Edit mode.
 
-mod add_songs;
-
 use crate::api::*;
-use crate::components::song_details::actions::{use_player, PlayerCtx};
 use crate::components::song_details::queue_rows::{
     use_queue_gestures, QueueUndoToast, REMOVE_FROM_QUEUE,
 };
@@ -16,10 +13,14 @@ use crate::components::ui::{
     use_layout, Button, ButtonSize, EmptyState, IconButton, Menu, MenuGap, MenuItem,
     RowGestureList, RowSwipe, SectionHeader, TrackRow, VirtualList,
 };
-use crate::components::{AddMenuController, AppView, Navigation, PageMotion, PreviewPlaybackSignal, SeekRequestSignal};
+use crate::components::views::library::add_songs::{AddSongsSheet, AddTarget};
+use crate::components::{
+    use_player, AddMenuController, AppView, Navigation, PageMotion, PlayerCtx,
+    PreviewPlaybackSignal, SeekRequestSignal,
+};
 use crate::db::{load_temporary_queue_snapshots, TemporaryQueueSnapshot};
 use crate::diagnostics::{log_perf, PerfTimer};
-use add_songs::AddSongsSheet;
+use crate::format::total;
 use dioxus::prelude::*;
 
 /// A TrackRow with art is exactly this tall.
@@ -66,15 +67,6 @@ async fn prefetch_lyrics(songs: Vec<Song>, servers: Vec<ServerConfig>) {
     log_perf("queue.lyrics_prefetch", started, &format!("prefetched={count}"));
 }
 
-fn total_duration(seconds: u64) -> String {
-    let (h, m) = (seconds / 3600, (seconds % 3600) / 60);
-    if h > 0 {
-        format!("{h} hr {m} min")
-    } else {
-        format!("{m} min")
-    }
-}
-
 #[component]
 pub fn QueueView() -> Element {
     let mut player = use_player();
@@ -102,7 +94,7 @@ pub fn QueueView() -> Element {
         let head: Vec<Song> = player.queue.read().iter().take(LYRICS_PREFETCH).cloned().collect();
         let signature = head
             .iter()
-            .map(|s| format!("{}::{}", s.server_id, s.id))
+            .map(Song::key)
             .collect::<Vec<_>>()
             .join("|");
         if signature.is_empty() || *prefetch_signature.peek() == signature {
@@ -197,7 +189,7 @@ pub fn QueueView() -> Element {
                         p { class: "rs-player-queue__sub",
                             if count == 1 { "1 song" } else { "{count} songs" }
                             if seconds > 0 {
-                                " · {total_duration(seconds)}"
+                                " · {total(seconds)}"
                             }
                             if busy() {
                                 " · adding similar songs…"
@@ -249,7 +241,11 @@ pub fn QueueView() -> Element {
             }
         }
         if adding() {
-            AddSongsSheet { on_close: move |_| adding.set(false) }
+            AddSongsSheet {
+                target: AddTarget::Queue,
+                songs: player.queue,
+                on_close: move |_| adding.set(false),
+            }
         }
         QueueUndoToast { undo }
         if let Some(anchor) = menu_at() {

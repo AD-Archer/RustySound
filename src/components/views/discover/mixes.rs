@@ -7,25 +7,34 @@
 //! card carries the RustySound mark on the art and says "RustySound"
 //! where a playlist says its song count (see [`RsMark`]).
 
-use super::actions::{use_player, Player, Toast};
 use super::cards::{songs_label, CARD_ART_PX};
 use super::offserver::OffServerMenu;
 use super::saved::save_and_remember;
 use super::shelf::Card;
 use crate::api::discovery::{mix_slug, Mix, OffServerItem};
-use crate::api::{QueueSourceKind, ServerConfig};
+use crate::api::QueueSourceKind;
 use crate::components::ui::env::app_mark_src;
-use crate::components::ui::{Artwork, Menu, MenuAction};
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::ui::{Artwork, Menu, MenuAction, StatusToast};
+use crate::components::{use_player, AppView, Icon, Navigation, PlayerCtx, QueuePosition};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
 /// The line that names who made a mix, on cards and the mix page.
 pub const MIX_BYLINE: &str = "RustySound";
 
-fn play_mix(player: Player, toast: Toast, mix: &Mix, shuffle: bool) {
-    let source = format!("discover:{}", mix.id);
-    if let Err(message) = player.play(mix.songs.clone(), QueueSourceKind::RandomMix, source, shuffle) {
+/// The queue source a mix's songs are tagged with (cards and the mix page).
+pub fn mix_source(mix: &Mix) -> Option<(QueueSourceKind, String)> {
+    Some((QueueSourceKind::RandomMix, format!("discover:{}", mix.id)))
+}
+
+fn play_mix(player: PlayerCtx, toast: StatusToast, mix: &Mix, shuffle: bool) {
+    let songs = mix.songs.clone();
+    let result = if shuffle {
+        player.shuffle_play(songs, mix_source(mix))
+    } else {
+        player.play(songs, 0, mix_source(mix))
+    };
+    if let Err(message) = result {
         toast.show(message, true);
     }
 }
@@ -121,7 +130,7 @@ pub fn RsMark(#[props(default)] class: String) -> Element {
 #[component]
 pub fn MixCard(mix: Mix) -> Element {
     let player = use_player();
-    let toast = use_context::<Toast>();
+    let toast = use_context::<StatusToast>();
     let menus = use_context::<HomeMenus>();
     let navigation = use_context::<Navigation>();
     let covers = mix_covers(&mix);
@@ -197,8 +206,7 @@ pub fn MixArt(covers: Vec<(String, String)>, size_px: u32, #[props(default)] eag
 #[component]
 fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> Element {
     let player = use_player();
-    let toast = use_context::<Toast>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let toast = use_context::<StatusToast>();
     let settings = use_context::<Signal<AppSettings>>();
     let actions = vec![
         MenuAction::new("play", "Play", "play"),
@@ -218,28 +226,23 @@ fn MixMenu(mix: Mix, anchor: Option<(f64, f64)>, on_close: EventHandler<()>) -> 
             on_action: move |key: String| match key.as_str() {
                 "play" => play_mix(player, toast, &mix, false),
                 "shuffle" => play_mix(player, toast, &mix, true),
-                "queue" => match player.enqueue(mix.songs.clone()) {
-                    Ok(count) => toast.show(format!("Added {count} songs to the queue"), false),
-                    Err(message) => toast.show(message, true),
-                },
-                _ => save_to_playlist(mix.clone(), servers, settings, toast),
+                "queue" => {
+                    let count = player.enqueue(mix.songs.clone(), QueuePosition::End);
+                    toast.show(format!("Added {count} songs to the queue"), false);
+                }
+                _ => save_to_playlist(mix.clone(), player, settings, toast),
             },
         }
     }
 }
 
 /// Save (or re-save, replacing the earlier copy) and remember where it went.
-fn save_to_playlist(
-    mix: Mix,
-    servers: Signal<Vec<ServerConfig>>,
-    settings: Signal<AppSettings>,
-    toast: Toast,
-) {
+fn save_to_playlist(mix: Mix, player: PlayerCtx, settings: Signal<AppSettings>, toast: StatusToast) {
     if settings.peek().offline_mode {
         toast.show("Saving a playlist needs a connection.", true);
         return;
     }
-    let servers = servers.peek().clone();
+    let servers = player.servers.peek().clone();
     toast.show(format!("Saving “{}”…", mix.name), false);
     toast.spawn(async move {
         match save_and_remember(mix, servers, settings).await {

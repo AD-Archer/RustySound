@@ -29,6 +29,7 @@ pub use downloads::DownloadsView;
 pub use favorites::FavoritesView;
 pub use discover::{HomeView, MixDetailView};
 pub use library::LibraryView;
+pub(super) use library::sidebar_playlists::SidebarPlaylists;
 pub use playlist_detail::PlaylistDetailView;
 pub use playlists::PlaylistsView;
 pub use queue::QueueView;

@@ -1,47 +1,16 @@
-//! Plumbing shared by the Library views: playback in context, list marks
-//! (now playing, downloaded, starred), debounced search, offset paging and
-//! the loading / empty / error states.
+//! Plumbing shared by the Library views: list marks (now playing,
+//! downloaded, starred), debounced search and offset paging. Playback goes
+//! through `PlayerCtx` (`crate::components::use_player`); the page states
+//! (`LoadMore`, `PageFoot`, `ErrorState`, `NoServers`, `GridSkeleton`) are
+//! the kit's (`ui/states.rs`).
 
-use crate::api::{Playlist, QueueSourceKind, ServerConfig, Song};
-use crate::components::audio_manager::{
-    apply_collection_shuffle_mode, assign_collection_queue_meta, normalize_manual_queue_songs,
-};
-use crate::components::ui::env::sleep_ms;
-use crate::components::ui::{EmptyState, Button, ButtonVariant, Skeleton, TrackMenuController};
-use crate::components::{IsPlayingSignal, ShuffleEnabledSignal};
-use crate::db::AppSettings;
+use crate::api::{item_key, Capabilities, MusicClient, Playlist, ServerConfig, Song};
+use crate::components::song_details::actions::apply_song_change;
+use crate::components::ui::TrackMenuController;
+use crate::components::IsPlayingSignal;
+use crate::time::sleep_ms;
 use dioxus::prelude::*;
 use std::collections::HashSet;
-
-/// `server::id`, the identity of a song across servers.
-pub fn song_key(song: &Song) -> String {
-    format!("{}::{}", song.server_id, song.id)
-}
-
-/// "32 min", "1 hr 12 min". `seconds` is Subsonic seconds.
-pub fn format_total(seconds: u64) -> String {
-    let minutes = (seconds + 30) / 60;
-    if minutes >= 60 {
-        let (h, m) = (minutes / 60, minutes % 60);
-        if m == 0 {
-            format!("{h} hr")
-        } else {
-            format!("{h} hr {m} min")
-        }
-    } else {
-        format!("{} min", minutes.max(if seconds > 0 { 1 } else { 0 }))
-    }
-}
-
-/// "8 songs, 32 min".
-pub fn songs_summary(count: usize, seconds: u64) -> String {
-    let noun = if count == 1 { "song" } else { "songs" };
-    if seconds == 0 {
-        format!("{count} {noun}")
-    } else {
-        format!("{count} {noun}, {}", format_total(seconds))
-    }
-}
 
 /// Playlists imported by Navidrome from .m3u files can't be edited.
 pub fn is_auto_imported(playlist: &Playlist) -> bool {
@@ -52,15 +21,55 @@ pub fn is_auto_imported(playlist: &Playlist) -> bool {
         .unwrap_or(false)
 }
 
+/// The user can change this playlist here: it is theirs (Navidrome refuses
+/// edits to other users' public playlists), it wasn't auto-imported from a
+/// playlist file (read-only on the server), and its server is configured,
+/// active and can edit playlists (Jellyfin playlists are read-only here).
+pub fn playlist_editable(playlist: &Playlist, server: Option<&ServerConfig>) -> bool {
+    let Some(server) = server else {
+        return false;
+    };
+    let own = playlist
+        .owner
+        .as_deref()
+        .map(|owner| owner.trim().is_empty() || owner.eq_ignore_ascii_case(&server.username))
+        .unwrap_or(true);
+    server.active && own && !is_auto_imported(playlist) && Capabilities::of(server).playlist_edits
+}
+
+/// Bumped when a playlist is created, renamed or deleted here, so the lists
+/// that show playlists (the sidebar's) load them again.
+pub static PLAYLISTS_REVISION: GlobalSignal<u64> = Signal::global(|| 0);
+
+pub fn playlists_changed() {
+    *PLAYLISTS_REVISION.write() += 1;
+}
+
 pub fn active_servers(servers: &[ServerConfig]) -> Vec<ServerConfig> {
     servers.iter().filter(|s| s.active).cloned().collect()
 }
 
-/// The configured servers as a memo: readers re-run only when the list
-/// really changes, not every time the shell rewrites the signal.
-pub fn use_servers() -> Memo<Vec<ServerConfig>> {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    use_memo(move || servers())
+/// The playlists on `servers`, asked side by side (each client caches its
+/// server's list). An error only when no server answered.
+pub async fn load_playlists(servers: Vec<ServerConfig>) -> Result<Vec<Playlist>, String> {
+    let answers = futures_util::future::join_all(
+        servers
+            .into_iter()
+            .map(|server| async move { MusicClient::new(server).get_playlists().await }),
+    )
+    .await;
+    let mut all = Vec::new();
+    let mut last_error = None;
+    for answer in answers {
+        match answer {
+            Ok(list) => all.extend(list),
+            Err(err) => last_error = Some(err),
+        }
+    }
+    match (all.is_empty(), last_error) {
+        (true, Some(err)) => Err(err),
+        _ => Ok(all),
+    }
 }
 
 /// Whether there's anything to browse: an active server, or music on the
@@ -69,155 +78,12 @@ pub fn has_sources(servers: &[ServerConfig]) -> bool {
     servers.iter().any(|s| s.active) || crate::local_music::has_music()
 }
 
-pub fn offline_now(settings: &AppSettings) -> bool {
-    settings.offline_mode || crate::cache_service::is_offline_mode()
-}
-
-// ---- Playback ---------------------------------------------------------------
-
-/// The playback signals a list needs to start music.
-#[derive(Clone, Copy)]
-pub struct Player {
-    pub queue: Signal<Vec<Song>>,
-    pub queue_index: Signal<usize>,
-    pub now_playing: Signal<Option<Song>>,
-    pub is_playing: Signal<bool>,
-    pub shuffle: Signal<bool>,
-    pub settings: Signal<AppSettings>,
-}
-
-pub fn use_player() -> Player {
-    Player {
-        queue: use_context::<Signal<Vec<Song>>>(),
-        queue_index: use_context::<Signal<usize>>(),
-        now_playing: use_context::<Signal<Option<Song>>>(),
-        is_playing: use_context::<IsPlayingSignal>().0,
-        shuffle: use_context::<ShuffleEnabledSignal>().0,
-        settings: use_context::<Signal<AppSettings>>(),
-    }
-}
-
-pub const OFFLINE_NOTHING: &str =
-    "You're offline, and none of these songs are downloaded. Connect to play them.";
-
-impl Player {
-    /// Offline, only downloaded songs and music on the device play; local
-    /// files this device can't decode never join the queue. Returns the
-    /// playable songs and where `start` landed among them.
-    fn playable(self, songs: Vec<Song>, start: usize) -> Result<(Vec<Song>, usize), String> {
-        let offline = offline_now(&self.settings.peek());
-        if !offline && songs.iter().all(crate::local_music::is_playable) {
-            let start = start.min(songs.len().saturating_sub(1));
-            return Ok((songs, start));
-        }
-        let wanted = songs.get(start).map(song_key);
-        let kept: Vec<Song> = songs
-            .into_iter()
-            .filter(crate::local_music::is_playable)
-            .filter(|song| {
-                !offline
-                    || crate::local_music::is_local_song(song)
-                    || crate::offline_audio::is_song_downloaded(song)
-            })
-            .collect();
-        if kept.is_empty() {
-            return Err(if offline {
-                OFFLINE_NOTHING.to_string()
-            } else {
-                format!("{}.", crate::local_music::NOT_PLAYABLE)
-            });
-        }
-        let start = wanted
-            .and_then(|key| kept.iter().position(|s| song_key(s) == key))
-            .unwrap_or(0);
-        Ok((kept, start))
-    }
-
-    fn start(mut self, songs: Vec<Song>, index: usize) {
-        let first = songs.get(index).cloned();
-        self.queue.set(songs);
-        self.queue_index.set(index);
-        self.now_playing.set(first);
-        self.is_playing.set(true);
-    }
-
-    /// Replaces the queue with `songs` and plays `start`. With a `source` the
-    /// queue remembers its album/playlist, so the player's shuffle can
-    /// reorder and restore it. Respects the current shuffle mode.
-    pub fn play(
-        self,
-        songs: Vec<Song>,
-        start: usize,
-        source: Option<(QueueSourceKind, String)>,
-    ) -> Result<(), String> {
-        if songs.is_empty() {
-            return Err("Nothing to play.".to_string());
-        }
-        let (songs, start) = self.playable(songs, start)?;
-        let songs = match source {
-            Some((kind, id)) => assign_collection_queue_meta(songs, kind, id),
-            None => normalize_manual_queue_songs(songs),
-        };
-        self.start(songs, start);
-        if *self.shuffle.peek() {
-            apply_collection_shuffle_mode(self.queue, self.queue_index, self.now_playing, true);
-        }
-        Ok(())
-    }
-
-    /// Plays `songs` in a random order and switches shuffle on. Turning
-    /// shuffle off later restores the original order.
-    pub fn shuffle_play(
-        mut self,
-        songs: Vec<Song>,
-        source: Option<(QueueSourceKind, String)>,
-    ) -> Result<(), String> {
-        use rand::seq::SliceRandom;
-        if songs.is_empty() {
-            return Err("Nothing to play.".to_string());
-        }
-        let (songs, _) = self.playable(songs, 0)?;
-        let mut songs = match source {
-            Some((kind, id)) => assign_collection_queue_meta(songs, kind, id),
-            None => normalize_manual_queue_songs(songs),
-        };
-        songs.shuffle(&mut rand::thread_rng());
-        if !*self.shuffle.peek() {
-            self.shuffle.set(true);
-        }
-        self.start(songs, 0);
-        Ok(())
-    }
-
-    /// Adds songs after the current one (`next`) or at the end.
-    pub fn enqueue(mut self, songs: Vec<Song>, next: bool) {
-        let songs = normalize_manual_queue_songs(songs);
-        if songs.is_empty() {
-            return;
-        }
-        if self.now_playing.peek().is_none() && self.queue.peek().is_empty() {
-            self.start(songs, 0);
-            return;
-        }
-        let at = (*self.queue_index.peek() + 1).min(self.queue.peek().len());
-        self.queue.with_mut(|items| {
-            if next {
-                let tail = items.split_off(at);
-                items.extend(songs);
-                items.extend(tail);
-            } else {
-                items.extend(songs);
-            }
-        });
-    }
-}
-
 /// Key of the song now playing, and whether it is audibly playing. Lists
 /// re-render on a track change, never on the position tick.
 pub fn use_now_playing() -> (Memo<Option<String>>, Memo<bool>) {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let is_playing = use_context::<IsPlayingSignal>().0;
-    let key = use_memo(move || now_playing.read().as_ref().map(song_key));
+    let key = use_memo(move || now_playing.read().as_ref().map(Song::key));
     let live = use_memo(move || is_playing());
     (key, live)
 }
@@ -266,7 +132,7 @@ pub fn use_downloaded_keys(songs: Signal<Vec<Song>>) -> Signal<HashSet<String>> 
             return;
         };
         if change.downloaded == Some(true) {
-            let key = format!("{}::{}", change.server_id, change.song_id);
+            let key = item_key(&change.server_id, &change.song_id);
             if !keys.peek().contains(&key) {
                 keys.write().insert(key);
             }
@@ -292,12 +158,7 @@ pub fn use_song_patches(mut songs: Signal<Vec<Song>>) {
         }
         songs.with_mut(|list| {
             for song in list.iter_mut().filter(|s| change.matches(s)) {
-                if let Some(on) = change.starred {
-                    song.starred = on.then(|| "local".to_string());
-                }
-                if let Some(value) = change.rating {
-                    song.user_rating = (value > 0).then_some(value);
-                }
+                apply_song_change(song, &change);
             }
         });
     });
@@ -419,120 +280,34 @@ impl<T: Clone + 'static> Pager<T> {
     }
 }
 
-/// Invisible marker near the end of a paged list. It sits `lead_px` above
-/// the list's end and calls `on_near_end` when it scrolls into view. Give it
-/// a `key` that changes per page so it re-observes after each append.
-#[component]
-pub fn LoadMore(on_near_end: EventHandler<()>, #[props(default = 900)] lead_px: u32) -> Element {
-    rsx! {
-        div {
-            class: "rs-library-sentinel",
-            style: "margin-top:-{lead_px}px;height:{lead_px}px",
-            aria_hidden: "true",
-            onvisible: move |evt| {
-                if evt.is_intersecting().unwrap_or(false) {
-                    on_near_end.call(());
-                }
-            },
-        }
-    }
-}
+// ---- Favourites -------------------------------------------------------------
 
-/// Footer under a paged list: spinner while loading, Retry after an error.
-#[component]
-pub fn PageFoot(loading: bool, error: Option<String>, on_retry: EventHandler<()>) -> Element {
-    if let Some(err) = error {
-        return rsx! {
-            div { class: "rs-library-foot rs-library-foot--error", role: "status",
-                span { "Couldn't load more. {err}" }
-                Button {
-                    label: "Retry".to_string(),
-                    variant: ButtonVariant::Plain,
-                    onclick: move |_| on_retry.call(()),
-                }
-            }
-        };
-    }
-    if loading {
-        return rsx! {
-            div { class: "rs-library-foot", role: "status", aria_label: "Loading more",
-                span { class: "rs-spinner rs-spinner--page" }
-            }
-        };
-    }
-    rsx! {}
-}
-
-// ---- States -----------------------------------------------------------------
-
-/// Error with a Retry button; the message mentions being offline when we are.
-#[component]
-pub fn ErrorState(
-    title: String,
-    error: String,
-    on_retry: EventHandler<()>,
-    #[props(default)] testid: Option<String>,
-) -> Element {
-    let settings = use_context::<Signal<AppSettings>>();
-    let offline = offline_now(&settings.read());
-    let message = if offline {
-        "You're offline. Downloaded music still plays; reconnect to browse the rest.".to_string()
-    } else {
-        format!("The server said: {error}")
+/// Stars or unstars an album or artist (`kind`: "album", "artist") where it
+/// lives. Optimistic: `starred` flips at once and flips back, with the
+/// reason in `status`, when the call fails.
+pub fn toggle_star(
+    servers: &[ServerConfig],
+    server_id: &str,
+    kind: &'static str,
+    id: String,
+    mut starred: Signal<bool>,
+    mut status: Signal<Option<String>>,
+) {
+    let Some(client) = MusicClient::for_source(servers, server_id) else {
+        status.set(Some(format!("This {kind}'s server isn't connected.")));
+        return;
     };
-    rsx! {
-        EmptyState {
-            icon: if offline { "offline".to_string() } else { "server".to_string() },
-            title,
-            message,
-            testid,
-            Button {
-                label: "Retry".to_string(),
-                icon: "refresh-cw".to_string(),
-                variant: ButtonVariant::Tinted,
-                onclick: move |_| on_retry.call(()),
-            }
+    let should = !*starred.peek();
+    starred.set(should);
+    spawn(async move {
+        let result = if should {
+            client.star(&id, kind).await
+        } else {
+            client.unstar(&id, kind).await
+        };
+        if let Err(err) = result {
+            starred.set(!should);
+            status.set(Some(format!("Couldn't update Favorites: {err}")));
         }
-    }
-}
-
-/// "No servers" empty state with a way to Settings.
-#[component]
-pub fn NoServers() -> Element {
-    let navigation = use_context::<crate::components::Navigation>();
-    rsx! {
-        EmptyState {
-            icon: "server".to_string(),
-            title: "No server connected".to_string(),
-            message: "Add your Navidrome or Subsonic server to browse your library.".to_string(),
-            Button {
-                label: "Open Settings".to_string(),
-                onclick: move |_| navigation.navigate_to(crate::components::AppView::SettingsView {}),
-            }
-        }
-    }
-}
-
-/// Skeleton for a cover grid.
-#[component]
-pub fn GridSkeleton(#[props(default = 8)] count: usize) -> Element {
-    rsx! {
-        div { class: "rs-library-covers", aria_busy: "true", aria_label: "Loading",
-            for index in 0..count {
-                div { key: "{index}", class: "rs-library-tile",
-                    div { class: "rs-skel rs-library-tile__skel" }
-                    div { class: "rs-skel", style: "width:70%;height:12px;margin-top:8px" }
-                    div { class: "rs-skel", style: "width:45%;height:10px;margin-top:6px" }
-                }
-            }
-        }
-    }
-}
-
-/// Skeleton for a track list.
-#[component]
-pub fn ListSkeleton(#[props(default = 8)] rows: usize, #[props(default)] round: bool) -> Element {
-    rsx! {
-        Skeleton { rows, round }
-    }
+    });
 }

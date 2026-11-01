@@ -3,18 +3,18 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    Menu, MenuGap, MenuItem, Artwork, CollectionActions, EmptyState, Button, ButtonVariant, StatusToast,
+    Artwork, Button, ButtonVariant, CollectionActions, EmptyState, ErrorState, Menu, MenuGap,
+    MenuItem, Skeleton, StatusToast,
 };
 use crate::components::views::album_song_row::AlbumTracks;
 use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
-use crate::components::views::library::shared::{
-    use_servers,
-    songs_summary, use_player, use_song_patches, ErrorState, ListSkeleton,
-};
+use crate::components::views::library::shared::{toggle_star, use_song_patches};
 use crate::components::{
-    can_share, share_link, AddIntent, AddMenuController, AppView, Icon, Navigation, ShareTarget,
+    can_share, share_link, use_player, use_servers, use_setting, AddIntent, AddMenuController, AppView, Icon,
+    Navigation, QueuePosition, ShareTarget,
 };
+use crate::format::songs_summary;
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -45,6 +45,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let offline = use_setting(|s| s.offline_mode);
     let toast = use_context::<StatusToast>();
     let player = use_player();
     let mut retry = use_signal(|| 0u32);
@@ -89,7 +90,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             return rsx! {
                 div { class: "rs-view rs-view--flush rs-library-detail",
                     DetailHeroSkeleton { back_label: "Albums".to_string(), fallback: AppView::Albums {} }
-                    div { class: "rs-library-page", ListSkeleton { rows: 8 } }
+                    div { class: "rs-library-page", Skeleton { rows: 8 } }
                 }
             };
         }
@@ -122,10 +123,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         Some(Ok((album, _))) => album.clone(),
     };
 
-    let source = Some((
-        QueueSourceKind::Album,
-        format!("{}::{}", album.server_id, album.id),
-    ));
+    let source = Some((QueueSourceKind::Album, album.key()));
     let total_secs: u64 = {
         let from_songs: u64 = songs.read().iter().map(|s| s.duration as u64).sum();
         if from_songs > 0 {
@@ -218,30 +216,11 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         }
     };
 
-    // Optimistic: the heart flips at once; a failed call flips it back and
-    // says why.
     let toggle_favorite = {
         let album = album.clone();
         move |_| {
             menu_at.set(None);
-            let should = !*starred.peek();
-            let Some(client) = MusicClient::for_source(&servers.peek(), &album.server_id) else {
-                status.set(Some("This album's server isn't connected.".to_string()));
-                return;
-            };
-            starred.set(should);
-            let album_id = album.id.clone();
-            spawn(async move {
-                let result = if should {
-                    client.star(&album_id, "album").await
-                } else {
-                    client.unstar(&album_id, "album").await
-                };
-                if let Err(err) = result {
-                    starred.set(!should);
-                    status.set(Some(format!("Couldn't update Favorites: {err}")));
-                }
-            });
+            toggle_star(&servers.peek(), &album.server_id, "album", album.id.clone(), starred, status);
         }
     };
 
@@ -348,7 +327,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         icon: "play-next".to_string(),
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), true);
+                            player.enqueue(songs.peek().clone(), QueuePosition::Next);
                         },
                     }
                     MenuItem {
@@ -357,7 +336,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         testid: "album-menu-queue".to_string(),
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), false);
+                            player.enqueue(songs.peek().clone(), QueuePosition::End);
                         },
                     }
                     // Server playlists can't hold files from this device.
@@ -398,7 +377,7 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                         disabled: album.artist_id.is_none(),
                         onclick: go_artist,
                     }
-                    if can_share(&servers.read(), &album.server_id, app_settings.read().offline_mode) {
+                    if can_share(&servers.read(), &album.server_id, offline()) {
                         MenuItem {
                             label: "Share Link…".to_string(),
                             icon: "share".to_string(),
