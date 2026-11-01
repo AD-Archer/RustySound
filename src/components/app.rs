@@ -103,7 +103,7 @@ fn playback_save_due(previous: Option<&PlaybackSaveMark>, next: &PlaybackSaveMar
 
 /// Focuses (and selects) the Search field once the Search view has mounted.
 /// Polls briefly, because the route change renders a frame or two later.
-fn focus_global_search_input() {
+pub(crate) fn focus_global_search_input() {
     let _ = document::eval(
         r#"
 (() => {
@@ -123,27 +123,6 @@ fn focus_global_search_input() {
         "#,
     );
 }
-
-/// Keydown listener for the Find shortcut: Cmd+F on Apple platforms, Ctrl+F
-/// elsewhere. Multi-line editors (textarea, contenteditable) keep the key.
-/// The script never resolves, so its channel stays open for `dioxus.send`.
-const FIND_SHORTCUT_JS: &str = r#"
-const isApple = /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || "");
-if (window.__rsFindShortcut) document.removeEventListener("keydown", window.__rsFindShortcut);
-const handler = (event) => {
-  if (!event || event.defaultPrevented || event.isComposing) return;
-  if ((event.key || "").toLowerCase() !== "f" || event.altKey || event.shiftKey) return;
-  const primary = isApple ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
-  if (!primary) return;
-  const target = event.target;
-  if (target && target.closest && target.closest("textarea, [contenteditable]:not([contenteditable='false'])")) return;
-  event.preventDefault();
-  dioxus.send(true);
-};
-window.__rsFindShortcut = handler;
-document.addEventListener("keydown", handler);
-await new Promise(() => {});
-"#;
 
 /// Route for a macOS menu item id (app menu, Edit > Find, Go).
 #[cfg(all(feature = "desktop", target_os = "macos"))]
@@ -306,6 +285,8 @@ pub fn AppShell() -> Element {
     crate::components::audio_output::use_audio_output_provider();
     // "Link copied" and other app-wide status lines.
     use_context_provider(crate::components::ui::StatusToast::new);
+    // ⌘K palette, keyboard shortcuts and their cheat sheet (host below).
+    crate::components::use_command_palette_provider();
     // The main scroller's position comes from a passive JS listener, not an
     // `onscroll` handler (see `use_main_scroll_provider`).
     let _main_scroll: MainScroll = use_main_scroll_provider();
@@ -419,22 +400,6 @@ pub fn AppShell() -> Element {
             servers,
             app_settings,
         );
-    }
-
-    // Cmd+F / Ctrl+F jumps to Search from anywhere (the macOS menu's Find item
-    // does the same through muda when it gets the key first).
-    {
-        let navigation = navigation.clone();
-        use_effect(move || {
-            let navigation = navigation.clone();
-            spawn(async move {
-                let mut shortcut = document::eval(FIND_SHORTCUT_JS);
-                while shortcut.recv::<bool>().await.is_ok() {
-                    navigation.navigate_to(AppView::SearchView {});
-                    focus_global_search_input();
-                }
-            });
-        });
     }
 
     // Browser-only: queue bulk cover-art prefetches to avoid provider/CDN rate-limit bursts.
@@ -591,6 +556,8 @@ pub fn AppShell() -> Element {
     // and the view that started them.
     use_sleep_timer_provider();
     use_preview_provider();
+    // Network speakers (Mac and iPhone): the list and the cast in progress.
+    crate::components::cast::use_cast_provider();
     // Playlists kept up to date: on launch, on foreground, every 30 minutes.
     crate::components::playlist_sync::use_playlist_sync_provider(
         servers,
@@ -1166,6 +1133,8 @@ pub fn AppShell() -> Element {
             SongDetailsOverlay { controller: song_details.clone() }
 
             TrackMenuHost {}
+
+            crate::components::CommandPaletteHost {}
 
             crate::components::ui::StatusToastHost {}
 

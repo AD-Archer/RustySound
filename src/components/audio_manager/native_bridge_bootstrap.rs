@@ -215,7 +215,6 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = concat!(
     const key = event.key || "";
     const code = event.code || "";
     const keyCode = event.keyCode || event.which || 0;
-    const metaOrCtrl = !!(event.metaKey || event.ctrlKey);
 
     if (
       key === "MediaTrackNext" ||
@@ -255,28 +254,9 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = concat!(
     ) {
       event.preventDefault();
       pushRemoteAction("toggle_play");
-      return;
     }
-
-    if (metaOrCtrl && !event.altKey && !event.shiftKey) {
-      if (key === "ArrowRight") {
-        event.preventDefault();
-        pushRemoteAction("next");
-        return;
-      }
-      if (key === "ArrowLeft") {
-        event.preventDefault();
-        pushRemoteAction("previous");
-        return;
-      }
-    }
-
-    if (!event.metaKey && !event.ctrlKey && !event.altKey) {
-      if (key === " " || key === "Spacebar" || code === "Space") {
-        event.preventDefault();
-        pushRemoteAction("toggle_play");
-      }
-    }
+    // Space, the arrows and the rest are the app's shortcut registry
+    // (command_palette/shortcuts.rs); only hardware media keys stay here.
   };
 
   if ("mediaSession" in navigator) {

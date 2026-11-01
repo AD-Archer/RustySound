@@ -22,13 +22,15 @@ use crate::time::sleep_ms;
 use browse::BrowseGenres;
 use dioxus::prelude::*;
 use results::Results;
-use scoring::{dedupe_search_results, filter_and_score_results, normalize_text, tokenize, top_hit};
+use scoring::{dedupe_search_results, filter_and_score_results, normalize_text, top_hit};
+pub(crate) use scoring::tokenize;
 
 const DEBOUNCE_MS: u64 = 220;
 
 /// Searches every active server and the device's music with the full query plus each significant
 /// token (3+ characters), so "all falls down kanye" finds title + artist.
-async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResult {
+/// The command palette searches the library through this too.
+pub(crate) async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResult {
     let mut combined = SearchResult::default();
     let tokens = tokenize(&query);
     let mut queries: Vec<String> = vec![query.clone()];
@@ -203,7 +205,7 @@ pub fn SearchView() -> Element {
                         placeholder: "Artists, albums, songs",
                         value: "{text}",
                         onmounted: move |evt| async move {
-                            // Wide: arriving at Search (sidebar, ⌘L) puts the caret in the field.
+                            // Wide: arriving at Search (sidebar, ⌘F) puts the caret in the field.
                             if wide {
                                 let _ = evt.set_focus(true).await;
                             }
@@ -230,6 +232,10 @@ pub fn SearchView() -> Element {
                 }
             }
             div { class: "rs-search-body", aria_busy: if busy { "true" } else { "false" },
+                // No ⌘K on a phone: the palette's actions answer here too.
+                if typed && !wide {
+                    crate::components::command_palette::SearchActions { query: text.clone() }
+                }
                 if no_servers {
                     EmptyState {
                         icon: "server".to_string(),

@@ -18,7 +18,7 @@ use std::rc::Rc;
 
 /// The full-screen Wrapped story. The parent decides whether it is mounted.
 #[component]
-pub(super) fn WrappedStory(on_close: EventHandler<()>) -> Element {
+pub(crate) fn WrappedStory(on_close: EventHandler<()>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let this_year = use_hook(current_year);
     let mut year = use_signal(|| this_year);

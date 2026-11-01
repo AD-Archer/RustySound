@@ -1901,6 +1901,14 @@
   max-width: 100%;
 }
 
+/* "Searching…" and "No speakers found" among the speaker choices. */
+.rs-menu__choice.rs-menu__choice--note {
+  display: inline-flex;
+  align-items: center;
+  background: none;
+  color: var(--muted-strong);
+}
+
 @media (hover: hover) {
   .rs-menu__choice:hover:not([aria-checked="true"]) {
     background: color-mix(in srgb, var(--menu-hl) 60%, var(--ink) 8%);
@@ -2442,6 +2450,11 @@
   color: var(--stage-muted);
 }
 
+/* "Playing on Living Room" while a network speaker plays. */
+.rs-mini__sub--cast {
+  color: var(--stage-ink);
+}
+
 .rs-mini .rs-iconbtn {
   color: var(--stage-ink);
 }
@@ -2641,6 +2654,22 @@ button.rs-bar__art {
   color: var(--stage-muted);
   white-space: nowrap;
 }
+
+/* The network speaker playing, beside the format badge. */
+.rs-bar__cast {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  max-width: 140px;
+  margin-right: var(--sp-3);
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-medium);
+  color: var(--stage-ink);
+  white-space: nowrap;
+}
+
+.rs-bar__cast .rs-ic { flex: none; }
 
 .rs-bar__vol {
   width: 70px;

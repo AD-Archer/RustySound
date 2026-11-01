@@ -88,6 +88,7 @@ pub use story::{Story, StoryCard};
 pub use switch::Switch;
 pub use tab_bar::TabBar;
 pub use tiles::{AlbumTile, ArtistTile};
+pub(crate) use track_menu::{go_to_album, go_to_artist};
 pub use track_menu::{
     SongChange, TrackMenu, TrackMenuController, TrackMenuRemove, TrackMenuRequest,
 };

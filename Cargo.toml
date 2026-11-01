@@ -48,6 +48,12 @@ manganis = "=0.7.10"
 # the folder picker and folder watching on the Mac app only.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 lofty = "0.25.5"
+# Casting to network speakers (src/cast): XML for UPnP descriptions and SOAP
+# replies, and TLS for Google Cast. rustls and tokio-rustls already come in
+# through reqwest; they're named here for the Cast connection.
+roxmltree = "0.21"
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12"] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
 rfd = { version = "0.17.2", optional = true }

@@ -21,6 +21,8 @@ include!("native_ios_eq.rs");
 include!("native_android_backend.rs");
 // Cross-platform native bridge command/snapshot runtime helpers.
 include!("native_bridge_runtime.rs");
+// Remote output (a network speaker) in place of the local backend.
+include!("remote_output.rs");
 // Native (non-wasm) audio controller component.
 include!("controller_native.rs");
 // Shared queue/shuffle/stream/scrobble helpers.

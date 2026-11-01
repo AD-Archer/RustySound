@@ -254,9 +254,14 @@ set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsInWebContent bool true" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia bool true" "${IOS_PLIST_PATH}"
 
-# Local-network servers (Navidrome on LAN) may require this usage description on device.
-/usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}" >/dev/null 2>&1 \
-    || /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}"
+# Local-network servers (Navidrome on LAN) and network speakers (src/cast) need this usage
+# description on device; Chromecast discovery also needs its Bonjour type listed.
+LOCAL_NETWORK_USE="RustySound uses your local network to stream from your media server and to play on speakers."
+/usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription ${LOCAL_NETWORK_USE}" "${IOS_PLIST_PATH}" >/dev/null 2>&1 \
+    || /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string ${LOCAL_NETWORK_USE}" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Delete :NSBonjourServices" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _googlecast._tcp" "${IOS_PLIST_PATH}"
 
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIcons" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIcons~ipad" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true

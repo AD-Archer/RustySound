@@ -159,6 +159,17 @@ pub fn app_mark_src() -> &'static str {
     })
 }
 
+/// The themes Settings › Appearance offers (and the command palette's
+/// "Switch Theme…"): key, name, blurb.
+pub const STAGE_THEMES: [(&str, &str, &str); 3] = [
+    ("stage", "Stage", "Cool grey lists, blue accent."),
+    ("graphite", "Graphite", "Deeper neutrals, more contrast."),
+    ("tape", "Tape", "Warm paper, signal orange."),
+];
+
+/// The light/dark choices: `AppSettings::appearance` key, name.
+pub const APPEARANCES: [(&str, &str); 3] = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
+
 /// Maps a stored theme name (including the 11 retired ones) to a Stage theme.
 pub fn stage_theme(raw: &str) -> &'static str {
     match raw.trim().to_ascii_lowercase().as_str() {

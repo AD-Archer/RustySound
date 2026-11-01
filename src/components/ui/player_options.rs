@@ -20,6 +20,8 @@ pub enum PlayerMenu {
     /// All rows closed.
     Closed,
     Output,
+    /// Network speakers (`components::cast`).
+    Speakers,
     Sleep,
     Speed,
 }
@@ -172,6 +174,12 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                 }
                 PlayOnChoices { on_done }
             }
+        }
+        // Speakers on the network, as their own row (`components::cast`).
+        crate::components::cast::SpeakersMenu {
+            open: expanded() == PlayerMenu::Speakers,
+            on_toggle: move |_| toggle(PlayerMenu::Speakers),
+            on_done,
         }
         button {
             r#type: "button",

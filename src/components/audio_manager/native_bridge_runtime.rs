@@ -30,7 +30,7 @@ fn ensure_native_audio_bridge() {
     not(target_os = "windows"),
     not(target_os = "android")
 ))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     ensure_native_audio_bridge();
     let payload = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
     let script = format!(
@@ -45,12 +45,12 @@ fn native_audio_command(value: serde_json::Value) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     let _ = with_windows_player(|player| player.apply(value));
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     let cmd_type = value
         .get("type")
         .and_then(|raw| raw.as_str())
@@ -60,7 +60,7 @@ fn native_audio_command(value: serde_json::Value) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     android_audio_apply(&value);
 }
 
@@ -70,7 +70,7 @@ fn native_audio_command(value: serde_json::Value) {
     not(target_os = "windows"),
     not(target_os = "android")
 ))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     ensure_native_audio_bridge();
     let eval = document::eval(
         r#"return (function () {
@@ -96,17 +96,17 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_windows_player(|player| player.snapshot())
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_ios_player(|player| player.snapshot())
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     android_audio_snapshot()
 }
 

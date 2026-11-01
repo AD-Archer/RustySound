@@ -332,6 +332,13 @@ impl MusicClient {
         )
     }
 
+    /// The cover's URL on the server, for a network speaker that fetches
+    /// it itself. `None` for local songs (no server to fetch from).
+    #[cfg_attr(not(any(target_os = "macos", target_os = "ios")), allow(dead_code))]
+    pub fn get_cover_art_network_url(&self, cover_art_id: &str, size: u32) -> Option<String> {
+        servers_only!(self, c => Some(c.get_cover_art_network_url(cover_art_id, size)), None)
+    }
+
     /// Cover URL for an `<img>`, cheap enough to call while rendering.
     pub fn get_cover_art_display_url(&self, cover_art_id: &str, size: u32) -> String {
         servers_only!(

@@ -28,6 +28,7 @@ pub(super) fn NowPlayingScrubber(song: Song) -> Element {
                 if live {
                     span { class: "rs-player-scrub__mid",
                         span { class: "rs-player-badge rs-player-badge--live", "LIVE" }
+                        crate::components::cast::CastIndicator { song: song.clone() }
                         SleepIndicator { song: song.clone() }
                     }
                 } else {
@@ -36,6 +37,7 @@ pub(super) fn NowPlayingScrubber(song: Song) -> Element {
                         if let Some(badge) = badge {
                             span { class: "rs-player-badge", title: "Format", "{badge}" }
                         }
+                        crate::components::cast::CastIndicator { song: song.clone() }
                         SleepIndicator { song: song.clone() }
                     }
                     PlaybackTime { remaining: true, class: "rs-player-scrub__time".to_string() }
