@@ -166,6 +166,14 @@ pub struct AppSettings {
     /// always plays at 1x.
     #[serde(default = "default_playback_rate")]
     pub playback_rate: f64,
+    /// Save the play queue to the server and offer queues saved by other
+    /// devices ("Continue from iPhone").
+    #[serde(default = "default_queue_sync_enabled")]
+    pub queue_sync_enabled: bool,
+}
+
+fn default_queue_sync_enabled() -> bool {
+    true
 }
 
 fn default_playback_rate() -> f64 {
@@ -372,6 +380,7 @@ impl Default for AppSettings {
             discover_rewind_months: default_discover_rewind_months(),
             discover_saved_mix_playlists: default_discover_saved_mix_playlists(),
             playback_rate: default_playback_rate(),
+            queue_sync_enabled: default_queue_sync_enabled(),
         }
     }
 }
@@ -721,6 +730,44 @@ pub async fn load_temporary_queue_snapshots() -> Result<Vec<TemporaryQueueSnapsh
         Ok(snapshots) => Ok(normalize_queue_snapshots(snapshots)),
         Err(_) => Ok(Vec::new()),
     }
+}
+
+/// A small JSON value kept next to the settings (native: the `settings`
+/// table; web: localStorage `rustysound.<key>`). For per-device bookkeeping
+/// that isn't a user setting, like playback sync's queue marks.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_json_value<T: Serialize>(key: &str, value: &T) -> bool {
+    let Ok(json) = serde_json::to_string(value) else {
+        return false;
+    };
+    let Ok(conn) = get_db_connection() else {
+        return false;
+    };
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        [key, json.as_str()],
+    )
+    .is_ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_json_value<T: Serialize>(key: &str, value: &T) -> bool {
+    LocalStorage::set(format!("rustysound.{key}"), value).is_ok()
+}
+
+/// Reads a value saved with [`save_json_value`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+    let conn = get_db_connection().ok()?;
+    let json: String = conn
+        .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row: &rusqlite::Row| row.get(0))
+        .ok()?;
+    serde_json::from_str(&json).ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+    LocalStorage::get(format!("rustysound.{key}")).ok()
 }
 
 #[cfg(not(target_arch = "wasm32"))]

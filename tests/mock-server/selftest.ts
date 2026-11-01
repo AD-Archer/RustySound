@@ -103,6 +103,18 @@ expect((await rest("getPlaylist", `&id=${pid}`)).error?.code === 70, "deletePlay
 await rest("savePlayQueue", `&id=${song.id}&id=${album.album.song[1].id}&current=${song.id}&position=1234`);
 const pq = await rest("getPlayQueue");
 expect(pq.playQueue.entry.length === 2 && pq.playQueue.position === 1234, "play queue round trip");
+expect(pq.playQueue.changedBy === "selftest", "play queue changedBy is the client (c=)");
+await rest("savePlayQueueByIndex", `&id=${song.id}&id=${song.id}&currentIndex=1&position=99`);
+const pqi = await rest("getPlayQueueByIndex");
+expect(pqi.playQueueByIndex.currentIndex === 1 && pqi.playQueueByIndex.entry.length === 2, "play queue by index round trip");
+expect((await rest("savePlayQueueByIndex", `&id=${song.id}&currentIndex=3`)).error?.code === 10, "currentIndex out of range");
+const plays = (await rest("getSong", `&id=${song.id}`)).song.playCount;
+await rest("reportPlayback", `&mediaId=${song.id}&mediaType=song&positionMs=0&state=starting`);
+await rest("reportPlayback", `&mediaId=${song.id}&mediaType=song&positionMs=1000&state=playing&playbackRate=1`);
+const np = (await rest("getNowPlaying")).nowPlaying.entry.find((e: any) => e.playerName === "selftest");
+expect(np && np.state === "playing" && np.id === song.id, "reportPlayback shows in getNowPlaying");
+await rest("reportPlayback", `&mediaId=${song.id}&mediaType=song&positionMs=${song.duration * 1000}&state=stopped`);
+expect((await rest("getSong", `&id=${song.id}`)).song.playCount === plays + 1, "reportPlayback stopped scrobbles");
 await rest("createBookmark", `&id=${song.id}&position=5000`);
 expect((await rest("getBookmarks")).bookmarks.bookmark.some((b: any) => b.entry.id === song.id), "createBookmark");
 await rest("deleteBookmark", `&id=${song.id}`);

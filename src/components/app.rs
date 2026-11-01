@@ -15,6 +15,10 @@ use crate::components::{
     use_sleep_timer_provider,
     SongDetailsState, VolumeSignal,
 };
+use crate::components::playback_sync::{
+    fetch_server_queues, own_queue_for_resume, restore_server_queue, use_playback_sync_provider,
+    PlaybackSyncHost, RestoreSignals,
+};
 use crate::db::{
     initialize_database, load_playback_state, load_servers, load_settings, save_playback_state,
     save_servers, save_settings, save_temporary_queue_snapshot, AppSettings, PlaybackState,
@@ -548,6 +552,8 @@ pub fn AppShell() -> Element {
     // and the view that started them.
     use_sleep_timer_provider();
     use_preview_provider();
+    // Playback sync: reports, the server queue, "Continue from iPhone".
+    let playback_sync = use_playback_sync_provider();
 
     // Mirror theme, appearance and platform onto <html> so the page background,
     // overscroll area and scrollbars follow the theme too. data-layout lives on
@@ -740,7 +746,11 @@ pub fn AppShell() -> Element {
         });
     });
 
-    // Resume from the most recent bookmark on startup.
+    // On launch: offer a queue another device saved ("Continue from
+    // iPhone"), and with Resume on launch on, put back this device's latest
+    // place, paused: its own server queue when that's at least as new as the
+    // newest bookmark (the whole queue, not one song), else the bookmark.
+    // Bookmarks stay the fallback when sync is off or the server has no queue.
     use_effect(move || {
         if resume_bookmark_loaded() {
             return;
@@ -748,29 +758,44 @@ pub fn AppShell() -> Element {
         if !settings_loaded() {
             return;
         }
-        if now_playing().is_some() {
-            resume_bookmark_loaded.set(true);
-            return;
-        }
-
-        let bookmark_autoplay_on_launch = app_settings().bookmark_autoplay_on_launch;
-        if !bookmark_autoplay_on_launch {
-            resume_bookmark_loaded.set(true);
-            return;
-        }
         let servers_snapshot = servers();
         if servers_snapshot.is_empty() {
             return;
         }
+        resume_bookmark_loaded.set(true);
 
+        let settings_snapshot = app_settings.peek().clone();
+        let resume = settings_snapshot.bookmark_autoplay_on_launch && now_playing.peek().is_none();
+        let sync_on = settings_snapshot.queue_sync_enabled && !settings_snapshot.offline_mode;
+        if !resume && !sync_on {
+            return;
+        }
+
+        let restore_signals = RestoreSignals {
+            queue,
+            queue_index,
+            now_playing,
+            is_playing,
+            playback_position,
+            seek_request,
+        };
         let mut queue = queue.clone();
         let mut queue_index = queue_index.clone();
         let mut now_playing = now_playing.clone();
         let mut is_playing = is_playing.clone();
         let mut playback_position = playback_position.clone();
         let mut seek_request = seek_request.clone();
-        let mut resume_bookmark_loaded = resume_bookmark_loaded.clone();
         spawn(async move {
+            let found = if sync_on {
+                fetch_server_queues(&servers_snapshot).await
+            } else {
+                Vec::new()
+            };
+            playback_sync.consider_offers(&found);
+            if !resume {
+                return;
+            }
+
             let mut candidates: Vec<Bookmark> = Vec::new();
 
             for server in servers_snapshot.iter().filter(|s| s.active).cloned() {
@@ -798,6 +823,28 @@ pub fn AppShell() -> Element {
                     .then_with(|| b.created.cmp(&a.created))
             });
 
+            let newest_bookmark_ms = candidates
+                .first()
+                .and_then(|b| b.changed.as_deref().or(b.created.as_deref()))
+                .and_then(parse_server_time_ms);
+            if let Some(own) = own_queue_for_resume(&found, newest_bookmark_ms) {
+                if now_playing.peek().is_some() {
+                    return;
+                }
+                ios_diag_log(
+                    "app.resume_bookmark",
+                    &format!(
+                        "server queue len={} index={} position_ms={} autoplay=false",
+                        own.entries.len(),
+                        own.current_index,
+                        own.position_ms
+                    ),
+                );
+                playback_sync.note_restored();
+                restore_server_queue(restore_signals, &own);
+                return;
+            }
+
             let mut resumed_song: Option<(Song, f64)> = None;
             for bookmark in candidates.into_iter() {
                 let Some(server) = servers_snapshot
@@ -822,7 +869,6 @@ pub fn AppShell() -> Element {
                         "app.resume_bookmark",
                         "skip restore: now_playing changed while bookmark lookup was in flight",
                     );
-                    resume_bookmark_loaded.set(true);
                     return;
                 }
                 ios_diag_log(
@@ -841,8 +887,6 @@ pub fn AppShell() -> Element {
             } else {
                 ios_diag_log("app.resume_bookmark", "no bookmark candidate restored");
             }
-
-            resume_bookmark_loaded.set(true);
         });
     });
 
@@ -1112,6 +1156,8 @@ pub fn AppShell() -> Element {
 
             // Audio controller - manages playback separately from UI
             AudioController {}
+            // Reports plays and syncs the queue with the server.
+            PlaybackSyncHost { ready: settings_loaded }
         }
     }
 }

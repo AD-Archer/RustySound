@@ -326,6 +326,46 @@
   bottom: calc(var(--bar-h) + 28px);
 }
 
+/* "Continue from iPhone": the same spot, fading up gently. The text is
+   the button; the cross dismisses. */
+.rs-capsule--continue {
+  top: auto;
+  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 20px);
+  gap: var(--sp-2);
+  max-width: min(440px, calc(100vw - 32px));
+  padding: 4px;
+  pointer-events: auto;
+  animation: rs-capsule-rise var(--dur-flow) var(--ease-out);
+}
+
+.rs-app[data-layout="wide"] .rs-capsule--continue {
+  bottom: calc(var(--bar-h) + 28px);
+}
+
+.rs-capsule__main {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 36px;
+  padding: 0 10px;
+  border-radius: var(--r-button-sm);
+  color: var(--stage-ink);
+  text-align: left;
+}
+
+.rs-capsule__main:active { background: var(--stage-pressed); }
+
+@media (hover: hover) {
+  .rs-capsule__main:hover { background: var(--stage-hover); }
+}
+
+.rs-capsule__lead { font-weight: var(--fw-semibold); }
+
+@keyframes rs-capsule-rise {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
 .rs-capsule--preview .rs-art {
   flex: none;
   border-radius: 5px;
@@ -1748,6 +1788,15 @@
 
 .rs-menu__item:active:not(:disabled),
 .rs-menu__tile:active { background: var(--menu-hl); }
+
+/* A line of information, not an action ("Also playing on Mac"). */
+.rs-menu__item--note,
+.rs-menu__item--note svg { color: var(--muted-strong); }
+
+.rs-menu__item.rs-menu__item--note { cursor: default; }
+
+.rs-menu__item.rs-menu__item--note:hover,
+.rs-menu__item.rs-menu__item--note:active { background: none; }
 
 .rs-menu__stars {
   display: flex;

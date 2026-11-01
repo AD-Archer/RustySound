@@ -8,6 +8,13 @@
 // - lrclib.net stand-in at /lrclib/api/{search,get} (tests route lrclib.net here).
 // - Permissive CORS, including OPTIONS preflight.
 // - In-memory state; restart to reset. POST /__mock/reset also resets it.
+// - Sync scopes: a server URL of <base>/t/<tag> gets its own play queue, playback
+//   reports and players (getPlayQueue, reportPlayback, getNowPlaying…), so parallel
+//   tests don't see each other's queues. Everything else is shared. Test hooks:
+//     GET  [/t/<tag>]/__mock/sync         what was saved, reported and scrobbled
+//     POST [/t/<tag>]/__mock/play-queue   seed a queue "from another device":
+//          { ids?, count?, currentIndex?, position?, changedBy?, changedMsAgo? }
+//     POST [/t/<tag>]/__mock/now-playing  seed another player: { id?, playerName, state? }
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { buildLibrary, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
@@ -45,7 +52,6 @@ interface State {
   lib: Library;
   now: number;
   bookmarks: Map<string, { position: number; comment: string; created: number; changed: number }>;
-  playQueue: { ids: string[]; current: string | null; position: number; changed: number } | null;
   scanUntil: number;
   lastScan: number;
   nextPlaylist: number;
@@ -66,7 +72,6 @@ function freshState(): State {
     lib,
     now,
     bookmarks,
-    playQueue: null,
     scanUntil: 0,
     lastScan: now - 2 * DAY,
     nextPlaylist: 1,
@@ -77,6 +82,59 @@ function freshState(): State {
 }
 
 let S = freshState();
+
+// ---------------------------------------------------------------- sync scopes
+
+interface PlayQueue {
+  ids: string[];
+  currentIndex: number;
+  position: number;
+  changed: number;
+  changedBy: string;
+}
+interface Report {
+  at: number;
+  client: string;
+  mediaId: string;
+  state: string;
+  positionMs: number;
+  playbackRate: number;
+}
+interface Save {
+  at: number;
+  client: string;
+  method: string;
+  form: boolean;
+  ids: string[];
+  currentIndex: number;
+  position: number;
+}
+interface Session {
+  client: string;
+  mediaId: string;
+  state: string;
+  positionMs: number;
+  playbackRate: number;
+  at: number;
+  start: number;
+}
+interface SyncState {
+  playQueue: PlayQueue | null;
+  reports: Report[];
+  saves: Save[];
+  scrobbles: { at: number; client: string; id: string; submission: boolean }[];
+  sessions: Map<string, Session>;
+}
+
+const SCOPES = new Map<string, SyncState>();
+function scoped(scope: string): SyncState {
+  let st = SCOPES.get(scope);
+  if (!st) {
+    st = { playQueue: null, reports: [], saves: [], scrobbles: [], sessions: new Map() };
+    SCOPES.set(scope, st);
+  }
+  return st;
+}
 
 const iso = (daysAgo: number | null | undefined) =>
   daysAgo === null || daysAgo === undefined ? undefined : new Date(S.now - daysAgo * DAY).toISOString();
@@ -256,11 +314,17 @@ function subErr(code: number, message: string) {
 
 class ParamError extends Error {}
 
-function params(url: URL, form?: URLSearchParams) {
+function params(url: URL, form?: URLSearchParams, scope = "") {
   const all = new URLSearchParams(url.searchParams);
   if (form) for (const [k, v] of form) all.append(k, v);
   return {
     raw: all,
+    /** the sync scope (`/t/<tag>` prefix), "" when none */
+    scope,
+    /** form POST (formPost extension) */
+    form: !!form,
+    /** the client name (`c=`) */
+    client: all.get("c") ?? "",
     get: (k: string) => all.get(k) ?? undefined,
     req: (k: string) => {
       const v = all.get(k);
@@ -434,6 +498,15 @@ function albumList(p: P): AlbumRec[] {
   }
 }
 
+/** Stores a saved play queue (both save methods), with `changedBy` from `c`. */
+function savePlayQueue(p: P, method: string, ids: string[], currentIndex: number): Response {
+  const st = scoped(p.scope);
+  const position = p.int("position", 0);
+  st.saves.push({ at: Date.now(), client: p.client, method, form: p.form, ids, currentIndex, position });
+  st.playQueue = ids.length ? { ids, currentIndex, position, changed: Date.now(), changedBy: p.client } : null;
+  return sub();
+}
+
 // ---------------------------------------------------------------- REST handlers
 
 type Handler = (p: P, req: Request) => Response | Promise<Response>;
@@ -447,6 +520,8 @@ const handlers: Record<string, Handler> = {
         { name: "songLyrics", versions: [1, 2] },
         { name: "formPost", versions: [1] },
         { name: "transcodeOffset", versions: [1] },
+        { name: "playbackReport", versions: [1] },
+        { name: "indexBasedQueue", versions: [1] },
       ],
     }),
   getUser: (p) =>
@@ -606,6 +681,7 @@ const handlers: Record<string, Handler> = {
     const ids = p.all("id");
     if (!ids.length) throw new ParamError("Required parameter is missing: id");
     const submission = p.bool("submission", true);
+    for (const id of ids) scoped(p.scope).scrobbles.push({ at: Date.now(), client: p.client, id, submission });
     for (const id of ids) {
       const s = S.lib.songById.get(id);
       if (!s) continue;
@@ -618,11 +694,54 @@ const handlers: Record<string, Handler> = {
     }
     return sub();
   },
-  getNowPlaying: () => {
-    const entries = [...S.nowPlaying.entries()]
-      .filter(([, t]) => Date.now() - t < 20 * 60_000)
-      .map(([id, t]) => ({ ...songJson(S.lib.songById.get(id)!), username: USER, minutesAgo: Math.floor((Date.now() - t) / 60_000), playerId: 1 }));
-    return sub({ nowPlaying: { entry: entries } });
+  getNowPlaying: (p) => {
+    // reportPlayback sessions (Navidrome: one per client, with state and an
+    // extrapolated position), then legacy scrobble "now playing" entries.
+    const now = Date.now();
+    let playerId = 0;
+    const sessions = [...scoped(p.scope).sessions.values()]
+      .filter((x) => x.state !== "stopped" && S.lib.songById.has(x.mediaId))
+      .sort((a, b) => b.start - a.start)
+      .map((x) => ({
+        ...songJson(S.lib.songById.get(x.mediaId)!),
+        username: USER,
+        minutesAgo: Math.floor((now - x.start) / 60_000),
+        playerId: ++playerId,
+        playerName: x.client || undefined,
+        state: x.state,
+        positionMs: x.state === "playing" ? x.positionMs + Math.round((now - x.at) * x.playbackRate) : x.positionMs,
+        playbackRate: x.playbackRate,
+      }));
+    const legacy = p.scope
+      ? []
+      : [...S.nowPlaying.entries()]
+          .filter(([, t]) => now - t < 20 * 60_000)
+          .map(([id, t]) => ({ ...songJson(S.lib.songById.get(id)!), username: USER, minutesAgo: Math.floor((now - t) / 60_000), playerId: ++playerId }));
+    return sub({ nowPlaying: { entry: [...sessions, ...legacy] } });
+  },
+  reportPlayback: (p) => {
+    const mediaId = p.req("mediaId");
+    const state = p.req("state");
+    if (!["starting", "playing", "paused", "stopped"].includes(state)) throw new ParamError(`Invalid state: ${state}`);
+    const positionMs = Number(p.req("positionMs"));
+    if (!Number.isFinite(positionMs) || positionMs < 0) throw new ParamError("Invalid positionMs");
+    const playbackRate = Number(p.get("playbackRate") ?? "1");
+    if (!Number.isFinite(playbackRate) || playbackRate <= 0) throw new ParamError("Invalid playbackRate");
+    const st = scoped(p.scope);
+    const now = Date.now();
+    st.reports.push({ at: now, client: p.client, mediaId, state, positionMs, playbackRate });
+    const prev = st.sessions.get(p.client);
+    st.sessions.set(p.client, {
+      client: p.client, mediaId, state, positionMs, playbackRate, at: now,
+      start: prev && prev.mediaId === mediaId && state !== "starting" ? prev.start : now,
+    });
+    // Like Navidrome: a play counts on `stopped` after half the song or 4 minutes.
+    const s = S.lib.songById.get(mediaId);
+    if (state === "stopped" && s && !p.bool("ignoreScrobble") && positionMs >= Math.min(s.duration * 500, 240_000)) {
+      s.playCount += 1;
+      s.playedDaysAgo = 0;
+    }
+    return sub();
   },
 
   getPlaylists: () => sub({ playlists: { playlist: S.lib.playlists.map(playlistJson) } }),
@@ -679,27 +798,47 @@ const handlers: Record<string, Handler> = {
     return sub();
   },
 
-  getPlayQueue: () => {
-    if (!S.playQueue) return sub();
+  getPlayQueue: (p) => {
+    const q = scoped(p.scope).playQueue;
+    if (!q) return sub();
     return sub({
       playQueue: clean({
-        entry: S.playQueue.ids.map((id) => songJson(S.lib.songById.get(id)!)),
-        current: S.playQueue.current ?? undefined,
-        position: S.playQueue.position,
+        entry: q.ids.map((id) => songJson(S.lib.songById.get(id)!)),
+        current: q.ids[q.currentIndex],
+        position: q.position,
         username: USER,
-        changed: isoMs(S.playQueue.changed),
-        changedBy: "RustySound",
+        changed: isoMs(q.changed),
+        changedBy: q.changedBy,
+      }),
+    });
+  },
+  getPlayQueueByIndex: (p) => {
+    const q = scoped(p.scope).playQueue;
+    if (!q) return sub();
+    return sub({
+      playQueueByIndex: clean({
+        entry: q.ids.map((id) => songJson(S.lib.songById.get(id)!)),
+        currentIndex: q.currentIndex,
+        position: q.position,
+        username: USER,
+        changed: isoMs(q.changed),
+        changedBy: q.changedBy,
       }),
     });
   },
   savePlayQueue: (p) => {
     const ids = p.all("id").filter((id) => S.lib.songById.has(id));
-    if (!ids.length) {
-      S.playQueue = null;
-      return sub();
+    const current = p.get("current");
+    return savePlayQueue(p, "savePlayQueue", ids, Math.max(0, current ? ids.indexOf(current) : 0));
+  },
+  savePlayQueueByIndex: (p) => {
+    const ids = p.all("id").filter((id) => S.lib.songById.has(id));
+    if (!ids.length) return savePlayQueue(p, "savePlayQueueByIndex", ids, 0);
+    const currentIndex = p.int("currentIndex", NaN);
+    if (!Number.isInteger(currentIndex) || currentIndex < 0 || currentIndex >= ids.length) {
+      return subErr(10, "currentIndex out of range");
     }
-    S.playQueue = { ids, current: p.get("current") ?? ids[0], position: p.int("position", 0), changed: Date.now() };
-    return sub();
+    return savePlayQueue(p, "savePlayQueueByIndex", ids, currentIndex);
   },
 
   getBookmarks: () =>
@@ -968,10 +1107,55 @@ function radio(req: Request, url: URL): Response | null {
 
 // ---------------------------------------------------------------- server
 
+async function syncHook(req: Request, url: URL, scope: string): Promise<Response | null> {
+  const st = scoped(scope);
+  if (url.pathname === "/__mock/sync" && req.method === "GET") {
+    return json({
+      playQueue: st.playQueue && { ...st.playQueue, changed: isoMs(st.playQueue.changed) },
+      reports: st.reports,
+      saves: st.saves,
+      scrobbles: st.scrobbles,
+    });
+  }
+  if (url.pathname === "/__mock/play-queue" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as {
+      ids?: string[]; count?: number; currentIndex?: number; position?: number; changedBy?: string; changedMsAgo?: number;
+    };
+    const ids = body.ids ?? S.lib.songs.slice(10, 10 + (body.count ?? 5)).map((s) => s.id);
+    st.playQueue = {
+      ids,
+      currentIndex: Math.min(body.currentIndex ?? 0, ids.length - 1),
+      position: body.position ?? 0,
+      changed: Date.now() - (body.changedMsAgo ?? 0),
+      changedBy: body.changedBy ?? "RustySound (iPhone)",
+    };
+    return json({ ok: true, playQueue: { ...st.playQueue, changed: isoMs(st.playQueue.changed) } });
+  }
+  if (url.pathname === "/__mock/now-playing" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { id?: string; playerName?: string; state?: string };
+    const id = body.id ?? S.lib.songs[20].id;
+    const client = body.playerName ?? "RustySound (Mac)";
+    const now = Date.now();
+    st.sessions.set(client, { client, mediaId: id, state: body.state ?? "playing", positionMs: 30_000, playbackRate: 1, at: now, start: now });
+    return json({ ok: true, title: S.lib.songById.get(id)?.title });
+  }
+  return null;
+}
+
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (LATENCY_MS) await Bun.sleep(LATENCY_MS);
+
+  // A sync scope: /t/<tag>/... behaves like /..., with its own sync state.
+  let scope = "";
+  const scopeMatch = /^\/t\/([A-Za-z0-9_-]+)(\/.*)$/.exec(url.pathname);
+  if (scopeMatch) {
+    scope = scopeMatch[1];
+    url.pathname = scopeMatch[2];
+  }
+  const hook = await syncHook(req, url, scope);
+  if (hook) return hook;
 
   if (url.pathname === "/" || url.pathname === "/__mock/health") {
     return json({
@@ -986,6 +1170,7 @@ async function handle(req: Request): Promise<Response> {
   }
   if (url.pathname === "/__mock/reset" && req.method === "POST") {
     S = freshState();
+    SCOPES.clear();
     return json({ ok: true });
   }
   if (url.pathname === "/__mock/fixtures") {
@@ -1021,7 +1206,7 @@ async function handle(req: Request): Promise<Response> {
     const ct = req.headers.get("content-type") ?? "";
     if (ct.includes("application/x-www-form-urlencoded")) form = new URLSearchParams(await req.text());
   }
-  const p = params(url, form);
+  const p = params(url, form, scope);
 
   if (!p.get("u") && !p.get("apiKey")) return subErr(10, "Required parameter is missing: u");
   if (!checkAuth(p)) return subErr(40, "Wrong username or password");

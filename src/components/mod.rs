@@ -7,6 +7,7 @@ mod audio_manager;
 mod cached_image;
 mod icons;
 mod navigation;
+pub mod playback_sync;
 mod player;
 mod song_details;
 pub mod ui;
@@ -39,5 +40,6 @@ pub use app_view::AppView;
 pub use audio_manager::*;
 pub use icons::*;
 pub use navigation::{Navigation, PageMotion};
+pub use playback_sync::{note_track_finished, PlaybackSync};
 pub use song_details::*;
 // Views are accessed via views::ViewName

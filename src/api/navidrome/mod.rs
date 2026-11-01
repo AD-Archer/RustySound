@@ -20,6 +20,8 @@ static AUTH_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::ne
 static NATIVE_AUTH_CACHE: Lazy<Mutex<HashMap<String, NativeAuthSession>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// App name: the User-Agent, and the start of the `c=` client name
+/// (`client_name()`, which adds the device).
 const CLIENT_NAME: &str = "RustySound";
 const API_VERSION: &str = "1.16.1";
 
@@ -165,6 +167,7 @@ include!("playlist_mutations.rs");
 include!("radio_search_and_scrobble.rs");
 include!("artist_info.rs");
 include!("opensubsonic.rs");
+include!("play_queue.rs");
 include!("library_paging.rs");
 
 fn normalize_cover_art_id(cover_art_id: &str) -> String {

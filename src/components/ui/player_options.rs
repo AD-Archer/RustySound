@@ -1,9 +1,10 @@
 //! Sleep Timer and Playback Speed rows for the track menu, shown when Now
-//! Playing opens it for the playing song (`TrackMenuController::open_for_player`).
+//! Playing opens it for the playing song (`TrackMenuController::open_for_player`),
+//! under a quiet "Also playing on Mac" line while another player is playing.
 
 use crate::components::{
-    set_playback_speed, speed_label, Icon, SleepChoice, SleepTimer, PLAYBACK_SPEEDS,
-    SLEEP_CHOICES,
+    set_playback_speed, speed_label, Icon, PlaybackSync, SleepChoice, SleepTimer,
+    PLAYBACK_SPEEDS, SLEEP_CHOICES,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -36,8 +37,22 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
         let next = if *expanded.peek() == row { PlayerMenu::Closed } else { row };
         expanded.set(next);
     };
+    // Another player of this user (polled while Now Playing is open).
+    let elsewhere = (use_context::<PlaybackSync>().elsewhere)();
 
     rsx! {
+        if let Some(other) = elsewhere {
+            div {
+                class: "rs-menu__item rs-menu__item--note",
+                role: "menuitem",
+                aria_disabled: "true",
+                tabindex: "-1",
+                "data-testid": "playing-elsewhere",
+                span { class: "rs-menu__label", "Also playing on {other.device}" }
+                span { class: "rs-menu__detail rs-menu__label", "{other.title}" }
+                Icon { name: "headphones".to_string(), class: "rs-ic".to_string() }
+            }
+        }
         button {
             r#type: "button",
             class: "rs-menu__item",

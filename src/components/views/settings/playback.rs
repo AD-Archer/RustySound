@@ -1,4 +1,4 @@
-//! Settings → Playback: default volume, bookmarks, Offline Mode.
+//! Settings → Playback: default volume, bookmarks, queue sync, Offline Mode.
 //!
 //! Crossfade and Replay Gain are hidden on purpose: no audio backend ever used
 //! them. Their `AppSettings` fields stay so old settings files still load.
@@ -26,6 +26,7 @@ pub(super) fn PlaybackSection() -> Element {
     let resume = settings.bookmark_autoplay_on_launch;
     let limit = settings.bookmark_limit as i64;
     let offline = settings.offline_mode;
+    let queue_sync = settings.queue_sync_enabled;
     drop(settings);
 
     let mut set_volume = move |value: f64| volume.set((value / 100.0).clamp(0.0, 1.0));
@@ -65,7 +66,7 @@ pub(super) fn PlaybackSection() -> Element {
             SwitchRow {
                 id: "bookmark-resume".to_string(),
                 title: "Resume on launch".to_string(),
-                subtitle: "Queue your latest bookmark at its position, paused, when the app starts.".to_string(),
+                subtitle: "Load where this device left off, paused, when the app starts: its synced queue, or your latest bookmark.".to_string(),
                 checked: resume,
                 on_toggle: move |on| ctx.update(|s| s.bookmark_autoplay_on_launch = on),
             }
@@ -80,6 +81,18 @@ pub(super) fn PlaybackSection() -> Element {
                 on_commit: move |v: i64| ctx.update(|s| s.bookmark_limit = v as u32),
             }
         }
+
+        GroupTitle { title: "Other Devices".to_string() }
+        ul { class: "rs-list rs-list--text",
+            SwitchRow {
+                id: "queue-sync".to_string(),
+                title: "Sync queue with server".to_string(),
+                subtitle: "Save your queue and place to the server, and offer to continue from another device.".to_string(),
+                checked: queue_sync,
+                on_toggle: move |on| ctx.update(|s| s.queue_sync_enabled = on),
+            }
+        }
+        Footnote { "The server keeps one queue for your account; the device that saves last wins. Up to 500 songs around the current one are saved." }
 
         GroupTitle { title: "Offline".to_string() }
         ul { class: "rs-list rs-list--text",
