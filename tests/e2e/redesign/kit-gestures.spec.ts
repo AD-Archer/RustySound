@@ -83,11 +83,14 @@ test.describe("kit gestures: compact", () => {
     await longPress(page, tid(page, "track-row").first());
     const menu = tid(page, "track-menu");
     await expect(menu).toBeVisible();
-    // Let the entrance animation finish.
-    await page.waitForTimeout(450);
     const sheet = page.locator("[data-sheet-swipe]");
     await expect(sheet).toHaveCount(1);
-    const box = (await sheet.boundingBox())!;
+    // Let the entrance animation finish before measuring: under load it runs
+    // past any fixed wait, and a box taken mid-slide starts the swipe off the sheet.
+    const settled = () =>
+      sheet.evaluate((el) => el.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length);
+    await expect.poll(settled).toBe(0);
+    let box = (await sheet.boundingBox())!;
     const finger = await touch(page);
 
     // A short, slow pull: back where it was.
@@ -98,7 +101,10 @@ test.describe("kit gestures: compact", () => {
     await expect.poll(() => sheet.evaluate((el) => (el as HTMLElement).style.transform)).toBe("");
 
     // A long pull past 30% of the sheet: it closes.
-    await finger.swipe(start, { x: start.x, y: start.y + box.height * 0.6 }, 14, 16);
+    await expect.poll(settled).toBe(0);
+    box = (await sheet.boundingBox())!;
+    const top = { x: box.x + box.width / 2, y: box.y + 30 };
+    await finger.swipe(top, { x: top.x, y: top.y + box.height * 0.6 }, 14, 16);
     await expect(menu).toHaveCount(0);
     await expect(page.locator(".rs-scrim")).toHaveCount(0);
   });
