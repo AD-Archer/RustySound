@@ -28,16 +28,12 @@ pub struct ShareTarget {
     pub title: String,
 }
 
-/// The On This Device source (`local_music::LOCAL_SOURCE_ID`): no server
-/// behind it to share from.
-const LOCAL_SOURCE_ID: &str = "local";
-
 /// Whether menus offer "Share Link…" for an item on `server_id`: online, a
 /// configured server (not music on the device), and not known to have
 /// sharing off.
 pub fn can_share(servers: &[ServerConfig], server_id: &str, offline: bool) -> bool {
     !offline
-        && server_id != LOCAL_SOURCE_ID
+        && !crate::local_music::is_local(server_id)
         && servers.iter().any(|s| s.id == server_id)
         && known_share_support(server_id) != Some(false)
 }
