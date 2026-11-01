@@ -839,20 +839,25 @@ pub async fn initialize_database() -> Result<(), StorageError> {
     Ok(())
 }
 
+/// Opens the app database. Also used by the local-music index, whose
+/// background scans write here; the busy timeout lets a settings save wait
+/// out one of their short transactions instead of failing.
 #[cfg(not(target_arch = "wasm32"))]
 #[allow(dead_code)]
-fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
+pub(crate) fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
     let data_dir = app_data_dir()
         .ok_or_else(|| DbError::new("Failed to resolve application data directory"))?;
     let db_path = data_dir.join("rustysound.db");
 
-    rusqlite::Connection::open(&db_path).map_err(|e| {
+    let conn = rusqlite::Connection::open(&db_path).map_err(|e| {
         DbError::new(format!(
             "Failed to open database at {}: {}",
             db_path.display(),
             e
         ))
-    })
+    })?;
+    let _ = conn.busy_timeout(std::time::Duration::from_secs(3));
+    Ok(conn)
 }
 
 #[cfg(test)]

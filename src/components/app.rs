@@ -290,6 +290,8 @@ pub fn AppShell() -> Element {
     // Covers in lists load from a local route, cached off the main thread.
     #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
     crate::offline_art::use_cover_art_handler();
+    // Music on the device (Mac and iPhone): scans, watches, publishes status.
+    crate::local_music::use_local_music_host();
     // The inner transport signals, taken once. Reading the outer AudioState
     // signal would re-render the shell on every playback tick, because the
     // native controllers write through `audio_state.write()`.

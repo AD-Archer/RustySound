@@ -172,6 +172,9 @@ pub fn cover_art_url(
     size_px: u32,
 ) -> Option<String> {
     let cover_art = cover_art.filter(|value| !value.trim().is_empty())?;
+    if crate::local_music::is_local(server_id) {
+        return crate::local_music::cover_art_data_url(cover_art);
+    }
     let server = servers.iter().find(|server| server.id == server_id)?;
     let url = NavidromeClient::new(server.clone()).get_cover_art_url(cover_art, size_px);
     if url.is_empty() {
@@ -192,6 +195,10 @@ pub fn cover_art_src(
     size_px: u32,
 ) -> Option<String> {
     let cover_art = cover_art.filter(|value| !value.trim().is_empty())?;
+    // Music on the device: the picture embedded in its files.
+    if crate::local_music::is_local(server_id) {
+        return crate::local_music::cover_art_src(cover_art);
+    }
     let server = servers.iter().find(|server| server.id == server_id)?;
     let url = NavidromeClient::new(server.clone()).get_cover_art_display_url(cover_art, size_px);
     if url.is_empty() {

@@ -10,6 +10,7 @@ mod appearance;
 mod discovery;
 mod discovery_check;
 mod first_run;
+mod local_music;
 mod lyrics;
 mod playback;
 mod server_fields;

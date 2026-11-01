@@ -113,6 +113,22 @@ pub fn FirstRun() -> Element {
                                     testid: "first-run-add".to_string(),
                                     onclick: move |_| step.set(Step::SignIn),
                                 }
+                                // Music on the device works without a server.
+                                if crate::local_music::has_music() {
+                                    Button {
+                                        label: if cfg!(target_os = "ios") { "Browse Music on This iPhone".to_string() } else { "Browse Music on This Mac".to_string() },
+                                        variant: ButtonVariant::Plain,
+                                        testid: "first-run-local".to_string(),
+                                        onclick: move |_| navigation.navigate_to(AppView::Albums {}),
+                                    }
+                                } else if crate::local_music::SUPPORTED && cfg!(not(target_os = "ios")) {
+                                    Button {
+                                        label: "Add Music Folder…".to_string(),
+                                        variant: ButtonVariant::Plain,
+                                        testid: "first-run-local".to_string(),
+                                        onclick: move |_| crate::local_music::pick_and_add_folder(),
+                                    }
+                                }
                             }
                             p { class: "rs-firstrun__note",
                                 "Works with Navidrome and other Subsonic-compatible servers."

@@ -155,9 +155,14 @@ impl LyricsQuery {
         query.server_song = servers
             .iter()
             .find(|server| server.id == song.server_id)
+            .cloned()
+            // A local song's "server" is the device: its embedded lyrics.
+            .or_else(|| {
+                crate::local_music::is_local_song(song).then(crate::local_music::source_config)
+            })
             .filter(|_| !song.id.trim().is_empty())
             .map(|server| ServerSong {
-                server: server.clone(),
+                server,
                 song_id: song.id.clone(),
             });
         query

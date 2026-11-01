@@ -63,6 +63,12 @@ pub fn use_servers() -> Memo<Vec<ServerConfig>> {
     use_memo(move || servers())
 }
 
+/// Whether there's anything to browse: an active server, or music on the
+/// device. Reactive (reads the local library status).
+pub fn has_sources(servers: &[ServerConfig]) -> bool {
+    servers.iter().any(|s| s.active) || crate::local_music::has_music()
+}
+
 pub fn offline_now(settings: &AppSettings) -> bool {
     settings.offline_mode || crate::cache_service::is_offline_mode()
 }
@@ -95,20 +101,31 @@ pub const OFFLINE_NOTHING: &str =
     "You're offline, and none of these songs are downloaded. Connect to play them.";
 
 impl Player {
-    /// Offline, only downloaded songs play. Returns the playable songs and
-    /// where `start` landed among them.
+    /// Offline, only downloaded songs and music on the device play; local
+    /// files this device can't decode never join the queue. Returns the
+    /// playable songs and where `start` landed among them.
     fn playable(self, songs: Vec<Song>, start: usize) -> Result<(Vec<Song>, usize), String> {
-        if !offline_now(&self.settings.peek()) {
+        let offline = offline_now(&self.settings.peek());
+        if !offline && songs.iter().all(crate::local_music::is_playable) {
             let start = start.min(songs.len().saturating_sub(1));
             return Ok((songs, start));
         }
         let wanted = songs.get(start).map(song_key);
         let kept: Vec<Song> = songs
             .into_iter()
-            .filter(crate::offline_audio::is_song_downloaded)
+            .filter(crate::local_music::is_playable)
+            .filter(|song| {
+                !offline
+                    || crate::local_music::is_local_song(song)
+                    || crate::offline_audio::is_song_downloaded(song)
+            })
             .collect();
         if kept.is_empty() {
-            return Err(OFFLINE_NOTHING.to_string());
+            return Err(if offline {
+                OFFLINE_NOTHING.to_string()
+            } else {
+                format!("{}.", crate::local_music::NOT_PLAYABLE)
+            });
         }
         let start = wanted
             .and_then(|key| kept.iter().position(|s| song_key(s) == key))

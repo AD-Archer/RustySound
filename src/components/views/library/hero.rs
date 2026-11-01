@@ -8,7 +8,8 @@ use dioxus::prelude::*;
 /// reflection and the title block beside it (phone-album mock).
 /// * `art`: the artwork element (sized by the band's CSS).
 /// * `subtitle`: accent line under the title (artist links, owner).
-/// * `meta`: "Genre · Year · 8 songs, 32 min". `badge`: e.g. "Downloaded".
+/// * `meta`: "Genre · Year · 8 songs, 32 min". `badge`: e.g. "Downloaded",
+///   with `badge_icon` beside it ("downloaded" unless given).
 /// * `back_label` / `fallback`: back link text and where it goes when there
 ///   is no history. `on_more`: shows the "…" button.
 /// * `round`: artist variant (round art).
@@ -25,6 +26,7 @@ pub fn DetailHero(
     #[props(default)] subtitle: Option<Element>,
     #[props(default)] meta: Option<String>,
     #[props(default)] badge: Option<String>,
+    #[props(default = "downloaded".to_string())] badge_icon: String,
     #[props(default)] note: Option<String>,
     #[props(default)] on_more: Option<EventHandler<MouseEvent>>,
     #[props(default)] more_testid: Option<String>,
@@ -47,7 +49,7 @@ pub fn DetailHero(
             }
             if let Some(badge) = badge.clone() {
                 div { class: "rs-library-hero__badge",
-                    Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                    Icon { name: badge_icon.clone(), class: "rs-ic rs-ic--xs".to_string() }
                     "{badge}"
                 }
             }

@@ -8,7 +8,7 @@ use crate::components::ui::{
 };
 use crate::components::views::library::shared::{
     use_servers,
-    active_servers, song_key, use_debounced, use_downloaded_keys, use_now_playing, use_pager,
+    active_servers, has_sources, song_key, use_debounced, use_downloaded_keys, use_now_playing, use_pager,
     use_player, use_song_patches, ErrorState, ListSkeleton, LoadMore, NoServers, PageFoot,
 };
 use crate::components::Icon;
@@ -58,8 +58,7 @@ async fn fetch_song_page(
     let mut more = false;
     let mut any_ok = false;
     let mut last_error = None;
-    for server in servers {
-        let client = NavidromeClient::new(server);
+    for client in MusicClient::sources(&servers) {
         let result = if query.is_empty() {
             match client
                 .get_native_song_page(&sort, ascending, offset as usize, PAGE as usize)
@@ -86,6 +85,7 @@ async fn fetch_song_page(
             return Err(err);
         }
     }
+    crate::local_music::dedupe_songs(&mut songs);
     Ok((songs, more))
 }
 
@@ -112,7 +112,7 @@ pub fn SongsView() -> Element {
     };
 
     use_effect(move || {
-        let _ = (sort(), ascending(), query(), servers());
+        let _ = (sort(), ascending(), query(), servers(), crate::local_music::generation());
         pager.reset();
         load_more();
     });
@@ -157,7 +157,7 @@ pub fn SongsView() -> Element {
         status.set(player.play(list, 0, None).err());
     };
 
-    let has_servers = servers.read().iter().any(|s| s.active);
+    let has_servers = has_sources(&servers.read());
     let ready = (pager.ready)();
     let loading = (pager.loading)();
     let error = (pager.error)();

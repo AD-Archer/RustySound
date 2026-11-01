@@ -389,6 +389,26 @@
   .rs-settings-server__open:hover .rs-row__title { color: var(--accent); }
 }
 
+/* On This Device: folder rows (name, path, Remove) and the scan line. */
+.rs-settings-folder {
+  gap: var(--sp-3);
+}
+
+.rs-settings-folder .rs-row__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-settings-folder__remove {
+  flex: none;
+  color: var(--danger);
+}
+
+.rs-settings-scan {
+  font-variant-numeric: tabular-nums;
+}
+
 /* "Delete Server…" under the edit form, set apart from Save. */
 .rs-settings-form__delete {
   display: flex;
@@ -836,6 +856,13 @@
 
 .rs-firstrun__actions {
   margin-top: var(--sp-6);
+}
+
+/* The quiet second way in: music already on this device. */
+.rs-firstrun__actions .rs-btn--plain {
+  display: flex;
+  margin: var(--sp-2) auto 0;
+  font-size: var(--fs-body);
 }
 
 .rs-firstrun__actions .rs-btn {

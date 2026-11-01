@@ -57,12 +57,12 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
 
     let data = use_resource(use_reactive!(|(album_id, server_id)| {
         let _ = retry();
-        let server = servers().into_iter().find(|s| s.id == server_id);
+        let client = MusicClient::for_source(&servers(), &server_id);
         async move {
-            let Some(server) = server else {
+            let Some(client) = client else {
                 return Err("This album's server isn't configured.".to_string());
             };
-            NavidromeClient::new(server).get_album(&album_id).await
+            client.get_album(&album_id).await
         }
     }));
 
@@ -141,7 +141,9 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
     }
     meta_parts.push(songs_summary(count, total_secs));
     let meta = meta_parts.join(" · ");
-    let can_download = !cfg!(target_arch = "wasm32");
+    // Music on the device is already offline.
+    let is_local = crate::local_music::is_local(&album.server_id);
+    let can_download = !cfg!(target_arch = "wasm32") && !is_local;
 
     let play_from = {
         let source = source.clone();
@@ -203,11 +205,11 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         let album = album.clone();
         move |value: u32| {
             rating.set(value);
-            let server = servers.peek().iter().find(|s| s.id == album.server_id).cloned();
+            let client = MusicClient::for_source(&servers.peek(), &album.server_id);
             let album_id = album.id.clone();
-            if let Some(server) = server {
+            if let Some(client) = client {
                 spawn(async move {
-                    let _ = NavidromeClient::new(server).set_rating(&album_id, value).await;
+                    let _ = client.set_rating(&album_id, value).await;
                 });
             }
         }
@@ -220,15 +222,13 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
         move |_| {
             menu_at.set(None);
             let should = !*starred.peek();
-            let server = servers.peek().iter().find(|s| s.id == album.server_id).cloned();
-            let Some(server) = server else {
+            let Some(client) = MusicClient::for_source(&servers.peek(), &album.server_id) else {
                 status.set(Some("This album's server isn't connected.".to_string()));
                 return;
             };
             starred.set(should);
             let album_id = album.id.clone();
             spawn(async move {
-                let client = NavidromeClient::new(server);
                 let result = if should {
                     client.star(&album_id, "album").await
                 } else {
@@ -284,7 +284,14 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                     }
                 }) },
                 meta,
-                badge: if album_downloaded() { Some("Downloaded".to_string()) } else { None },
+                badge: if is_local {
+                    Some(crate::local_music::LOCAL_SOURCE_NAME.to_string())
+                } else if album_downloaded() {
+                    Some("Downloaded".to_string())
+                } else {
+                    None
+                },
+                badge_icon: if is_local { "hard-drive".to_string() } else { "downloaded".to_string() },
                 more_testid: "album-more".to_string(),
                 on_more: move |evt: MouseEvent| {
                     let p = evt.client_coordinates();
@@ -361,18 +368,21 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
                             player.enqueue(songs.peek().clone(), false);
                         },
                     }
-                    MenuItem {
-                        label: "Add to Playlist…".to_string(),
-                        icon: "playlist".to_string(),
-                        onclick: {
-                            let album = album.clone();
-                            let add_menu = add_menu.clone();
-                            move |_| {
-                                menu_at.set(None);
-                                let mut add_menu = add_menu.clone();
-                                add_menu.open(AddIntent::from_album(&album));
-                            }
-                        },
+                    // Server playlists can't hold files from this device.
+                    if !is_local {
+                        MenuItem {
+                            label: "Add to Playlist…".to_string(),
+                            icon: "playlist".to_string(),
+                            onclick: {
+                                let album = album.clone();
+                                let add_menu = add_menu.clone();
+                                move |_| {
+                                    menu_at.set(None);
+                                    let mut add_menu = add_menu.clone();
+                                    add_menu.open(AddIntent::from_album(&album));
+                                }
+                            },
+                        }
                     }
                     MenuItem {
                         label: if starred() { "Remove from Favorites".to_string() } else { "Favorite".to_string() },

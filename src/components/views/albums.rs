@@ -8,7 +8,7 @@ use crate::components::ui::{
 };
 use crate::components::views::library::shared::{
     use_servers,
-    active_servers, use_debounced, use_pager, ErrorState, GridSkeleton, LoadMore, NoServers,
+    active_servers, has_sources, use_debounced, use_pager, ErrorState, GridSkeleton, LoadMore, NoServers,
     PageFoot,
 };
 use crate::components::views::library::tiles::AlbumGrid;
@@ -54,7 +54,7 @@ pub fn AlbumsWithGenre(genre: String) -> Element {
     }
 }
 
-/// One page from every active server at `offset`.
+/// One page from every active server (and the device's music) at `offset`.
 async fn fetch_album_page(
     servers: Vec<ServerConfig>,
     sort: String,
@@ -66,8 +66,7 @@ async fn fetch_album_page(
     let mut more = false;
     let mut last_error = None;
     let mut any_ok = false;
-    for server in servers {
-        let client = NavidromeClient::new(server);
+    for client in MusicClient::sources(&servers) {
         let result = if query.is_empty() {
             client.get_album_page(&sort, genre.as_deref(), PAGE, offset).await
         } else {
@@ -96,6 +95,7 @@ async fn fetch_album_page(
             albums.retain(|a| a.genre.as_deref().map(|g| g.eq_ignore_ascii_case(genre)) == Some(true));
         }
     }
+    crate::local_music::dedupe_albums(&mut albums);
     Ok((albums, more))
 }
 
@@ -128,9 +128,9 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         });
     };
 
-    // A new sort, search or server set starts over from offset 0.
+    // A new sort, search, server set or local scan starts over from offset 0.
     use_effect(move || {
-        let _ = (sort(), query(), servers());
+        let _ = (sort(), query(), servers(), crate::local_music::generation());
         pager.reset();
         load_more();
     });
@@ -151,7 +151,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         }
     });
 
-    let has_servers = !servers.read().iter().all(|s| !s.active);
+    let has_servers = has_sources(&servers.read());
     let title = match genre.as_deref() {
         Some(g) => g.to_string(),
         None => "Albums".to_string(),

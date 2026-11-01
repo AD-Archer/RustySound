@@ -8,7 +8,7 @@ use crate::api::{ServerConfig, Song};
 use crate::components::ui::{
     IconButton, PlayerMenu, ProgressTrack, TrackMenuController, TrackVariant,
 };
-use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
+use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
@@ -129,13 +129,12 @@ fn ArtistLinks(song: Song) -> Element {
                                 });
                                 return;
                             }
-                            let server = servers.peek().iter().find(|s| s.id == server_id).cloned();
-                            let Some(server) = server else {
+                            let Some(client) = crate::api::MusicClient::for_source(&servers.peek(), &server_id) else {
                                 return;
                             };
                             let (name, server_id) = (name.clone(), server_id.clone());
                             spawn(async move {
-                                if let Some(artist_id) = resolve_artist_id_for_name(server, name).await {
+                                if let Some(artist_id) = resolve_artist_id(client, name).await {
                                     controller.close();
                                     navigation.navigate_to(AppView::ArtistDetailView {
                                         artist_id,

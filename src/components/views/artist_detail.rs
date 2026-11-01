@@ -27,12 +27,15 @@ fn is_single_or_ep(album: &Album) -> bool {
     tracks > 0 && (tracks <= 3 || (tracks <= 6 && album.duration > 0 && album.duration < 30 * 60))
 }
 
-/// Every song of `albums`, in album order (for Play / Shuffle).
-async fn all_songs(server: ServerConfig, albums: Vec<Album>) -> Vec<Song> {
+/// Every song of `albums` on source `server_id`, in album order (for Play / Shuffle).
+async fn all_songs(servers: Vec<ServerConfig>, server_id: String, albums: Vec<Album>) -> Vec<Song> {
     let tasks = albums.iter().map(|album| {
-        let client = NavidromeClient::new(server.clone());
+        let client = MusicClient::for_source(&servers, &server_id);
         let id = album.id.clone();
-        async move { client.get_album(&id).await.map(|(_, songs)| songs).unwrap_or_default() }
+        async move {
+            let Some(client) = client else { return Vec::new() };
+            client.get_album(&id).await.map(|(_, songs)| songs).unwrap_or_default()
+        }
     });
     let mut seen = std::collections::HashSet::new();
     join_all(tasks)
@@ -58,16 +61,16 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let downloaded = use_downloaded_keys(top_songs);
     let (playing_key, live) = use_now_playing();
 
-    let server_for = move |id: &str| servers.peek().iter().find(|s| s.id == id).cloned();
+    let client_for = move |id: &str| MusicClient::for_source(&servers.peek(), id);
 
     let data = use_resource(use_reactive!(|(artist_id, server_id)| {
         let _ = retry();
-        let server = servers().into_iter().find(|s| s.id == server_id);
+        let client = MusicClient::for_source(&servers(), &server_id);
         async move {
-            let Some(server) = server else {
+            let Some(client) = client else {
                 return Err("This artist's server isn't configured.".to_string());
             };
-            NavidromeClient::new(server).get_artist(&artist_id).await
+            client.get_artist(&artist_id).await
         }
     }));
 
@@ -79,8 +82,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         };
         async move {
             let (name, sid) = found?;
-            let server = server_for(&sid)?;
-            NavidromeClient::new(server).get_top_songs(&name, TOP_MAX).await.ok()
+            client_for(&sid)?.get_top_songs(&name, TOP_MAX).await.ok()
         }
     });
     let similar = use_resource(move || {
@@ -90,8 +92,11 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         };
         async move {
             let (id, sid) = found?;
-            let server = server_for(&sid)?;
-            let info = NavidromeClient::new(server).get_artist_info2(&id, 16, false).await.ok()?;
+            // Similar artists come from the server (Last.fm behind it).
+            let MusicClient::Subsonic(client) = client_for(&sid)? else {
+                return None;
+            };
+            let info = client.get_artist_info2(&id, 16, false).await.ok()?;
             Some(info.similar.into_iter().filter(|a| a.in_library()).take(12).collect::<Vec<_>>())
         }
     });
@@ -152,15 +157,16 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             if busy() {
                 return;
             }
-            let Some(server) = server_for(&sid) else {
+            if client_for(&sid).is_none() {
                 return;
-            };
+            }
+            let (servers_now, sid) = (servers.peek().clone(), sid.clone());
             let albums = albums.clone();
             let source = source.clone();
             busy.set(true);
             status.set(None);
             spawn(async move {
-                let songs = all_songs(server, albums).await;
+                let songs = all_songs(servers_now, sid, albums).await;
                 let result = if shuffle {
                     player.shuffle_play(songs, source)
                 } else {
@@ -176,13 +182,12 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         let artist = artist.clone();
         move |_| {
             menu_at.set(None);
-            let Some(server) = server_for(&artist.server_id) else {
+            let Some(client) = client_for(&artist.server_id) else {
                 return;
             };
             let should_star = !starred();
             let id = artist.id.clone();
             spawn(async move {
-                let client = NavidromeClient::new(server);
                 let result = if should_star {
                     client.star(&id, "artist").await
                 } else {
@@ -222,6 +227,9 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                     }
                 },
                 meta,
+                badge: crate::local_music::is_local(&artist.server_id)
+                    .then(|| crate::local_music::LOCAL_SOURCE_NAME.to_string()),
+                badge_icon: "hard-drive".to_string(),
                 on_more: move |evt: MouseEvent| {
                     let p = evt.client_coordinates();
                     menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));

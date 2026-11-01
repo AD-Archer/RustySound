@@ -142,6 +142,10 @@ test.describe("wide layout", () => {
 
   test("Settings: the off-server switch comes first in Discovery; a server row opens its editor", async ({ connected: page }) => {
     await gotoReady(page, "/settings");
+    // Music on the device is a Mac and iPhone app feature: no folder rows on the web.
+    await expect(tid(page, "server-edit").first()).toBeVisible();
+    await expect(tid(page, "local-folders")).toHaveCount(0);
+    await expect(tid(page, "local-folder-add")).toHaveCount(0);
     await tid(page, "server-edit").first().click();
     const form = tid(page, "server-form");
     await expect(form).toBeVisible();

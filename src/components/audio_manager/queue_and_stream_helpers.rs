@@ -522,6 +522,10 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig], offline_mode: bool) -> Option<String> {
+    // Music on the device plays from its file, online or not.
+    if crate::local_music::is_local_song(song) {
+        return crate::local_music::stream_url(song);
+    }
     if let Some(cached_url) = cached_audio_url(song) {
         return Some(cached_url);
     }
@@ -552,7 +556,10 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig], offline_mode: bool)
 }
 
 fn can_save_server_bookmark(song: &Song) -> bool {
-    song.server_name != "Radio" && !song.id.trim().is_empty() && !song.server_id.trim().is_empty()
+    song.server_name != "Radio"
+        && !crate::local_music::is_local_song(song)
+        && !song.id.trim().is_empty()
+        && !song.server_id.trim().is_empty()
 }
 
 /// Reports a play the old way, with `scrobble`: `finished` false updates
@@ -561,6 +568,13 @@ fn can_save_server_bookmark(song: &Song) -> bool {
 /// `stopped`), so they're skipped here rather than counted twice. A
 /// finished song is also handed to playback sync for that `stopped`.
 fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
+    // No server hears about local plays; they're counted in the local index.
+    if crate::local_music::is_local_song(song) {
+        if finished {
+            crate::local_music::record_play(song);
+        }
+        return;
+    }
     if finished {
         crate::components::note_track_finished(song);
     }
