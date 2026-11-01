@@ -7,6 +7,7 @@ mod app_view;
 mod art_palette;
 mod audio_manager;
 pub mod audio_output;
+pub mod cast;
 mod icons;
 mod navigation;
 pub mod playback_sync;

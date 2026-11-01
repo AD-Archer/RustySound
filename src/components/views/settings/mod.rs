@@ -19,6 +19,7 @@ mod server_form;
 mod servers;
 mod shared;
 mod smart_cache;
+mod speakers;
 mod storage;
 mod storage_downloads;
 

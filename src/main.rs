@@ -3,6 +3,9 @@ use dioxus::prelude::*;
 mod api;
 mod cache;
 mod cache_service;
+// Casting to network speakers (UPnP/Sonos, Chromecast): Mac and iPhone.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+mod cast;
 // Refactor in progress: the views still call helpers marked #[deprecated]
 // in api/, cache and offline_audio. Remove this allow to list them.
 #[allow(deprecated)]

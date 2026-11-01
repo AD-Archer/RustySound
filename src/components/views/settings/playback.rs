@@ -1,6 +1,6 @@
 //! Settings → Playback: default volume, gapless, crossfade, Autoplay, the
 //! Equalizer (its own page), volume levelling, bookmarks, queue sync,
-//! Offline Mode.
+//! network speakers (`speakers.rs`), Offline Mode.
 //!
 //! Crossfade needs two players, so the iPhone app (one AVQueuePlayer) hides
 //! it and plays gapless instead. The Windows player has neither yet. The old
@@ -240,6 +240,9 @@ pub(super) fn PlaybackSection() -> Element {
             }
         }
         Footnote { "The server keeps one queue for your account; the device that saves last wins. Up to 500 songs around the current one are saved." }
+
+        // Network speakers (Mac and iPhone; nothing on the web).
+        super::speakers::SpeakersGroup {}
 
         GroupTitle { title: "Offline".to_string() }
         ul { class: "rs-list rs-list--text",

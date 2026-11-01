@@ -63,6 +63,9 @@ pub struct AudioOutput {
     /// `Devices` only: the browser can ask for another device itself
     /// (`navigator.mediaDevices.selectAudioOutput`, Firefox).
     pub can_ask: Signal<bool>,
+    /// A network speaker playing instead of this device ("Living Room",
+    /// set by `components::cast`): named wherever the route is.
+    pub remote: Signal<Option<String>>,
     /// The shell's scope: backend tasks outlive the menu that started them.
     scope: ScopeId,
 }
@@ -74,7 +77,9 @@ impl AudioOutput {
 
     /// Name for the Output row's detail text.
     pub fn route_label(&self) -> String {
-        (self.route)().unwrap_or_else(|| SYSTEM_DEFAULT.to_string())
+        (self.remote)()
+            .or_else(|| (self.route)())
+            .unwrap_or_else(|| SYSTEM_DEFAULT.to_string())
     }
 
     /// Reads the device list again (`Devices`; when the row opens).
@@ -110,6 +115,7 @@ pub fn use_audio_output_provider() -> AudioOutput {
             devices: Signal::new(Vec::new()),
             selected: Signal::new(String::new()),
             can_ask: Signal::new(false),
+            remote: Signal::new(None),
             scope: current_scope_id(),
         };
         backend::start(output);
