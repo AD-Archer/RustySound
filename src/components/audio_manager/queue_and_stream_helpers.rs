@@ -507,25 +507,23 @@ fn can_save_server_bookmark(song: &Song) -> bool {
     song.server_name != "Radio" && !song.id.trim().is_empty() && !song.server_id.trim().is_empty()
 }
 
-#[cfg(target_arch = "wasm32")]
+/// Reports a play the old way, with `scrobble`: `finished` false updates
+/// "Now Playing", true counts the play. Servers with the `playbackReport`
+/// extension get reportPlayback from playback sync instead (it scrobbles on
+/// `stopped`), so they're skipped here rather than counted twice. A
+/// finished song is also handed to playback sync for that `stopped`.
 fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
-    let server = servers.iter().find(|s| s.id == song.server_id).cloned();
-    if let Some(server) = server {
-        let song_id = song.id.clone();
-        spawn(async move {
-            let client = NavidromeClient::new(server);
-            let _ = client.scrobble(&song_id, finished).await;
-        });
+    if finished {
+        crate::components::note_track_finished(song);
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
     let server = servers.iter().find(|s| s.id == song.server_id).cloned();
     if let Some(server) = server {
         let song_id = song.id.clone();
         spawn(async move {
             let client = NavidromeClient::new(server);
+            if client.sync_support().await.playback_report {
+                return;
+            }
             let _ = client.scrobble(&song_id, finished).await;
         });
     }

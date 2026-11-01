@@ -46,7 +46,11 @@ impl NavidromeClient {
 
         format!(
             "u={}&t={}&s={}&v={}&c={}&f=json",
-            self.server.username, token, salt, API_VERSION, CLIENT_NAME
+            self.server.username,
+            token,
+            salt,
+            API_VERSION,
+            urlencoding_simple(client_name())
         )
     }
 
