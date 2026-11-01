@@ -1,5 +1,5 @@
-//! Settings → Advanced: Quick Scan per server (tap a row), and the iOS audio
-//! log tools (iOS builds only).
+//! Settings → Advanced: Quick Scan per server (tap a row), the iOS audio
+//! log tools (iOS builds only), and the profiles on this device.
 
 use super::shared::{ActionRow, Footnote, GroupTitle};
 use crate::api::{NavidromeClient, ScanStatus, ServerConfig};
@@ -116,6 +116,8 @@ pub(super) fn AdvancedSection() -> Element {
         if cfg!(target_os = "ios") {
             IosAudioLogs {}
         }
+
+        crate::components::profiles::ProfilesGroup {}
     }
 }
 

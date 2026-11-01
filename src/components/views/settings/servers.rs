@@ -78,6 +78,8 @@ pub(super) fn ServersSection() -> Element {
     let active_count = list.iter().filter(|s| s.active).count();
 
     rsx! {
+        // Only there while offline changes wait.
+        crate::components::offline_sync::PendingSyncLine {}
         if list.is_empty() {
             EmptyState {
                 icon: "server".to_string(),

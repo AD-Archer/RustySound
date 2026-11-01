@@ -603,6 +603,10 @@ pub fn AppShell() -> Element {
     let playback_sync = use_playback_sync_provider();
     // Accent colours from the playing song's cover (Settings › Appearance).
     crate::components::use_art_palette();
+    // Favourites, ratings and playlist edits made offline, sent when the
+    // servers answer again.
+    crate::components::offline_sync::use_offline_sync_host(servers, settings_loaded);
+    let pending_changes = use_memo(|| crate::api::offline_queue::STATUS.read().pending);
 
     // Mirror theme, appearance and platform onto <html> so the page background,
     // overscroll area and scrollbars follow the theme too. data-layout lives on
@@ -1120,6 +1124,9 @@ pub fn AppShell() -> Element {
                             div { class: "rs-banner__text",
                                 p { class: "rs-banner__title", "Offline mode is on" }
                                 p { class: "rs-banner__sub", "Only downloaded and cached music is available." }
+                                if let Some(text) = crate::components::offline_sync::pending_sync_text(pending_changes()) {
+                                    p { class: "rs-banner__sub", "data-testid": "offline-banner-pending", "{text}." }
+                                }
                             }
                             button {
                                 r#type: "button",

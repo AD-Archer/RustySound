@@ -322,20 +322,68 @@ fn remove_audio_cache_files_by_ids(server_id: &str, song_id: &str) -> usize {
     removed
 }
 
+// The audio files are shared by every profile; each profile keeps its own
+// lists of what it downloaded (`db::profiles`).
+
+#[cfg(not(target_arch = "wasm32"))]
+fn profile_index_path(profile_id: &str, file_name: &str) -> Option<PathBuf> {
+    Some(audio_cache_dir()?.join(crate::db::profiles::scoped_file_name(profile_id, file_name)))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn index_file_path() -> Option<PathBuf> {
-    Some(audio_cache_dir()?.join(DOWNLOAD_INDEX_FILE))
+    profile_index_path(&crate::db::profiles::active_profile_id(), DOWNLOAD_INDEX_FILE)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn collection_index_file_path() -> Option<PathBuf> {
-    Some(audio_cache_dir()?.join(COLLECTION_INDEX_FILE))
+    profile_index_path(&crate::db::profiles::active_profile_id(), COLLECTION_INDEX_FILE)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn collection_membership_index_file_path() -> Option<PathBuf> {
-    Some(audio_cache_dir()?.join(COLLECTION_MEMBERSHIP_INDEX_FILE))
+    profile_index_path(&crate::db::profiles::active_profile_id(), COLLECTION_MEMBERSHIP_INDEX_FILE)
 }
+
+/// Whether a profile other than the active one (or `except`) lists this
+/// song as downloaded, so removing it here must keep the file.
+#[cfg(not(target_arch = "wasm32"))]
+fn kept_by_other_profiles(server_id: &str, song_id: &str, except: &str) -> bool {
+    crate::db::profiles::load_profiles()
+        .profiles
+        .iter()
+        .filter(|profile| profile.id != except)
+        .filter_map(|profile| profile_index_path(&profile.id, DOWNLOAD_INDEX_FILE))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .filter_map(|json| serde_json::from_str::<Vec<DownloadIndexEntry>>(&json).ok())
+        .any(|index| index.iter().any(|e| e.server_id == server_id && e.song_id == song_id))
+}
+
+/// Forgets a deleted profile's downloads: its lists go, and so do the files
+/// no other profile lists.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_profile_downloads(profile_id: &str) {
+    let Some(path) = profile_index_path(profile_id, DOWNLOAD_INDEX_FILE) else {
+        return;
+    };
+    let index: Vec<DownloadIndexEntry> = fs::read_to_string(&path)
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    for entry in &index {
+        if !kept_by_other_profiles(&entry.server_id, &entry.song_id, profile_id) {
+            let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+        }
+    }
+    for file in [DOWNLOAD_INDEX_FILE, COLLECTION_INDEX_FILE, COLLECTION_MEMBERSHIP_INDEX_FILE] {
+        if let Some(path) = profile_index_path(profile_id, file) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn remove_profile_downloads(_profile_id: &str) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn load_download_index() -> Vec<DownloadIndexEntry> {
@@ -492,7 +540,8 @@ fn prune_audio_cache(max_size_mb: u32) {
         if path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name == DOWNLOAD_INDEX_FILE || name == COLLECTION_INDEX_FILE)
+            // Every profile's download lists.
+            .is_some_and(|name| name.ends_with(".json"))
         {
             continue;
         }
@@ -1215,8 +1264,11 @@ fn remove_download_index_keys(keys: &HashSet<(String, String)>) -> usize {
         return 0;
     }
 
+    let active = crate::db::profiles::active_profile_id();
     for entry in &removed_entries {
-        let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+        if !kept_by_other_profiles(&entry.server_id, &entry.song_id, &active) {
+            let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+        }
     }
 
     save_download_index(&index);
@@ -1342,6 +1394,19 @@ pub fn clear_downloads() -> usize {
     let Some(dir) = audio_cache_dir() else {
         return 0;
     };
+
+    // With other profiles, clear only this profile's downloads and keep the
+    // files the others list.
+    if crate::db::profiles::load_profiles().is_shared() {
+        let keys = load_download_index()
+            .into_iter()
+            .map(|entry| (entry.server_id, entry.song_id))
+            .collect::<HashSet<_>>();
+        let removed = remove_download_index_keys(&keys);
+        save_collection_index(&[]);
+        save_collection_membership_index(&[]);
+        return removed;
+    }
 
     let mut removed = 0usize;
     let Ok(read_dir) = fs::read_dir(&dir) else {

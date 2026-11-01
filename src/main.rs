@@ -1,6 +1,7 @@
 use dioxus::prelude::*;
 
 mod api;
+mod backup;
 mod cache;
 mod cache_service;
 // Refactor in progress: the views still call helpers marked #[deprecated]
@@ -423,6 +424,9 @@ fn App() -> Element {
 
         styles::GlobalStyles {}
 
-        Router::<AppView> {}
+        // Switching profiles mounts the app again under the new profile.
+        components::profiles::ProfileRoot {
+            Router::<AppView> {}
+        }
     }
 }

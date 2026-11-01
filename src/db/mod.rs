@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(target_arch = "wasm32")]
 use gloo_storage::{errors::StorageError, LocalStorage, Storage};
 
+pub mod profiles;
+
 /// Error type for database operations on native platforms
 #[cfg(not(target_arch = "wasm32"))]
 #[derive(Debug)]
@@ -33,15 +35,42 @@ impl std::fmt::Display for DbError {
 #[cfg(not(target_arch = "wasm32"))]
 impl std::error::Error for DbError {}
 
+// What each profile stores (`profiles::scoped_key`): settings rows on
+// native, `rustysound.<key>` in localStorage on web.
+const SETTINGS_KEY: &str = "app_settings";
+const PLAYBACK_KEY: &str = "playback_state";
 #[cfg(target_arch = "wasm32")]
-const SETTINGS_KEY: &str = "rustysound.app_settings";
-#[cfg(target_arch = "wasm32")]
-const PLAYBACK_KEY: &str = "rustysound.playback_state";
-#[cfg(target_arch = "wasm32")]
-const SERVERS_KEY: &str = "rustysound.servers";
-#[cfg(target_arch = "wasm32")]
-const TEMP_QUEUE_SNAPSHOTS_KEY: &str = "rustysound.temporary_queue_snapshots";
+const SERVERS_KEY: &str = "servers";
+const TEMP_QUEUE_SNAPSHOTS_KEY: &str = "temporary_queue_snapshots";
 const TEMP_QUEUE_SNAPSHOT_LIMIT: usize = 1;
+
+/// The active profile's localStorage key for `key`.
+#[cfg(target_arch = "wasm32")]
+fn web_key(key: &str) -> String {
+    format!("rustysound.{}", profiles::active_key(key))
+}
+
+/// The active profile's settings row `key`, if saved.
+#[cfg(not(target_arch = "wasm32"))]
+fn read_row(conn: &rusqlite::Connection, key: &str) -> Option<String> {
+    conn.query_row(
+        "SELECT value FROM settings WHERE key = ?1",
+        [profiles::active_key(key)],
+        |row: &rusqlite::Row| row.get(0),
+    )
+    .ok()
+}
+
+/// Saves the active profile's settings row `key`.
+#[cfg(not(target_arch = "wasm32"))]
+fn write_row(conn: &rusqlite::Connection, key: &str, value: &str) -> Result<(), DbError> {
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES (?1, ?2)",
+        [profiles::active_key(key).as_str(), value],
+    )
+    .map(|_| ())
+    .map_err(|e| DbError::new(e.to_string()))
+}
 
 /// Repeat mode for playback
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize, Default)]
@@ -559,6 +588,7 @@ fn upsert_queue_snapshot(
 
 // Database operations for native platforms
 // These run directly on desktop/mobile without needing #[server]
+// Everything below reads and writes the active profile's data.
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), DbError> {
@@ -568,26 +598,28 @@ pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), DbError> {
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_servers_now(servers: &[ServerConfig]) -> Result<(), DbError> {
     let mut conn = get_db_connection()?;
-    save_servers_inner(&mut conn, servers)
+    save_servers_inner(&mut conn, &profiles::active_profile_id(), servers)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn save_servers_inner(
     conn: &mut rusqlite::Connection,
+    profile_id: &str,
     servers: &[ServerConfig],
 ) -> Result<(), DbError> {
     let tx = conn
         .transaction()
         .map_err(|e| DbError::new(e.to_string()))?;
 
-    tx.execute("DELETE FROM servers", [])
+    tx.execute("DELETE FROM servers WHERE profile_id = ?1", [profile_id])
         .map_err(|e| DbError::new(e.to_string()))?;
 
     for server in servers {
         tx.execute(
-            "INSERT INTO servers (id, name, url, username, password, active, kind, user_id, access_token)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT OR REPLACE INTO servers (profile_id, id, name, url, username, password, active, kind, user_id, access_token)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
+                profile_id,
                 &server.id,
                 &server.name,
                 &server.url,
@@ -612,19 +644,23 @@ pub async fn save_servers(servers: Vec<ServerConfig>) -> Result<(), StorageError
 
 #[cfg(target_arch = "wasm32")]
 pub fn save_servers_now(servers: &[ServerConfig]) -> Result<(), StorageError> {
-    LocalStorage::set(SERVERS_KEY, servers.to_vec()).map_err(|e| e)
+    LocalStorage::set(web_key(SERVERS_KEY), servers.to_vec())
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
     let conn = get_db_connection()?;
+    load_servers_inner(&conn, &profiles::active_profile_id())
+}
 
+#[cfg(not(target_arch = "wasm32"))]
+fn load_servers_inner(conn: &rusqlite::Connection, profile_id: &str) -> Result<Vec<ServerConfig>, DbError> {
     let mut stmt = conn
-        .prepare("SELECT id, name, url, username, password, active, kind, user_id, access_token FROM servers")
+        .prepare("SELECT id, name, url, username, password, active, kind, user_id, access_token FROM servers WHERE profile_id = ?1")
         .map_err(|e| DbError::new(e.to_string()))?;
 
     let servers = stmt
-        .query_map([], |row: &rusqlite::Row| {
+        .query_map([profile_id], |row: &rusqlite::Row| {
             Ok(ServerConfig {
                 id: row.get(0)?,
                 name: row.get(1)?,
@@ -646,7 +682,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
 
 #[cfg(target_arch = "wasm32")]
 pub async fn load_servers() -> Result<Vec<ServerConfig>, StorageError> {
-    match LocalStorage::get(SERVERS_KEY) {
+    match LocalStorage::get(web_key(SERVERS_KEY)) {
         Ok(servers) => Ok(servers),
         Err(_) => Ok(Vec::new()),
     }
@@ -655,45 +691,30 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, StorageError> {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn save_settings(settings: AppSettings) -> Result<(), DbError> {
     let conn = get_db_connection()?;
-
     let settings_json =
         serde_json::to_string(&settings).map_err(|e| DbError::new(e.to_string()))?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('app_settings', ?1)",
-        [&settings_json],
-    )
-    .map_err(|e| DbError::new(e.to_string()))?;
-
-    Ok(())
+    write_row(&conn, SETTINGS_KEY, &settings_json)
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn save_settings(settings: AppSettings) -> Result<(), StorageError> {
-    LocalStorage::set(SETTINGS_KEY, settings).map_err(|e| e)
+    LocalStorage::set(web_key(SETTINGS_KEY), settings)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn load_settings() -> Result<AppSettings, DbError> {
     let conn = get_db_connection()?;
-
-    let result: Result<String, rusqlite::Error> = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'app_settings'",
-        [],
-        |row: &rusqlite::Row| row.get(0),
-    );
-
-    match result {
-        Ok(json) => serde_json::from_str(&json)
+    match read_row(&conn, SETTINGS_KEY) {
+        Some(json) => serde_json::from_str(&json)
             .map(migrate_settings)
             .map_err(|e| DbError::new(e.to_string())),
-        Err(_) => Ok(AppSettings::default()),
+        None => Ok(AppSettings::default()),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn load_settings() -> Result<AppSettings, StorageError> {
-    match LocalStorage::get(SETTINGS_KEY) {
+    match LocalStorage::get(web_key(SETTINGS_KEY)) {
         Ok(settings) => Ok(migrate_settings(settings)),
         Err(_) => Ok(AppSettings::default()),
     }
@@ -702,42 +723,27 @@ pub async fn load_settings() -> Result<AppSettings, StorageError> {
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn save_playback_state(state: PlaybackState) -> Result<(), DbError> {
     let conn = get_db_connection()?;
-
     let state_json = serde_json::to_string(&state).map_err(|e| DbError::new(e.to_string()))?;
-
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('playback_state', ?1)",
-        [&state_json],
-    )
-    .map_err(|e| DbError::new(e.to_string()))?;
-
-    Ok(())
+    write_row(&conn, PLAYBACK_KEY, &state_json)
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn save_playback_state(state: PlaybackState) -> Result<(), StorageError> {
-    LocalStorage::set(PLAYBACK_KEY, state).map_err(|e| e)
+    LocalStorage::set(web_key(PLAYBACK_KEY), state)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn load_playback_state() -> Result<PlaybackState, DbError> {
     let conn = get_db_connection()?;
-
-    let result: Result<String, rusqlite::Error> = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'playback_state'",
-        [],
-        |row: &rusqlite::Row| row.get(0),
-    );
-
-    match result {
-        Ok(json) => serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string())),
-        Err(_) => Ok(PlaybackState::default()),
+    match read_row(&conn, PLAYBACK_KEY) {
+        Some(json) => serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string())),
+        None => Ok(PlaybackState::default()),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn load_playback_state() -> Result<PlaybackState, StorageError> {
-    match LocalStorage::get(PLAYBACK_KEY) {
+    match LocalStorage::get(web_key(PLAYBACK_KEY)) {
         Ok(state) => Ok(state),
         Err(_) => Ok(PlaybackState::default()),
     }
@@ -755,12 +761,7 @@ pub async fn save_temporary_queue_snapshot(
     snapshots = upsert_queue_snapshot(snapshots, snapshot);
     let payload = serde_json::to_string(&snapshots).map_err(|e| DbError::new(e.to_string()))?;
     let conn = get_db_connection()?;
-    conn.execute(
-        "INSERT OR REPLACE INTO settings (key, value) VALUES ('temporary_queue_snapshots', ?1)",
-        [&payload],
-    )
-    .map_err(|e| DbError::new(e.to_string()))?;
-    Ok(())
+    write_row(&conn, TEMP_QUEUE_SNAPSHOTS_KEY, &payload)
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -773,45 +774,69 @@ pub async fn save_temporary_queue_snapshot(
 
     let existing = load_temporary_queue_snapshots().await.unwrap_or_default();
     let snapshots = upsert_queue_snapshot(existing, snapshot);
-    LocalStorage::set(TEMP_QUEUE_SNAPSHOTS_KEY, snapshots).map_err(|e| e)
+    LocalStorage::set(web_key(TEMP_QUEUE_SNAPSHOTS_KEY), snapshots)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn load_temporary_queue_snapshots() -> Result<Vec<TemporaryQueueSnapshot>, DbError> {
     let conn = get_db_connection()?;
-    let result: Result<String, rusqlite::Error> = conn.query_row(
-        "SELECT value FROM settings WHERE key = 'temporary_queue_snapshots'",
-        [],
-        |row: &rusqlite::Row| row.get(0),
-    );
-
-    match result {
-        Ok(json) => {
+    match read_row(&conn, TEMP_QUEUE_SNAPSHOTS_KEY) {
+        Some(json) => {
             let parsed: Vec<TemporaryQueueSnapshot> =
                 serde_json::from_str(&json).map_err(|e| DbError::new(e.to_string()))?;
             Ok(normalize_queue_snapshots(parsed))
         }
-        Err(_) => Ok(Vec::new()),
+        None => Ok(Vec::new()),
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn load_temporary_queue_snapshots() -> Result<Vec<TemporaryQueueSnapshot>, StorageError> {
-    match LocalStorage::get(TEMP_QUEUE_SNAPSHOTS_KEY) {
+    match LocalStorage::get(web_key(TEMP_QUEUE_SNAPSHOTS_KEY)) {
         Ok(snapshots) => Ok(normalize_queue_snapshots(snapshots)),
         Err(_) => Ok(Vec::new()),
     }
 }
 
-/// A small JSON value kept next to the settings (native: the `settings`
-/// table; web: localStorage `rustysound.<key>`). For per-device bookkeeping
-/// that isn't a user setting, like playback sync's queue marks.
+/// A small JSON value kept next to the active profile's settings (native:
+/// the `settings` table; web: localStorage `rustysound.<key>`). For
+/// bookkeeping that isn't a user setting, like playback sync's queue marks
+/// and the offline changes waiting to sync.
 #[cfg(not(target_arch = "wasm32"))]
 pub fn save_json_value<T: Serialize>(key: &str, value: &T) -> bool {
     let Ok(json) = serde_json::to_string(value) else {
         return false;
     };
     let Ok(conn) = get_db_connection() else {
+        return false;
+    };
+    write_row(&conn, key, &json).is_ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_json_value<T: Serialize>(key: &str, value: &T) -> bool {
+    LocalStorage::set(web_key(key), value).is_ok()
+}
+
+/// Reads a value saved with [`save_json_value`].
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+    let conn = get_db_connection().ok()?;
+    serde_json::from_str(&read_row(&conn, key)?).ok()
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+    LocalStorage::get(web_key(key)).ok()
+}
+
+/// A small JSON value that belongs to the device, not a profile (the
+/// Jellyfin install id). Kept under the bare key, where it was before profiles.
+/// (Tests use a fixed install id, so they never call these.)
+#[cfg(not(target_arch = "wasm32"))]
+#[cfg_attr(test, allow(dead_code))]
+pub fn save_device_value<T: Serialize>(key: &str, value: &T) -> bool {
+    let (Ok(json), Ok(conn)) = (serde_json::to_string(value), get_db_connection()) else {
         return false;
     };
     conn.execute(
@@ -822,13 +847,14 @@ pub fn save_json_value<T: Serialize>(key: &str, value: &T) -> bool {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn save_json_value<T: Serialize>(key: &str, value: &T) -> bool {
+pub fn save_device_value<T: Serialize>(key: &str, value: &T) -> bool {
     LocalStorage::set(format!("rustysound.{key}"), value).is_ok()
 }
 
-/// Reads a value saved with [`save_json_value`].
+/// Reads a value saved with [`save_device_value`].
 #[cfg(not(target_arch = "wasm32"))]
-pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+#[cfg_attr(test, allow(dead_code))]
+pub fn load_device_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
     let conn = get_db_connection().ok()?;
     let json: String = conn
         .query_row("SELECT value FROM settings WHERE key = ?1", [key], |row: &rusqlite::Row| row.get(0))
@@ -837,7 +863,7 @@ pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
 }
 
 #[cfg(target_arch = "wasm32")]
-pub fn load_json_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
+pub fn load_device_value<T: serde::de::DeserializeOwned>(key: &str) -> Option<T> {
     LocalStorage::get(format!("rustysound.{key}")).ok()
 }
 
@@ -864,9 +890,52 @@ fn add_server_kind_columns(conn: &rusqlite::Connection) -> Result<(), DbError> {
     Ok(())
 }
 
+/// Profiles gave every server row a `profile_id`, keyed together with the
+/// server id (a backup restored into a second profile keeps its server ids,
+/// so downloads and caches line up). The table is rebuilt once; existing
+/// rows become the Default profile's. Running it again does nothing.
+#[cfg(not(target_arch = "wasm32"))]
+fn add_server_profile_column(conn: &mut rusqlite::Connection) -> Result<(), DbError> {
+    let has_profile = conn
+        .prepare("PRAGMA table_info(servers)")
+        .and_then(|mut stmt| {
+            stmt.query_map([], |row| row.get::<_, String>(1))?
+                .collect::<rusqlite::Result<Vec<_>>>()
+        })
+        .map_err(|e| DbError::new(e.to_string()))?
+        .iter()
+        .any(|name| name == "profile_id");
+    if has_profile {
+        return Ok(());
+    }
+    let tx = conn.transaction().map_err(|e| DbError::new(e.to_string()))?;
+    tx.execute_batch(&format!(
+        "CREATE TABLE servers_by_profile (
+            profile_id TEXT NOT NULL DEFAULT '{default}',
+            id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            url TEXT NOT NULL,
+            username TEXT NOT NULL,
+            password TEXT NOT NULL,
+            active TEXT NOT NULL DEFAULT '1',
+            kind TEXT NOT NULL DEFAULT 'subsonic',
+            user_id TEXT NOT NULL DEFAULT '',
+            access_token TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (profile_id, id)
+        );
+        INSERT INTO servers_by_profile (profile_id, id, name, url, username, password, active, kind, user_id, access_token)
+            SELECT '{default}', id, name, url, username, password, active, kind, user_id, access_token FROM servers;
+        DROP TABLE servers;
+        ALTER TABLE servers_by_profile RENAME TO servers;",
+        default = profiles::DEFAULT_PROFILE_ID
+    ))
+    .map_err(|e| DbError::new(e.to_string()))?;
+    tx.commit().map_err(|e| DbError::new(e.to_string()))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 pub async fn initialize_database() -> Result<(), DbError> {
-    let conn = get_db_connection()?;
+    let mut conn = get_db_connection()?;
 
     // Create tables
     conn.execute(
@@ -882,6 +951,7 @@ pub async fn initialize_database() -> Result<(), DbError> {
     )
     .map_err(|e| DbError::new(e.to_string()))?;
     add_server_kind_columns(&conn)?;
+    add_server_profile_column(&mut conn)?;
 
     conn.execute(
         "CREATE TABLE IF NOT EXISTS settings (
@@ -891,12 +961,14 @@ pub async fn initialize_database() -> Result<(), DbError> {
         [],
     )
     .map_err(|e| DbError::new(e.to_string()))?;
+    profiles::migrate();
 
     Ok(())
 }
 
 #[cfg(target_arch = "wasm32")]
 pub async fn initialize_database() -> Result<(), StorageError> {
+    profiles::migrate();
     Ok(())
 }
 
@@ -1086,10 +1158,40 @@ mod server_kind_migration_tests {
             id: "b".into(),
             ..ServerConfig::jellyfin("Jelly".into(), "http://j".into(), "u".into(), "uid".into(), "tok".into())
         };
-        save_servers_inner(&mut conn, &[jelly]).unwrap();
+        add_server_profile_column(&mut conn).unwrap();
+        save_servers_inner(&mut conn, profiles::DEFAULT_PROFILE_ID, &[jelly]).unwrap();
         assert_eq!(kinds(&conn), vec![("jellyfin".into(), "uid".into(), "tok".into())]);
         assert_eq!(ServerKind::from_stored("jellyfin"), ServerKind::Jellyfin);
         assert_eq!(ServerKind::from_stored("anything"), ServerKind::Subsonic);
+    }
+
+    #[test]
+    fn servers_move_into_the_default_profile_once_and_profiles_keep_their_own() {
+        let mut conn = rusqlite::Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE servers (id TEXT PRIMARY KEY, name TEXT NOT NULL, url TEXT NOT NULL,
+             username TEXT NOT NULL, password TEXT NOT NULL, active TEXT NOT NULL DEFAULT '1')",
+            [],
+        )
+        .unwrap();
+        conn.execute("INSERT INTO servers VALUES ('a', 'Home', 'http://h', 'u', 'p', '1')", []).unwrap();
+        add_server_kind_columns(&conn).unwrap();
+        add_server_profile_column(&mut conn).unwrap();
+        // Running it again is harmless and keeps the row.
+        add_server_profile_column(&mut conn).unwrap();
+        let default = load_servers_inner(&conn, profiles::DEFAULT_PROFILE_ID).unwrap();
+        assert_eq!(default.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Home"]);
+        assert!(load_servers_inner(&conn, "kid").unwrap().is_empty());
+
+        // The same server id can live in two profiles; saving one leaves the other.
+        let mut copy = default[0].clone();
+        copy.name = "Kid's Home".into();
+        save_servers_inner(&mut conn, "kid", &[copy]).unwrap();
+        save_servers_inner(&mut conn, profiles::DEFAULT_PROFILE_ID, &default).unwrap();
+        assert_eq!(load_servers_inner(&conn, "kid").unwrap()[0].name, "Kid's Home");
+        assert_eq!(load_servers_inner(&conn, profiles::DEFAULT_PROFILE_ID).unwrap()[0].name, "Home");
+        save_servers_inner(&mut conn, "kid", &[]).unwrap();
+        assert_eq!(load_servers_inner(&conn, profiles::DEFAULT_PROFILE_ID).unwrap().len(), 1);
     }
 
     #[test]

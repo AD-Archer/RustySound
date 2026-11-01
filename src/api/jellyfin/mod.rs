@@ -61,12 +61,13 @@ fn install_id() -> &'static str {
 #[cfg(not(test))]
 fn install_id() -> &'static str {
     const INSTALL_ID_KEY: &str = "jellyfin_install_id";
+    // One per device, shared by every profile: Jellyfin ties tokens to it.
     static ID: Lazy<String> = Lazy::new(|| {
-        crate::db::load_json_value::<String>(INSTALL_ID_KEY)
+        crate::db::load_device_value::<String>(INSTALL_ID_KEY)
             .filter(|id| !id.trim().is_empty())
             .unwrap_or_else(|| {
                 let id = uuid::Uuid::new_v4().to_string();
-                let _ = crate::db::save_json_value(INSTALL_ID_KEY, &id);
+                let _ = crate::db::save_device_value(INSTALL_ID_KEY, &id);
                 id
             })
     });

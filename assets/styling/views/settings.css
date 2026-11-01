@@ -71,6 +71,8 @@
 .rs-settings-split__nav {
   position: sticky;
   top: 0;
+  /* Above the detail pane, so the profile menu opened here isn't under it. */
+  z-index: 2;
 }
 
 .rs-settings-split__title {
@@ -1924,4 +1926,114 @@
 .rs-story-card:has(.rs-wrapped-summary) .rs-story-card__body {
   justify-content: flex-start;
   padding-top: var(--sp-5);
+}
+
+/* ---- Offline changes waiting to sync (Settings › Servers) ------------- */
+
+.rs-sync-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin: 0 4px var(--sp-5);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-sync-line__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-sync-line__btn {
+  flex: none;
+}
+
+/* ---- Backup & Restore ------------------------------------------------- */
+
+.rs-backup-warn {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  color: var(--danger);
+}
+
+.rs-backup-warn .rs-ic {
+  flex: none;
+  margin-top: 2px;
+}
+
+.rs-backup-changes {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-6);
+  padding-left: 1.2em;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  list-style: disc;
+}
+
+.rs-backup-changes__note {
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+
+/* ---- Profiles ---------------------------------------------------------- */
+
+.rs-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+}
+
+.rs-library-form__hint {
+  margin: 0;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-avatar {
+  --avatar-hue: 210;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: hsl(var(--avatar-hue) 55% 45%);
+  color: #fff;
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+}
+
+.rs-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: var(--touch);
+  min-height: var(--touch);
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--ink);
+}
+
+.rs-profile-btn--side {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: var(--fs-sub);
+  border-radius: var(--r-nav);
+}
+
+.rs-profile-btn--side .rs-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: var(--fs-foot);
+}
+
+.rs-profile-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

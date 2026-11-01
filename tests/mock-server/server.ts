@@ -14,7 +14,11 @@
 //   reports and players (getPlayQueue, reportPlayback, getNowPlaying…), so parallel
 //   tests don't see each other's queues. A tag starting with "nocors" also serves streams
 //   without CORS headers (a server that refuses Web Audio). Everything else is shared. Test hooks:
-//     GET  [/t/<tag>]/__mock/sync         what was saved, reported and scrobbled
+//     GET  [/t/<tag>]/__mock/sync         what was saved, reported and scrobbled, plus `actions`:
+//          the library changes made through the scope (star, unstar, setRating, playlists)
+//     POST [/t/<tag>]/__mock/down         take the scope "down": { mode: "unreachable" } answers
+//          /rest and the native API with no CORS headers (a browser sees a network error),
+//          { mode: "500" } with HTTP 500s, { mode: null } brings it back. Hooks keep working.
 //     POST [/t/<tag>]/__mock/play-queue   seed a queue "from another device":
 //          { ids?, count?, currentIndex?, position?, changedBy?, changedMsAgo? }
 //     POST [/t/<tag>]/__mock/now-playing  seed another player: { id?, playerName, state? }
@@ -141,13 +145,18 @@ interface SyncState {
   saves: Save[];
   scrobbles: { at: number; client: string; id: string; submission: boolean }[];
   sessions: Map<string, Session>;
+  actions: { at: number; method: string; ids: string[] }[];
+  down: "unreachable" | "500" | null;
 }
+
+/** Library changes recorded per scope (`actions` on /__mock/sync). */
+const RECORDED = new Set(["star", "unstar", "setRating", "createPlaylist", "updatePlaylist", "deletePlaylist"]);
 
 const SCOPES = new Map<string, SyncState>();
 function scoped(scope: string): SyncState {
   let st = SCOPES.get(scope);
   if (!st) {
-    st = { playQueue: null, reports: [], saves: [], scrobbles: [], sessions: new Map() };
+    st = { playQueue: null, reports: [], saves: [], scrobbles: [], sessions: new Map(), actions: [], down: null };
     SCOPES.set(scope, st);
   }
   return st;
@@ -1202,7 +1211,14 @@ async function syncHook(req: Request, url: URL, scope: string): Promise<Response
       reports: st.reports,
       saves: st.saves,
       scrobbles: st.scrobbles,
+      actions: st.actions,
+      down: st.down,
     });
+  }
+  if (url.pathname === "/__mock/down" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { mode?: "unreachable" | "500" | null };
+    st.down = body.mode === "unreachable" || body.mode === "500" ? body.mode : null;
+    return json({ ok: true, down: st.down });
   }
   if (url.pathname === "/__mock/play-queue" && req.method === "POST") {
     const body = (await req.json().catch(() => ({}))) as {
@@ -1243,6 +1259,13 @@ async function handle(req: Request): Promise<Response> {
   }
   const hook = await syncHook(req, url, scope);
   if (hook) return hook;
+
+  // A scope taken down with /__mock/down: no CORS headers reads as a network error.
+  const down = scoped(scope).down;
+  if (down && !url.pathname.startsWith("/__mock/")) {
+    if (down === "500") return json({ error: "mock server down" }, 500);
+    return new Response("mock server unreachable", { status: 503 });
+  }
 
   if (url.pathname === "/" || url.pathname === "/__mock/health") {
     return json({
@@ -1330,6 +1353,10 @@ async function handle(req: Request): Promise<Response> {
 
   const h = handlers[method];
   if (!h) return subErr(0, `Unknown method: ${method}`);
+  if (RECORDED.has(method)) {
+    const ids = [...p.all("id"), ...p.all("albumId"), ...p.all("artistId"), ...p.all("playlistId"), ...p.all("songId"), ...p.all("songIdToAdd")];
+    scoped(scope).actions.push({ at: Date.now(), method, ids });
+  }
   try {
     return await h(p, req);
   } catch (e) {

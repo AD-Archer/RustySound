@@ -9,7 +9,7 @@
 //! ```
 //!
 //! Actions reuse the app's existing paths: the add-to menu (`AddIntent`) for
-//! playlists, the server star/rating calls, `prefetch_song_audio` for
+//! playlists, `PlayerCtx` for favourites and ratings, `prefetch_song_audio` for
 //! downloads, `Navigation` for album/artist, and the song-details overlay for
 //! lyrics and info. After a favourite, rating or download change the
 //! controller publishes a `SongChange` so lists can update their marks.
@@ -139,35 +139,6 @@ impl TrackMenuController {
     }
 }
 
-fn update_song_everywhere(
-    mut queue: Signal<Vec<Song>>,
-    mut now_playing: Signal<Option<Song>>,
-    server_id: &str,
-    song_id: &str,
-    apply: impl Fn(&mut Song),
-) {
-    queue.with_mut(|items| {
-        for item in items
-            .iter_mut()
-            .filter(|s| s.id == song_id && s.server_id == server_id)
-        {
-            apply(item);
-        }
-    });
-    let playing_matches = now_playing
-        .peek()
-        .as_ref()
-        .map(|s| s.id == song_id && s.server_id == server_id)
-        .unwrap_or(false);
-    if playing_matches {
-        now_playing.with_mut(|current| {
-            if let Some(song) = current.as_mut() {
-                apply(song);
-            }
-        });
-    }
-}
-
 /// The menu card itself: tile row (Play Next, Add to Queue, Favorite), then
 /// grouped rows. Rendered by `TrackMenuHost`; usable on its own in a sheet.
 /// * `song`: the target. `show_head`: show the song "lift" header (sheets).
@@ -196,6 +167,7 @@ pub fn TrackMenu(
     let navigation = use_context::<Navigation>();
     let app_settings = use_context::<Signal<AppSettings>>();
     let toast = use_context::<StatusToast>();
+    let library = crate::components::use_player();
     let mut rate_open = use_signal(|| false);
 
     let downloaded = {
@@ -317,32 +289,13 @@ pub fn TrackMenu(
     };
 
     // ---- Library actions -------------------------------------------------
+    // `PlayerCtx` runs these in the shell's scope, so closing the menu
+    // doesn't cancel them, and they share its offline queueing.
     let toggle_favorite = {
         let song = song.clone();
         move |_| {
             controller.close();
-            let should_star = song.starred.is_none();
-            let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
-                return;
-            };
-            let song = song.clone();
-            let mut last_change = controller.last_change;
-            spawn(async move {
-                let result = if should_star {
-                    client.star(&song.id, "song").await
-                } else {
-                    client.unstar(&song.id, "song").await
-                };
-                if result.is_ok() {
-                    let marker = should_star.then(|| "local".to_string());
-                    update_song_everywhere(queue, now_playing, &song.server_id, &song.id, |s| {
-                        s.starred = marker.clone();
-                    });
-                    let mut change = SongChange::for_song(&song);
-                    change.starred = Some(should_star);
-                    last_change.set(Some(change));
-                }
-            });
+            library.toggle_favorite(song.clone());
         }
     };
 
@@ -350,22 +303,7 @@ pub fn TrackMenu(
         let song = song.clone();
         move |value: u32| {
             controller.close();
-            let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
-                return;
-            };
-            let song = song.clone();
-            let mut last_change = controller.last_change;
-            spawn(async move {
-                if client.set_rating(&song.id, value).await.is_ok() {
-                    let stored = (value > 0).then_some(value);
-                    update_song_everywhere(queue, now_playing, &song.server_id, &song.id, |s| {
-                        s.user_rating = stored;
-                    });
-                    let mut change = SongChange::for_song(&song);
-                    change.rating = Some(value);
-                    last_change.set(Some(change));
-                }
-            });
+            library.set_rating(song.clone(), value);
         }
     };
 
