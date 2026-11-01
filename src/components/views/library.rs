@@ -4,6 +4,7 @@
 pub(super) mod hero;
 pub(super) mod playlist_sheets;
 pub(super) mod shared;
+pub(super) mod song_flow;
 pub(super) mod tiles;
 
 use crate::api::{Album, NavidromeClient, ServerConfig};

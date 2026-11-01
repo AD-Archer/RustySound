@@ -12,6 +12,7 @@ mod discovery_check;
 mod first_run;
 mod lyrics;
 mod playback;
+mod server_fields;
 mod server_form;
 mod servers;
 mod shared;

@@ -19,6 +19,7 @@ use crate::components::ui::{
 use crate::components::views::album_detail::download_with_progress;
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
 use crate::components::views::library::playlist_sheets::{DeletePlaylistSheet, RenamePlaylistSheet};
+use crate::components::views::library::song_flow::{use_song_runs, wants_flow, SongFlow};
 use crate::components::views::library::shared::{
     use_servers,
     is_auto_imported, song_key, songs_summary, use_downloaded_keys, use_now_playing, use_player,
@@ -65,6 +66,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     use_song_patches(songs);
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
+    let runs = use_song_runs(songs);
 
     let data = use_resource(use_reactive!(|(playlist_id, server_id)| {
         let _ = retry();
@@ -162,7 +164,10 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     ));
     let can_download = !cfg!(target_arch = "wasm32");
     let row_h = 58.0;
-    let _ = layout;
+    // Cover Flow of the songs in the stage band (not while editing).
+    let show_flow = !is_editing
+        && wants_flow(&runs.read(), count > 0, playlist.song_count as usize);
+    let wide = !layout.is_compact();
 
     // ---- Actions --------------------------------------------------------------
     let play_from = {
@@ -308,6 +313,19 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     let p = evt.client_coordinates();
                     menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                 },
+                flow: show_flow.then(|| rsx! {
+                    SongFlow {
+                        songs,
+                        runs,
+                        list_testid: "playlist-tracks".to_string(),
+                        wide,
+                        label: format!("Songs in {}", playlist.name),
+                        on_play: {
+                            let mut play_from = play_from.clone();
+                            move |index: usize| play_from(index)
+                        },
+                    }
+                }),
             }
 
             div { class: "rs-library-page",

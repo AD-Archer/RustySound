@@ -16,7 +16,9 @@ use crate::api::{QueueSourceKind, Song};
 use crate::components::ui::{
     Button, ButtonVariant, EmptyState, Menu, MenuGap, MenuItem, TrackRow, VirtualList,
 };
+use crate::components::ui::use_layout;
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
+use crate::components::views::library::song_flow::{use_song_runs, wants_flow, SongFlow};
 use crate::components::views::library::shared::{
     song_key, songs_summary, use_downloaded_keys, use_now_playing, use_player, use_servers,
     use_song_patches, ListSkeleton,
@@ -38,6 +40,8 @@ pub fn MixDetailView(mix_id: String) -> Element {
     use_song_patches(songs);
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
+    let runs = use_song_runs(songs);
+    let wide = !use_layout().is_compact();
 
     let data = use_resource(use_reactive!(|(mix_id)| {
         let servers = servers();
@@ -98,6 +102,7 @@ pub fn MixDetailView(mix_id: String) -> Element {
     };
     let source = Some((QueueSourceKind::RandomMix, format!("discover:{}", mix.id)));
     let row_h = 58.0;
+    let show_flow = wants_flow(&runs.read(), count > 0, mix.songs.len());
 
     let play_from = {
         let source = source.clone();
@@ -166,6 +171,19 @@ pub fn MixDetailView(mix_id: String) -> Element {
                     let p = evt.client_coordinates();
                     menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                 },
+                flow: show_flow.then(|| rsx! {
+                    SongFlow {
+                        songs,
+                        runs,
+                        list_testid: "mix-tracks".to_string(),
+                        wide,
+                        label: format!("Songs in {}", mix.name),
+                        on_play: {
+                            let mut play_from = play_from.clone();
+                            move |index: usize| play_from(index)
+                        },
+                    }
+                }),
             }
 
             div { class: "rs-library-page",

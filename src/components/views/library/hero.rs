@@ -13,6 +13,8 @@ use dioxus::prelude::*;
 ///   is no history. `on_more`: shows the "…" button.
 /// * `round`: artist variant (round art).
 /// * `eyebrow`: a small line above the title (a mix's "Made by RustySound").
+/// * `flow`: a Cover Flow (playlist and mix pages). With it the band drops
+///   the single artwork: the title block sits on top and the flow below it.
 #[component]
 pub fn DetailHero(
     title: String,
@@ -27,10 +29,37 @@ pub fn DetailHero(
     #[props(default)] on_more: Option<EventHandler<MouseEvent>>,
     #[props(default)] more_testid: Option<String>,
     #[props(default)] round: bool,
+    #[props(default)] flow: Option<Element>,
 ) -> Element {
     let navigation = use_context::<Navigation>();
+    let has_flow = flow.is_some();
+    let text = rsx! {
+        div { class: "rs-library-hero__text",
+            if let Some(eyebrow) = eyebrow {
+                div { class: "rs-library-hero__eyebrow", {eyebrow} }
+            }
+            h1 { class: "rs-library-hero__title", "{title}" }
+            if let Some(sub) = subtitle {
+                div { class: "rs-library-hero__sub", {sub} }
+            }
+            if let Some(meta) = meta.clone() {
+                div { class: "rs-library-hero__meta", "{meta}" }
+            }
+            if let Some(badge) = badge.clone() {
+                div { class: "rs-library-hero__badge",
+                    Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                    "{badge}"
+                }
+            }
+            if let Some(note) = note.clone() {
+                p { class: "rs-library-hero__note", "{note}" }
+            }
+        }
+    };
     rsx! {
-        Stage { class: "rs-library-hero".to_string(), label: title.clone(),
+        Stage {
+            class: if has_flow { "rs-library-hero rs-library-hero--flow".to_string() } else { "rs-library-hero".to_string() },
+            label: title.clone(),
             div { class: "rs-library-hero__nav",
                 button {
                     r#type: "button",
@@ -57,28 +86,13 @@ pub fn DetailHero(
                     }
                 }
             }
-            div { class: "rs-library-hero__body",
-                div { class: "rs-library-hero__art", class: if round { "rs-library-hero__art--round" }, {art} }
-                div { class: "rs-library-hero__text",
-                    if let Some(eyebrow) = eyebrow {
-                        div { class: "rs-library-hero__eyebrow", {eyebrow} }
-                    }
-                    h1 { class: "rs-library-hero__title", "{title}" }
-                    if let Some(sub) = subtitle {
-                        div { class: "rs-library-hero__sub", {sub} }
-                    }
-                    if let Some(meta) = meta.clone() {
-                        div { class: "rs-library-hero__meta", "{meta}" }
-                    }
-                    if let Some(badge) = badge.clone() {
-                        div { class: "rs-library-hero__badge",
-                            Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
-                            "{badge}"
-                        }
-                    }
-                    if let Some(note) = note.clone() {
-                        p { class: "rs-library-hero__note", "{note}" }
-                    }
+            if let Some(flow) = flow {
+                div { class: "rs-library-hero__body rs-library-hero__body--flow", {text} }
+                div { class: "rs-library-hero__flow", {flow} }
+            } else {
+                div { class: "rs-library-hero__body",
+                    div { class: "rs-library-hero__art", class: if round { "rs-library-hero__art--round" }, {art} }
+                    {text}
                 }
             }
         }
