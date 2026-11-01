@@ -5,7 +5,7 @@
 use super::controls::{AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton};
 use super::playback_menu::PlaybackMenu;
 use crate::api::Song;
-use crate::components::remote_sync::{PlayOnChoices, RemoteSync};
+use crate::components::ui::{PlayerMenu, PlayerOptions};
 use crate::components::song_details::actions::format_badge;
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{
@@ -49,8 +49,9 @@ pub(super) fn WidePlayer() -> Element {
     let song_details = use_context::<SongDetailsController>();
     let navigation = use_context::<Navigation>();
     let view = use_route::<AppView>();
-    let sync = use_context::<RemoteSync>();
-    let mut devices_menu = use_signal(|| false);
+    // The Output menu, opened at the button: this device, other RustySound
+    // devices on the sync server, and network speakers.
+    let mut output_at = use_signal(|| None::<(f64, f64)>);
 
     let song = now_playing();
     // While a network speaker plays, its name sits by the format badge.
@@ -175,14 +176,16 @@ pub(super) fn WidePlayer() -> Element {
                 if let Some(badge) = song.as_ref().and_then(format_badge) {
                     span { class: "rs-bar__fmt", "{badge}" }
                 }
-                if !sync.play_on().is_empty() || sync.active_elsewhere().is_some() {
-                    IconButton {
-                        icon: "airplay".to_string(),
-                        label: "Playback devices".to_string(),
-                        size: IconButtonSize::Small,
-                        class: "rs-bar__wide-only".to_string(),
-                        onclick: move |_| devices_menu.set(true),
-                    }
+                IconButton {
+                    icon: "airplay".to_string(),
+                    label: "Output".to_string(),
+                    size: IconButtonSize::Small,
+                    class: "rs-bar__wide-only".to_string(),
+                    testid: "player-output".to_string(),
+                    onclick: move |evt: MouseEvent| {
+                        let p = evt.client_coordinates();
+                        output_at.set(Some((p.x, p.y)));
+                    },
                 }
                 AddToMenuButton {}
                 IconButton {
@@ -205,11 +208,18 @@ pub(super) fn WidePlayer() -> Element {
                 PlaybackMenu {}
                 VolumeControl {}
             }
-            if devices_menu() {
+            if let Some(anchor) = output_at() {
                 Menu {
-                    label: "Playback devices".to_string(),
-                    on_close: move |_| devices_menu.set(false),
-                    PlayOnChoices { on_done: move |_| devices_menu.set(false) }
+                    label: "Output".to_string(),
+                    anchor,
+                    on_close: move |_| output_at.set(None),
+                    testid: "player-output-menu".to_string(),
+                    PlayerOptions {
+                        open: PlayerMenu::Output,
+                        radio: song.as_ref().is_some_and(is_radio_song),
+                        output_only: true,
+                        on_done: move |_| output_at.set(None),
+                    }
                 }
             }
         }

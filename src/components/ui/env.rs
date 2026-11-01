@@ -45,19 +45,12 @@ pub fn use_layout() -> Layout {
     }
 }
 
-/// True when running on Android TV (leanback).
+/// Set once the Android shell reports a TV (leanback) device.
+pub(crate) static ANDROID_TV: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// True when running on Android TV (the shell's `isTv()`, see `android_shell.rs`).
 pub fn is_android_tv() -> bool {
-    #[cfg(target_os = "android")]
-    {
-        // Best-effort: Android TV is detected by leanback/low density touch or
-        // by the fact it's a TV; prefer environment or just check via JS/webview
-        // where available. Default false for safety.
-        false
-    }
-    #[cfg(not(target_os = "android"))]
-    {
-        false
-    }
+    ANDROID_TV.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The layout to assume before the first measurement arrives.

@@ -33,7 +33,14 @@ pub enum PlayerMenu {
 /// Now Playing). `radio`: speed is fixed at 1× for live streams. On iPhone,
 /// Output opens the AirPlay sheet instead of expanding.
 #[component]
-pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -> Element {
+pub fn PlayerOptions(
+    open: PlayerMenu,
+    radio: bool,
+    on_done: EventHandler<()>,
+    /// Only the Output / Play on / Speakers rows (the player bar's Output button).
+    #[props(default)]
+    output_only: bool,
+) -> Element {
     let timer = use_context::<SleepTimer>();
     let settings = use_context::<Signal<AppSettings>>();
     let output = use_context::<AudioOutput>();
@@ -181,112 +188,114 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
             on_toggle: move |_| toggle(PlayerMenu::Speakers),
             on_done,
         }
-        button {
-            r#type: "button",
-            class: "rs-menu__item",
-            role: "menuitem",
-            aria_haspopup: "menu",
-            aria_expanded: if sleep_open { "true" } else { "false" },
-            "data-testid": "track-menu-sleep",
-            onclick: move |_| toggle(PlayerMenu::Sleep),
-            span { class: "rs-menu__label", "Sleep Timer" }
-            span { class: "rs-menu__detail", "{sleep_detail}" }
-            Icon { name: "moon".to_string(), class: "rs-ic".to_string() }
-        }
-        if sleep_open {
-            div {
-                class: "rs-menu__choices",
-                role: "group",
-                aria_label: "Sleep Timer",
-                "data-testid": "sleep-choices",
-                for choice in SLEEP_CHOICES {
-                    button {
-                        key: "{choice.testid()}",
-                        r#type: "button",
-                        class: "rs-menu__choice",
-                        role: "menuitemradio",
-                        aria_checked: if mode.matches(choice, minutes) { "true" } else { "false" },
-                        "data-testid": choice.testid(),
-                        onclick: move |_| {
-                            timer.set(choice);
-                            on_done.call(());
-                        },
-                        "{choice.label()}"
-                    }
-                }
-            }
-        }
-        button {
-            r#type: "button",
-            class: "rs-menu__item",
-            role: "menuitem",
-            aria_haspopup: "menu",
-            aria_expanded: if speed_open { "true" } else { "false" },
-            disabled: radio,
-            "data-testid": "track-menu-speed",
-            onclick: move |_| toggle(PlayerMenu::Speed),
-            span { class: "rs-menu__label", "Playback Speed" }
-            span { class: "rs-menu__detail", "{speed_label(rate)}" }
-            Icon { name: "speed".to_string(), class: "rs-ic".to_string() }
-        }
-        if speed_open {
-            div {
-                class: "rs-menu__choices",
-                role: "group",
-                aria_label: "Playback Speed",
-                "data-testid": "speed-choices",
-                for speed in PLAYBACK_SPEEDS {
-                    button {
-                        key: "{speed}",
-                        r#type: "button",
-                        class: "rs-menu__choice",
-                        role: "menuitemradio",
-                        aria_checked: if speed == rate { "true" } else { "false" },
-                        "data-testid": "speed-choice-{speed}",
-                        onclick: move |_| {
-                            set_playback_speed(settings, speed);
-                            on_done.call(());
-                        },
-                        "{speed_label(speed)}"
-                    }
-                }
-            }
-        }
-        if EQ_AVAILABLE {
+        if !output_only {
             button {
                 r#type: "button",
                 class: "rs-menu__item",
                 role: "menuitem",
-                "data-testid": "track-menu-equalizer",
+                aria_haspopup: "menu",
+                aria_expanded: if sleep_open { "true" } else { "false" },
+                "data-testid": "track-menu-sleep",
+                onclick: move |_| toggle(PlayerMenu::Sleep),
+                span { class: "rs-menu__label", "Sleep Timer" }
+                span { class: "rs-menu__detail", "{sleep_detail}" }
+                Icon { name: "moon".to_string(), class: "rs-ic".to_string() }
+            }
+            if sleep_open {
+                div {
+                    class: "rs-menu__choices",
+                    role: "group",
+                    aria_label: "Sleep Timer",
+                    "data-testid": "sleep-choices",
+                    for choice in SLEEP_CHOICES {
+                        button {
+                            key: "{choice.testid()}",
+                            r#type: "button",
+                            class: "rs-menu__choice",
+                            role: "menuitemradio",
+                            aria_checked: if mode.matches(choice, minutes) { "true" } else { "false" },
+                            "data-testid": choice.testid(),
+                            onclick: move |_| {
+                                timer.set(choice);
+                                on_done.call(());
+                            },
+                            "{choice.label()}"
+                        }
+                    }
+                }
+            }
+            button {
+                r#type: "button",
+                class: "rs-menu__item",
+                role: "menuitem",
+                aria_haspopup: "menu",
+                aria_expanded: if speed_open { "true" } else { "false" },
+                disabled: radio,
+                "data-testid": "track-menu-speed",
+                onclick: move |_| toggle(PlayerMenu::Speed),
+                span { class: "rs-menu__label", "Playback Speed" }
+                span { class: "rs-menu__detail", "{speed_label(rate)}" }
+                Icon { name: "speed".to_string(), class: "rs-ic".to_string() }
+            }
+            if speed_open {
+                div {
+                    class: "rs-menu__choices",
+                    role: "group",
+                    aria_label: "Playback Speed",
+                    "data-testid": "speed-choices",
+                    for speed in PLAYBACK_SPEEDS {
+                        button {
+                            key: "{speed}",
+                            r#type: "button",
+                            class: "rs-menu__choice",
+                            role: "menuitemradio",
+                            aria_checked: if speed == rate { "true" } else { "false" },
+                            "data-testid": "speed-choice-{speed}",
+                            onclick: move |_| {
+                                set_playback_speed(settings, speed);
+                                on_done.call(());
+                            },
+                            "{speed_label(speed)}"
+                        }
+                    }
+                }
+            }
+            if EQ_AVAILABLE {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    "data-testid": "track-menu-equalizer",
+                    onclick: move |_| {
+                        let mut song_details = song_details;
+                        on_done.call(());
+                        song_details.close();
+                        navigation.navigate_to(AppView::EqualizerView {});
+                    },
+                    span { class: "rs-menu__label", "Equalizer" }
+                    span { class: "rs-menu__detail", "data-testid": "track-menu-equalizer-preset", "{eq_summary}" }
+                    Icon { name: "sliders".to_string(), class: "rs-ic".to_string() }
+                }
+            }
+            // Ambient mode (components/ambient). The A key opens it too while
+            // Now Playing has focus; the hint shows where there's a keyboard.
+            button {
+                r#type: "button",
+                class: "rs-menu__item",
+                role: "menuitem",
+                "aria-keyshortcuts": "A",
+                "data-testid": "track-menu-ambient",
                 onclick: move |_| {
                     let mut song_details = song_details;
                     on_done.call(());
-                    song_details.close();
-                    navigation.navigate_to(AppView::EqualizerView {});
+                    song_details.set_ambient(true);
                 },
-                span { class: "rs-menu__label", "Equalizer" }
-                span { class: "rs-menu__detail", "data-testid": "track-menu-equalizer-preset", "{eq_summary}" }
-                Icon { name: "sliders".to_string(), class: "rs-ic".to_string() }
+                span { class: "rs-menu__label", "Ambient Mode" }
+                if show_shortcut {
+                    span { class: "rs-menu__detail", aria_hidden: "true", "A" }
+                }
+                Icon { name: "maximize".to_string(), class: "rs-ic".to_string() }
             }
-        }
-        // Ambient mode (components/ambient). The A key opens it too while
-        // Now Playing has focus; the hint shows where there's a keyboard.
-        button {
-            r#type: "button",
-            class: "rs-menu__item",
-            role: "menuitem",
-            "aria-keyshortcuts": "A",
-            "data-testid": "track-menu-ambient",
-            onclick: move |_| {
-                let mut song_details = song_details;
-                on_done.call(());
-                song_details.set_ambient(true);
-            },
-            span { class: "rs-menu__label", "Ambient Mode" }
-            if show_shortcut {
-                span { class: "rs-menu__detail", aria_hidden: "true", "A" }
-            }
-            Icon { name: "maximize".to_string(), class: "rs-ic".to_string() }
         }
     }
 }

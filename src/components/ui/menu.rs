@@ -78,6 +78,24 @@ impl MenuAction {
 ///   dimmed scrim (use None for confirmations).
 /// * `on_close`: scrim, Escape or Cancel.
 /// * `testid`: data-testid of the card; `actions` rows get `<testid>-<key>`.
+/// Fixed-position style for a popover opened at viewport point (`x`, `y`).
+/// It clamps against the popover's measured size (`--pop-w` / `--pop-h`,
+/// written by `popover_fit.js`), so it stays inside the window, and the
+/// popover scrolls when taller than the window (`.rs-menu--popover`).
+pub(crate) fn popover_style(x: f64, y: f64) -> String {
+    format!(
+        "left:clamp(8px, {x:.0}px, calc(100vw - 8px - var(--pop-w, 270px)));\
+         top:clamp(8px, {y:.0}px, calc(100dvh - 8px - var(--pop-h, 0px)))"
+    )
+}
+
+/// Installs `popover_fit.js` once for the app (from the track menu host).
+pub(crate) fn use_popover_fit() {
+    use_hook(|| {
+        let _ = document::eval(include_str!("popover_fit.js"));
+    });
+}
+
 #[component]
 pub fn Menu(
     on_close: EventHandler<()>,
@@ -183,9 +201,7 @@ pub fn Menu(
     // on screen. Without an anchor it sits centred, a little above the middle
     // (no transform, so the pop-in animation can own it).
     let style = match anchor {
-        Some((x, y)) => format!(
-            "left:clamp(8px, min({x:.0}px, calc(100vw - 286px)), calc(100vw - 286px));top:clamp(8px, min({y:.0}px, calc(100dvh - 420px)), calc(100dvh - 420px))"
-        ),
+        Some((x, y)) => popover_style(x, y),
         None => "left:calc(50% - 143px);top:28vh".to_string(),
     };
     rsx! {

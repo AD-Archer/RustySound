@@ -22,6 +22,12 @@ pub fn AndroidShell() -> Element {
         let mut shell = document::eval(ANDROID_SHELL_JS);
         spawn(async move {
             while let Ok(message) = shell.recv::<String>().await {
+                if message == "tv" {
+                    // TV: wide layout with the TV home's cards.
+                    super::env::ANDROID_TV.store(true, std::sync::atomic::Ordering::Relaxed);
+                    navigation.navigate_to(crate::components::AppView::TvHome {});
+                    continue;
+                }
                 if message != "back" {
                     continue;
                 }

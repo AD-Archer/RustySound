@@ -77,6 +77,7 @@
   if (shell.isTv() && !window.__rsTvNav) {
     window.__rsTvNav = true;
     root.setAttribute("data-tv", "");
+    dioxus.send("tv");
     const FOCUSABLE =
       'a[href], button:not([disabled]), input:not([disabled]), select, textarea, [tabindex]:not([tabindex="-1"]), [role="button"], [role="slider"]';
     const CAROUSEL = '[aria-roledescription="carousel"]';

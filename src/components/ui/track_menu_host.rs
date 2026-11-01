@@ -12,6 +12,7 @@ use dioxus::prelude::*;
 #[component]
 pub fn TrackMenuHost() -> Element {
     use_song_drop_host();
+    super::menu::use_popover_fit();
     let mut controller = use_context::<TrackMenuController>();
 
     let layout = use_layout();
@@ -38,9 +39,7 @@ pub fn TrackMenuHost() -> Element {
     }
 
     let style = match request.anchor {
-        Some((x, y)) => format!(
-            "left:clamp(8px, min({x:.0}px, calc(100vw - 286px)), calc(100vw - 286px));top:clamp(8px, min({y:.0}px, calc(100dvh - 520px)), calc(100dvh - 520px))"
-        ),
+        Some((x, y)) => super::menu::popover_style(x, y),
         None => "left:50%;top:50%;transform:translate(-50%,-50%)".to_string(),
     };
     rsx! {

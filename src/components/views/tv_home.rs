@@ -68,12 +68,6 @@ pub fn TvHome() -> Element {
                             let route = card.route.clone();
                             move |_| navigation.navigate_to(route.clone())
                         },
-                        onkeydown: move |evt| {
-                            if evt.key() == Key::Enter {
-                                evt.prevent_default();
-                                navigation.navigate_to(card.route.clone());
-                            }
-                        },
                         div { class: "rs-tv-card__icon",
                             Icon { name: card.icon.to_string(), class: "rs-ic rs-ic--xl".to_string() }
                         }
