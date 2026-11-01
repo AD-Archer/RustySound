@@ -45,6 +45,10 @@ impl LocalLibrary {
         Ok(Default::default())
     }
 
+    pub async fn get_similar_songs(&self, _: &Song, _: u32) -> Result<Vec<Song>, String> {
+        Ok(Vec::new())
+    }
+
     pub async fn star(&self, _: &str, _: &str) -> Result<(), String> {
         Err(UNSUPPORTED.to_string())
     }

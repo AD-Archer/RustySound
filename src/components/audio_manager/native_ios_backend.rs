@@ -295,6 +295,8 @@ impl IosAudioPlayer {
                     &format!("volume={:.3}", volume.clamp(0.0, 1.0)),
                 );
             }
+            // The setting itself is in `equalizer::live` already.
+            "eq" => self.ensure_eq_taps(),
             "metadata" => {
                 self.metadata = cmd
                     .get("meta")
@@ -592,6 +594,7 @@ impl IosAudioPlayer {
     }
 
     fn snapshot(&mut self) -> NativeAudioSnapshot {
+        self.ensure_eq_taps();
         let (current_time, duration) = self.current_time_and_duration();
 
         let paused = unsafe {

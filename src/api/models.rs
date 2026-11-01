@@ -149,6 +149,8 @@ pub enum QueueSourceKind {
     Favorites,
     RandomMix,
     Artist,
+    /// Added by Autoplay when the queue was about to run out.
+    Autoplay,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

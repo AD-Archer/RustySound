@@ -19,6 +19,10 @@ pub fn AudioController() -> Element {
     use_playback_rate_sync(app_settings, now_playing);
     // Volume levelling (ReplayGain) on the way out; VolumeSignal stays the user's.
     use_volume_levelling(app_settings, now_playing, queue, queue_index, volume);
+    // The equalizer (Web Audio on Mac and web, a processing tap on iPhone).
+    use_equalizer_sync(app_settings);
+    // Autoplay: similar songs join the queue before it runs out.
+    use_autoplay(servers, app_settings, queue, queue_index, now_playing, repeat_mode);
 
     let last_song_id = use_signal(|| None::<String>);
     let last_src = use_signal(|| None::<String>);

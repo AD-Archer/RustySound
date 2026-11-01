@@ -26,7 +26,8 @@ use crate::components::views::library::shared::{
     use_song_patches, ErrorState, ListSkeleton,
 };
 use crate::components::{
-    can_share, share_link, AddIntent, AddMenuController, AppView, Navigation, ShareTarget,
+    can_share, share_link, AddIntent, AddMenuController, AppView, Navigation, PlaylistSync,
+    ShareTarget, SyncStatus,
 };
 use crate::db::AppSettings;
 use crate::offline_audio::{
@@ -72,9 +73,13 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
     let runs = use_song_runs(songs);
+    // Re-fetched (quietly: the page keeps showing the old list meanwhile)
+    // after each playlist sync pass.
+    let sync = use_context::<PlaylistSync>();
 
     let data = use_resource(use_reactive!(|(playlist_id, server_id)| {
         let _ = retry();
+        let _ = (sync.revision)();
         let server = servers().into_iter().find(|s| s.id == server_id);
         async move {
             let Some(server) = server else {
@@ -361,6 +366,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 if let Some(text) = status() {
                     p { class: "rs-library-status", role: "status", "{text}" }
                 }
+                div { class: "rs-library-sync", SyncStatus { testid: "playlist-sync".to_string() } }
 
                 if count == 0 {
                     EmptyState {

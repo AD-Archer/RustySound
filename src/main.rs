@@ -8,6 +8,7 @@ mod db;
 #[cfg(feature = "desktop")]
 mod desktop_window;
 mod diagnostics;
+mod equalizer;
 // The Mac menu bar item (current song, Play/Pause, Next, Previous).
 #[cfg(any(test, all(feature = "desktop", target_os = "macos")))]
 mod menu_bar;

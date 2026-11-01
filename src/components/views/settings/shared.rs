@@ -258,6 +258,39 @@ pub(super) fn ActionRow(
     }
 }
 
+/// A row that opens another page: "Title ...... value ›".
+#[component]
+pub(super) fn LinkRow(
+    title: String,
+    #[props(default)] subtitle: Option<String>,
+    #[props(default)] detail: Option<String>,
+    #[props(default)] testid: Option<String>,
+    onclick: EventHandler<MouseEvent>,
+) -> Element {
+    rsx! {
+        li {
+            button {
+                r#type: "button",
+                class: "rs-row rs-row--compact rs-settings-row rs-settings-link",
+                "data-testid": testid.clone(),
+                onclick: move |evt| onclick.call(evt),
+                span { class: "rs-row__meta",
+                    span { class: "rs-settings-row__title", "{title}" }
+                    if let Some(sub) = subtitle.clone() {
+                        span { class: "rs-settings-row__sub", "{sub}" }
+                    }
+                }
+                if let Some(detail) = detail.clone() {
+                    span { class: "rs-row__detail", "{detail}" }
+                }
+                span { class: "rs-row__chev",
+                    Icon { name: "chevron-right".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                }
+            }
+        }
+    }
+}
+
 /// A read-only "Title ...... value" row.
 #[component]
 pub(super) fn ValueRow(

@@ -427,3 +427,8 @@
   grid-template-columns: 1fr 1fr;
   align-items: start;
 }
+
+/* Downloads: the quiet "Updated 2 min ago" line under the storage card. */
+.rs-downloads-sync {
+  margin: var(--sp-3) 4px 0;
+}

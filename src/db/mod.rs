@@ -191,6 +191,17 @@ pub struct AppSettings {
     /// devices ("Continue from iPhone").
     #[serde(default = "default_queue_sync_enabled")]
     pub queue_sync_enabled: bool,
+    /// The 10-band equalizer (`crate::equalizer`). Off by default.
+    #[serde(default)]
+    pub equalizer: crate::equalizer::EqSettings,
+    /// Keep the music going: near the end of any queue, add similar songs
+    /// (`audio_manager::autoplay`).
+    #[serde(default = "default_autoplay_enabled")]
+    pub autoplay_enabled: bool,
+}
+
+fn default_autoplay_enabled() -> bool {
+    true
 }
 
 fn default_queue_sync_enabled() -> bool {
@@ -415,6 +426,8 @@ impl Default for AppSettings {
             discover_saved_mix_playlists: default_discover_saved_mix_playlists(),
             playback_rate: default_playback_rate(),
             queue_sync_enabled: default_queue_sync_enabled(),
+            equalizer: crate::equalizer::EqSettings::default(),
+            autoplay_enabled: default_autoplay_enabled(),
         }
     }
 }

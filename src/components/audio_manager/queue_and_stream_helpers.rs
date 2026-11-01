@@ -49,7 +49,8 @@ pub(crate) async fn generate_queue_extension_from_seed(
         return Vec::new();
     }
 
-    let mut excluded = std::collections::HashSet::<String>::new();
+    // Nothing already queued, nor anything played lately (Autoplay's history).
+    let mut excluded = recently_played_keys();
     for song in &existing_queue {
         excluded.insert(queue_extension_song_key(song));
     }
@@ -69,6 +70,13 @@ pub(crate) async fn generate_queue_extension_from_seed(
         if additions.len() < limit {
             if let Ok(similar) = client.get_similar_songs(&seed_song.id, lookup_count).await {
                 extend_unique_queue_candidates(similar, &mut excluded, &mut additions, limit);
+            }
+        }
+        // Then the same genre.
+        let genre = seed_song.genre.as_deref().map(str::trim).unwrap_or_default();
+        if additions.len() < limit && !genre.is_empty() {
+            if let Ok(same_genre) = client.get_random_songs_in_genre(genre, lookup_count).await {
+                extend_unique_queue_candidates(same_genre, &mut excluded, &mut additions, limit);
             }
         }
     }
@@ -294,6 +302,7 @@ fn queue_source_kind_tag(source_kind: &QueueSourceKind) -> &'static str {
         QueueSourceKind::Favorites => "favorites",
         QueueSourceKind::RandomMix => "random_mix",
         QueueSourceKind::Artist => "artist",
+        QueueSourceKind::Autoplay => "autoplay",
     }
 }
 

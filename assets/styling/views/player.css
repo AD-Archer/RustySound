@@ -1596,3 +1596,13 @@
   gap: var(--sp-2);
   margin-right: -6px;
 }
+
+/* Where the user's own queue ends and Autoplay's songs begin. */
+.rs-player-upnext__label--autoplay {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.rs-player-upnext__hint {
+  color: var(--stage-faint);
+}

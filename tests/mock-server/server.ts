@@ -12,11 +12,16 @@
 //   with EnableSharing off). GET /__mock/shares lists what was created.
 // - Sync scopes: a server URL of <base>/t/<tag> gets its own play queue, playback
 //   reports and players (getPlayQueue, reportPlayback, getNowPlaying…), so parallel
-//   tests don't see each other's queues. Everything else is shared. Test hooks:
+//   tests don't see each other's queues. A tag starting with "nocors" also serves streams
+//   without CORS headers (a server that refuses Web Audio). Everything else is shared. Test hooks:
 //     GET  [/t/<tag>]/__mock/sync         what was saved, reported and scrobbled
 //     POST [/t/<tag>]/__mock/play-queue   seed a queue "from another device":
 //          { ids?, count?, currentIndex?, position?, changedBy?, changedMsAgo? }
 //     POST [/t/<tag>]/__mock/now-playing  seed another player: { id?, playerName, state? }
+//   Playlist changes "made on another device" (shared state; use your own playlist):
+//     POST /__mock/playlist  { id?, name?, songIds?, add?, remove? }: without `id`, creates
+//          a playlist (owned by the demo user) from `songIds`; with it, appends `add` and drops
+//          `remove` (song ids). Answers the playlist with its song ids.
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
 import { buildLibrary, hashString, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
@@ -1012,8 +1017,8 @@ const handlers: Record<string, Handler> = {
   getAvatar: (p) =>
     new Response(coverPng(`avatar-${p.get("username") ?? USER}`, 128), { headers: { "Content-Type": "image/png", ...CORS } }),
 
-  stream: (p, req) => streamSong(p.req("id"), req),
-  download: (p, req) => streamSong(p.req("id"), req),
+  stream: (p, req) => streamSong(p.req("id"), req, p.scope),
+  download: (p, req) => streamSong(p.req("id"), req, p.scope),
 };
 
 function similarSongs(p: P, key: "similarSongs" | "similarSongs2") {
@@ -1050,9 +1055,9 @@ function scanStatus() {
   });
 }
 
-function rangeResponse(total: number, req: Request, contentType: string, slice: (start: number, end: number) => Uint8Array): Response {
+function rangeResponse(total: number, req: Request, contentType: string, slice: (start: number, end: number) => Uint8Array, cors = true): Response {
   const range = req.headers.get("range");
-  const base = { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "no-cache", ...CORS };
+  const base = { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "no-cache", ...(cors ? CORS : {}) };
   if (req.method === "HEAD") return new Response(null, { headers: { ...base, "Content-Length": String(total) } });
   if (range) {
     const m = /bytes=(\d*)-(\d*)/.exec(range);
@@ -1077,10 +1082,11 @@ function rangeResponse(total: number, req: Request, contentType: string, slice: 
   return new Response(slice(0, total - 1), { headers: { ...base, "Content-Length": String(total) } });
 }
 
-function streamSong(id: string, req: Request): Response {
+function streamSong(id: string, req: Request, scope = ""): Response {
   const s = S.lib.songById.get(id);
   if (!s) return subErr(70, "Song not found");
-  return rangeResponse(wavLength(s.duration), req, "audio/wav", (a, b) => wavSlice(s.id, s.duration, a, b));
+  // A sync scope named "nocors…" serves media without CORS, like a server that refuses it.
+  return rangeResponse(wavLength(s.duration), req, "audio/wav", (a, b) => wavSlice(s.id, s.duration, a, b), !scope.startsWith("nocors"));
 }
 
 // ---------------------------------------------------------------- native Navidrome API
@@ -1242,6 +1248,32 @@ async function handle(req: Request): Promise<Response> {
     S = freshState();
     SCOPES.clear();
     return json({ ok: true });
+  }
+  if (url.pathname === "/__mock/playlist" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as {
+      id?: string; name?: string; songIds?: string[]; add?: string[]; remove?: string[];
+    };
+    let pl = body.id ? S.lib.playlists.find((x) => x.id === body.id) : undefined;
+    if (body.id && !pl) return json({ error: "Playlist not found" }, 404);
+    if (!pl) {
+      pl = {
+        id: `pl-new-${S.nextPlaylist++}`,
+        name: body.name ?? "Mock Playlist",
+        comment: "",
+        owner: USER,
+        public: false,
+        songIds: (body.songIds ?? []).filter((id) => S.lib.songById.has(id)),
+        createdDaysAgo: 0,
+        changedDaysAgo: 0,
+      };
+      S.lib.playlists.unshift(pl);
+    }
+    const drop = new Set(body.remove ?? []);
+    pl.songIds = pl.songIds.filter((id) => !drop.has(id));
+    for (const id of body.add ?? []) if (S.lib.songById.has(id)) pl.songIds.push(id);
+    if (body.name && body.id) pl.name = body.name;
+    pl.changedDaysAgo = 0;
+    return json({ ok: true, playlist: { id: pl.id, name: pl.name, songIds: pl.songIds } });
   }
   if (url.pathname === "/__mock/shares") {
     return json(S.shares.map((sh) => ({ ...sh, url: `${BASE}/share/${sh.id}` })));

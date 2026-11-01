@@ -15,6 +15,8 @@ include!("native_windows_backend.rs");
 include!("native_ios_backend.rs");
 // iOS remote control and now-playing integration helpers.
 include!("native_ios_remote.rs");
+// iOS equalizer (an MTAudioProcessingTap per AVPlayerItem).
+include!("native_ios_eq.rs");
 // Cross-platform native bridge command/snapshot runtime helpers.
 include!("native_bridge_runtime.rs");
 // Native (non-wasm) audio controller component.
@@ -27,12 +29,16 @@ include!("controller_web.rs");
 include!("playback_api.rs");
 
 // Playback extras: speed, sleep timer, 30-second previews, gapless and
-// crossfade decisions, and volume levelling.
+// crossfade decisions, volume levelling, the equalizer and autoplay.
+mod autoplay;
+mod eq_output;
 mod gapless;
 mod levelling;
 mod playback_speed;
 mod preview;
 mod sleep_timer;
+pub use autoplay::*;
+pub use eq_output::*;
 pub use gapless::*;
 pub use levelling::*;
 pub use playback_speed::*;

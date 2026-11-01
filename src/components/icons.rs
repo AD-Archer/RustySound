@@ -92,6 +92,8 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "moon" => (Stroke, r#"<path d="M19.8 14.6A8.3 8.3 0 1 1 9.4 4.2a6.6 6.6 0 0 0 10.4 10.4Z"/>"#),
         // Playback speed (a gauge).
         "speed" => (Stroke, r#"<path d="M4.3 17.5a8.5 8.5 0 1 1 15.4 0"/><path d="m12 13.6 3.6-4.1"/><circle cx="12" cy="13.6" r="1.1" fill="currentColor"/>"#),
+        // Equalizer: three faders.
+        "sliders" => (Stroke, r#"<path d="M6 4v16M12 4v16M18 4v16"/><path d="M4 14h4M10 8h4M16 16h4"/>"#),
         // Quick Listen (a 30-second preview).
         // AirPlay audio: rings over a solid triangle.
         "airplay" => (Stroke, r#"<path d="M7.3 16.2a7.5 7.5 0 1 1 9.4 0"/><path d="M9.4 13.6a4 4 0 1 1 5.2 0"/><path d="M12 15.2 16.3 20.5H7.7Z" fill="currentColor"/>"#),

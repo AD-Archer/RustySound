@@ -7,7 +7,7 @@ use super::actions::{is_live_song, same_song, use_player, PlayerCtx};
 use super::queue_rows::{use_queue_gestures, QueueUndoToast, REMOVE_FROM_QUEUE};
 use super::types::SongDetailsController;
 use crate::api::Song;
-use crate::components::audio_manager::generate_queue_extension_from_seed;
+use crate::components::audio_manager::{generate_queue_extension_from_seed, is_autoplay_song};
 use crate::components::ui::{
     Button, ButtonVariant, EmptyState, IconButton, IconButtonSize, InsetList, Menu, MenuGap,
     MenuItem, RowGestureList, RowSwipe, TrackRow,
@@ -104,8 +104,18 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
         (played, now, upcoming, queue.len())
     };
     let remaining = total.saturating_sub(current + 1);
-    // The handle moves rows within what's still to come (as many as shown).
+    // Songs Autoplay added sit under their own quiet header after the
+    // user's own (they're always at the end of the queue).
+    let own = upcoming.iter().take_while(|(_, s)| !is_autoplay_song(s)).count();
+    let (upcoming, autoplay) = {
+        let mut upcoming = upcoming;
+        let autoplay = upcoming.split_off(own);
+        (upcoming, autoplay)
+    };
+    // The handle moves rows within the user's own songs still to come (as
+    // many as shown).
     let reorder = (upcoming.len() > 1).then(|| (current + 1, current + upcoming.len()));
+    let shown = upcoming.len() + autoplay.len();
 
     use_effect(move || {
         let _ = (player.queue_index)();
@@ -181,7 +191,7 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
             if !upcoming.is_empty() {
                 p { class: "rs-player-upnext__label", "Up Next" }
             }
-            if upcoming.is_empty() {
+            if upcoming.is_empty() && autoplay.is_empty() {
                 EmptyState {
                     icon: "queue".to_string(),
                     title: "Nothing up next".to_string(),
@@ -194,23 +204,44 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                 }
             } else {
                 RowGestureList { id: "upnext", reorder,
-                    InsetList { label: "Up Next".to_string(),
-                        for (index, entry) in upcoming.iter().cloned() {
-                            TrackRow {
-                                key: "{index}:{entry.server_id}:{entry.id}",
-                                song: entry.clone(),
-                                index,
-                                handle: reorder.is_some(),
-                                swipe: RowSwipe::Edit,
-                                remove_label: REMOVE_FROM_QUEUE.to_string(),
-                                on_play: move |_| player.play_index(index),
+                    if !upcoming.is_empty() {
+                        InsetList { label: "Up Next".to_string(),
+                            for (index, entry) in upcoming.iter().cloned() {
+                                TrackRow {
+                                    key: "{index}:{entry.server_id}:{entry.id}",
+                                    song: entry.clone(),
+                                    index,
+                                    handle: reorder.is_some(),
+                                    swipe: RowSwipe::Edit,
+                                    remove_label: REMOVE_FROM_QUEUE.to_string(),
+                                    on_play: move |_| player.play_index(index),
+                                }
+                            }
+                        }
+                    }
+                    if !autoplay.is_empty() {
+                        p { class: "rs-player-upnext__label rs-player-upnext__label--autoplay",
+                            "data-testid": "upnext-autoplay",
+                            "Autoplay"
+                            span { class: "rs-player-upnext__hint", " · Similar songs, added so the music keeps going" }
+                        }
+                        InsetList { label: "Autoplay".to_string(),
+                            for (index, entry) in autoplay.iter().cloned() {
+                                TrackRow {
+                                    key: "{index}:{entry.server_id}:{entry.id}",
+                                    song: entry.clone(),
+                                    index,
+                                    swipe: RowSwipe::Edit,
+                                    remove_label: REMOVE_FROM_QUEUE.to_string(),
+                                    on_play: move |_| player.play_index(index),
+                                }
                             }
                         }
                     }
                 }
-                if remaining > upcoming.len() {
+                if remaining > shown {
                     div { class: "rs-player-upnext__foot",
-                        span { "Showing the next {upcoming.len()} of {remaining}." }
+                        span { "Showing the next {shown} of {remaining}." }
                         Button {
                             label: "See All".to_string(),
                             variant: ButtonVariant::Plain,

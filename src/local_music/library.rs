@@ -157,6 +157,14 @@ impl LocalLibrary {
         run(|c| index::starred(c)).await
     }
 
+    /// Autoplay for music on the device: same artist, then same genre.
+    pub async fn get_similar_songs(&self, seed: &Song, count: u32) -> Result<Vec<Song>, String> {
+        let artist = seed.artist.clone().unwrap_or_default();
+        let genre = seed.genre.clone().unwrap_or_default();
+        let id = seed.id.clone();
+        run(move |c| index::similar_songs(c, &artist, &genre, &id, count)).await
+    }
+
     pub async fn star(&self, id: &str, _item_type: &str) -> Result<(), String> {
         let id = id.to_string();
         run(move |c| index::set_starred(c, &id, true)).await

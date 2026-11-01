@@ -34,6 +34,6 @@ pub use queue::QueueView;
 pub use radio::RadioView;
 pub use random::RandomView;
 pub use search::SearchView;
-pub use settings::{FirstRun, SettingsView};
+pub use settings::{EqualizerView, FirstRun, SettingsView};
 pub use songs::SongsView;
 pub use stats::StatsView;

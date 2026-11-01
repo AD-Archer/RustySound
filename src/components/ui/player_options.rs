@@ -1,11 +1,12 @@
-//! Output, Sleep Timer and Playback Speed rows for the track menu, shown when
+//! Output, Sleep Timer, Playback Speed and Equalizer rows for the track menu, shown when
 //! Now Playing opens it for the playing song
 //! (`TrackMenuController::open_for_player`), under a quiet "Also playing on
 //! Mac" line while another player is playing.
 
 use crate::components::{
-    set_playback_speed, speed_label, AudioOutput, Icon, OutputPicker, PlaybackSync, SleepChoice,
-    SleepTimer, PLAYBACK_SPEEDS, SLEEP_CHOICES,
+    set_playback_speed, speed_label, AppView, AudioOutput, Icon, Navigation, OutputPicker,
+    PlaybackSync, SleepChoice, SleepTimer, SongDetailsController, EQ_AVAILABLE, PLAYBACK_SPEEDS,
+    SLEEP_CHOICES,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -23,7 +24,8 @@ pub enum PlayerMenu {
 /// Expanding rows, like "Rate": Output (the current device; see
 /// `audio_output`), Sleep Timer (15/30/45 min, 1 hour, End of Track, Off)
 /// and Playback Speed (0.75×–2×). Picking a choice closes the menu through
-/// `on_done`. `radio`: speed is fixed at 1× for live streams. On iPhone,
+/// `on_done`. Equalizer shows the active preset and opens its page (closing
+/// Now Playing). `radio`: speed is fixed at 1× for live streams. On iPhone,
 /// Output opens the AirPlay sheet instead of expanding.
 #[component]
 pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -> Element {
@@ -46,6 +48,9 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
     };
     // Another player of this user (polled while Now Playing is open).
     let elsewhere = (use_context::<PlaybackSync>().elsewhere)();
+    let eq_summary = settings.read().equalizer.summary();
+    let navigation = use_context::<Navigation>();
+    let song_details = use_context::<SongDetailsController>();
 
     rsx! {
         if let Some(other) = elsewhere {
@@ -212,6 +217,23 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                         "{speed_label(speed)}"
                     }
                 }
+            }
+        }
+        if EQ_AVAILABLE {
+            button {
+                r#type: "button",
+                class: "rs-menu__item",
+                role: "menuitem",
+                "data-testid": "track-menu-equalizer",
+                onclick: move |_| {
+                    let mut song_details = song_details;
+                    on_done.call(());
+                    song_details.close();
+                    navigation.navigate_to(AppView::EqualizerView {});
+                },
+                span { class: "rs-menu__label", "Equalizer" }
+                span { class: "rs-menu__detail", "data-testid": "track-menu-equalizer-preset", "{eq_summary}" }
+                Icon { name: "sliders".to_string(), class: "rs-ic".to_string() }
             }
         }
     }

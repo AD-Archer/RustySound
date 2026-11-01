@@ -13,6 +13,7 @@ mod button;
 mod cover_flow;
 mod edge_swipe;
 mod empty_state;
+mod eq_curve;
 pub mod env;
 mod icon_button;
 mod inset_list;
@@ -40,6 +41,7 @@ mod track_menu;
 mod track_menu_host;
 mod track_row;
 mod undo_toast;
+mod vertical_slider;
 mod virtual_list;
 mod window_drag;
 
@@ -49,6 +51,7 @@ pub use button::{Button, ButtonSize, ButtonVariant};
 pub use cover_flow::{CoverFlow, CoverFlowItem};
 pub use edge_swipe::EdgeSwipe;
 pub use empty_state::EmptyState;
+pub use eq_curve::EqCurve;
 pub use env::{
     cover_art_src, cover_art_url, format_clock, use_layout, Layout, LayoutSignal, COMPACT_MAX_WIDTH,
 };
@@ -82,6 +85,7 @@ pub use track_menu::{
 pub use track_menu_host::TrackMenuHost;
 pub use track_row::TrackRow;
 pub use undo_toast::{UndoToast, UNDO_TOAST_MS};
+pub use vertical_slider::VerticalSlider;
 pub use virtual_list::{use_main_scroll_provider, MainScroll, VirtualList};
 pub use window_drag::WindowDragRegion;
 

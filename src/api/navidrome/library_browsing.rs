@@ -249,6 +249,21 @@ impl NavidromeClient {
         Ok(self.normalize_song_list(json.subsonic_response.random_songs))
     }
 
+    /// Random songs from one genre (Autoplay's fallback after similar songs).
+    pub async fn get_random_songs_in_genre(&self, genre: &str, size: u32) -> Result<Vec<Song>, String> {
+        let url = self.build_url("getRandomSongs", &[("size", &size.to_string()), ("genre", genre)]);
+        let response = HTTP_CLIENT.get(&url).send().await.map_err(|e| e.to_string())?;
+        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+        if json.subsonic_response.status != "ok" {
+            return Err(json
+                .subsonic_response
+                .error
+                .map(|e| e.message)
+                .unwrap_or("Unknown error".to_string()));
+        }
+        Ok(self.normalize_song_list(json.subsonic_response.random_songs))
+    }
+
     fn normalize_song_list(&self, list: Option<SongList>) -> Vec<Song> {
         let mut songs = list.and_then(|l| l.song).unwrap_or_default();
         for song in &mut songs {
