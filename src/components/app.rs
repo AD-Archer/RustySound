@@ -5,13 +5,14 @@ use crate::components::ui::env::{
 };
 use crate::components::ui::{
     use_main_scroll_provider, EdgeSwipe, LayoutSignal, MainScroll, PageTransition, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
-    TrackMenuHost, TrackMenuRequest, WindowDragRegion,
+    QuickListenCapsule, TrackMenuHost, TrackMenuRequest, WindowDragRegion,
 };
 use crate::components::{
     ios_audio_log_snapshot, ios_diag_log, AddIntent, AddMenuController,
     AddToMenuOverlay, AppView, AudioController, AudioState, Icon,
     IsPlayingSignal, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
-    ShuffleEnabledSignal, SongDetailsController, SongDetailsOverlay,
+    ShuffleEnabledSignal, SongDetailsController, SongDetailsOverlay, use_preview_provider,
+    use_sleep_timer_provider,
     SongDetailsState, VolumeSignal,
 };
 use crate::db::{
@@ -543,6 +544,10 @@ pub fn AppShell() -> Element {
     use_context_provider(|| ShuffleEnabledSignal(shuffle_enabled));
     use_context_provider(|| repeat_mode);
     use_context_provider(|| audio_state);
+    // Sleep timer and preview player: app-level, so they outlive Now Playing
+    // and the view that started them.
+    use_sleep_timer_provider();
+    use_preview_provider();
 
     // Mirror theme, appearance and platform onto <html> so the page background,
     // overscroll area and scrollbars follow the theme too. data-layout lives on
@@ -1084,6 +1089,8 @@ pub fn AppShell() -> Element {
             SongDetailsOverlay { controller: song_details.clone() }
 
             TrackMenuHost {}
+
+            QuickListenCapsule {}
 
             if show_transport_loading_overlay {
                 div { class: "rs-capsule", role: "status", "data-testid": "transport-loading",

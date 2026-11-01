@@ -8,7 +8,11 @@
 
 use super::actions::{format_badge, is_live_song, use_player};
 use crate::api::Song;
-use crate::components::ui::{IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, TrackVariant};
+use crate::components::ui::{
+    IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, PlayerMenu, TrackMenuController,
+    TrackVariant,
+};
+use crate::components::{Icon, SleepTimer};
 use crate::db::RepeatMode;
 use dioxus::prelude::*;
 
@@ -22,15 +26,52 @@ pub(super) fn NowPlayingScrubber(song: Song) -> Element {
             PlaybackProgress { variant: TrackVariant::Stage }
             div { class: "rs-player-scrub__times",
                 if live {
-                    span { class: "rs-player-badge rs-player-badge--live", "LIVE" }
+                    span { class: "rs-player-scrub__mid",
+                        span { class: "rs-player-badge rs-player-badge--live", "LIVE" }
+                        SleepIndicator { song: song.clone() }
+                    }
                 } else {
                     PlaybackTime { class: "rs-player-scrub__time".to_string() }
-                    if let Some(badge) = badge {
-                        span { class: "rs-player-badge", title: "Format", "{badge}" }
+                    span { class: "rs-player-scrub__mid",
+                        if let Some(badge) = badge {
+                            span { class: "rs-player-badge", title: "Format", "{badge}" }
+                        }
+                        SleepIndicator { song: song.clone() }
                     }
                     PlaybackTime { remaining: true, class: "rs-player-scrub__time".to_string() }
                 }
             }
+        }
+    }
+}
+
+/// Moon and time left while the sleep timer runs, next to the format badge.
+/// Opens the menu on the sleep choices. Only this leaf reads the countdown,
+/// which changes once a minute (each second in the last one).
+#[component]
+fn SleepIndicator(song: Song) -> Element {
+    let timer = use_context::<SleepTimer>();
+    let mut menu = use_context::<TrackMenuController>();
+    let Some(label) = timer.label() else {
+        return rsx! {};
+    };
+    rsx! {
+        button {
+            r#type: "button",
+            class: "rs-player-sleep",
+            aria_label: "Sleep timer: {label}",
+            title: "Sleep Timer",
+            "data-testid": "sleep-indicator",
+            onclick: move |evt: MouseEvent| {
+                let point = evt.client_coordinates();
+                menu.open_for_player(
+                    song.clone(),
+                    Some((point.x - 130.0, point.y + 12.0)),
+                    PlayerMenu::Sleep,
+                );
+            },
+            Icon { name: "moon".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+            span { "{label}" }
         }
     }
 }

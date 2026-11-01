@@ -5,7 +5,9 @@ use super::actions::{is_live_song, use_player};
 use super::source::source_page;
 use super::types::SongDetailsController;
 use crate::api::{ServerConfig, Song};
-use crate::components::ui::{IconButton, ProgressTrack, TrackMenuController, TrackVariant};
+use crate::components::ui::{
+    IconButton, PlayerMenu, ProgressTrack, TrackMenuController, TrackVariant,
+};
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
@@ -78,7 +80,11 @@ pub(super) fn NowPlayingMeta(song: Song) -> Element {
                     let song = song.clone();
                     move |evt: MouseEvent| {
                         let point = evt.client_coordinates();
-                        menu.open(song.clone(), Some((point.x - 250.0, point.y + 16.0)));
+                        menu.open_for_player(
+                            song.clone(),
+                            Some((point.x - 250.0, point.y + 16.0)),
+                            PlayerMenu::Closed,
+                        );
                     }
                 },
             }

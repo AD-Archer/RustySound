@@ -686,8 +686,42 @@
 }
 
 .rs-player-badge--live {
-  margin: 0 auto;
   color: var(--stage-ink);
+}
+
+/* Format badge and the sleep timer, between the times (or alone, centred,
+   for radio). */
+.rs-player-scrub__mid {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.rs-player-scrub__mid:only-child {
+  margin: 0 auto;
+}
+
+/* Sleep timer: quiet text in the badge's colour; a menu opener. */
+.rs-player-sleep {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 20px;
+  padding: 0 4px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: var(--fw-medium);
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  animation: rs-fade-in var(--dur-med) var(--ease-out);
+}
+
+.rs-player-sleep:active { background: var(--stage-pressed); }
+
+@media (hover: hover) {
+  .rs-player-sleep:hover { color: var(--stage-ink); }
 }
 
 /* ---- Transport -------------------------------------------------------- */

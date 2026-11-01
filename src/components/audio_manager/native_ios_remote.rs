@@ -26,6 +26,11 @@ const IOS_REMOTE_NAV_DEBOUNCE_MS: u128 = 220;
 const IOS_REMOTE_PREVIOUS_DEBOUNCE_MS: u128 = 120;
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 const IOS_REMOTE_DIAGNOSTIC_REV: &str = "ios-remote-2026-03-14b";
+/// Sleep timer "End of Track": pause when the song ends instead of moving on
+/// (`set_stop_after_current`).
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+static IOS_STOP_AFTER_CURRENT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn with_ios_player<R>(f: impl FnOnce(&mut IosAudioPlayer) -> R) -> Option<R> {
@@ -339,6 +344,13 @@ fn make_player_item(src: &str) -> Option<*mut Object> {
         if item.is_null() {
             None
         } else {
+            // Keep the pitch when the speed isn't 1x (Spectral suits music).
+            if !AVAudioTimePitchAlgorithmSpectral.is_null() {
+                let _: () = msg_send![
+                    item,
+                    setAudioTimePitchAlgorithm: AVAudioTimePitchAlgorithmSpectral
+                ];
+            }
             Some(item)
         }
     }
@@ -800,6 +812,14 @@ extern "C" fn ios_handle_ended(_: &Object, _: objc::runtime::Sel, _: *mut Object
             ios_remote_queue_len()
         ),
     );
+    if IOS_STOP_AFTER_CURRENT.swap(false, std::sync::atomic::Ordering::SeqCst) {
+        // Pause here; the controller sees "ended", turns the timer off and
+        // keeps the queue where it is.
+        ios_diag_log("remote.immediate", "action=ended stop-after-current");
+        let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
+        push_ios_remote_action("ended");
+        return;
+    }
     if let Some(item) = ios_plan_take_transition("ended") {
         if let Some(src) = item.src.clone() {
             clear_ios_transport_intents("ended-immediate");

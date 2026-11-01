@@ -25,3 +25,11 @@ include!("queue_and_stream_helpers.rs");
 include!("controller_web.rs");
 // Public playback utility API.
 include!("playback_api.rs");
+
+// Playback extras: speed, sleep timer and 30-second previews.
+mod playback_speed;
+mod preview;
+mod sleep_timer;
+pub use playback_speed::*;
+pub use preview::*;
+pub use sleep_timer::*;

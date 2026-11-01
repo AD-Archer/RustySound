@@ -17,11 +17,11 @@
 use crate::api::{NavidromeClient, ServerConfig, Song};
 use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::ui::env::is_radio_song;
-use crate::components::ui::{Artwork, RowRemoveRequest};
+use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest};
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{
-    AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
-    SongDetailsController, SongDetailsTab,
+    quick_listen_id, AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
+    Preview, SongDetailsController, SongDetailsTab,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -35,6 +35,9 @@ pub struct TrackMenuRequest {
     /// "Remove from Queue" / "Remove from Playlist", for rows of a list the
     /// song can be removed from.
     pub remove: Option<TrackMenuRemove>,
+    /// Now Playing's menu: adds Sleep Timer and Playback Speed, opening the
+    /// given row.
+    pub player: Option<PlayerMenu>,
 }
 
 /// The menu's remove item: its label and the row it removes. Picking it hands
@@ -113,6 +116,18 @@ impl TrackMenuController {
             song,
             anchor,
             remove,
+            player: None,
+        }));
+    }
+
+    /// Opens Now Playing's menu for the playing song: the song's actions plus
+    /// Sleep Timer and Playback Speed, with `open` expanded.
+    pub fn open_for_player(&mut self, song: Song, anchor: Option<(f64, f64)>, open: PlayerMenu) {
+        self.request.set(Some(TrackMenuRequest {
+            song,
+            anchor,
+            remove: None,
+            player: Some(open),
         }));
     }
 
@@ -158,14 +173,18 @@ fn update_song_everywhere(
 /// * `popover_style`: when set, the card is a fixed-position popover with
 ///   this inline style.
 /// * `remove`: adds the list's "Remove from …" item at the end.
+/// * `player`: Now Playing's menu: Sleep Timer and Playback Speed rows
+///   (`PlayerOptions`) after the tiles, and no Quick Listen.
 #[component]
 pub fn TrackMenu(
     song: Song,
     #[props(default)] show_head: bool,
     #[props(default)] popover_style: Option<String>,
     #[props(default)] remove: Option<TrackMenuRemove>,
+    #[props(default)] player: Option<PlayerMenu>,
 ) -> Element {
     let mut controller = use_context::<TrackMenuController>();
+    let preview = use_context::<Preview>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
@@ -196,6 +215,18 @@ pub fn TrackMenu(
         .unwrap_or(false);
     let can_download = !cfg!(target_arch = "wasm32") && !radio;
     let is_downloaded = downloaded().unwrap_or(false);
+    let can_quick_listen = player.is_none() && !radio && !app_settings.read().offline_mode;
+    let quick_listening = (preview.current)().as_deref() == Some(quick_listen_id(&song).as_str());
+
+    // ---- Quick Listen ---------------------------------------------------
+    // Starts inside the click (the page keeps the user gesture for play()).
+    let quick_listen = {
+        let song = song.clone();
+        move |_| {
+            controller.close();
+            preview.quick_listen(song.clone(), &servers.peek());
+        }
+    };
 
     // ---- Queue actions --------------------------------------------------
     let enqueue = {
@@ -523,6 +554,25 @@ pub fn TrackMenu(
                 }
             }
             div { class: "rs-menu__gap", aria_hidden: "true" }
+            if let Some(open) = player {
+                PlayerOptions {
+                    open,
+                    radio,
+                    on_done: move |_| controller.close(),
+                }
+                div { class: "rs-menu__gap", aria_hidden: "true" }
+            }
+            if can_quick_listen {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    "data-testid": "track-menu-quick-listen",
+                    onclick: quick_listen,
+                    if quick_listening { "Stop Quick Listen" } else { "Quick Listen" }
+                    Icon { name: "headphones".to_string(), class: "rs-ic".to_string() }
+                }
+            }
             button {
                 r#type: "button",
                 class: "rs-menu__item",

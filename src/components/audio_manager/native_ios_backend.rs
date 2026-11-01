@@ -11,7 +11,9 @@ struct CMTime {
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[link(name = "AVFoundation", kind = "framework")]
-unsafe extern "C" {}
+unsafe extern "C" {
+    static AVAudioTimePitchAlgorithmSpectral: *mut Object;
+}
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[link(name = "CoreMedia", kind = "framework")]
@@ -59,6 +61,8 @@ struct IosAudioPlayer {
     last_time_guard_code: u8,
     last_progress_sample: Option<f64>,
     near_end_stall_ticks: u8,
+    /// Playback speed (the "rate" command); `play` alone resets AVPlayer to 1x.
+    playback_rate: f64,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -114,7 +118,16 @@ impl IosAudioPlayer {
             last_time_guard_code: u8::MAX,
             last_progress_sample: None,
             near_end_stall_ticks: 0,
+            playback_rate: 1.0,
         })
+    }
+
+    /// Plays at the chosen speed.
+    unsafe fn play_at_rate(&self) {
+        let _: () = msg_send![self.player, play];
+        if (self.playback_rate - 1.0).abs() > f64::EPSILON {
+            let _: () = msg_send![self.player, setRate: self.playback_rate as f32];
+        }
     }
 
     fn apply(&mut self, cmd: serde_json::Value) {
@@ -176,7 +189,7 @@ impl IosAudioPlayer {
                             msg_send![self.player, setVolume: volume.clamp(0.0, 1.0) as f32];
                         self.seek(position);
                         if should_play {
-                            let _: () = msg_send![self.player, play];
+                            self.play_at_rate();
                         } else {
                             let _: () = msg_send![self.player, pause];
                         }
@@ -202,14 +215,14 @@ impl IosAudioPlayer {
                 self.last_progress_sample = Some(position.max(0.0));
                 self.near_end_stall_ticks = 0;
                 set_ios_remote_transport_state(should_play);
-                self.update_now_playing_info_cached(if should_play { 1.0 } else { 0.0 });
+                self.update_now_playing_info_cached(if should_play { self.playback_rate } else { 0.0 });
                 self.log_player_diagnostics("after-load", Some(position), None);
             }
             "play" => unsafe {
-                let _: () = msg_send![self.player, play];
+                self.play_at_rate();
                 self.near_end_stall_ticks = 0;
                 set_ios_remote_transport_state(true);
-                self.update_now_playing_info_cached(1.0);
+                self.update_now_playing_info_cached(self.playback_rate);
                 ios_diag_log("player.transport", "play");
                 self.log_player_diagnostics("after-play", None, None);
             },
@@ -236,7 +249,7 @@ impl IosAudioPlayer {
                 self.last_progress_sample = Some(target.max(0.0));
                 self.near_end_stall_ticks = 0;
                 let rate: f32 = unsafe { msg_send![self.player, rate] };
-                self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+                self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
                 self.log_player_diagnostics("after-seek", Some(target), None);
             }
             "volume" => {
@@ -262,7 +275,7 @@ impl IosAudioPlayer {
                     .unwrap_or(self.last_known_duration)
                     .max(0.0);
                 let rate: f32 = unsafe { msg_send![self.player, rate] };
-                self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+                self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
                 ios_diag_log(
                     "player.metadata",
                     &format!(
@@ -297,6 +310,22 @@ impl IosAudioPlayer {
                 clear_ios_now_playing_info();
                 ios_diag_log("player.transport", "clear");
                 self.log_player_diagnostics("after-clear", Some(0.0), Some(0.0));
+            }
+            "rate" => {
+                let rate = cmd
+                    .get("value")
+                    .and_then(|v| v.as_f64())
+                    .filter(|v| v.is_finite() && *v > 0.0)
+                    .unwrap_or(1.0);
+                self.playback_rate = rate;
+                let current: f32 = unsafe { msg_send![self.player, rate] };
+                if current > 0.0 {
+                    unsafe {
+                        let _: () = msg_send![self.player, setRate: rate as f32];
+                    }
+                }
+                self.update_now_playing_info_cached(if current > 0.0 { rate } else { 0.0 });
+                ios_diag_log("player.transport", &format!("rate={rate:.2}"));
             }
             "loop" => {}
             _ => {}
@@ -734,7 +763,7 @@ impl IosAudioPlayer {
             &meta,
             bounded_elapsed,
             bounded_duration,
-            if paused { 0.0 } else { 1.0 },
+            if paused { 0.0 } else { self.playback_rate },
             self.now_playing_artwork,
         );
     }
@@ -804,7 +833,7 @@ impl IosAudioPlayer {
         }
         self.now_playing_artwork = artwork;
         let rate: f32 = unsafe { msg_send![self.player, rate] };
-        self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+        self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
         ios_diag_log("player.artwork", "cached now-playing artwork");
         true
     }

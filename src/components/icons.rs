@@ -87,6 +87,12 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         // ---- Misc ------------------------------------------------------
         "loader" => (Stroke, r#"<path d="M12 3a9 9 0 1 0 9 9"/>"#),
         "clock" => (Stroke, r#"<circle cx="12" cy="12" r="9.3"/><path d="M12 7v5.2l3.4 2"/>"#),
+        // Sleep timer.
+        "moon" => (Stroke, r#"<path d="M19.8 14.6A8.3 8.3 0 1 1 9.4 4.2a6.6 6.6 0 0 0 10.4 10.4Z"/>"#),
+        // Playback speed (a gauge).
+        "speed" => (Stroke, r#"<path d="M4.3 17.5a8.5 8.5 0 1 1 15.4 0"/><path d="m12 13.6 3.6-4.1"/><circle cx="12" cy="13.6" r="1.1" fill="currentColor"/>"#),
+        // Quick Listen (a 30-second preview).
+        "headphones" => (Stroke, r#"<path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>"#),
         "eye" => (Stroke, r#"<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>"#),
         "eye-off" => (Stroke, r#"<path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4"/><path d="M6.3 7.4C3.9 9.1 2.5 12 2.5 12S6 18.5 12 18.5c1.8 0 3.3-.6 4.6-1.4"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3.5 3.5 17 17"/>"#),
         "lock" => (Stroke, r#"<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>"#),
