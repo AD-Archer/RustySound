@@ -3,6 +3,18 @@
    only positioned here (inside .rs-home__flow), never restyled. View classes
    use the rs-home / rs-shelf / rs-hcard prefixes. */
 
+/* One line, ending in an ellipsis: base.css's .rs-truncate, for markup that
+   carries only its view class. */
+.rs-shelf__title,
+.rs-hcard__title,
+.rs-hcard__sub-text,
+.rs-hcard__why {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    LAYOUT TOKENS
    Cards per screen: ~2.3 on compact (the next card peeks in); on wide the
@@ -12,14 +24,14 @@
 
 .rs-home {
   --shelf-pad: var(--gutter);
-  --shelf-gap: 12px;
+  --shelf-gap: var(--sp-5);
   --card-cols: 2.3;
   --card-gaps: calc(2 * var(--shelf-gap));
 }
 
 .rs-home--wide {
   --shelf-pad: var(--gutter-wide);
-  --shelf-gap: 16px;
+  --shelf-gap: var(--sp-6);
   --card-cols: 3;
   --card-gaps: calc(2 * var(--shelf-gap));
 }
@@ -65,7 +77,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  padding: 6px var(--gutter) 0;
+  padding: var(--sp-3) var(--gutter) 0;
 }
 
 .rs-home__title {
@@ -81,7 +93,7 @@
 
 .rs-home__stage--wide .rs-home__bar {
   height: 52px;
-  padding: 0 12px 0 var(--gutter-wide);
+  padding: 0 var(--sp-5) 0 var(--gutter-wide);
 }
 
 .rs-home__stage--wide .rs-home__title {
@@ -152,7 +164,7 @@
 }
 
 .rs-home__play svg {
-  margin-left: 2px;
+  margin-left: var(--sp-1);
 }
 
 @media (hover: hover) {
@@ -183,8 +195,10 @@
   color: var(--stage-ink);
 }
 
-/* Loading placeholder with the flow + caption footprint. */
-.rs-home__flow-skel {
+/* Loading placeholder with the flow + caption footprint (also the song flow
+   on playlist and mix pages: .rs-songflow__skel). */
+.rs-home__flow-skel,
+.rs-songflow__skel {
   --cover: 148px;
   display: flex;
   align-items: flex-start;
@@ -194,25 +208,30 @@
   margin-top: var(--sp-5);
 }
 
-.rs-home__flow-skel--wide {
+.rs-home__flow-skel--wide,
+.rs-songflow__skel--wide {
   height: calc(var(--cover) + 40px + 54px + 26px);
   margin-top: 18px;
 }
 
 .rs-home__flow-skel-cover,
-.rs-home__flow-skel-side {
+.rs-home__flow-skel-side,
+.rs-songflow__skel-cover,
+.rs-songflow__skel-side {
   border-radius: var(--r-cover);
   background: linear-gradient(90deg, #17181a 0%, #24252a 50%, #17181a 100%);
   background-size: 200% 100%;
   animation: rs-shimmer 1.4s linear infinite;
 }
 
-.rs-home__flow-skel-cover {
+.rs-home__flow-skel-cover,
+.rs-songflow__skel-cover {
   width: var(--cover);
   height: var(--cover);
 }
 
-.rs-home__flow-skel-side {
+.rs-home__flow-skel-side,
+.rs-songflow__skel-side {
   width: calc(var(--cover) * .28);
   height: calc(var(--cover) * .86);
   margin-top: calc(var(--cover) * .07);
@@ -237,8 +256,7 @@
   pointer-events: none;
 }
 
-.rs-home__pull--busy svg,
-.rs-home__spin svg {
+.rs-home__pull--busy svg {
   animation: rs-spin .9s linear infinite;
 }
 
@@ -247,7 +265,7 @@
    ========================================================================== */
 
 .rs-home__page {
-  padding: 2px 0 var(--sp-8);
+  padding: var(--sp-1) 0 var(--sp-8);
 }
 
 .rs-home__note {
@@ -294,15 +312,11 @@
 }
 
 .rs-home--wide .rs-shelf__hd {
-  margin-right: calc(var(--shelf-pad) - 6px);
+  margin-right: calc(var(--shelf-pad) - var(--sp-3));
 }
 
 .rs-shelf__title {
-  min-width: 0;
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title3);
   line-height: var(--lh-title3);
   font-weight: var(--fw-bold);
@@ -316,7 +330,7 @@
 .rs-shelf__arrows {
   display: flex;
   flex: none;
-  gap: 2px;
+  gap: var(--sp-1);
   margin-left: auto;
 }
 
@@ -326,7 +340,7 @@
   grid-auto-flow: column;
   grid-auto-columns: var(--card-w);
   gap: var(--shelf-gap);
-  padding: 0 var(--shelf-pad) 4px;
+  padding: 0 var(--shelf-pad) var(--sp-2);
   overflow-x: auto;
   overflow-y: hidden;
   overscroll-behavior-x: contain;
@@ -357,7 +371,7 @@
   display: flex;
   flex-direction: column;
   width: 100%;
-  padding: 0 0 2px;
+  padding: 0 0 var(--sp-1);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -408,15 +422,6 @@
   .rs-hcard__main:hover .rs-hcard__art img { filter: brightness(.93); }
 }
 
-.rs-hcard__title,
-.rs-hcard__sub-text,
-.rs-hcard__why {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .rs-hcard__title {
   margin-top: 7px;
   font-size: var(--fs-callout);
@@ -435,8 +440,8 @@
 }
 
 .rs-hcard__tag {
-  padding: 0 4px;
-  font-size: 10px;
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-tab);
   line-height: 14px;
   letter-spacing: .02em;
 }
@@ -477,7 +482,7 @@
 }
 
 .rs-hcard__play svg {
-  margin-left: 2px;
+  margin-left: var(--sp-1);
 }
 
 .rs-hcard__play--on {
@@ -536,7 +541,7 @@
   left: clamp(5px, 4cqw, 9px);
   width: clamp(20px, 13cqw, 32px);
   height: clamp(20px, 13cqw, 32px);
-  padding: 2px;
+  padding: var(--sp-1);
   box-sizing: border-box;
   border-radius: 50%;
   background: rgba(0, 0, 0, .62);
@@ -551,7 +556,7 @@
 .rs-mixpage__by {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
   max-width: 100%;
   font-weight: var(--fw-semibold);
   color: var(--stage-ink);
@@ -584,14 +589,15 @@
 
 .rs-hcard__skel-line--short {
   width: 55%;
-  margin-top: 6px;
+  margin-top: var(--sp-3);
 }
 
 @media (prefers-reduced-motion: reduce) {
   .rs-home__pull--busy svg,
-  .rs-home__spin svg,
   .rs-home__flow-skel-cover,
-  .rs-home__flow-skel-side {
+  .rs-home__flow-skel-side,
+  .rs-songflow__skel-cover,
+  .rs-songflow__skel-side {
     animation: none;
   }
 

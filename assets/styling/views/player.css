@@ -3,6 +3,23 @@
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-player- to keep them out of the kit namespace. */
 
+/* One line, ending in an ellipsis: base.css's .rs-truncate, for markup that
+   carries only its view class. */
+.rs-player-np__ctx,
+.rs-player-np__strip-title,
+.rs-player-np__strip-artist,
+.rs-player-meta__title,
+.rs-player-meta__title-link,
+.rs-player-meta__artist,
+.rs-player-shotcard__title,
+.rs-player-shotcard__artist,
+.rs-player-addhead__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    NOW PLAYING: the stage sheet
    ========================================================================== */
@@ -80,7 +97,7 @@
 .rs-player-np__grab {
   width: 36px;
   height: 5px;
-  margin: 6px auto 0;
+  margin: var(--sp-3) auto 0;
   border-radius: 3px;
   background: var(--stage-thumb);
 }
@@ -91,16 +108,12 @@
   justify-content: space-between;
   gap: var(--sp-4);
   height: 44px;
-  padding: 0 6px;
+  padding: 0 var(--sp-3);
   flex: none;
 }
 
 .rs-player-np__ctx {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   text-align: center;
   font-size: var(--fs-sub);
   font-weight: var(--fw-semibold);
@@ -182,7 +195,7 @@
   height: 100%;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--sp-5);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -210,13 +223,6 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
-}
-
-.rs-player-np__strip-title,
-.rs-player-np__strip-artist {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .rs-player-np__strip-title {
@@ -377,7 +383,7 @@
 }
 
 .rs-player-np--wide .rs-player-np__bar {
-  padding: 8px 12px 0;
+  padding: var(--sp-4) var(--sp-5) 0;
 }
 
 .rs-player-np__cols {
@@ -409,7 +415,7 @@
   position: relative;
   flex: none;
   height: calc(var(--np-cover) * 1.18);
-  margin-top: 12px;
+  margin-top: var(--sp-5);
   perspective: 900px;
 }
 
@@ -433,7 +439,8 @@
   margin-left: calc(var(--np-cover) / -2);
   border-radius: var(--r-art);
   background: var(--stage-cover-blank);
-  -webkit-box-reflect: below 3px linear-gradient(transparent 66%, rgba(255, 255, 255, .2));
+  /* The kit Cover Flow's reflection (.rs-cover); one recipe app-wide. */
+  -webkit-box-reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
 }
 
 .rs-player-flow__cover {
@@ -583,7 +590,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 0 12px 0 24px;
+  padding: 0 var(--sp-5) 0 var(--sp-8);
   flex: none;
 }
 
@@ -599,9 +606,6 @@
 
 .rs-player-meta__title {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title3);
   line-height: var(--lh-title3);
   font-weight: var(--fw-semibold);
@@ -612,9 +616,6 @@
 .rs-player-meta__title-link {
   display: block;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: inherit;
   font: inherit;
   letter-spacing: inherit;
@@ -633,9 +634,6 @@
 
 .rs-player-meta__artist {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title);
   line-height: var(--lh-title);
   color: var(--stage-muted);
@@ -696,7 +694,7 @@
 .rs-player-scrub__mid {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
   min-width: 0;
 }
 
@@ -710,9 +708,9 @@
   align-items: center;
   gap: 3px;
   min-height: 20px;
-  padding: 0 4px;
+  padding: 0 var(--sp-2);
   border-radius: 4px;
-  font-size: 11px;
+  font-size: var(--fs-cap);
   font-weight: var(--fw-medium);
   color: var(--stage-muted);
   font-variant-numeric: tabular-nums;
@@ -771,7 +769,7 @@
 .rs-player-rating {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .rs-app .rs-player-rating__star {
@@ -805,7 +803,7 @@
 }
 
 .rs-player-info__volume {
-  padding: 12px 16px;
+  padding: var(--sp-5) var(--sp-6);
 }
 
 .rs-player-info__volume .rs-player-volume {
@@ -888,7 +886,7 @@
 
 /* Section labels (Played, Now Playing, Up Next), styled like Settings' group headings. */
 .rs-player-upnext__label {
-  margin: var(--sp-6) 12px var(--sp-3);
+  margin: var(--sp-6) var(--sp-5) var(--sp-3);
   font-size: var(--fs-sub);
   font-weight: var(--fw-regular);
   letter-spacing: .02em;
@@ -931,7 +929,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-5);
-  padding-left: 12px;
+  padding-left: var(--sp-5);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -982,7 +980,7 @@
 .rs-player-lyrics__lines::-webkit-scrollbar { display: none; }
 
 .rs-player-lyrics__lines--plain {
-  padding-top: 8px;
+  padding-top: var(--sp-4);
   -webkit-mask-image: linear-gradient(#000 80%, transparent);
   mask-image: linear-gradient(#000 80%, transparent);
 }
@@ -1047,7 +1045,7 @@
 }
 
 .rs-player-panels--wide .rs-player-lyric {
-  font-size: 28px;
+  font-size: var(--fs-title1);
   line-height: 35px;
   padding: 5px 0;
 }
@@ -1086,8 +1084,8 @@
 .rs-player-stepper {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
   border-radius: var(--r-btn);
   background: var(--seg-trough);
 }
@@ -1137,7 +1135,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  padding: var(--sp-6) 4px;
+  padding: var(--sp-6) var(--sp-2);
   font-size: var(--fs-sub);
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -1186,7 +1184,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  padding: calc(var(--safe-top) + 12px) 16px 8px;
+  padding: calc(var(--safe-top) + var(--sp-5)) var(--sp-6) var(--sp-4);
 }
 
 .rs-player-shot__bar .rs-iconbtn { color: var(--stage-ink); }
@@ -1217,7 +1215,7 @@
   flex-direction: column;
   width: min(100%, 900px);
   margin: 0 auto;
-  padding: 16px 24px 0;
+  padding: var(--sp-6) var(--sp-8) 0;
   pointer-events: none;
 }
 
@@ -1231,7 +1229,7 @@
 }
 
 .rs-player-shot__artist {
-  margin: 2px 0 0;
+  margin: var(--sp-1) 0 0;
   color: var(--stage-muted);
 }
 
@@ -1253,7 +1251,7 @@
 .rs-app .rs-player-shot__line {
   display: block;
   width: 100%;
-  padding: 6px 8px;
+  padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-list);
   text-align: left;
   font-size: clamp(24px, 4.6vw, 44px);
@@ -1280,7 +1278,7 @@
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 8px 16px calc(var(--safe-bottom) + 24px);
+  padding: var(--sp-4) var(--sp-6) calc(var(--safe-bottom) + var(--sp-8));
   pointer-events: none;
 }
 
@@ -1292,7 +1290,7 @@
   right: 16px;
   top: calc(var(--safe-top) + 64px);
   width: min(320px, calc(100vw - 32px));
-  padding: 16px;
+  padding: var(--sp-6);
   border-radius: var(--r-sheet);
   background: rgba(20, 20, 22, .82);
   border: 1px solid rgba(255, 255, 255, .14);
@@ -1344,7 +1342,7 @@
   align-items: center;
   gap: var(--sp-3);
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--sp-5);
   border-radius: var(--r-button-sm);
   border: 1px solid rgba(255, 255, 255, .16);
   background: rgba(255, 255, 255, .05);
@@ -1430,9 +1428,6 @@
 .rs-player-shotcard__title,
 .rs-player-shotcard__artist {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .rs-player-shotcard__title {
@@ -1501,7 +1496,7 @@
 }
 
 .rs-player-queue__sub {
-  margin: 2px 0 0;
+  margin: var(--sp-1) 0 0;
   font-size: var(--fs-sub);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -1510,7 +1505,7 @@
 .rs-player-addrow {
   cursor: default;
   gap: var(--sp-3);
-  padding-right: 8px;
+  padding-right: var(--sp-4);
 }
 
 .rs-player-addrow .rs-art {
@@ -1552,9 +1547,6 @@
 
 .rs-player-addhead__title {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title);
   font-weight: var(--fw-semibold);
 }
