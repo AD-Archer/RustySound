@@ -222,6 +222,14 @@ bundle-android *args:
 bundle-sim:
     IOS_TARGET=aarch64-apple-ios-sim ./scripts/bundle-apple.sh
 
+# bundle-apple with the Now Playing widgets embedded (docs/WIDGETS.md).
+bundle-apple-widgets:
+    RS_WIDGETS=1 ./scripts/bundle-apple.sh
+
+# Simulator build with the Now Playing widgets, ad-hoc signed.
+bundle-sim-widgets:
+    RS_WIDGETS=1 IOS_TARGET=aarch64-apple-ios-sim ./scripts/bundle-apple.sh
+
 # Quick compile check using default features.
 check:
     ./scripts/run-with-rustup-env.sh cargo check

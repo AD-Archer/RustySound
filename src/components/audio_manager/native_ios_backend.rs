@@ -888,6 +888,7 @@ impl IosAudioPlayer {
             rate.max(0.0),
             self.now_playing_artwork,
         );
+        self.publish_widget(&meta, elapsed, duration, rate);
     }
 
     fn update_now_playing_info_from_snapshot(
@@ -912,13 +913,30 @@ impl IosAudioPlayer {
         }
         self.last_known_elapsed = bounded_elapsed;
 
-        set_ios_now_playing_info(
-            &meta,
-            bounded_elapsed,
-            bounded_duration,
-            if paused { 0.0 } else { self.playback_rate },
-            self.now_playing_artwork,
-        );
+        let rate = if paused { 0.0 } else { self.playback_rate };
+        set_ios_now_playing_info(&meta, bounded_elapsed, bounded_duration, rate, self.now_playing_artwork);
+        self.publish_widget(&meta, bounded_elapsed, bounded_duration, rate);
+    }
+
+    /// Mirrors the lock-screen info into the Now Playing widget's snapshot.
+    /// Called on every poll tick; `now_playing_widget::publish` writes only
+    /// when the song, play state or cover changes, or on a seek.
+    fn publish_widget(&self, meta: &NativeTrackMetadata, elapsed: f64, duration: f64, rate: f64) {
+        if !crate::now_playing_widget::available() {
+            return;
+        }
+        let mut track = widget_track(meta, self.now_playing_artwork_url.as_deref());
+        // The server's whole-second duration is steady; AVPlayer's only
+        // fills in when the server has none.
+        if !(track.duration > 0.0) && duration.is_finite() && duration > 0.0 {
+            track.duration = duration.round();
+        }
+        crate::now_playing_widget::publish(Some(crate::now_playing_widget::WidgetPlayback {
+            track,
+            position: elapsed,
+            playing: rate > 0.0,
+            rate,
+        }));
     }
 
     fn clear_cached_artwork(&mut self) {
@@ -994,7 +1012,7 @@ impl IosAudioPlayer {
 
 /// `url` without the per-request Subsonic auth params (`t`, `s`, `p`), which
 /// change on every call for the same cover.
-#[cfg(any(test, all(not(target_arch = "wasm32"), target_os = "ios")))]
+#[cfg(any(test, target_os = "ios", all(feature = "desktop", target_os = "macos")))]
 fn artwork_cache_key(url: &str) -> String {
     let Some((base, query)) = url.split_once('?') else {
         return url.to_string();

@@ -172,3 +172,30 @@ fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
         is_live,
     }
 }
+
+/// The Now Playing widget's view of a track: the same strings the lock
+/// screen shows. `artwork_key` is the cover URL without its auth salt
+/// ([`artwork_cache_key`]).
+#[cfg(any(target_os = "ios", all(feature = "desktop", target_os = "macos")))]
+fn widget_track(meta: &NativeTrackMetadata, artwork_key: Option<&str>) -> crate::now_playing_widget::WidgetTrack {
+    crate::now_playing_widget::WidgetTrack {
+        title: meta.title.clone(),
+        artist: meta.artist.clone(),
+        album: meta.album.clone(),
+        cover: artwork_key.map(crate::now_playing_widget::cover_id),
+        duration: meta.duration,
+        live: meta.is_live,
+    }
+}
+
+/// [`widget_track`] for a song (the Mac widget), plus the cover URL to fetch.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+pub(crate) fn widget_track_for_song(
+    song: &Song,
+    servers: &[ServerConfig],
+) -> (crate::now_playing_widget::WidgetTrack, Option<String>) {
+    let meta = song_metadata(song, servers);
+    let artwork = meta.artwork.clone().filter(|url| !url.trim().is_empty());
+    let key = artwork.as_deref().map(artwork_cache_key);
+    (widget_track(&meta, key.as_deref()), artwork)
+}

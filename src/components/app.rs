@@ -389,9 +389,19 @@ pub fn AppShell() -> Element {
         });
     }
 
-    // The Mac menu bar item follows the song and play state.
+    // The Mac menu bar item follows the song and play state, and so do the
+    // Now Playing widgets (when the app is built with them).
     #[cfg(all(feature = "desktop", target_os = "macos"))]
-    crate::menu_bar::use_menu_bar_controls(now_playing, is_playing);
+    {
+        crate::menu_bar::use_menu_bar_controls(now_playing, is_playing);
+        crate::now_playing_widget::use_now_playing_widget(
+            now_playing,
+            is_playing,
+            playback_position,
+            servers,
+            app_settings,
+        );
+    }
 
     // Cmd+F / Ctrl+F jumps to Search from anywhere (the macOS menu's Find item
     // does the same through muda when it gets the key first).

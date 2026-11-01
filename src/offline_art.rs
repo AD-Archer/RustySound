@@ -117,6 +117,25 @@ pub fn maybe_prefetch_cover_art(
     });
 }
 
+/// The bytes of a cover URL as `song_metadata` builds it: a data URL (a
+/// cached or local cover) or the server's cover URL (one download; nothing
+/// in offline mode). For the Mac Now Playing widget.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+pub(crate) async fn cover_bytes(url: &str) -> Option<Vec<u8>> {
+    if let Some(data) = url.strip_prefix("data:") {
+        let (_, encoded) = data.split_once(";base64,")?;
+        return general_purpose::STANDARD.decode(encoded).ok().filter(|bytes| !bytes.is_empty());
+    }
+    if crate::cache_service::is_offline_mode() || !(url.starts_with("http://") || url.starts_with("https://")) {
+        return None;
+    }
+    let response = ART_HTTP_CLIENT.get(url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.bytes().await.ok().map(|bytes| bytes.to_vec()).filter(|bytes| !bytes.is_empty())
+}
+
 // ---- Cover art for the webview ---------------------------------------------
 //
 // Lists render covers through `Artwork`, which used to call
