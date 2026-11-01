@@ -174,8 +174,9 @@ function install() {
     const s = sheet();
     const target = e.target;
     if (!s || !(target instanceof Element) || !s.contains(target)) return;
-    // Menus and sheets opened from a panel keep their own touches.
-    if (target.closest(".rs-player-modals, .rs-sheet, [role='menu'], input, textarea, [role='slider']")) return;
+    // Menus and sheets opened from a panel keep their own touches, and so
+    // does an Up Next row's reorder handle (row_gestures.js).
+    if (target.closest(".rs-player-modals, .rs-sheet, [role='menu'], input, textarea, [role='slider'], [data-row-handle]")) return;
     const t = e.touches[0];
     const focused = isFocused(s);
     const inPanels = target.closest(".rs-player-panels");

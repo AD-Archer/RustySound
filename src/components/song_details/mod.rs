@@ -10,7 +10,8 @@
 //! - `strip`     compact focused view's header strip
 //! - `gestures`  compact panel focus swipe and cover swipe (`gestures.js`)
 //! - `lyrics/*`  lyrics source, lines, search sheet, Shot share mode
-//! - `up_next`   Up Next panel, queue edit rows, quick create, save queue
+//! - `up_next`   Up Next panel, quick create, save queue
+//! - `queue_rows` drag to reorder, swipe actions and Undo for queue rows
 //! - `info`      details list, related songs
 //! - `actions`   playback/queue/library actions (`PlayerCtx`)
 //! - `types`     `SongDetailsController` and friends
@@ -27,6 +28,7 @@ mod source;
 mod strip;
 mod transport;
 mod types;
+pub(crate) mod queue_rows;
 pub(crate) mod up_next;
 
 pub use overlay::SongDetailsOverlay;

@@ -613,23 +613,8 @@
 
 /* ---- Track lists ----------------------------------------------------- */
 
-.rs-library-songlist .rs-trow,
-.rs-library-editrow {
+.rs-library-songlist .rs-trow {
   height: var(--row-h);
-}
-
-.rs-library-editrow {
-  cursor: default;
-  padding-right: 6px;
-  gap: var(--sp-3);
-}
-
-.rs-library-editrow .rs-trow__meta {
-  margin-right: var(--sp-3);
-}
-
-.rs-library-editrow__remove {
-  color: var(--danger);
 }
 
 /* Candidate rows in the Add Songs sheet. */

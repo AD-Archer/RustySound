@@ -23,7 +23,12 @@ pub fn TrackMenuHost() -> Element {
                 onclick: move |_| controller.close(),
             }
             div { class: "rs-sheet rs-sheet--menu", role: "dialog", aria_label: "{request.song.title}",
-                TrackMenu { key: "{key}", song: request.song.clone(), show_head: true }
+                TrackMenu {
+                    key: "{key}",
+                    song: request.song.clone(),
+                    show_head: true,
+                    remove: request.remove.clone(),
+                }
                 div { class: "rs-menu",
                     button {
                         r#type: "button",
@@ -43,7 +48,12 @@ pub fn TrackMenuHost() -> Element {
         None => "left:50%;top:50%;transform:translate(-50%,-50%)".to_string(),
     };
     rsx! {
-        TrackMenu { key: "{key}", song: request.song.clone(), popover_style: style }
+        TrackMenu {
+            key: "{key}",
+            song: request.song.clone(),
+            popover_style: style,
+            remove: request.remove.clone(),
+        }
         div {
             class: "rs-scrim rs-scrim--clear",
             aria_hidden: "true",

@@ -819,6 +819,9 @@
   --skeleton: #1d1e21;
   --skeleton-hi: #2a2b2f;
   --accent-text: var(--accent-hi);
+  /* Solid stand-in for the translucent surface, for a row sliding over
+     its swipe actions or lifted by its handle. */
+  --rowg-cover: #1b1c1f;
   color: var(--stage-ink);
 }
 
@@ -879,13 +882,6 @@
 .rs-player-upnext__foot > span {
   flex: 1 1 100%;
   font-variant-numeric: tabular-nums;
-}
-
-.rs-player-qrow {
-  cursor: default;
-  height: var(--row-h);
-  gap: var(--sp-3);
-  padding-right: 6px;
 }
 
 .rs-player-related {

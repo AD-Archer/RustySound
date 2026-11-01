@@ -35,6 +35,8 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "bookmark" => (Stroke, r#"<path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/>"#),
         "queue" | "list" => (Stroke, r#"<path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><circle cx="4.2" cy="6" r=".9" fill="currentColor"/><circle cx="4.2" cy="12" r=".9" fill="currentColor"/><circle cx="4.2" cy="18" r=".9" fill="currentColor"/>"#),
         "menu" => (Stroke, r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#),
+        // Reorder handle (iOS's three short bars).
+        "grip" => (Stroke, r#"<path d="M5 8.5h14M5 12h14M5 15.5h14"/>"#),
         "server" => (Stroke, r#"<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>"#),
         "hard-drive" => (Stroke, r#"<rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M5 13 8 5h8l3 8"/><path d="M7.5 16.5h.01"/>"#),
         "offline" => (Stroke, r#"<path d="m3.5 3.5 17 17"/><path d="M9.2 5.3A6 6 0 0 1 17.6 10a4 4 0 0 1 2.4 6.6"/><path d="M6.4 8.4A4.5 4.5 0 0 0 7 17.5h10"/>"#),
