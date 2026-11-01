@@ -14,6 +14,9 @@ pub fn AudioController() -> Element {
     let seek_request = use_context::<SeekRequestSignal>().0;
     let audio_state = use_context::<Signal<AudioState>>();
     let preview_playback = use_context::<PreviewPlaybackSignal>().0;
+    let sleep_timer = use_context::<SleepTimer>();
+    // Playback speed from the settings (1x for radio).
+    use_playback_rate_sync(app_settings, now_playing);
 
     let last_song_id = use_signal(|| None::<String>);
     let last_src = use_signal(|| None::<String>);

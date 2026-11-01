@@ -158,6 +158,14 @@ pub struct AppSettings {
     /// mix replaces that playlist instead of making a new one.
     #[serde(default = "default_discover_saved_mix_playlists")]
     pub discover_saved_mix_playlists: String,
+    /// Playback speed (Now Playing menu), one of `PLAYBACK_SPEEDS`. Radio
+    /// always plays at 1x.
+    #[serde(default = "default_playback_rate")]
+    pub playback_rate: f64,
+}
+
+fn default_playback_rate() -> f64 {
+    1.0
 }
 
 fn default_discover_rewind_months() -> u32 {
@@ -345,6 +353,7 @@ impl Default for AppSettings {
             discovery_previews_enabled: default_discovery_previews_enabled(),
             discover_rewind_months: default_discover_rewind_months(),
             discover_saved_mix_playlists: default_discover_saved_mix_playlists(),
+            playback_rate: default_playback_rate(),
         }
     }
 }

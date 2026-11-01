@@ -13,7 +13,6 @@ mod data;
 mod mix_detail;
 mod mixes;
 mod offserver;
-mod preview;
 pub(super) mod saved;
 mod shelf;
 mod shelves;
@@ -29,7 +28,7 @@ pub use mix_detail::MixDetailView;
 use dioxus::prelude::*;
 use mixes::{HomeMenuHost, HomeMenus};
 use offserver::OffServerShelf;
-use preview::use_preview_provider;
+use crate::components::Preview;
 use shelves::{AlbumsLikeShelf, NewShelf, PlaylistsShelf, RewindShelf, SongsShelf};
 use stage::HomeStage;
 
@@ -46,7 +45,9 @@ pub fn HomeView() -> Element {
     let wide = !use_layout().is_compact();
     use_context_provider(Toast::new);
     use_context_provider(|| HomeMenus(Signal::new(None)));
-    use_preview_provider();
+    // Discover's previews stop when Home goes away; a Quick Listen plays on.
+    let preview = use_context::<Preview>();
+    use_drop(move || preview.stop_off_server());
     let data = use_home_data(servers, settings);
     let mut pull = use_signal(|| 0.0f64);
     let mut pull_start = use_signal(|| None::<f64>);

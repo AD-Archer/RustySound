@@ -263,6 +263,12 @@ impl WindowsAudioPlayer {
                 let volume = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
                 let _ = self.player.SetVolume(volume.clamp(0.0, 1.0));
             }
+            "rate" => {
+                let rate = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                if let Ok(session) = self.player.PlaybackSession() {
+                    let _ = session.SetPlaybackRate(rate.clamp(0.25, 4.0));
+                }
+            }
             "loop" => {
                 let enabled = cmd
                     .get("enabled")

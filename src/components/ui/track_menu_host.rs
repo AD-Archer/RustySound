@@ -13,7 +13,10 @@ pub fn TrackMenuHost() -> Element {
     let Some(request) = (controller.request)() else {
         return rsx! {};
     };
-    let key = format!("{}:{}", request.song.server_id, request.song.id);
+    let key = format!(
+        "{}:{}:{:?}",
+        request.song.server_id, request.song.id, request.player
+    );
 
     if layout.is_compact() {
         return rsx! {
@@ -28,6 +31,7 @@ pub fn TrackMenuHost() -> Element {
                     song: request.song.clone(),
                     show_head: true,
                     remove: request.remove.clone(),
+                    player: request.player,
                 }
                 div { class: "rs-menu",
                     button {
@@ -53,6 +57,7 @@ pub fn TrackMenuHost() -> Element {
             song: request.song.clone(),
             popover_style: style,
             remove: request.remove.clone(),
+            player: request.player,
         }
         div {
             class: "rs-scrim rs-scrim--clear",

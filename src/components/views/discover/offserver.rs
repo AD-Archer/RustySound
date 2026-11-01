@@ -7,10 +7,10 @@ use super::actions::Toast;
 use super::cards::CARD_ART_PX;
 use super::data::HomeData;
 use super::mixes::{HomeMenu, HomeMenus};
-use super::preview::{Preview, PreviewEnd};
+use crate::components::{Preview, PreviewEnd};
 use super::shelf::{Card, Shelf, ShelfSkeleton};
 use crate::api::discovery::{OffServerItem, OffServerKind};
-use crate::components::ui::{Artwork, Menu, MenuItem};
+use crate::components::ui::{Artwork, Menu, MenuItem, PreviewRing};
 use crate::components::{AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -110,7 +110,7 @@ fn toggle_preview(preview: Preview, toast: Toast, item: &OffServerItem) {
         return;
     };
     let title = item.title.clone();
-    preview.toggle(item.id.clone(), url, move |end| {
+    preview.toggle(item.id.clone(), url, 0.0, move |end| {
         if end == PreviewEnd::Failed {
             toast.show(format!("The preview for “{title}” couldn't play."), true);
         }
@@ -148,6 +148,9 @@ fn OffServerCard(item: OffServerItem) -> Element {
                 Icon {
                     name: if previewing { "pause".to_string() } else { "play".to_string() },
                     class: "rs-ic rs-ic--sm".to_string(),
+                }
+                if previewing {
+                    PreviewRing {}
                 }
             }
         }

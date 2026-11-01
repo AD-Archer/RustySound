@@ -21,7 +21,10 @@ mod long_press;
 mod menu;
 mod page_transition;
 mod playback;
+mod player_options;
+mod preview_ring;
 mod progress_track;
+mod quick_listen;
 mod row_gestures;
 mod search_field;
 mod section_header;
@@ -55,7 +58,10 @@ pub use long_press::{use_long_press, LongPress};
 pub use menu::{Menu, MenuAction, MenuGap, MenuItem};
 pub use page_transition::PageTransition;
 pub use playback::{MiniProgressLine, PlaybackProgress, PlaybackTime};
+pub use player_options::{PlayerMenu, PlayerOptions};
+pub use preview_ring::PreviewRing;
 pub use progress_track::{ProgressTrack, TrackVariant};
+pub use quick_listen::QuickListenCapsule;
 pub use row_gestures::{
     use_row_gestures, RowGesture, RowGestureList, RowGestureListId, RowRemoveRequest, RowSwipe,
 };

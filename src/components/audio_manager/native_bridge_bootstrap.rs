@@ -150,6 +150,15 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
         case "loop":
           audio.loop = !!cmd.enabled;
           break;
+        case "rate": {
+          // Keep the pitch; the default rate carries over to the next load.
+          const rate = typeof cmd.value === "number" && cmd.value > 0 ? cmd.value : 1;
+          audio.preservesPitch = true;
+          audio.webkitPreservesPitch = true;
+          audio.defaultPlaybackRate = rate;
+          audio.playbackRate = rate;
+          break;
+        }
         case "metadata":
           setMetadata(cmd.meta || null);
           break;

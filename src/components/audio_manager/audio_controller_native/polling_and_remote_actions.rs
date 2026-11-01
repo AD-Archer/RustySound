@@ -463,6 +463,19 @@
                             scrobble_song(&servers_snapshot, &song, true);
                         }
 
+                        if sleep_timer.take_end_of_track() {
+                            // Sleep timer "End of Track": stop on this song,
+                            // rewound, instead of moving on (iOS has paused
+                            // already, see `set_stop_after_current`).
+                            native_audio_command(serde_json::json!({ "type": "pause" }));
+                            native_audio_command(serde_json::json!({
+                                "type": "seek",
+                                "position": 0.0
+                            }));
+                            is_playing.set(false);
+                            continue;
+                        }
+
                         if repeat == RepeatMode::One {
                             if let Some(song_id) = current_id.clone() {
                                 if repeat_one_replayed_song.peek().as_ref() != Some(&song_id) {
