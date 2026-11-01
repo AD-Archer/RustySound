@@ -31,6 +31,8 @@
 // or the one edge_swipe.js stamps into each entry). Navigations the edge
 // swipe commits are its own animation and are skipped here.
 //
+// historyIndex(), nowMs() and prefersReducedMotion() come from gesture_core.js.
+//
 // window.__rsPageTx:
 //   prepare(kind)  kind: "push" | "forward" | "back" | "tab"
 //   routed()       the route changed and the new page is in the DOM
@@ -42,9 +44,7 @@ if (!window.__rsPageTx) window.__rsPageTx = install();
 
 function install() {
   const ROUTE_WAIT_MS = 600; // drop the ghost if no new page arrives by then
-  const reduceMotion = window.matchMedia
-    ? window.matchMedia("(prefers-reduced-motion: reduce)")
-    : { matches: false };
+  const reduceMotion = prefersReducedMotion();
 
   // idle | waiting (ghost up, new page not rendered yet) | running
   let phase = "idle";
@@ -84,7 +84,7 @@ function install() {
     // come before or after the router has already rendered the new route
     // (Chromium re-renders first). That popstate is this navigation, not a
     // new one.
-    if (!fromPopstate && (kind === "back" || kind === "forward")) expectPopUntil = performance.now() + 1000;
+    if (!fromPopstate && (kind === "back" || kind === "forward")) expectPopUntil = nowMs() + 1000;
     if (edgeSwipeBusy()) return;
     if (phase === "waiting" && t) {
       // A second tap before the first page arrived: the ghost is still what
@@ -281,11 +281,6 @@ function install() {
     if (t) cleanup();
   }
 
-  function historyIndex() {
-    const state = typeof history !== "undefined" ? history.state : null;
-    return Array.isArray(state) && typeof state[2] === "number" ? state[2] : null;
-  }
-
   // Browser back/forward. The old page must still be in the DOM when the
   // ghost is taken, i.e. before the router's own popstate listener runs.
   // Where the Navigation API exists, its navigate event fires before any
@@ -295,7 +290,7 @@ function install() {
   let navigateSeenUntil = 0;
 
   function traverse(kind, uaTransition) {
-    if (performance.now() < expectPopUntil) {
+    if (nowMs() < expectPopUntil) {
       expectPopUntil = 0; // Rust announced it (a Back button, the edge swipe)
       return;
     }
@@ -308,7 +303,7 @@ function install() {
   if (nav && typeof nav.addEventListener === "function") {
     nav.addEventListener("navigate", (event) => {
       if (event.navigationType !== "traverse" || !event.destination || !event.destination.sameDocument) return;
-      navigateSeenUntil = performance.now() + 1000;
+      navigateSeenUntil = nowMs() + 1000;
       const from = nav.currentEntry ? nav.currentEntry.index : -1;
       const to = event.destination.index;
       traverse(to >= 0 && from >= 0 && to < from ? "back" : "forward", event.hasUAVisualTransition);
@@ -321,7 +316,7 @@ function install() {
       const index = historyIndex();
       const previous = lastIndex;
       lastIndex = index;
-      if (performance.now() < navigateSeenUntil) {
+      if (nowMs() < navigateSeenUntil) {
         navigateSeenUntil = 0;
         return;
       }

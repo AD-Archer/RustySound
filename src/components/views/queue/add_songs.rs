@@ -5,7 +5,7 @@ use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
 use crate::components::song_details::actions::{same_song, song_key, use_player, PlayerCtx};
 use crate::components::ui::env::sleep_ms;
-use crate::components::ui::{Artwork, IconButton, IconButtonSize, InsetList, SectionHeader, Sheet, Skeleton};
+use crate::components::ui::{IconButton, IconButtonSize, InsetList, SectionHeader, Sheet, Skeleton, SongRow};
 use crate::components::{Icon, PreviewPlaybackSignal, SeekRequestSignal};
 use crate::diagnostics::{log_perf, PerfTimer};
 use dioxus::prelude::*;
@@ -264,13 +264,11 @@ pub(super) fn AddSongsSheet(on_close: EventHandler<()>) -> Element {
         let queued = queued_keys.contains(&key);
         let is_previewing = previewing.as_deref() == Some(key.as_str());
         rsx! {
-            li { key: "{key}",
-                div { class: "rs-trow rs-trow--art rs-player-addrow",
-                    Artwork { cover_art: song.cover_art.clone(), server_id: song.server_id.clone(), size_px: 44 }
-                    div { class: "rs-trow__meta",
-                        div { class: "rs-trow__title", "{song.title}" }
-                        div { class: "rs-trow__sub", "{song.artist.clone().unwrap_or_default()}" }
-                    }
+            SongRow {
+                key: "{key}",
+                song: song.clone(),
+                class: "rs-player-addrow".to_string(),
+                trailing: rsx! {
                     button {
                         r#type: "button",
                         class: "rs-btn rs-btn--plain",
@@ -309,9 +307,10 @@ pub(super) fn AddSongsSheet(on_close: EventHandler<()>) -> Element {
                             },
                         }
                     }
-                }
+                },
             }
         }
+
     };
 
     rsx! {

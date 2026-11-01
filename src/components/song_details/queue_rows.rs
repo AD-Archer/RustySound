@@ -5,7 +5,6 @@
 use super::actions::{song_key, use_player};
 use crate::api::Song;
 use crate::components::ui::{use_row_gestures, RowGesture, UndoToast};
-use crate::components::{AddIntent, AddMenuController};
 use dioxus::prelude::*;
 
 /// The song a remove took out of the queue, and where it was.
@@ -24,8 +23,8 @@ pub(crate) const REMOVE_FROM_QUEUE: &str = "Remove from Queue";
 /// [`QueueUndoToast`].
 pub(crate) fn use_queue_gestures(id: &'static str) -> Signal<Option<QueueUndo>> {
     let mut player = use_player();
-    let add_menu = use_context::<AddMenuController>();
-    let mut undo = use_signal(|| None::<QueueUndo>);
+    let mut undo
+ = use_signal(|| None::<QueueUndo>);
     let mut generation = use_signal(|| 0u64);
     let on_gesture = use_callback(move |gesture: RowGesture| {
         // The entry the script saw, if it is still at that index.
@@ -56,14 +55,6 @@ pub(crate) fn use_queue_gestures(id: &'static str) -> Signal<Option<QueueUndo>> 
                     generation: next,
                 }));
             }
-            RowGesture::AddTo { index, key } => {
-                if let Some(song) = entry(index, &key) {
-                    let mut add_menu = add_menu.clone();
-                    add_menu.open(AddIntent::from_song(song));
-                }
-            }
-            // Queue rows offer Remove instead.
-            RowGesture::PlayNext { .. } => {}
         }
     });
     use_row_gestures(id, on_gesture);

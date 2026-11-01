@@ -6,8 +6,7 @@
 use crate::api::{Capabilities, NavidromeClient, Playlist, ServerConfig, Song};
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{use_row_gestures, RowGesture};
-use crate::components::views::library::shared::{is_auto_imported, song_key, Player};
-use crate::components::{AddIntent, AddMenuController};
+use crate::components::views::library::shared::{is_auto_imported, song_key};
 use crate::db::AppSettings;
 use crate::offline_audio::{
     is_playlist_auto_download_tracked, mark_collection_downloaded,
@@ -239,8 +238,8 @@ impl PlaylistEdits {
 }
 
 /// Creates the playlist's edit state and routes its row gestures: handle
-/// drags and removes (editable playlists only), Add to… and Play Next (any
-/// playlist).
+/// drags and removes (editable playlists only). Add to… and Play Next are
+/// the rows' own (TrackRow).
 #[allow(clippy::too_many_arguments)]
 pub fn use_playlist_edits(
     songs: Signal<Vec<Song>>,
@@ -249,10 +248,8 @@ pub fn use_playlist_edits(
     servers: Memo<Vec<ServerConfig>>,
     status: Signal<Option<String>>,
     retry: Signal<u32>,
-    player: Player,
 ) -> PlaylistEdits {
     let settings = use_context::<Signal<AppSettings>>();
-    let add_menu = use_context::<AddMenuController>();
     let edits = PlaylistEdits {
         songs,
         data,
@@ -272,18 +269,8 @@ pub fn use_playlist_edits(
             }
         }
         RowGesture::Remove { index, key } => edits.remove(index, &key),
-        RowGesture::AddTo { index, key } => {
-            if let Some(song) = edits.entry(index, &key) {
-                let mut add_menu = add_menu.clone();
-                add_menu.open(AddIntent::from_song(song));
-            }
-        }
-        RowGesture::PlayNext { index, key } => {
-            if let Some(song) = edits.entry(index, &key) {
-                player.enqueue(vec![song], true);
-            }
-        }
     });
+
     use_row_gestures(PLAYLIST_LIST, on_gesture);
     edits
 }

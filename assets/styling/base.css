@@ -177,8 +177,7 @@ audio {
 
 /* ---- Utilities -------------------------------------------------------- */
 
-.num,
-.rs-num {
+.num {
   font-variant-numeric: tabular-nums;
 }
 
@@ -220,8 +219,7 @@ audio {
 }
 
 /* WebKitGTK repaints reflections and backdrop blur slowly. */
-.rs-app[data-platform="linux"] .rs-cover,
-.rs-app[data-platform="linux"] .rs-hero-art {
+.rs-app[data-platform="linux"] .rs-cover {
   -webkit-box-reflect: unset;
 }
 

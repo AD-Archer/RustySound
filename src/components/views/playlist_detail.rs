@@ -96,7 +96,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         }
     });
 
-    let edits = use_playlist_edits(songs, data, meta_override, servers, status, retry, player);
+    let edits = use_playlist_edits(songs, data, meta_override, servers, status, retry);
     let mut undo = edits.undo;
 
     let base = match &*data.read() {

@@ -10,7 +10,7 @@ use crate::components::audio_manager::{
     apply_collection_shuffle_mode, assign_collection_queue_meta,
 };
 use crate::components::ui::{
-    use_long_press, Menu, Artwork, EmptyState, InsetList, MenuAction, Button,
+    AlbumTile, ArtistTile, Menu, EmptyState, InsetList, MenuAction, Button,
     ButtonVariant, Segmented, Skeleton, TrackMenuController, TrackRow, VirtualList,
 };
 use crate::components::views::library::shared::has_sources;
@@ -333,14 +333,14 @@ pub fn FavoritesView() -> Element {
                                         .unwrap_or_default();
                                     rsx! {
                                         for album in items {
-                                            AlbumTile {
-                                                key: "{album.server_id}:{album.id}",
-                                                album: album.clone(),
-                                                on_open: move |album: Album| navigation.navigate_to(AppView::AlbumDetailView {
-                                                    album_id: album.id.clone(),
-                                                    server_id: album.server_id.clone(),
-                                                }),
-                                                on_menu: move |(album, anchor)| tile_menu.set(Some(TileMenu::Album(album, anchor))),
+                                            li { key: "{album.server_id}:{album.id}",
+                                                AlbumTile {
+                                                    album: album.clone(),
+                                                    on_menu: {
+                                                        let album = album.clone();
+                                                        move |anchor| tile_menu.set(Some(TileMenu::Album(album.clone(), anchor)))
+                                                    },
+                                                }
                                             }
                                         }
                                     }
@@ -371,14 +371,14 @@ pub fn FavoritesView() -> Element {
                                         .unwrap_or_default();
                                     rsx! {
                                         for artist in items {
-                                            ArtistTile {
-                                                key: "{artist.server_id}:{artist.id}",
-                                                artist: artist.clone(),
-                                                on_open: move |artist: Artist| navigation.navigate_to(AppView::ArtistDetailView {
-                                                    artist_id: artist.id.clone(),
-                                                    server_id: artist.server_id.clone(),
-                                                }),
-                                                on_menu: move |(artist, anchor)| tile_menu.set(Some(TileMenu::Artist(artist, anchor))),
+                                            li { key: "{artist.server_id}:{artist.id}",
+                                                ArtistTile {
+                                                    artist: artist.clone(),
+                                                    on_menu: {
+                                                        let artist = artist.clone();
+                                                        move |anchor| tile_menu.set(Some(TileMenu::Artist(artist.clone(), anchor)))
+                                                    },
+                                                }
                                             }
                                         }
                                     }
@@ -511,149 +511,6 @@ pub(super) fn MoreSentinel(on_visible: EventHandler<()>) -> Element {
                 },
             }
             span { class: "rs-spinner rs-spinner--page" }
-        }
-    }
-}
-
-#[component]
-fn AlbumTile(
-    album: Album,
-    on_open: EventHandler<Album>,
-    on_menu: EventHandler<(Album, Option<(f64, f64)>)>,
-) -> Element {
-    let press = use_long_press();
-    let subtitle = album.artist.clone();
-    rsx! {
-        li {
-            button {
-                r#type: "button",
-                class: "rs-personal-tile",
-                aria_label: "{album.name}, {subtitle}",
-                onclick: {
-                    let album = album.clone();
-                    move |_| {
-                        if press.take_fired() {
-                            return;
-                        }
-                        on_open.call(album.clone());
-                    }
-                },
-                oncontextmenu: {
-                    let album = album.clone();
-                    move |evt: MouseEvent| {
-                        evt.prevent_default();
-                        press.cancel();
-                        let p = evt.client_coordinates();
-                        on_menu.call((album.clone(), Some((p.x, p.y))));
-                    }
-                },
-                onkeydown: {
-                    let album = album.clone();
-                    move |evt: KeyboardEvent| {
-                        if evt.key() == Key::ContextMenu || (evt.key() == Key::F10 && evt.modifiers().shift()) {
-                            evt.prevent_default();
-                            on_menu.call((album.clone(), None));
-                        }
-                    }
-                },
-                onpointerdown: {
-                    let album = album.clone();
-                    move |evt: PointerEvent| {
-                        let album = album.clone();
-                        press.down(&evt, move |point| on_menu.call((album, Some(point))));
-                    }
-                },
-                onpointermove: move |evt| press.moved(&evt),
-                onpointerup: move |_| press.cancel(),
-                onpointercancel: move |_| press.cancel(),
-                span { class: "rs-personal-tile__art",
-                    Artwork {
-                        cover_art: album.cover_art.clone(),
-                        server_id: album.server_id.clone(),
-                        size_px: 180,
-                        fill: true,
-                        placeholder: "album".to_string(),
-                    }
-                }
-                span { class: "rs-personal-tile__title", "{album.name}" }
-                if !subtitle.is_empty() {
-                    span { class: "rs-personal-tile__sub", "{subtitle}" }
-                }
-            }
-        }
-    }
-}
-
-#[component]
-fn ArtistTile(
-    artist: Artist,
-    on_open: EventHandler<Artist>,
-    on_menu: EventHandler<(Artist, Option<(f64, f64)>)>,
-) -> Element {
-    let press = use_long_press();
-    let albums = match artist.album_count {
-        0 => String::new(),
-        1 => "1 album".to_string(),
-        n => format!("{n} albums"),
-    };
-    rsx! {
-        li {
-            button {
-                r#type: "button",
-                class: "rs-personal-tile",
-                aria_label: "{artist.name}",
-                onclick: {
-                    let artist = artist.clone();
-                    move |_| {
-                        if press.take_fired() {
-                            return;
-                        }
-                        on_open.call(artist.clone());
-                    }
-                },
-                oncontextmenu: {
-                    let artist = artist.clone();
-                    move |evt: MouseEvent| {
-                        evt.prevent_default();
-                        press.cancel();
-                        let p = evt.client_coordinates();
-                        on_menu.call((artist.clone(), Some((p.x, p.y))));
-                    }
-                },
-                onkeydown: {
-                    let artist = artist.clone();
-                    move |evt: KeyboardEvent| {
-                        if evt.key() == Key::ContextMenu || (evt.key() == Key::F10 && evt.modifiers().shift()) {
-                            evt.prevent_default();
-                            on_menu.call((artist.clone(), None));
-                        }
-                    }
-                },
-                onpointerdown: {
-                    let artist = artist.clone();
-                    move |evt: PointerEvent| {
-                        let artist = artist.clone();
-                        press.down(&evt, move |point| on_menu.call((artist, Some(point))));
-                    }
-                },
-                onpointermove: move |evt| press.moved(&evt),
-                onpointerup: move |_| press.cancel(),
-                onpointercancel: move |_| press.cancel(),
-                span { class: "rs-personal-tile__art",
-                    Artwork {
-                        cover_art: artist.cover_art.clone(),
-                        server_id: artist.server_id.clone(),
-                        size_px: 136,
-                        fill: true,
-                        round: true,
-                        placeholder: "artist".to_string(),
-                    }
-                }
-                span { class: "rs-personal-tile__title", "{artist.name}" }
-                if !albums.is_empty() {
-                    span { class: "rs-personal-tile__sub rs-personal-tnum", "{albums}" }
-                }
-            }
         }
     }
 }

@@ -34,9 +34,9 @@ test.describe("personal screens", () => {
     }
 
     await tabs.getByRole("button", { name: "Albums" }).click();
-    await expect(view.locator(".rs-personal-tile").first().or(page.getByText("No favorite albums"))).toBeVisible();
+    await expect(tid(view, "album-tile").first().or(page.getByText("No favorite albums"))).toBeVisible();
     await tabs.getByRole("button", { name: "Artists" }).click();
-    await expect(view.locator(".rs-personal-tile").first().or(page.getByText("No favorite artists"))).toBeVisible();
+    await expect(tid(view, "artist-tile").first().or(page.getByText("No favorite artists"))).toBeVisible();
     expect(realErrors(consoleErrors)).toEqual([]);
   });
 

@@ -15,6 +15,35 @@
 .rs-ic--xl { width: 38px; height: 38px; }
 .rs-ic--xxl { width: 44px; height: 44px; }
 
+/* ---- One line, ending in an ellipsis ----------------------------------
+   base.css's .rs-truncate, for markup that carries only its kit class. */
+
+.rs-capsule__text,
+.rs-flow-caption strong,
+.rs-flow-caption span,
+.rs-row__title > span:first-child,
+.rs-row__sub,
+.rs-row__why,
+.rs-trow__title,
+.rs-trow__sub,
+.rs-menu__head-title,
+.rs-menu__head-sub,
+.rs-menu__label,
+.rs-menu__choices--names .rs-menu__choice,
+.rs-sheet__title,
+.rs-side__server span:last-child,
+.rs-mini__title,
+.rs-mini__sub,
+.rs-bar__title,
+.rs-bar__sub button,
+.rs-carry__title,
+.rs-library-tile--round .rs-library-tile__sub {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    SHELL
    ========================================================================== */
@@ -46,15 +75,15 @@
 }
 
 .rs-app[data-layout="compact"] .rs-main {
-  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + 16px);
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--sp-6));
 }
 
 .rs-app[data-layout="compact"][data-player="on"] .rs-main {
-  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 24px);
+  padding-bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + var(--sp-8));
 }
 
 .rs-app[data-layout="wide"][data-player="on"] .rs-main {
-  padding-bottom: calc(var(--bar-h) + 32px);
+  padding-bottom: calc(var(--bar-h) + var(--sp-9));
 }
 
 .rs-outlet {
@@ -117,7 +146,7 @@
   min-height: 100%;
   background: var(--page);
   color: var(--ink);
-  padding: calc(var(--safe-top) + 8px) var(--gutter) 24px;
+  padding: calc(var(--safe-top) + var(--sp-4)) var(--gutter) var(--sp-8);
 }
 
 .rs-view--narrow { --view-max: 760px; }
@@ -126,7 +155,7 @@
 /* :where() keeps this at one class, so .rs-view--flush (declared after it)
    and a view's own root class can still set their padding. */
 :where(.rs-app[data-layout="wide"]) .rs-view {
-  padding: 24px var(--view-pad) 32px;
+  padding: var(--sp-8) var(--view-pad) var(--sp-9);
 }
 
 .rs-view--flush {
@@ -162,7 +191,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-5);
-  margin: calc(var(--safe-top) + 12px) var(--gutter) 0;
+  margin: calc(var(--safe-top) + var(--sp-5)) var(--gutter) 0;
   padding: 10px 10px 10px 14px;
   border-radius: var(--r-list);
   background: var(--warn-tint);
@@ -171,7 +200,7 @@
 }
 
 .rs-app[data-layout="wide"] .rs-banner {
-  margin: 16px var(--gutter-wide) 0;
+  margin: var(--sp-6) var(--gutter-wide) 0;
 }
 
 .rs-banner__text {
@@ -197,7 +226,7 @@
   z-index: 300;
   display: grid;
   place-items: center;
-  padding: calc(var(--safe-top) + 24px) 24px calc(var(--safe-bottom) + 24px);
+  padding: calc(var(--safe-top) + var(--sp-8)) var(--sp-8) calc(var(--safe-bottom) + var(--sp-8));
   background: var(--stage-bg-tall);
   color: var(--stage-ink);
   animation: rs-fade-in var(--dur-med) var(--ease-out);
@@ -217,7 +246,7 @@
   height: 64px;
   border-radius: 14px;
   margin-bottom: var(--sp-4);
-  -webkit-box-reflect: below 3px linear-gradient(transparent 62%, rgba(255, 255, 255, .22));
+  -webkit-box-reflect: var(--reflect);
 }
 
 .rs-boot__title {
@@ -261,7 +290,7 @@
   background: var(--stage-field);
   border: 1px solid var(--stage-field-line);
   text-align: left;
-  font: 11px/1.35 ui-monospace, "SF Mono", Menlo, monospace;
+  font: var(--fs-cap)/var(--lh-sub) ui-monospace, "SF Mono", Menlo, monospace;
   color: var(--stage-muted);
   overflow-wrap: anywhere;
 }
@@ -333,13 +362,13 @@
 .rs-capsule--preview {
   gap: var(--sp-4);
   max-width: min(400px, calc(100vw - 32px));
-  padding: 6px 8px 6px 6px;
+  padding: var(--sp-3) var(--sp-4) var(--sp-3) var(--sp-3);
 }
 
 /* "Continue from iPhone": the text is the button; the cross dismisses. */
 .rs-capsule--continue {
   gap: var(--sp-2);
-  padding: 4px;
+  padding: var(--sp-2);
   animation: rs-capsule-rise var(--dur-flow) var(--ease-out);
 }
 
@@ -373,7 +402,7 @@
 }
 
 .rs-capsule__label {
-  margin-right: 6px;
+  margin-right: var(--sp-3);
   color: var(--stage-muted);
   font-weight: var(--fw-regular);
 }
@@ -383,7 +412,7 @@
   flex: none;
   width: 30px;
   height: 30px;
-  margin-left: 4px;
+  margin-left: var(--sp-2);
   display: grid;
   place-items: center;
   border-radius: 50%;
@@ -396,17 +425,10 @@
   .rs-capsule__stop:hover { background: var(--stage-hover); }
 }
 
-.rs-capsule__text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .rs-capsule__action {
   flex: none;
   min-height: 36px;
-  padding: 0 12px;
+  padding: 0 var(--sp-5);
   border-radius: var(--r-button-sm);
   color: var(--stage-btn-ink);
   font-weight: var(--fw-semibold);
@@ -542,7 +564,7 @@
   border-radius: var(--r-cover);
   background: var(--stage-cover-blank);
   overflow: visible;
-  -webkit-box-reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
+  -webkit-box-reflect: var(--reflect);
 }
 
 .rs-flow--ready .rs-cover {
@@ -563,7 +585,7 @@
   position: absolute;
   inset: 0;
   border-radius: var(--r-cover);
-  background: #000;
+  background: var(--stage-base);
   opacity: var(--shade, 0);
   pointer-events: none;
 }
@@ -602,29 +624,23 @@
 
 .rs-flow-caption {
   min-height: 54px;
-  padding: 0 24px;
+  padding: 0 var(--sp-8);
   text-align: center;
 }
 
 .rs-flow--wide + .rs-flow-caption {
-  padding-top: 2px;
+  padding-top: var(--sp-1);
 }
 
 .rs-flow-caption strong {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: 16px;
+  font-size: var(--fs-headline);
   font-weight: var(--fw-semibold);
   letter-spacing: var(--track-tight);
 }
 
 .rs-flow-caption span {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-callout);
   color: var(--stage-muted);
 }
@@ -652,7 +668,7 @@
 .rs-flow-scrub::-webkit-slider-runnable-track {
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .14);
+  background: var(--stage-glass);
 }
 
 .rs-flow-scrub::-webkit-slider-thumb {
@@ -668,7 +684,7 @@
 .rs-flow-scrub::-moz-range-track {
   height: 4px;
   border-radius: 2px;
-  background: rgba(255, 255, 255, .14);
+  background: var(--stage-glass);
 }
 
 .rs-flow-scrub::-moz-range-thumb {
@@ -749,7 +765,7 @@
 
 .rs-app[data-layout="wide"] .rs-row--compact {
   min-height: 40px;
-  padding-block: 4px;
+  padding-block: var(--sp-2);
 }
 
 :is(button, a).rs-row {
@@ -775,6 +791,24 @@
   color: var(--muted-strong);
 }
 
+/* A row with a menu (ListRow { on_menu }): the row and its "…" side by side. */
+.rs-row-split {
+  display: flex;
+  align-items: center;
+  padding-right: var(--sp-2);
+}
+
+.rs-row-split > .rs-row {
+  flex: 1;
+  min-width: 0;
+  padding-right: var(--sp-2);
+}
+
+.rs-row-split > .rs-row[aria-current="true"] .rs-row__title {
+  color: var(--accent-text);
+}
+
+
 .rs-row__lead {
   width: 28px;
   height: 28px;
@@ -797,18 +831,8 @@
   font-weight: var(--fw-medium);
 }
 
-.rs-row__title > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .rs-row__sub,
 .rs-row__why {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-sub);
   line-height: var(--lh-sub);
   color: var(--muted);
@@ -853,7 +877,7 @@
   align-items: baseline;
   justify-content: space-between;
   gap: var(--sp-5);
-  margin: var(--sp-7) 4px var(--sp-4);
+  margin: var(--sp-7) var(--sp-2) var(--sp-4);
 }
 
 .rs-hd:first-child {
@@ -888,7 +912,7 @@
 
 .rs-seg {
   display: flex;
-  padding: 2px;
+  padding: var(--sp-1);
   border-radius: var(--r-seg);
   background: var(--seg-trough);
 }
@@ -920,7 +944,7 @@
 
 .rs-seg--inline .rs-seg__btn {
   flex: none;
-  padding: 0 16px;
+  padding: 0 var(--sp-6);
   border-radius: 6px;
 }
 
@@ -949,7 +973,7 @@
   height: var(--touch);
   padding: 0 18px;
   border-radius: var(--r-button);
-  font-size: 16px;
+  font-size: var(--fs-headline);
   font-weight: var(--fw-semibold);
   white-space: nowrap;
   cursor: pointer;
@@ -958,14 +982,14 @@
 
 .rs-app[data-layout="wide"] .rs-btn {
   height: 36px;
-  padding: 0 16px;
+  padding: 0 var(--sp-6);
   font-size: var(--fs-callout);
 }
 
 .rs-btn--small,
 .rs-app[data-layout="wide"] .rs-btn--small {
   height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--sp-5);
   border-radius: var(--r-button-sm);
   font-size: var(--fs-callout);
 }
@@ -993,7 +1017,7 @@
 .rs-btn--plain {
   height: auto;
   min-height: var(--touch);
-  padding: 0 4px;
+  padding: 0 var(--sp-2);
   background: none;
   color: var(--btn-ink);
   font-size: var(--fs-callout);
@@ -1003,7 +1027,7 @@
 .rs-app[data-layout="wide"] .rs-btn--plain {
   height: auto;
   min-height: 28px;
-  padding: 0 4px;
+  padding: 0 var(--sp-2);
 }
 
 @media (hover: hover) {
@@ -1084,7 +1108,6 @@
 }
 
 .rs-iconbtn--quiet { color: var(--muted); }
-.rs-iconbtn--accent { color: var(--accent); }
 .rs-iconbtn[aria-pressed="true"] { color: var(--accent); }
 .rs-iconbtn--rated { color: var(--rating); }
 
@@ -1101,26 +1124,6 @@
 }
 
 .rs-stage .rs-iconbtn--quiet { color: var(--stage-muted); }
-
-/* Round tinted play button in list rows. */
-.rs-playbtn {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  display: grid;
-  place-items: center;
-  border-radius: 50%;
-  background: var(--tint);
-  color: var(--accent);
-  transition: background-color var(--dur-fast), color var(--dur-fast);
-}
-
-.rs-playbtn svg { margin-left: 2px; }
-
-@media (hover: hover) {
-  .rs-row:hover .rs-playbtn,
-  .rs-playbtn:hover { background: var(--accent); color: var(--accent-ink); }
-}
 
 /* Round check tick (selection). */
 .rs-check {
@@ -1207,7 +1210,7 @@
   gap: 7px;
   height: 36px;
   padding: 0 10px;
-  border-radius: 10px;
+  border-radius: var(--r-button);
   background: var(--seg-trough);
   color: var(--muted);
 }
@@ -1303,20 +1306,6 @@
   color: var(--stage-faint);
 }
 
-.rs-mosaic {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  grid-template-rows: 1fr 1fr;
-  overflow: hidden;
-  border-radius: var(--r-thumb);
-  background: var(--line);
-}
-
-.rs-mosaic img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
 
 /* ==========================================================================
    TRACK ROW
@@ -1328,7 +1317,7 @@
   gap: var(--sp-5);
   width: 100%;
   min-height: var(--row-h-track);
-  padding: 0 4px 0 12px;
+  padding: 0 var(--sp-2) 0 var(--sp-5);
   color: inherit;
   cursor: pointer;
   -webkit-user-select: none;
@@ -1357,7 +1346,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-5);
-  padding-left: 12px;
+  padding-left: var(--sp-5);
   text-align: left;
   cursor: pointer;
 }
@@ -1383,10 +1372,8 @@
   .rs-trow:hover :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) { color: var(--muted-strong); }
 }
 
-.rs-trow--pressed :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur),
 .rs-trow:active :is(.rs-trow__n, .rs-trow__sub, .rs-trow__dur) { color: var(--muted-strong); }
 
-.rs-trow--pressed,
 .rs-trow:active { background: var(--tint-strong); }
 
 .rs-trow__n {
@@ -1402,20 +1389,11 @@
   min-width: 0;
 }
 
-.rs-trow__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .rs-trow--art .rs-trow__title {
   font-weight: var(--fw-medium);
 }
 
 .rs-trow__sub {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-sub);
   line-height: var(--lh-sub);
   color: var(--muted);
@@ -1427,7 +1405,6 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
-.rs-trow--playing.rs-trow--pressed,
 .rs-trow--playing:active {
   background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
@@ -1495,7 +1472,7 @@
 
 .rs-trow__handle {
   width: 40px;
-  height: 44px;
+  height: var(--touch);
   flex: none;
   display: grid;
   place-items: center;
@@ -1550,7 +1527,7 @@
   justify-content: center;
   gap: 3px;
   overflow: hidden;
-  padding: 0 6px;
+  padding: 0 var(--sp-3);
   font-size: var(--fs-foot);
   font-weight: var(--fw-semibold);
   white-space: nowrap;
@@ -1622,7 +1599,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: flex-end;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .rs-eq i {
@@ -1641,6 +1618,64 @@
 
 .rs-eq--live i:nth-child(2) { animation-delay: -.3s; }
 .rs-eq--live i:nth-child(3) { animation-delay: -.6s; }
+
+/* ---- Long-press and carry (row_gestures.js) ---------------------------
+   Anything a long-press opens a menu on: no text selection or callout
+   under the finger. */
+[data-long-press] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+/* Lift and carry: the small copy that follows the mouse, the row it came
+   from, and the drop target under the pointer. */
+.rs-carrying,
+.rs-carrying * {
+  cursor: grabbing;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+.rs-carry {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  max-width: 260px;
+  padding: var(--sp-2) var(--sp-5) var(--sp-2) var(--sp-2);
+  border-radius: var(--r-btn);
+  background: var(--menu);
+  color: var(--ink);
+  box-shadow: var(--menu-shadow);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  pointer-events: none;
+  will-change: transform;
+}
+
+.rs-carry .rs-art {
+  width: 32px;
+  height: 32px;
+  flex: none;
+}
+
+
+.rs-carry--over {
+  outline: 2px solid var(--accent);
+}
+
+.rs-carry-source {
+  opacity: .5;
+}
+
+.rs-drop-over {
+  background: var(--tint-strong);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
 
 /* ==========================================================================
    MENUS AND SHEETS
@@ -1696,16 +1731,10 @@
 }
 
 .rs-menu__head-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-weight: var(--fw-semibold);
 }
 
 .rs-menu__head-sub {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-sub);
   /* The dark menu surface is lighter than the page; --muted is 4.4:1 there. */
   color: var(--muted-strong);
@@ -1724,7 +1753,7 @@
   align-items: center;
   justify-content: center;
   gap: 5px;
-  font-size: 11.5px;
+  font-size: 11.5px; /* one-off, between --fs-cap and --fs-foot */
   color: var(--ink);
 }
 
@@ -1746,8 +1775,8 @@
   justify-content: space-between;
   gap: var(--sp-5);
   width: 100%;
-  min-height: 44px;
-  padding: 0 16px;
+  min-height: var(--touch);
+  padding: 0 var(--sp-6);
   font-size: var(--fs-body);
   color: var(--ink);
   text-align: left;
@@ -1769,13 +1798,6 @@
 
 .rs-menu__item svg { color: var(--ink); }
 .rs-menu__item .rs-menu__sub { color: var(--muted); }
-
-.rs-menu__label {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
 
 /* Muted trailing text (a count, a progress figure). --muted is under 4.5:1
    on the dark menu surface. */
@@ -1844,8 +1866,8 @@
 .rs-menu__choices {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  padding: 4px 12px 12px;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-5) var(--sp-5);
   animation: rs-fade-in var(--dur-fast) var(--ease-out);
 }
 
@@ -1860,7 +1882,7 @@
 
 .rs-menu__choice {
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--sp-5);
   border-radius: var(--r-button-sm);
   background: var(--menu-hl);
   color: var(--ink);
@@ -1877,9 +1899,6 @@
 /* Output choices are device names: one line each, cut short if long. */
 .rs-menu__choices--names .rs-menu__choice {
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 @media (hover: hover) {
@@ -1957,7 +1976,7 @@
   width: 36px;
   height: 5px;
   flex: none;
-  margin: 6px auto 0;
+  margin: var(--sp-3) auto 0;
   border-radius: 3px;
   background: var(--line);
 }
@@ -1967,15 +1986,11 @@
   align-items: center;
   gap: var(--sp-4);
   min-height: 48px;
-  padding: 4px 6px 4px 16px;
+  padding: var(--sp-2) var(--sp-3) var(--sp-2) var(--sp-6);
 }
 
 .rs-sheet__title {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title);
   font-weight: var(--fw-semibold);
 }
@@ -2021,6 +2036,52 @@
   font-weight: var(--fw-semibold);
   color: var(--accent-text);
 }
+
+/* Following the finger down (ui/sheet_swipe.js): no entrance animation
+   left to fight the inline transform. */
+.rs-sheet--dragging {
+  animation: none;
+}
+
+/* ---- Collection actions (ui/collection_actions.rs) --------------------
+   Play and Shuffle share the row on compact; fixed width on wide. */
+.rs-collection-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin: var(--sp-6) 0;
+}
+
+.rs-app[data-layout="wide"] .rs-collection-actions .rs-btn--block {
+  flex: 0 0 168px;
+  width: auto;
+}
+
+/* ---- Round tiles (ui/tiles.rs ArtistTile) ------------------------------
+   The shared library tile, centred, with round art. Two classes: library.css
+   loads later and sets the tile's text-align. */
+.rs-library-tile.rs-library-tile--round {
+  align-items: center;
+
+  text-align: center;
+}
+
+.rs-library-tile--round .rs-library-tile__art,
+.rs-library-tile--round .rs-library-tile__art .rs-art {
+  border-radius: 50%;
+}
+
+/* Centred lines size to their text; cap them so long names still truncate. */
+.rs-library-tile--round :is(.rs-library-tile__title, .rs-library-tile__sub) {
+  max-width: 100%;
+}
+
+.rs-library-tile--round .rs-library-tile__sub {
+  display: block;
+  font-variant-numeric: tabular-nums;
+}
+
+
 
 /* ==========================================================================
    PROGRESS
@@ -2207,7 +2268,7 @@
   z-index: 60;
   display: flex;
   height: calc(var(--tabbar-h) + var(--safe-bottom));
-  padding: 0 calc(var(--safe-right) + 8px) var(--safe-bottom) calc(var(--safe-left) + 8px);
+  padding: 0 calc(var(--safe-right) + var(--sp-4)) var(--safe-bottom) calc(var(--safe-left) + var(--sp-4));
   background: var(--page);
   border-top: 1px solid color-mix(in srgb, var(--line) 80%, transparent);
 }
@@ -2218,8 +2279,8 @@
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 2px;
-  padding-top: 2px;
+  gap: var(--sp-1);
+  padding-top: var(--sp-1);
   color: var(--muted);
   font-size: var(--fs-tab);
   font-weight: var(--fw-medium);
@@ -2263,7 +2324,7 @@
   display: flex;
   align-items: center;
   width: 100%;
-  margin: 0 0 4px;
+  margin: 0 0 var(--sp-2);
   padding: 0 10px;
   font-size: var(--fs-cap);
   font-weight: var(--fw-semibold);
@@ -2312,18 +2373,11 @@
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  margin-top: 6px;
+  margin-top: var(--sp-3);
   padding: 8px 10px 2px;
   border-top: 1px solid var(--line);
   font-size: var(--fs-foot);
   color: var(--muted);
-}
-
-.rs-side__server span:last-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .rs-led {
@@ -2351,7 +2405,7 @@
   z-index: 61;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-2);
   height: var(--mini-h);
   padding: 0 6px 0 9px;
   border-radius: var(--r-bar);
@@ -2379,17 +2433,11 @@
 }
 
 .rs-mini__title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-body);
   font-weight: var(--fw-semibold);
 }
 
 .rs-mini__sub {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-sub);
   color: var(--stage-muted);
 }
@@ -2432,7 +2480,7 @@
      container queries below take items out as the column narrows. */
   grid-template-columns: minmax(150px, 1fr) minmax(min-content, 1.7fr) auto;
   align-items: center;
-  gap: 20px;
+  gap: var(--sp-7);
   height: var(--bar-h);
   padding: 0 14px 0 10px;
   border-radius: var(--r-bar);
@@ -2466,7 +2514,7 @@ button.rs-bar__art {
   display: inline-flex;
   flex: 0 1 auto;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-2);
   min-width: 0;
 }
 
@@ -2492,9 +2540,6 @@ button.rs-bar__art {
 .rs-bar__title {
   display: block;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-weight: var(--fw-semibold);
   text-align: left;
 }
@@ -2502,7 +2547,7 @@ button.rs-bar__art {
 .rs-bar__sub {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--sp-2);
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
@@ -2511,11 +2556,7 @@ button.rs-bar__art {
 }
 
 .rs-bar__sub button {
-  min-width: 0;
   max-width: 100%;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: inherit;
 }
 
@@ -2534,7 +2575,7 @@ button.rs-bar__art {
 .rs-bar__transport {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--sp-1);
   flex: none;
 }
 
@@ -2574,7 +2615,7 @@ button.rs-bar__art {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 4px;
+  gap: var(--sp-2);
 }
 
 .rs-bar__rt .rs-iconbtn {
@@ -2590,7 +2631,7 @@ button.rs-bar__art {
 
 .rs-bar__fmt {
   flex: none;
-  margin-right: 6px;
+  margin-right: var(--sp-3);
   padding: 1px 5px;
   border: 1px solid var(--stage-badge-line);
   border-radius: var(--r-thumb);
@@ -2603,14 +2644,7 @@ button.rs-bar__art {
 
 .rs-bar__vol {
   width: 70px;
-  margin-left: 6px;
-}
-
-.rs-bar__live {
-  font-size: var(--fs-cap);
-  font-weight: var(--fw-semibold);
-  letter-spacing: .06em;
-  color: var(--stage-muted);
+  margin-left: var(--sp-3);
 }
 
 /* Rating popover anchored to the rating button. */
@@ -2625,8 +2659,8 @@ button.rs-bar__art {
   z-index: 5;
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 4px 6px;
+  gap: var(--sp-1);
+  padding: var(--sp-2) var(--sp-3);
   border-radius: var(--r-button);
   background: var(--stage-base);
   border: 1px solid var(--stage-line);
@@ -2653,13 +2687,13 @@ button.rs-bar__art {
   position: absolute;
   right: 2px;
   bottom: 1px;
-  font-size: 9px;
+  font-size: 9px; /* one-off: the corner digit */
   font-weight: var(--fw-bold);
   line-height: 1;
 }
 
 .rs-rate__clear {
-  padding: 0 8px;
+  padding: 0 var(--sp-4);
   font-size: var(--fs-foot);
   color: var(--stage-muted);
 }
@@ -2676,14 +2710,14 @@ button.rs-bar__art {
 }
 
 @container rs-content (max-width: 920px) {
-  .rs-bar { gap: 16px; padding-right: 10px; }
+  .rs-bar { gap: var(--sp-6); padding-right: 10px; }
   .rs-bar__wide-only { display: none; }
   .rs-bar__album,
   .rs-bar__album-sep { display: none; }
 }
 
 @container rs-content (max-width: 780px) {
-  .rs-bar { left: 12px; right: 12px; gap: 12px; }
+  .rs-bar { left: 12px; right: 12px; gap: var(--sp-5); }
   .rs-bar__optional { display: none; }
 }
 
@@ -2778,14 +2812,14 @@ button.rs-bar__art {
   display: flex;
   align-items: center;
   gap: var(--sp-5);
-  padding: 0 4px 0 12px;
+  padding: 0 var(--sp-2) 0 var(--sp-5);
   box-sizing: border-box;
 }
 
 .rs-vlist__ghost-thumb {
   flex: none;
-  width: 44px;
-  height: 44px;
+  width: var(--thumb);
+  height: var(--thumb);
   border-radius: var(--r-thumb);
 }
 
@@ -2987,7 +3021,7 @@ button.rs-bar__art {
 .rs-sync-status {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
   min-height: 24px;
   padding: 0;
   font-size: var(--fs-foot);

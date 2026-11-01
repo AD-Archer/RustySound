@@ -5,7 +5,7 @@
 
 use crate::components::{
     set_playback_speed, speed_label, AppView, AudioOutput, Icon, Navigation, OutputPicker,
-    PlaybackSync, SleepChoice, SleepTimer, SongDetailsController, EQ_AVAILABLE, PLAYBACK_SPEEDS,
+    PlaybackSync, SleepTimer, SongDetailsController, EQ_AVAILABLE, PLAYBACK_SPEEDS,
     SLEEP_CHOICES,
 };
 use crate::db::AppSettings;

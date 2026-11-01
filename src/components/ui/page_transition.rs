@@ -14,7 +14,10 @@
 use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 
-const PAGE_TRANSITION_JS: &str = include_str!("page_transition.js");
+const PAGE_TRANSITION_JS: &str = concat!(
+    include_str!("gesture_core.js"),
+    include_str!("page_transition.js")
+);
 
 /// Mount once in the app shell, inside the router. Renders nothing.
 #[component]

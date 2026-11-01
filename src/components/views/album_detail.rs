@@ -3,7 +3,7 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    Menu, MenuGap, MenuItem, Artwork, EmptyState, Button, ButtonVariant, StatusToast,
+    Menu, MenuGap, MenuItem, Artwork, CollectionActions, EmptyState, Button, ButtonVariant, StatusToast,
 };
 use crate::components::views::album_song_row::AlbumTracks;
 use crate::components::views::artist_links::ArtistNameLinks;
@@ -303,26 +303,15 @@ pub fn AlbumDetailView(album_id: String, server_id: String) -> Element {
             }
 
             div { class: "rs-library-page",
-                div { class: "rs-library-actions",
-                    Button {
-                        label: "Play".to_string(),
-                        icon: "play".to_string(),
-                        block: true,
-                        testid: "album-play".to_string(),
-                        onclick: {
-                            let mut play_from = play_from.clone();
-                            move |_| play_from(0)
-                        },
-                    }
-                    Button {
-                        label: "Shuffle".to_string(),
-                        icon: "shuffle".to_string(),
-                        variant: ButtonVariant::Tinted,
-                        block: true,
-                        testid: "album-shuffle".to_string(),
-                        onclick: on_shuffle,
-                    }
+                CollectionActions {
+                    testid: "album".to_string(),
+                    on_play: {
+                        let mut play_from = play_from.clone();
+                        move |_| play_from(0)
+                    },
+                    on_shuffle,
                 }
+
                 // Download progress stays visible after the menu closes.
                 if let Some(detail) = dl_detail.clone() {
                     p { class: "rs-library-status", role: "status", "Downloading {detail}…" }
