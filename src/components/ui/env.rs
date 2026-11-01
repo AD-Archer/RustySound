@@ -48,6 +48,22 @@ pub fn use_layout() -> Layout {
 /// Set once the Android shell reports a TV (leanback) device.
 pub(crate) static ANDROID_TV: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
+/// Whether the page runs inside an Android shell: the native Android app,
+/// or the web build inside the Android TV wrapper (android/tv-wrapper),
+/// which provides the same `window.RustySoundAndroid` bridge.
+pub fn has_android_shell() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| js_sys::Reflect::get(&w, &"RustySoundAndroid".into()).ok())
+            .is_some_and(|bridge| !bridge.is_undefined())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        cfg!(target_os = "android")
+    }
+}
+
 /// True when running on Android TV (the shell's `isTv()`, see `android_shell.rs`).
 pub fn is_android_tv() -> bool {
     ANDROID_TV.load(std::sync::atomic::Ordering::Relaxed)

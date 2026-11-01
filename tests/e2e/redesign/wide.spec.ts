@@ -47,8 +47,10 @@ test.describe("wide layout", () => {
       await expect(bar.locator(`#${id}`), id).toHaveClass(/rs-sr-only/);
       await expect(bar.locator(`#${id}`), id).toHaveAttribute("aria-hidden", "true");
     }
-    // Favourite, previous, play, next, add, lyrics, Up Next and "…" (was ten with shuffle, repeat, rating).
-    expect(await bar.locator(".rs-iconbtn:visible").count(), "icon buttons in the bar").toBe(8);
+    // Favourite, previous, play, next, Output, add, lyrics, Up Next and "…"
+    // (was eleven with shuffle, repeat, rating).
+    expect(await bar.locator(".rs-iconbtn:visible").count(), "icon buttons in the bar").toBe(9);
+    await expect(tid(page, "player-output")).toBeVisible();
 
     // Keyboard: the "…" opens the menu, Escape closes it.
     const more = tid(page, "player-more");
