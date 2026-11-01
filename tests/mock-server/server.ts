@@ -1266,7 +1266,8 @@ async function handle(req: Request): Promise<Response> {
         createdDaysAgo: 0,
         changedDaysAgo: 0,
       };
-      S.lib.playlists.unshift(pl);
+      // At the end: other specs' fixtures use the first seeded playlist.
+      S.lib.playlists.push(pl);
     }
     const drop = new Set(body.remove ?? []);
     pl.songIds = pl.songIds.filter((id) => !drop.has(id));
