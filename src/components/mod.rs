@@ -10,6 +10,7 @@ mod navigation;
 pub mod playback_sync;
 pub mod playlist_sync;
 mod player;
+pub mod remote_sync;
 mod settings_store;
 mod share;
 mod song_details;
@@ -48,6 +49,7 @@ pub use icons::*;
 pub use navigation::{Navigation, PageMotion};
 pub use playback_sync::{note_track_finished, PlaybackSync};
 pub use playlist_sync::{PlaylistSync, SyncStatus};
+pub use remote_sync::RemoteSync;
 pub use song_details::*;
 // The playback API views start music with (`PlayerCtx::play`, `enqueue`…).
 #[allow(unused_imports)]

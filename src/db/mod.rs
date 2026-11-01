@@ -565,8 +565,8 @@ fn save_servers_inner(
 
     for server in servers {
         tx.execute(
-            "INSERT INTO servers (id, name, url, username, password, active, kind, user_id, access_token)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO servers (id, name, url, username, password, active, kind, user_id, access_token, sync_url)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             rusqlite::params![
                 &server.id,
                 &server.name,
@@ -577,6 +577,7 @@ fn save_servers_inner(
                 server.kind.as_str(),
                 &server.user_id,
                 &server.access_token,
+                &server.sync_url,
             ],
         )
         .map_err(|e| DbError::new(e.to_string()))?;
@@ -600,7 +601,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
     let conn = get_db_connection()?;
 
     let mut stmt = conn
-        .prepare("SELECT id, name, url, username, password, active, kind, user_id, access_token FROM servers")
+        .prepare("SELECT id, name, url, username, password, active, kind, user_id, access_token, sync_url FROM servers")
         .map_err(|e| DbError::new(e.to_string()))?;
 
     let servers = stmt
@@ -615,6 +616,7 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
                 kind: crate::api::ServerKind::from_stored(&row.get::<_, String>(6)?),
                 user_id: row.get(7)?,
                 access_token: row.get(8)?,
+                sync_url: row.get(9)?,
             })
         })
         .map_err(|e| DbError::new(e.to_string()))?
@@ -832,7 +834,7 @@ fn add_server_kind_columns(conn: &rusqlite::Connection) -> Result<(), DbError> {
                 .collect::<rusqlite::Result<Vec<_>>>()
         })
         .map_err(|e| DbError::new(e.to_string()))?;
-    for (column, default) in [("kind", "subsonic"), ("user_id", ""), ("access_token", "")] {
+    for (column, default) in [("kind", "subsonic"), ("user_id", ""), ("access_token", ""), ("sync_url", "")] {
         if !existing.iter().any(|name| name == column) {
             conn.execute(
                 &format!("ALTER TABLE servers ADD COLUMN {column} TEXT NOT NULL DEFAULT '{default}'"),

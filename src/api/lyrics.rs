@@ -17,6 +17,7 @@ use std::time::Duration;
 #[cfg(test)]
 mod lrc_tests;
 mod server;
+mod sync;
 use server::fetch_from_server;
 
 static LYRICS_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
@@ -357,16 +358,34 @@ pub async fn fetch_lyrics_with_fallback(
         );
     }
 
-    let providers = normalized_provider_order
+    let mut providers = normalized_provider_order
         .iter()
         .filter_map(|key| LyricsProvider::from_key(key))
         .collect::<Vec<_>>();
 
+    // First the song's sync server, which asks the music server and LRCLIB
+    // once for everyone and caches the answer. "None found" there covers
+    // those two providers; anything else falls through to the chain.
     let mut errors = Vec::new();
     let mut saw_hard_error = false;
+    let mut sync_result = None;
+    if providers.iter().any(|p| matches!(p, LyricsProvider::Server | LyricsProvider::Lrclib)) {
+        match sync::fetch_from_sync(query, timeout_seconds).await {
+            sync::SyncLyrics::Found(result) if wanted(&result) => sync_result = Some(result),
+            sync::SyncLyrics::NotFound => {
+                providers.retain(|p| !matches!(p, LyricsProvider::Server | LyricsProvider::Lrclib));
+                errors.push("Your sync server found no lyrics".to_string());
+            }
+            _ => {}
+        }
+    }
 
     for provider in providers {
-        match fetch_from_provider(provider, query, timeout_seconds).await {
+        let fetched = match sync_result.take() {
+            Some(result) => Ok(Some(result)),
+            None => fetch_from_provider(provider, query, timeout_seconds).await,
+        };
+        match fetched {
             Ok(Some(result)) => {
                 if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
                     cache.insert(scoped_cache_key.clone(), result.clone());

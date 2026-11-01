@@ -21,6 +21,7 @@ mod shared;
 mod smart_cache;
 mod storage;
 mod storage_downloads;
+mod sync_server;
 
 pub use equalizer::EqualizerView;
 pub use first_run::FirstRun;

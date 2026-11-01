@@ -601,6 +601,9 @@ pub fn AppShell() -> Element {
     );
     // Playback sync: reports, the server queue, "Continue from iPhone".
     let playback_sync = use_playback_sync_provider();
+    // Remote control and live state through a sync server, when one is set.
+    let remote_sync = crate::components::remote_sync::use_remote_sync_provider();
+    let remote_on = use_memo(move || remote_sync.view().is_some());
 
     // Mirror theme, appearance and platform onto <html> so the page background,
     // overscroll area and scrollbars follow the theme too. data-layout lives on
@@ -1091,7 +1094,7 @@ pub fn AppShell() -> Element {
     } else {
         String::new()
     };
-    let player_on = !compact || has_song();
+    let player_on = !compact || has_song() || remote_on();
 
     rsx! {
         div {

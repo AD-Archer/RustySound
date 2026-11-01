@@ -49,6 +49,10 @@ pub struct ServerConfig {
     /// Jellyfin: the access token from `AuthenticateByName`.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub access_token: String,
+    /// Subsonic: a rustysound-sync server for this server's users
+    /// ("https://music.example.com/rustysound-sync"). Empty = off.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sync_url: String,
 }
 
 impl ServerConfig {

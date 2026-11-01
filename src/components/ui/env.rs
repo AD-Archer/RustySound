@@ -187,7 +187,9 @@ pub fn cover_art_url(
 /// Like [`cover_art_url`], for an `<img src>` in a list, grid or Cover Flow.
 /// Safe to call while rendering: no file reads, no data URLs. Native builds
 /// get the local cover route, which serves the image cache off the main
-/// thread; the web build gets the server URL.
+/// thread; the web build gets the server URL. Either way, a sync server
+/// with a cover cache serves it when it can (`remote_sync::media`); the
+/// caller re-renders when that changes.
 pub fn cover_art_src(
     servers: &[ServerConfig],
     server_id: &str,
@@ -195,6 +197,7 @@ pub fn cover_art_src(
     size_px: u32,
 ) -> Option<String> {
     let cover_art = cover_art.filter(|value| !value.trim().is_empty())?;
+    crate::components::remote_sync::media::subscribe();
     // Music on the device: the picture embedded in its files.
     if crate::local_music::is_local(server_id) {
         return crate::local_music::cover_art_src(cover_art);

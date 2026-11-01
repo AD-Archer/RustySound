@@ -1,11 +1,13 @@
 //! Output, Sleep Timer, Playback Speed and Equalizer rows for the track menu, shown when
 //! Now Playing opens it for the playing song
 //! (`TrackMenuController::open_for_player`), under a quiet "Also playing on
-//! Mac" line while another player is playing.
+//! Mac" line while another player is playing. With a sync server, Output also
+//! lists the user's other devices ("Play on", `remote_sync::PlayOnChoices`).
 
+use crate::components::remote_sync::PlayOnChoices;
 use crate::components::{
     set_playback_speed, speed_label, AppView, AudioOutput, Icon, Navigation, OutputPicker,
-    PlaybackSync, SleepTimer, SongDetailsController, EQ_AVAILABLE, PLAYBACK_SPEEDS,
+    PlaybackSync, RemoteSync, SleepTimer, SongDetailsController, EQ_AVAILABLE, PLAYBACK_SPEEDS,
     SLEEP_CHOICES,
 };
 use crate::db::AppSettings;
@@ -34,7 +36,13 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
     let output = use_context::<AudioOutput>();
     let expanded = use_signal(|| open);
     let picker = (output.picker)();
-    let output_open = expanded() == PlayerMenu::Output && picker != OutputPicker::AirPlay;
+    // A sync server's other devices: the row expands into "Play on" too
+    // (on iPhone, under "AirPlay & Bluetooth…").
+    let remote = use_context::<RemoteSync>();
+    let play_on = !remote.play_on().is_empty();
+    let playing_elsewhere = remote.active_elsewhere().map(|device| device.info.name);
+    let output_open = expanded() == PlayerMenu::Output && (picker != OutputPicker::AirPlay || play_on);
+    let expands = picker != OutputPicker::AirPlay || play_on;
     let sleep_open = expanded() == PlayerMenu::Sleep;
     let speed_open = expanded() == PlayerMenu::Speed && !radio;
     let mode = (timer.mode)();
@@ -65,16 +73,16 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                 Icon { name: "headphones".to_string(), class: "rs-ic".to_string() }
             }
         }
-        if picker != OutputPicker::Hidden {
+        if picker != OutputPicker::Hidden || play_on {
             button {
                 r#type: "button",
                 class: "rs-menu__item",
                 role: "menuitem",
-                aria_haspopup: if picker != OutputPicker::AirPlay { "menu" },
-                aria_expanded: if picker != OutputPicker::AirPlay { if output_open { "true" } else { "false" } },
+                aria_haspopup: if expands { "menu" },
+                aria_expanded: if expands { if output_open { "true" } else { "false" } },
                 "data-testid": "track-menu-output",
                 onclick: move |_| match picker {
-                    OutputPicker::AirPlay => {
+                    OutputPicker::AirPlay if !play_on => {
                         output.open_system_picker();
                         on_done.call(());
                     }
@@ -87,7 +95,9 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                     _ => toggle(PlayerMenu::Output),
                 },
                 span { class: "rs-menu__label", "Output" }
-                span { class: "rs-menu__detail", "data-testid": "track-menu-output-route", "{output.route_label()}" }
+                span { class: "rs-menu__detail", "data-testid": "track-menu-output-route",
+                    "{playing_elsewhere.clone().unwrap_or_else(|| output.route_label())}"
+                }
                 Icon {
                     name: if picker == OutputPicker::AirPlay { "airplay".to_string() } else { "volume-2".to_string() },
                     class: "rs-ic".to_string(),
@@ -100,7 +110,19 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                 role: "group",
                 aria_label: "Output",
                 "data-testid": "output-choices",
-                if picker == OutputPicker::SoundSettings {
+                if picker == OutputPicker::AirPlay {
+                    button {
+                        r#type: "button",
+                        class: "rs-menu__choice",
+                        role: "menuitem",
+                        "data-testid": "output-airplay",
+                        onclick: move |_| {
+                            output.open_system_picker();
+                            on_done.call(());
+                        },
+                        "AirPlay & Bluetooth…"
+                    }
+                } else if picker == OutputPicker::SoundSettings {
                     button {
                         r#type: "button",
                         class: "rs-menu__choice",
@@ -146,6 +168,7 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                         }
                     }
                 }
+                PlayOnChoices { on_done }
             }
         }
         button {
