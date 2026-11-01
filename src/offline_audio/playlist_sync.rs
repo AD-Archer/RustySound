@@ -63,7 +63,7 @@ pub struct PlaylistSyncReport {
 #[cfg(not(target_arch = "wasm32"))]
 mod native {
     use super::{playlist_diff, PlaylistSyncReport};
-    use crate::api::{NavidromeClient, ServerConfig};
+    use crate::api::{MusicClient, ServerConfig};
     use crate::db::AppSettings;
     use crate::offline_audio::{
         download_songs_batch, is_song_downloaded, list_downloaded_collections, load_collection_membership_index,
@@ -117,10 +117,14 @@ mod native {
             .filter(|c| c.kind == "playlist" && c.auto_download_tracked)
             .collect();
         for entry in tracked {
-            let Some(server) = servers.iter().find(|s| s.active && s.id == entry.server_id).cloned() else {
+            // Jellyfin playlists sync too, so this goes through MusicClient.
+            let Some(client) = ServerConfig::find(servers, &entry.server_id)
+                .filter(|s| s.active)
+                .cloned()
+                .map(MusicClient::new)
+            else {
                 continue;
             };
-            let client = NavidromeClient::new(server.clone());
             let Ok((playlist, songs)) = client.get_playlist(&entry.collection_id).await else {
                 continue;
             };

@@ -183,16 +183,6 @@ static ACTIVE_DOWNLOADS: Lazy<std::sync::Mutex<Vec<ActiveDownloadEntry>>> =
     Lazy::new(|| std::sync::Mutex::new(Vec::new()));
 
 #[cfg(not(target_arch = "wasm32"))]
-fn now_timestamp_millis() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn sanitize_file_component(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
@@ -438,7 +428,7 @@ fn upsert_download_index(song: &Song, size_bytes: u64, origin: DownloadOrigin) {
         entry.cover_art_id = song.cover_art.clone();
         entry.origin = merged_download_origin(entry.origin, origin);
         entry.size_bytes = size_bytes;
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadIndexEntry {
             server_id: song.server_id.clone(),
@@ -455,7 +445,7 @@ fn upsert_download_index(song: &Song, size_bytes: u64, origin: DownloadOrigin) {
             cover_art_id: song.cover_art.clone(),
             origin,
             size_bytes,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_download_index(&index);
@@ -597,7 +587,7 @@ pub fn downloaded_song_keys(songs: &[(String, String)]) -> HashSet<String> {
                 sanitize_file_component(song_id)
             ))
         })
-        .map(|(server_id, song_id)| format!("{server_id}::{song_id}"))
+        .map(|(server_id, song_id)| crate::api::item_key(server_id, song_id))
         .collect()
 }
 
@@ -659,7 +649,7 @@ pub fn mark_collection_downloaded(
         entry.song_count = song_count;
         entry.total_song_count = song_count;
         entry.downloaded_song_count = entry.downloaded_song_count.min(song_count);
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadCollectionEntry {
             kind: kind.to_string(),
@@ -670,7 +660,7 @@ pub fn mark_collection_downloaded(
             song_count,
             total_song_count: song_count,
             downloaded_song_count: 0,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_collection_index(&index);
@@ -714,7 +704,7 @@ pub fn mark_playlist_auto_download_tracked(
             entry.total_song_count = song_count;
             entry.downloaded_song_count = entry.downloaded_song_count.min(song_count);
         }
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadCollectionEntry {
             kind: "playlist".to_string(),
@@ -729,7 +719,7 @@ pub fn mark_playlist_auto_download_tracked(
             song_count,
             total_song_count: song_count,
             downloaded_song_count: 0,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_collection_index(&index);
@@ -807,14 +797,14 @@ pub fn sync_downloaded_collection_members(
         entry.kind == kind && entry.server_id == server_id && entry.collection_id == collection_id
     }) {
         entry.song_ids = song_ids;
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadCollectionMembershipEntry {
             kind: kind.to_string(),
             server_id: server_id.to_string(),
             collection_id: collection_id.to_string(),
             song_ids,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_collection_membership_index(&index);
@@ -984,7 +974,7 @@ fn push_active_download(song: &Song) {
         title: song.title.clone(),
         artist: song.artist.clone(),
         album: song.album.clone(),
-        started_at_ms: now_timestamp_millis(),
+        started_at_ms: crate::time::now_ms() as u64,
     });
 }
 
@@ -1496,55 +1486,9 @@ fn push_unique_song(target: &mut Vec<Song>, seen: &mut HashSet<String>, song: So
     if song.id.trim().is_empty() || song.server_id.trim().is_empty() {
         return;
     }
-    let key = format!("{}::{}", song.server_id, song.id);
-    if seen.insert(key) {
+    if seen.insert(song.key()) {
         target.push(song);
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn is_id3_cover_art_id(cover_art_id: &str) -> bool {
-    cover_art_id.trim().to_ascii_lowercase().starts_with("mf-")
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn include_cover_for_preference(cover_art_id: &str, preference: ArtworkDownloadPreference) -> bool {
-    match preference {
-        ArtworkDownloadPreference::ServerOnly => !is_id3_cover_art_id(cover_art_id),
-        ArtworkDownloadPreference::Id3Only => is_id3_cover_art_id(cover_art_id),
-        ArtworkDownloadPreference::PreferServer | ArtworkDownloadPreference::PreferId3 => true,
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn song_cover_art_candidates(song: &Song, preference: ArtworkDownloadPreference) -> Vec<String> {
-    let mut output = Vec::<String>::new();
-
-    if let Some(primary) = song
-        .cover_art
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        if include_cover_for_preference(primary, preference) {
-            output.push(primary.to_string());
-        }
-    }
-
-    if let Some(album_id) = song
-        .album_id
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        if include_cover_for_preference(album_id, preference)
-            && !output.iter().any(|entry| entry == album_id)
-        {
-            output.push(album_id.to_string());
-        }
-    }
-
-    output
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -1555,7 +1499,7 @@ fn warm_song_cover_art(
     seen_requests: &mut HashSet<String>,
 ) -> usize {
     let mut warmed = 0usize;
-    for cover_art_id in song_cover_art_candidates(song, preference) {
+    for cover_art_id in preference.song_covers(song) {
         for size in DOWNLOAD_ARTWORK_SIZES {
             let request_key = format!("{}:{cover_art_id}:{size}", song.server_id);
             if !seen_requests.insert(request_key) {
@@ -1741,7 +1685,7 @@ pub async fn run_auto_download_pass(
             Err(_) => report.failed += 1,
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        crate::time::sleep_ms(80).await;
     }
 
     report.purged = prune_download_cache(settings.download_limit_count, settings.download_limit_mb);
@@ -1776,8 +1720,7 @@ pub async fn download_songs_batch(
         if song.id.trim().is_empty() || song.server_id.trim().is_empty() {
             continue;
         }
-        let key = format!("{}::{}", song.server_id, song.id);
-        if seen.insert(key) {
+        if seen.insert(song.key()) {
             ordered.push(song.clone());
         }
     }
@@ -1802,7 +1745,7 @@ pub async fn download_songs_batch(
             Err(_) => report.failed += 1,
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+        crate::time::sleep_ms(70).await;
     }
 
     report.purged = prune_download_cache(
@@ -1883,7 +1826,7 @@ pub async fn refresh_downloaded_cache(
             }
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+        crate::time::sleep_ms(35).await;
     }
 
     let _ = sync_downloaded_collection_metadata(servers).await;
@@ -1909,7 +1852,7 @@ pub async fn prefetch_song_audio_with_origin(
     if !settings.cache_enabled && !settings.downloads_enabled {
         return Ok(());
     }
-    if song.server_name == "Radio" || song.id.trim().is_empty() {
+    if song.is_radio() || song.id.trim().is_empty() {
         return Ok(());
     }
 
@@ -1928,11 +1871,7 @@ pub async fn prefetch_song_audio_with_origin(
         return Ok(());
     }
 
-    let Some(server) = servers
-        .iter()
-        .find(|server| server.id == song.server_id)
-        .cloned()
-    else {
+    let Some(server) = ServerConfig::find(servers, &song.server_id) else {
         return Ok(());
     };
 

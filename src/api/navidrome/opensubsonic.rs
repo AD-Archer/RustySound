@@ -107,18 +107,6 @@ pub struct CuePayload {
     pub byte_start: Option<usize>,
 }
 
-fn subsonic_ok(json: &SubsonicResponse) -> Result<(), String> {
-    if json.subsonic_response.status == "ok" {
-        return Ok(());
-    }
-    Err(json
-        .subsonic_response
-        .error
-        .as_ref()
-        .map(|e| e.message.clone())
-        .unwrap_or_else(|| "Unknown error".to_string()))
-}
-
 impl NavidromeClient {
     /// `getOpenSubsonicExtensions`. Cached per server for the session and
     /// 24 h on disk. A plain Subsonic server (an error or no list) has none.

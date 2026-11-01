@@ -13,7 +13,7 @@
 //! `NavidromeClient`, which refuses Jellyfin servers without a request.
 
 use super::{
-    Album, Artist, JellyfinClient, NativeSongSortField, NativeSortOrder, NavidromeClient,
+    Album, Artist, JellyfinClient, NavidromeClient,
     PlaybackReportState, Playlist, SearchResult, ServerConfig, ServerKind, Song,
 };
 use crate::local_music::{self, LocalLibrary, LOCAL_SOURCE_ID};
@@ -226,11 +226,7 @@ impl MusicClient {
 
     /// The library's most played songs (Navidrome's native list on Subsonic).
     pub async fn get_most_played_songs(&self, count: usize) -> Result<Vec<Song>, String> {
-        match self {
-            Self::Subsonic(c) => c.get_native_songs(NativeSongSortField::PlayCount, NativeSortOrder::Desc, 0, count).await,
-            Self::Jellyfin(c) => c.get_native_song_page("play_count", false, 0, count).await,
-            Self::Local(c) => c.get_native_song_page("play_count", false, 0, count).await,
-        }
+        self.get_native_song_page("play_count", false, 0, count).await
     }
 
     pub async fn get_random_songs(&self, size: u32) -> Result<Vec<Song>, String> {

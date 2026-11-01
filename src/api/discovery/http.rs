@@ -14,22 +14,10 @@ pub const SERVER_TIMEOUT_MS: u64 = 10_000;
 
 static EXTERNAL_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 
-/// Sleep that works on both wasm and native.
-pub async fn sleep_ms(ms: u64) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        gloo_timers::future::TimeoutFuture::new(ms.min(u64::from(u32::MAX)) as u32).await;
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-    }
-}
-
 /// Run `fut`, giving up after `ms` milliseconds (`None` on timeout).
 pub async fn with_timeout<F: Future>(ms: u64, fut: F) -> Option<F::Output> {
     let fut = Box::pin(fut);
-    let timer = Box::pin(sleep_ms(ms));
+    let timer = Box::pin(crate::time::sleep_ms(ms));
     match select(fut, timer).await {
         Either::Left((output, _)) => Some(output),
         Either::Right(_) => None,
@@ -138,7 +126,7 @@ mod tests {
             .enable_all()
             .build()
             .unwrap();
-        let slow = runtime.block_on(with_timeout(10, sleep_ms(5_000)));
+        let slow = runtime.block_on(with_timeout(10, crate::time::sleep_ms(5_000)));
         assert!(slow.is_none());
         let fast = runtime.block_on(with_timeout(1_000, async { 7 }));
         assert_eq!(fast, Some(7));

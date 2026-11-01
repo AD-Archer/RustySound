@@ -152,9 +152,7 @@ impl LyricsQuery {
     /// the server provider can ask it first.
     pub fn from_song_on(song: &Song, servers: &[ServerConfig]) -> Self {
         let mut query = Self::from_song(song);
-        query.server_song = servers
-            .iter()
-            .find(|server| server.id == song.server_id)
+        query.server_song = ServerConfig::find(servers, &song.server_id)
             .cloned()
             // A local song's "server" is the device: its embedded lyrics.
             .or_else(|| {

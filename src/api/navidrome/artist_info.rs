@@ -84,13 +84,7 @@ pub fn artist_info_from_response(
     server_id: &str,
     json: SubsonicResponse,
 ) -> Result<ArtistInfo, String> {
-    if json.subsonic_response.status != "ok" {
-        return Err(json
-            .subsonic_response
-            .error
-            .map(|e| e.message)
-            .unwrap_or_else(|| "Unknown error".to_string()));
-    }
+    subsonic_ok(&json)?;
     let payload = json.subsonic_response.artist_info2.unwrap_or_default();
     let similar = payload
         .similar_artist
@@ -165,13 +159,7 @@ impl NavidromeClient {
                 ),
             ],
         );
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        let info = artist_info_from_response(&self.server.id, json)?;
+        let info = artist_info_from_response(&self.server.id, self.subsonic_get(&url).await?)?;
         let _ = cache_put_json(cache_key, &info, Some(24));
         Ok(info)
     }

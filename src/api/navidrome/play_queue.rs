@@ -245,13 +245,9 @@ impl NavidromeClient {
         } else {
             HTTP_CLIENT.get(self.build_url_owned(endpoint, params))
         };
-        let response = request
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
+        subsonic_send(request.timeout(std::time::Duration::from_secs(10)))
             .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        subsonic_ok(&json)
+            .map(|_| ())
     }
 
     /// `reportPlayback` (extension `playbackReport`). The server scrobbles
@@ -330,14 +326,12 @@ impl NavidromeClient {
     /// device has never seen those songs.
     pub async fn get_play_queue(&self, support: SyncSupport) -> Result<Option<ServerPlayQueue>, String> {
         let endpoint = if support.index_queue { "getPlayQueueByIndex" } else { "getPlayQueue" };
-        let response = HTTP_CLIENT
-            .get(self.build_url(endpoint, &[]))
-            .timeout(std::time::Duration::from_secs(10))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        subsonic_ok(&json)?;
+        let json = subsonic_send(
+            HTTP_CLIENT
+                .get(self.build_url(endpoint, &[]))
+                .timeout(std::time::Duration::from_secs(10)),
+        )
+        .await?;
         let inner = json.subsonic_response;
         let Some(payload) = inner.play_queue_by_index.or(inner.play_queue) else {
             return Ok(None);
@@ -388,14 +382,12 @@ impl NavidromeClient {
 
     /// `getNowPlaying`: what every player on the server is playing.
     pub async fn get_now_playing(&self) -> Result<Vec<NowPlayingEntry>, String> {
-        let response = HTTP_CLIENT
-            .get(self.build_url("getNowPlaying", &[]))
-            .timeout(std::time::Duration::from_secs(8))
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-        subsonic_ok(&json)?;
+        let json = subsonic_send(
+            HTTP_CLIENT
+                .get(self.build_url("getNowPlaying", &[]))
+                .timeout(std::time::Duration::from_secs(8)),
+        )
+        .await?;
         Ok(json
             .subsonic_response
             .now_playing

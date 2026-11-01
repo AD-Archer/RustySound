@@ -23,7 +23,6 @@ use once_cell::sync::Lazy;
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -140,7 +139,7 @@ async fn worker(mut rx: UnboundedReceiver<Command>) {
 
     while let Some(first) = rx.recv().await {
         if matches!(first, Command::Changed(_)) {
-            tokio::time::sleep(Duration::from_millis(SETTLE_MS)).await;
+            crate::time::sleep_ms(SETTLE_MS).await;
         }
         let mut commands = vec![first];
         while let Ok(next) = rx.try_recv() {
@@ -219,7 +218,7 @@ async fn scan_with_progress(folder: Folder) -> ScanReport {
             result = &mut job => {
                 return result.ok().and_then(Result::ok).unwrap_or_default();
             }
-            _ = tokio::time::sleep(Duration::from_millis(PROGRESS_MS)) => {
+            _ = crate::time::sleep_ms(PROGRESS_MS) => {
                 let (done, total) = (progress.0.load(Ordering::Relaxed), progress.1.load(Ordering::Relaxed));
                 let next = (total > 0).then_some((done, total));
                 if STATUS.peek().scanning != next {

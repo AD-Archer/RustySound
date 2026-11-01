@@ -61,7 +61,7 @@ pub fn select_rewind_albums(
             })
             .collect(),
         |a| a.play_count.unwrap_or(0),
-        |a| format!("{}::{}", a.server_id, a.id),
+        |a| a.key(),
         usize::MAX,
     );
     let mut picked = SeededRng::new(seed).pick_ordered(&candidates, limit * 2, limit);
@@ -89,7 +89,7 @@ pub fn select_rewind_songs(songs: &[Song], now: i64, cutoff_days: i64, limit: us
             })
             .collect(),
         |s| s.play_count.unwrap_or(0),
-        |s| format!("{}::{}", s.server_id, s.id),
+        |s| s.key(),
         limit,
     );
     candidates

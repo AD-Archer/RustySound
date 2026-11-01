@@ -13,8 +13,7 @@ use super::reasons::{because_reason, relative_ago};
 use super::types::{DiscoverAlbum, DiscoverSong, HomePlaylist, Mix, ReasonKind};
 use super::util::{normalize_name, parse_timestamp};
 use super::{cache, load_discover_mixes, offserver, stage, util, LoadContext};
-use crate::api::models::{Album, Playlist, ServerConfig};
-use crate::api::navidrome::NavidromeClient;
+use crate::api::models::{item_key, Album, Playlist, ServerConfig};
 use crate::db::AppSettings;
 use futures_util::future::join_all;
 use once_cell::sync::Lazy;
@@ -42,10 +41,6 @@ pub(super) fn clear_recent_memo() {
     RECENT_MEMO.lock().unwrap_or_else(|e| e.into_inner()).clear();
 }
 
-fn album_key(album: &Album) -> String {
-    format!("{}::{}", album.server_id, album.id)
-}
-
 /// "Played today", "Played 3 days ago"; "Recently played" when the server
 /// doesn't say when.
 pub fn played_reason(now: i64, played: Option<i64>) -> String {
@@ -65,7 +60,7 @@ pub fn recently_played(per_server: Vec<Vec<Album>>, now: i64, limit: usize) -> V
     for i in 0..longest {
         for list in &per_server {
             if let Some(album) = list.get(i) {
-                if seen.insert(album_key(album)) {
+                if seen.insert(album.key()) {
                     let played = album
                         .played
                         .as_deref()
@@ -204,7 +199,7 @@ fn heavy_albums(snapshot: &LibrarySnapshot) -> HashSet<String> {
         .frequent
         .iter()
         .filter(|a| a.play_count.unwrap_or(0) >= HEAVY_PLAYS)
-        .map(album_key)
+        .map(Album::key)
         .collect()
 }
 
@@ -222,7 +217,7 @@ pub fn albums_from_songs(songs: &[DiscoverSong], skip: &HashSet<String>) -> Vec<
         if album_id.trim().is_empty() || name.trim().is_empty() {
             continue;
         }
-        let key = format!("{}::{album_id}", song.server_id);
+        let key = item_key(&song.server_id, album_id);
         if skip.contains(&key) || !seen.insert(key) {
             continue;
         }
@@ -256,7 +251,7 @@ pub fn merge_album_picks(because: Vec<DiscoverAlbum>, from_songs: Vec<DiscoverAl
     let mut out = Vec::new();
     let mut spare = Vec::new();
     for pick in because.into_iter().chain(from_songs) {
-        if !seen.insert(album_key(&pick.album)) {
+        if !seen.insert(pick.album.key()) {
             continue;
         }
         if artists.insert(normalize_name(&pick.album.artist)) {
@@ -297,13 +292,13 @@ pub async fn load_albums_you_might_like(servers: &[ServerConfig], settings: &App
     // Seed → its in-library similar artists (not favourites), ≤ 3 each.
     let seeds = pick_similar_seeds(&snapshot, ctx.seed("similar"));
     let similar = join_all(seeds.iter().cloned().map(|seed| {
-        let server = ctx.server(&seed.server_id);
+        let client = ctx.client(&seed.server_id);
         let favourites = &favourites;
         async move {
-            let Some(server) = server else {
+            let Some(client) = client else {
                 return Vec::new();
             };
-            let Ok(info) = server_call(NavidromeClient::new(server).get_artist_info2(
+            let Ok(info) = server_call(client.get_artist_info2(
                 &seed.artist_id,
                 offserver::SIMILAR_COUNT,
                 true,
@@ -333,15 +328,15 @@ pub async fn load_albums_you_might_like(servers: &[ServerConfig], settings: &App
     }
     artists.truncate(ALBUMS_LIKE_ARTISTS);
     let because = join_all(artists.into_iter().map(|(seed, artist_id)| {
-        let server = ctx.server(&seed.server_id);
+        let client = crate::api::MusicClient::for_source(&ctx.servers, &seed.server_id);
         let heavy = &heavy;
         async move {
-            let (_, albums) = server_call(crate::api::MusicClient::new(server?).get_artist(&artist_id))
+            let (_, albums) = server_call(client?.get_artist(&artist_id))
                 .await
                 .ok()?;
             let fresh: Vec<Album> = albums
                 .into_iter()
-                .filter(|a| !heavy.contains(&album_key(a)))
+                .filter(|a| !heavy.contains(&a.key()))
                 .collect();
             stage::pick_because_album(&fresh, &seed.name)
         }
@@ -456,7 +451,7 @@ mod tests {
                 "playlist:s1:undated-b",
             ]
         );
-        assert_eq!(combined[2].name(), "New");
+        assert!(matches!(&combined[2], HomePlaylist::Playlist(p) if p.name == "New"));
         assert!(combine_playlists(&[], vec![]).is_empty());
     }
 

@@ -3,6 +3,9 @@ use dioxus::prelude::*;
 mod api;
 mod cache;
 mod cache_service;
+// Refactor in progress: the views still call helpers marked #[deprecated]
+// in api/, cache and offline_audio. Remove this allow to list them.
+#[allow(deprecated)]
 mod components;
 mod db;
 #[cfg(feature = "desktop")]
@@ -22,8 +25,10 @@ mod ios_scene;
 mod local_music;
 mod offline_art;
 mod offline_audio;
+mod format;
 mod storage;
 mod styles;
+mod time;
 
 use components::AppView;
 

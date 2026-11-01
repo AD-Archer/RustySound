@@ -318,11 +318,9 @@ mod native {
 
     static PUBLISHER: Lazy<Mutex<Publisher>> = Lazy::new(|| Mutex::new(Publisher::default()));
 
+    /// Seconds since the Unix epoch, as the widget's JSON carries them.
     fn unix_now() -> f64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|elapsed| elapsed.as_secs_f64())
-            .unwrap_or_default()
+        crate::time::now_ms() / 1000.0
     }
 
     /// Writes `contents` to `dir/name` through a rename, so the widget never
