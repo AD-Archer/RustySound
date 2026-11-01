@@ -66,6 +66,22 @@ impl NavidromeClient {
         )
     }
 
+    /// The token and salt (`t`, `s`) of `auth_params`, cached for the
+    /// session, for the sync server's `hello` and media requests: the same
+    /// login as `/rest` calls, so its verification cache hits on reconnects.
+    /// Never log them.
+    pub fn sync_auth(&self) -> (String, String) {
+        let params = self.auth_params();
+        let get = |key: &str| {
+            params
+                .split('&')
+                .find_map(|pair| pair.strip_prefix(key))
+                .unwrap_or_default()
+                .to_string()
+        };
+        (get("t="), get("s="))
+    }
+
     fn auth_params_for_binary(&self) -> String {
         self.auth_params().replace("&f=json", "")
     }
@@ -365,27 +381,44 @@ impl NavidromeClient {
     /// Cover URL for an `<img>` in the UI. Cheap enough to call while rendering:
     /// native webview builds get the local cover route (served and cached off the
     /// main thread, see `offline_art::use_cover_art_handler`), never a data URL;
-    /// the web build gets the server URL.
+    /// the web build gets the server URL. With a sync server that resizes
+    /// covers (`remote_sync::media::art_url` decides), its small WebP is used
+    /// instead, falling back to the server's (natively in the cover route,
+    /// on the web in `Artwork`'s `onerror`).
     pub fn get_cover_art_display_url(&self, cover_art_id: &str, size: u32) -> String {
+        let requested_size = size.min(COVER_ART_MAX_PX);
+        let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
+        let sync_art = crate::components::remote_sync::media::art_url(
+            &self.server,
+            &normalized_cover_art_id,
+            requested_size,
+        );
         #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
         {
-            let requested_size = size.min(COVER_ART_MAX_PX);
-            let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
             if normalized_cover_art_id.is_empty() {
                 return String::new();
             }
             let remote_url =
                 self.build_cover_art_network_url(&normalized_cover_art_id, requested_size);
-            crate::offline_art::cover_art_display_url(
-                &self.server.id,
-                &normalized_cover_art_id,
-                requested_size,
-                &remote_url,
-            )
+            match sync_art {
+                Some(art_url) => crate::offline_art::cover_art_display_url_via_sync(
+                    &self.server.id,
+                    &normalized_cover_art_id,
+                    requested_size,
+                    &art_url,
+                    &remote_url,
+                ),
+                None => crate::offline_art::cover_art_display_url(
+                    &self.server.id,
+                    &normalized_cover_art_id,
+                    requested_size,
+                    &remote_url,
+                ),
+            }
         }
         #[cfg(not(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile"))))]
         {
-            self.get_cover_art_url(cover_art_id, size)
+            sync_art.unwrap_or_else(|| self.get_cover_art_url(cover_art_id, size))
         }
     }
 

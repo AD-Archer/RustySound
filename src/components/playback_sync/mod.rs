@@ -257,17 +257,17 @@ struct Engine {
 
 /// What a queue save sends.
 #[derive(Clone)]
-struct QueueSave {
+pub(crate) struct QueueSave {
     server: ServerConfig,
-    ids: Vec<String>,
-    current_index: usize,
+    pub(crate) ids: Vec<String>,
+    pub(crate) current_index: usize,
     position_ms: u64,
 }
 
 /// The current server's part of the queue (other servers' songs and radio
 /// can't go in its queue), with the current song's index in it. Nothing
 /// for servers that keep no queue (Jellyfin).
-fn plan_queue_save(queue: &[Song], index: usize, current: &Song, position_ms: u64, servers: &[ServerConfig]) -> Option<QueueSave> {
+pub(crate) fn plan_queue_save(queue: &[Song], index: usize, current: &Song, position_ms: u64, servers: &[ServerConfig]) -> Option<QueueSave> {
     let server = servers.iter().find(|s| s.id == current.server_id && syncs_queue(s))?.clone();
     let at_index = queue
         .get(index)
@@ -427,6 +427,7 @@ pub fn PlaybackSyncHost(ready: Signal<bool>) -> Element {
     let queue_index = use_context::<Signal<usize>>();
     let preview = use_context::<PreviewPlaybackSignal>().0;
     let song_details = use_context::<SongDetailsController>();
+    let remote = try_use_context::<crate::components::RemoteSync>();
     let engine = use_hook(|| Rc::new(RefCell::new(Engine::default())));
     let ready_signal = ready;
 
@@ -490,6 +491,10 @@ pub fn PlaybackSyncHost(ready: Signal<bool>) -> Element {
                     let reports = state.tracker.observe(&sample);
                     if !reports.is_empty() {
                         send_reports(&servers.peek(), reports);
+                    }
+                    // The same look feeds the sync server's live state.
+                    if let Some(remote) = remote {
+                        remote.tick();
                     }
 
                     // Starting to play here takes over from an offered queue.
@@ -608,6 +613,15 @@ pub fn PlaybackSyncHost(ready: Signal<bool>) -> Element {
             }
             spawn(async move {
                 while *generation.peek() == ticket {
+                    // Connected to a sync server, its live device list says
+                    // this better (the "Play on" rows): no poll then.
+                    if remote.is_some_and(|r| *r.status.peek() == crate::components::remote_sync::SyncStatus::Connected) {
+                        if elsewhere.peek().is_some() {
+                            elsewhere.set(None);
+                        }
+                        sleep_ms(ELSEWHERE_POLL_MS).await;
+                        continue;
+                    }
                     let server = {
                         let servers = servers.peek();
                         let current = now_playing.peek().as_ref().map(|s| s.server_id.clone());

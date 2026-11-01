@@ -57,6 +57,9 @@ pub struct BackupServer {
     pub password: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub access_token: String,
+    /// The server's sync server (not a secret; older backups have none).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sync_url: String,
 }
 
 impl BackupServer {
@@ -72,6 +75,7 @@ impl BackupServer {
             user_id: server.user_id.clone(),
             password: secret(&server.password),
             access_token: secret(&server.access_token),
+            sync_url: server.sync_url.clone(),
         }
     }
 
@@ -222,6 +226,9 @@ pub fn plan(backup: &Backup, current_settings: &AppSettings, current_servers: &[
                     server.access_token = incoming.access_token.clone();
                     server.user_id = incoming.user_id.clone();
                 }
+                if !incoming.sync_url.is_empty() {
+                    server.sync_url = incoming.sync_url.clone();
+                }
                 if *server != before {
                     updated.push(server.name.clone());
                 }
@@ -243,6 +250,7 @@ pub fn plan(backup: &Backup, current_settings: &AppSettings, current_servers: &[
                     kind: incoming.kind,
                     user_id: incoming.user_id.clone(),
                     access_token: incoming.access_token.clone(),
+                    sync_url: incoming.sync_url.clone(),
                 });
                 added.push(incoming.name.clone());
             }

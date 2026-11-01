@@ -170,6 +170,27 @@ pub fn cover_art_display_url(
     )
 }
 
+/// Like [`cover_art_display_url`] for a cover from the sync server's media
+/// cache (`art_url`, WebP): cached under its own name (`…__<size>w.img`,
+/// so the JPEG-labelled data URLs never pick up a WebP), with the music
+/// server's URL as `alt`, fetched when the sync server fails.
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+pub fn cover_art_display_url_via_sync(
+    server_id: &str,
+    cover_art_id: &str,
+    size: u32,
+    art_url: &str,
+    fallback_url: &str,
+) -> String {
+    let sid = sanitize_file_component(server_id);
+    let aid = sanitize_file_component(cover_art_id);
+    format!(
+        "/{COVER_ROUTE}/{sid}__{aid}__{size}w.img?src={}&alt={}",
+        urlencoding::encode(art_url),
+        urlencoding::encode(fallback_url)
+    )
+}
+
 #[cfg(all(not(target_arch = "wasm32"), feature = "desktop"))]
 use dioxus::desktop as webview_host;
 #[cfg(all(not(target_arch = "wasm32"), feature = "mobile", not(feature = "desktop")))]
@@ -257,26 +278,33 @@ async fn serve_cover(
     if crate::cache_service::is_offline_mode() {
         return status(StatusCode::NOT_FOUND);
     }
-    let remote = uri
-        .query()
-        .unwrap_or_default()
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("src="))
-        .and_then(|value| urlencoding::decode(value).ok())
-        .map(|value| value.into_owned())
-        .filter(|value| value.starts_with("http://") || value.starts_with("https://"));
-    let Some(remote) = remote else {
+    let param = |key: &str| {
+        uri.query()
+            .unwrap_or_default()
+            .split('&')
+            .find_map(|pair| pair.strip_prefix(key))
+            .and_then(|value| urlencoding::decode(value).ok())
+            .map(|value| value.into_owned())
+            .filter(|value| value.starts_with("http://") || value.starts_with("https://"))
+    };
+    let Some(remote) = param("src=") else {
         return status(StatusCode::NOT_FOUND);
     };
-    let Ok(response) = ART_HTTP_CLIENT.get(&remote).send().await else {
-        return status(StatusCode::BAD_GATEWAY);
-    };
-    if !response.status().is_success() {
-        return status(StatusCode::BAD_GATEWAY);
-    }
-    let bytes = match response.bytes().await {
-        Ok(bytes) if !bytes.is_empty() => bytes.to_vec(),
-        _ => return status(StatusCode::BAD_GATEWAY),
+    let bytes = match download(&remote).await {
+        Some(bytes) => bytes,
+        // The sync server failed: the music server's own cover instead.
+        None => match param("alt=") {
+            Some(fallback) => {
+                if let Some((server_id, _)) = name.split_once("__") {
+                    crate::components::remote_sync::media::note_art_failure(server_id);
+                }
+                match download(&fallback).await {
+                    Some(bytes) => bytes,
+                    None => return status(StatusCode::BAD_GATEWAY),
+                }
+            }
+            None => return status(StatusCode::BAD_GATEWAY),
+        },
     };
     if cache_enabled(true) {
         if let Some(path) = path {
@@ -284,6 +312,16 @@ async fn serve_cover(
         }
     }
     ok(bytes)
+}
+
+/// One cover download; `None` on any failure or an empty body.
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+async fn download(url: &str) -> Option<Vec<u8>> {
+    let response = ART_HTTP_CLIENT.get(url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.bytes().await.ok().map(|bytes| bytes.to_vec()).filter(|bytes| !bytes.is_empty())
 }
 
 /// Accepts only the names `cover_art_file_path` writes: `<server>__<cover>__<size>.img`.
@@ -323,6 +361,7 @@ mod tests {
     #[test]
     fn cover_file_names() {
         assert!(is_cover_file_name("srv-1__al-abc_123__400.img"));
+        assert!(is_cover_file_name("srv-1__al-abc_123__400w.img"), "a sync-server cover");
         assert!(!is_cover_file_name("../rustysound.db"));
         assert!(!is_cover_file_name("a/b__c__4.img"));
         assert!(!is_cover_file_name(".img"));

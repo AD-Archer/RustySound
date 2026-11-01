@@ -1,9 +1,11 @@
 //! Settings → Servers: the server list, enable/disable, edit, delete, add,
-//! and (Mac and iPhone) the music on this device.
+//! the sync server (`sync_server.rs`), and (Mac and iPhone) the music on
+//! this device.
 
 use super::server_form::{format_connection_error, ServerSheet};
 use super::local_music::LocalMusicGroup;
 use super::shared::{use_settings_ctx, ActionRow, Footnote};
+use super::sync_server::SyncServerGroup;
 use crate::api::{MusicClient, ServerConfig};
 use crate::components::ui::{
     Button, ButtonVariant, EmptyState, Sheet, Switch,
@@ -130,6 +132,11 @@ pub(super) fn ServersSection() -> Element {
                     onclick: move |_| overlay.set(Overlay::Add),
                 }
             }
+        }
+
+        // Remote control and the media cache, per Subsonic server.
+        if !list.is_empty() {
+            SyncServerGroup {}
         }
 
         // The device's own music is a source beside the servers.

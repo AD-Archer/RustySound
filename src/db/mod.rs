@@ -616,8 +616,8 @@ fn save_servers_inner(
 
     for server in servers {
         tx.execute(
-            "INSERT OR REPLACE INTO servers (profile_id, id, name, url, username, password, active, kind, user_id, access_token)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            "INSERT OR REPLACE INTO servers (profile_id, id, name, url, username, password, active, kind, user_id, access_token, sync_url)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             rusqlite::params![
                 profile_id,
                 &server.id,
@@ -629,6 +629,7 @@ fn save_servers_inner(
                 server.kind.as_str(),
                 &server.user_id,
                 &server.access_token,
+                &server.sync_url,
             ],
         )
         .map_err(|e| DbError::new(e.to_string()))?;
@@ -656,7 +657,10 @@ pub async fn load_servers() -> Result<Vec<ServerConfig>, DbError> {
 #[cfg(not(target_arch = "wasm32"))]
 fn load_servers_inner(conn: &rusqlite::Connection, profile_id: &str) -> Result<Vec<ServerConfig>, DbError> {
     let mut stmt = conn
-        .prepare("SELECT id, name, url, username, password, active, kind, user_id, access_token FROM servers WHERE profile_id = ?1")
+        .prepare(
+            "SELECT id, name, url, username, password, active, kind, user_id, access_token, sync_url
+             FROM servers WHERE profile_id = ?1",
+        )
         .map_err(|e| DbError::new(e.to_string()))?;
 
     let servers = stmt
@@ -671,6 +675,7 @@ fn load_servers_inner(conn: &rusqlite::Connection, profile_id: &str) -> Result<V
                 kind: crate::api::ServerKind::from_stored(&row.get::<_, String>(6)?),
                 user_id: row.get(7)?,
                 access_token: row.get(8)?,
+                sync_url: row.get(9)?,
             })
         })
         .map_err(|e| DbError::new(e.to_string()))?
@@ -878,7 +883,7 @@ fn add_server_kind_columns(conn: &rusqlite::Connection) -> Result<(), DbError> {
                 .collect::<rusqlite::Result<Vec<_>>>()
         })
         .map_err(|e| DbError::new(e.to_string()))?;
-    for (column, default) in [("kind", "subsonic"), ("user_id", ""), ("access_token", "")] {
+    for (column, default) in [("kind", "subsonic"), ("user_id", ""), ("access_token", ""), ("sync_url", "")] {
         if !existing.iter().any(|name| name == column) {
             conn.execute(
                 &format!("ALTER TABLE servers ADD COLUMN {column} TEXT NOT NULL DEFAULT '{default}'"),
@@ -921,10 +926,11 @@ fn add_server_profile_column(conn: &mut rusqlite::Connection) -> Result<(), DbEr
             kind TEXT NOT NULL DEFAULT 'subsonic',
             user_id TEXT NOT NULL DEFAULT '',
             access_token TEXT NOT NULL DEFAULT '',
+            sync_url TEXT NOT NULL DEFAULT '',
             PRIMARY KEY (profile_id, id)
         );
-        INSERT INTO servers_by_profile (profile_id, id, name, url, username, password, active, kind, user_id, access_token)
-            SELECT '{default}', id, name, url, username, password, active, kind, user_id, access_token FROM servers;
+        INSERT INTO servers_by_profile (profile_id, id, name, url, username, password, active, kind, user_id, access_token, sync_url)
+            SELECT '{default}', id, name, url, username, password, active, kind, user_id, access_token, sync_url FROM servers;
         DROP TABLE servers;
         ALTER TABLE servers_by_profile RENAME TO servers;",
         default = profiles::DEFAULT_PROFILE_ID
@@ -1176,11 +1182,14 @@ mod server_kind_migration_tests {
         .unwrap();
         conn.execute("INSERT INTO servers VALUES ('a', 'Home', 'http://h', 'u', 'p', '1')", []).unwrap();
         add_server_kind_columns(&conn).unwrap();
+        // A sync server saved before profiles must survive the rebuild.
+        conn.execute("UPDATE servers SET sync_url = 'http://sync' WHERE id = 'a'", []).unwrap();
         add_server_profile_column(&mut conn).unwrap();
         // Running it again is harmless and keeps the row.
         add_server_profile_column(&mut conn).unwrap();
         let default = load_servers_inner(&conn, profiles::DEFAULT_PROFILE_ID).unwrap();
         assert_eq!(default.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), ["Home"]);
+        assert_eq!(default[0].sync_url, "http://sync");
         assert!(load_servers_inner(&conn, "kid").unwrap().is_empty());
 
         // The same server id can live in two profiles; saving one leaves the other.

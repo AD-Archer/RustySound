@@ -1598,3 +1598,66 @@
 .rs-player-upnext__hint {
   color: var(--stage-faint);
 }
+
+/* ---- Remote player: another device's playback, in the player's strip
+   (`remote_sync/ui.rs`). Same bar, a caption saying where it plays. ---- */
+.rs-remote__caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rs-remote__caption .rs-ic {
+  flex: none;
+}
+
+.rs-mini--remote .rs-btn--small {
+  flex: none;
+  margin-left: 2px;
+}
+
+.rs-remote__progress {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-remote__track {
+  flex: 1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .16);
+}
+
+.rs-remote__track i {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--accent);
+}
+
+/* "Play on" under Output: the other devices, after the speakers. */
+.rs-menu__choices-label {
+  flex-basis: 100%;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-menu__play-on {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.rs-menu__choice-note {
+  font-weight: var(--fw-regular);
+  opacity: .75;
+}

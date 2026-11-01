@@ -1,7 +1,8 @@
 //! Cover art with fixed size, lazy loading and a placeholder.
 
 use crate::api::ServerConfig;
-use crate::components::ui::env::cover_art_src;
+use crate::components::remote_sync::media::{is_art_url, note_art_failure};
+use crate::components::ui::env::{cover_art_src, cover_art_url};
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -15,7 +16,9 @@ use dioxus::prelude::*;
 /// * `round`: circle (artists). `hero`: 3px radius instead of 4px.
 /// * `alt`: alternative text ("" for decorative art next to a visible title).
 /// * `eager`: load immediately (above-the-fold heroes); default is lazy.
-/// * `placeholder`: icon name shown when there is no art or it fails.
+/// * `placeholder`: icon name shown when there is no art or it fails. A
+///   cover from the sync server that fails is tried once more from the
+///   music server first.
 #[component]
 pub fn Artwork(
     #[props(default)] cover_art: Option<String>,
@@ -31,20 +34,23 @@ pub fn Artwork(
     #[props(default)] class: String,
 ) -> Element {
     let servers = try_use_context::<Signal<Vec<ServerConfig>>>();
-    let mut failed_url = use_signal(|| None::<String>);
+    let mut failed = use_signal(Vec::<String>::new);
 
     let url = match src.clone().filter(|value| !value.is_empty()) {
         Some(explicit) => Some(explicit),
         None => servers.and_then(|servers| {
-            cover_art_src(
-                &servers.read(),
-                &server_id,
-                cover_art.as_deref(),
-                size_px.saturating_mul(2).max(64),
-            )
+            let size = size_px.saturating_mul(2).max(64);
+            let url = cover_art_src(&servers.read(), &server_id, cover_art.as_deref(), size);
+            match url {
+                // A sync-server cover that failed: the music server's own.
+                Some(url) if is_art_url(&url) && failed.read().contains(&url) => {
+                    cover_art_url(&servers.read(), &server_id, cover_art.as_deref(), size)
+                }
+                other => other,
+            }
         }),
     };
-    let show_image = url.is_some() && *failed_url.read() != url;
+    let show_image = url.as_ref().is_some_and(|url| !failed.read().contains(url));
 
     let box_style = if fill {
         "width:100%;height:100%".to_string()
@@ -68,7 +74,16 @@ pub fn Artwork(
                     loading: if eager { "eager" } else { "lazy" },
                     decoding: "async",
                     draggable: "false",
-                    onerror: move |_| failed_url.set(url.clone()),
+                    onerror: {
+                        let server_id = server_id.clone();
+                        move |_| {
+                            let Some(url) = url.clone() else { return };
+                            if is_art_url(&url) {
+                                note_art_failure(&server_id);
+                            }
+                            failed.with_mut(|list| list.push(url));
+                        }
+                    },
                 }
             } else {
                 div {

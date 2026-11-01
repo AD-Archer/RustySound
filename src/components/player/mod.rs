@@ -11,11 +11,15 @@
 //! rating, volume and the add menu are reached through Now Playing (tap the
 //! mini player).
 //!
+//! While another device is active (a sync server's room), `RemotePlayer`
+//! (`remote_sync/ui.rs`) takes the player's place, in the same strip.
+//!
 //! Perf: nothing here reads the playback position. Time labels and track
 //! fills are the leaf components in `ui::playback`.
 
 use crate::api::Song;
 use crate::components::ui::use_layout;
+use crate::components::remote_sync::{RemotePlayer, RemoteSync};
 use crate::components::AudioState;
 use dioxus::prelude::*;
 
@@ -36,10 +40,15 @@ pub fn PlayerBar() -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     // A memo, so a track change doesn't re-render the bar's parent.
     let has_song = use_memo(move || now_playing.read().is_some())();
+    // Another device is playing: its controls take this player's place.
+    let remote = use_context::<RemoteSync>();
+    let remote_on = use_memo(move || remote.view().is_some())();
 
     rsx! {
         PlaybackErrorNote {}
-        if layout.is_compact() {
+        if remote_on {
+            RemotePlayer { compact: layout.is_compact() }
+        } else if layout.is_compact() {
             if has_song {
                 CompactPlayer {}
             }
