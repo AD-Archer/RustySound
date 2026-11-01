@@ -103,6 +103,8 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "file-text" => (Stroke, r#"<path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-10Z"/><path d="M14 3.5v5h5"/><path d="M8.5 13h7M8.5 16.5h5"/>"#),
         "zap" => (Stroke, r#"<path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12Z"/>"#),
         "swatch" => (Stroke, r#"<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>"#),
+        // Ambient Mode: the four corners of a full screen.
+        "maximize" => (Stroke, r#"<path d="M8.5 3.5h-3a2 2 0 0 0-2 2v3M15.5 3.5h3a2 2 0 0 1 2 2v3M8.5 20.5h-3a2 2 0 0 1-2-2v-3M15.5 20.5h3a2 2 0 0 0 2-2v-3"/>"#),
         _ => (Stroke, r#"<circle cx="12" cy="12" r="9"/>"#),
     }
 }

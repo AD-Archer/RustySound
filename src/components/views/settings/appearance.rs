@@ -1,6 +1,7 @@
-//! Settings → Appearance: theme swatches, System/Light/Dark, custom CSS.
+//! Settings → Appearance: theme swatches, System/Light/Dark, colour from
+//! album art, custom CSS.
 
-use super::shared::{use_settings_ctx, Footnote, GroupTitle};
+use super::shared::{use_settings_ctx, Footnote, GroupTitle, SwitchRow};
 use crate::components::ui::env::{appearance_attr, stage_theme};
 use crate::components::ui::{Button, ButtonVariant, Segmented};
 use crate::components::Icon;
@@ -18,9 +19,9 @@ const APPEARANCES: [(&str, &str); 3] = [("system", "System"), ("light", "Light")
 pub(super) fn AppearanceSection() -> Element {
     let ctx = use_settings_ctx();
     let settings = ctx.settings;
-    let (theme, appearance) = {
+    let (theme, appearance, art_colors) = {
         let current = settings.read();
-        (stage_theme(&current.theme), appearance_attr(&current))
+        (stage_theme(&current.theme), appearance_attr(&current), current.art_colors)
     };
     let appearance_index = APPEARANCES
         .iter()
@@ -62,6 +63,15 @@ pub(super) fn AppearanceSection() -> Element {
             },
         }
         Footnote { "System follows your device's light or dark setting. The stage behind artwork stays dark in every mode." }
+        ul { class: "rs-list rs-list--text rs-settings-gap",
+            SwitchRow {
+                id: "art-colors".to_string(),
+                title: "Colour from album art".to_string(),
+                subtitle: "Tints Now Playing, the player and the playing song with colours from the cover. Off uses the theme's accent.".to_string(),
+                checked: art_colors,
+                on_toggle: move |on| ctx.update(|s| s.art_colors = on),
+            }
+        }
 
         GroupTitle { title: "Custom CSS".to_string() }
         div { class: "rs-settings-css",

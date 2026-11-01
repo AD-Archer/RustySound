@@ -2,7 +2,7 @@
 
 use super::actions::{is_live_song, song_key, use_player};
 use super::info::InfoPanel;
-use super::lyrics::{use_lyrics_source, LyricsAvailability, LyricsPanel};
+use super::lyrics::{use_lyrics_source, LyricsAvailability, LyricsPanel, LyricsSource};
 use super::types::{NowPlayingFocus, Panel, SongDetailsController, SongDetailsTab};
 use super::up_next::UpNextPanel;
 use crate::api::{LyricsQuery, Song};
@@ -10,9 +10,9 @@ use crate::components::ui::{IconButton, IconButtonSize, Segmented};
 use crate::components::AudioOutput;
 use dioxus::prelude::*;
 
-#[component]
-pub(super) fn NowPlayingPanels(song: Song, tab: Option<SongDetailsTab>, wide: bool) -> Element {
-    let mut controller = use_context::<SongDetailsController>();
+/// Creates the sheet's lyrics source and shares it with the Lyrics panel
+/// and ambient mode. Called once per sheet by the overlay.
+pub(super) fn use_now_playing_lyrics(song: Song) -> LyricsSource {
     // Song identity + lyrics query; unchanged by star/rating edits, so those
     // never refetch lyrics.
     // The query carries the song's server so the server provider can ask it.
@@ -22,7 +22,13 @@ pub(super) fn NowPlayingPanels(song: Song, tab: Option<SongDetailsTab>, wide: bo
         LyricsQuery::from_song_on(&song, &player.servers.read())
     ))));
     let source = use_lyrics_source(base);
-    use_context_provider(|| source);
+    use_context_provider(|| source)
+}
+
+#[component]
+pub(super) fn NowPlayingPanels(song: Song, tab: Option<SongDetailsTab>, wide: bool) -> Element {
+    let mut controller = use_context::<SongDetailsController>();
+    let source = use_context::<LyricsSource>();
 
     let live = is_live_song(&song);
     let automatic = match source.availability() {

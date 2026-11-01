@@ -601,6 +601,8 @@ pub fn AppShell() -> Element {
     );
     // Playback sync: reports, the server queue, "Continue from iPhone".
     let playback_sync = use_playback_sync_provider();
+    // Accent colours from the playing song's cover (Settings › Appearance).
+    crate::components::use_art_palette();
 
     // Mirror theme, appearance and platform onto <html> so the page background,
     // overscroll area and scrollbars follow the theme too. data-layout lives on

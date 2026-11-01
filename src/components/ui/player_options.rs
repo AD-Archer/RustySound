@@ -1,4 +1,4 @@
-//! Output, Sleep Timer, Playback Speed and Equalizer rows for the track menu, shown when
+//! Output, Sleep Timer, Playback Speed, Equalizer and Ambient Mode rows for the track menu, shown when
 //! Now Playing opens it for the playing song
 //! (`TrackMenuController::open_for_player`), under a quiet "Also playing on
 //! Mac" line while another player is playing.
@@ -8,6 +8,7 @@ use crate::components::{
     PlaybackSync, SleepTimer, SongDetailsController, EQ_AVAILABLE, PLAYBACK_SPEEDS,
     SLEEP_CHOICES,
 };
+use crate::components::ui::use_layout;
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -51,6 +52,7 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
     let eq_summary = settings.read().equalizer.summary();
     let navigation = use_context::<Navigation>();
     let song_details = use_context::<SongDetailsController>();
+    let show_shortcut = !use_layout().is_compact();
 
     rsx! {
         if let Some(other) = elsewhere {
@@ -235,6 +237,25 @@ pub fn PlayerOptions(open: PlayerMenu, radio: bool, on_done: EventHandler<()>) -
                 span { class: "rs-menu__detail", "data-testid": "track-menu-equalizer-preset", "{eq_summary}" }
                 Icon { name: "sliders".to_string(), class: "rs-ic".to_string() }
             }
+        }
+        // Ambient mode (components/ambient). The A key opens it too while
+        // Now Playing has focus; the hint shows where there's a keyboard.
+        button {
+            r#type: "button",
+            class: "rs-menu__item",
+            role: "menuitem",
+            "aria-keyshortcuts": "A",
+            "data-testid": "track-menu-ambient",
+            onclick: move |_| {
+                let mut song_details = song_details;
+                on_done.call(());
+                song_details.set_ambient(true);
+            },
+            span { class: "rs-menu__label", "Ambient Mode" }
+            if show_shortcut {
+                span { class: "rs-menu__detail", aria_hidden: "true", "A" }
+            }
+            Icon { name: "maximize".to_string(), class: "rs-ic".to_string() }
         }
     }
 }

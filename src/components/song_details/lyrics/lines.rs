@@ -52,6 +52,25 @@ fn center_line(dom_id: &str, index: usize, instant: bool) {
     let _ = document::eval(&script);
 }
 
+/// The index of the line being sung: a memo over the playback clock and the
+/// lyrics offset (a binary search per tick; readers re-render only when the
+/// line changes). `stamps` are the lines' start times, captured once, so
+/// mount the caller with a `key` per lyrics result. Shared by the Lyrics
+/// panel and ambient mode.
+pub(crate) fn use_active_line(stamps: Rc<Vec<f64>>, live: bool) -> Memo<Option<usize>> {
+    let audio = use_context::<Signal<AudioState>>();
+    let settings = use_context::<Signal<AppSettings>>();
+    let clock = use_hook(move || audio.peek().current_time);
+    use_memo(move || {
+        if live {
+            return None;
+        }
+        let offset = settings.read().lyrics_offset_ms as f64 / 1000.0;
+        let at = clock() + offset;
+        stamps.partition_point(|stamp| *stamp <= at).checked_sub(1)
+    })
+}
+
 /// Synced lines. Mount with a `key` per lyrics result: the line timestamps
 /// are captured once.
 #[component]
@@ -100,17 +119,7 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
         });
     }
 
-    let active = use_memo({
-        let stamps = stamps.clone();
-        move || {
-            if live {
-                return None;
-            }
-            let offset = settings.read().lyrics_offset_ms as f64 / 1000.0;
-            let at = clock() + offset;
-            stamps.partition_point(|stamp| *stamp <= at).checked_sub(1)
-        }
-    });
+    let active = use_active_line(stamps.clone(), live);
 
     let mut hold_until = use_signal(|| 0.0f64);
     let mut programmatic_until = use_signal(|| 0.0f64);
