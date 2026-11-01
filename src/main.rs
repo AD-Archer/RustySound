@@ -11,6 +11,10 @@ mod diagnostics;
 // The Mac menu bar item (current song, Play/Pause, Next, Previous).
 #[cfg(any(test, all(feature = "desktop", target_os = "macos")))]
 mod menu_bar;
+// Now Playing widgets (iPhone and Mac): the snapshot the widget reads and
+// the commands its buttons send.
+#[cfg(any(test, target_os = "ios", all(feature = "desktop", target_os = "macos")))]
+mod now_playing_widget;
 // iOS 27 SDK: UIScene life-cycle bridge for tao 0.34 (see the module docs).
 #[cfg(target_os = "ios")]
 mod ios_scene;

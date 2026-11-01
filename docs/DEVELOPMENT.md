@@ -39,6 +39,7 @@ just check                      # cargo check
 
 ```bash
 just bundle-apple               # macOS app, iOS app and an unsigned .ipa
+just bundle-apple-widgets       # the same with the Now Playing widgets (docs/WIDGETS.md)
 just bundle-linux
 just bundle-windows
 just bundle-android-release

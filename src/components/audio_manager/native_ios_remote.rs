@@ -533,12 +533,19 @@ extern "C" fn ios_handle_toggle_play_pause(
     _: objc::runtime::Sel,
     _: *mut Object,
 ) -> i64 {
+    ios_toggle_play_pause("toggle-play-pause");
+    0
+}
+
+/// Play/pause from the lock screen's toggle or the Now Playing widget.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_toggle_play_pause(source: &str) {
     configure_ios_audio_session();
     let paused = ios_player_is_paused();
     ios_diag_log(
         "remote.command",
         &format!(
-            "toggle-play-pause app_state={} queued_actions={} paused={}",
+            "{source} app_state={} queued_actions={} paused={}",
             ios_app_state_code(),
             ios_remote_queue_len(),
             paused
@@ -551,7 +558,6 @@ extern "C" fn ios_handle_toggle_play_pause(
         let _ = with_ios_player(|player| player.apply(serde_json::json!({ "type": "pause" })));
         push_ios_remote_action("pause");
     }
-    0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -656,38 +662,67 @@ fn ios_skip_back_press(source: &str) {
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_next(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    ios_next_track("next");
+    0
+}
+
+/// Next song from the lock screen or the Now Playing widget.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_next_track(source: &str) {
     configure_ios_audio_session();
     ios_diag_log(
         "remote.command",
         &format!(
-            "next app_state={} queued_actions={}",
+            "{source} app_state={} queued_actions={}",
             ios_app_state_code(),
             ios_remote_queue_len()
         ),
     );
     if should_ignore_duplicate_nav_action("next") {
-        return 0;
+        return;
     }
     let _ = ios_apply_immediate_transition("next", "next", "next-immediate");
-    0
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 extern "C" fn ios_handle_previous(_: &Object, _: objc::runtime::Sel, _: *mut Object) -> i64 {
+    ios_previous_track("previous");
+    0
+}
+
+/// Previous song (or restart) from the lock screen or the Now Playing widget.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_previous_track(source: &str) {
     configure_ios_audio_session();
     ios_diag_log(
         "remote.command",
         &format!(
-            "previous app_state={} queued_actions={}",
+            "{source} app_state={} queued_actions={}",
             ios_app_state_code(),
             ios_remote_queue_len()
         ),
     );
     if should_ignore_duplicate_nav_action("previous") {
-        return 0;
+        return;
     }
     ios_skip_back_press("previous-immediate");
-    0
+}
+
+/// A Now Playing widget button, delivered by `now_playing_widget::listen`
+/// (main thread). Runs the lock screen's handlers, so it works while the web
+/// view is suspended.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_handle_widget_action(action: crate::now_playing_widget::WidgetAction) {
+    use crate::now_playing_widget::WidgetAction;
+    let paused = ios_player_is_paused();
+    match action {
+        WidgetAction::TogglePlayPause => ios_toggle_play_pause("widget-toggle"),
+        WidgetAction::Play if paused => ios_toggle_play_pause("widget-play"),
+        WidgetAction::Pause if !paused => ios_toggle_play_pause("widget-pause"),
+        WidgetAction::Play | WidgetAction::Pause => {}
+        WidgetAction::Next => ios_next_track("widget-next"),
+        WidgetAction::Previous => ios_previous_track("widget-previous"),
+    }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -922,6 +957,10 @@ extern "C" fn ios_handle_did_become_active(_: &Object, _: objc::runtime::Sel, _:
         &format!("did-become-active queued_actions={}", ios_remote_queue_len()),
     );
     sync_ios_remote_runtime("did-become-active");
+    // A widget button that opened the app (pressed while it was suspended).
+    if let Some(action) = crate::now_playing_widget::take_command() {
+        ios_handle_widget_action(action);
+    }
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -1018,6 +1057,8 @@ unsafe fn register_ios_remote_targets_on_center(center: *mut Object, observer: *
 fn configure_ios_remote_commands(player: *mut Object) {
     IOS_REMOTE_INIT.call_once(|| unsafe {
         ios_diag_log("remote.init", &format!("revision={IOS_REMOTE_DIAGNOSTIC_REV}"));
+        // Now Playing widget buttons take the same paths as the lock screen.
+        crate::now_playing_widget::listen(ios_handle_widget_action);
         let cls = remote_handler_class();
         let observer: *mut Object = msg_send![cls, new];
         if observer.is_null() {
@@ -1330,7 +1371,7 @@ fn fetch_now_playing_artwork(url: String, key: String) {
     let spawned = std::thread::Builder::new()
         .name("rs-artwork".into())
         .spawn(move || {
-            let image = objc::rc::autoreleasepool(|| unsafe { load_artwork_image(&url) });
+            let image = objc::rc::autoreleasepool(|| unsafe { load_artwork_image(&url, &key) });
             let Some(image) = image else {
                 ios_diag_log("player.artwork", "failed to cache now-playing artwork");
                 return;
@@ -1380,10 +1421,11 @@ extern "C" fn install_fetched_artwork(context: *mut std::ffi::c_void) {
     }
 }
 
-/// Downloads and decodes a cover. Blocking: never call on the main thread.
-/// Returns a retained `UIImage`.
+/// Downloads and decodes a cover, and hands the bytes to the Now Playing
+/// widget under `key`. Blocking: never call on the main thread. Returns a
+/// retained `UIImage`.
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-unsafe fn load_artwork_image(artwork_url: &str) -> Option<*mut Object> {
+unsafe fn load_artwork_image(artwork_url: &str, key: &str) -> Option<*mut Object> {
     unsafe {
         let url_str = ns_string(artwork_url)?;
         let url: *mut Object = msg_send![class!(NSURL), URLWithString: url_str];
@@ -1402,6 +1444,12 @@ unsafe fn load_artwork_image(artwork_url: &str) -> Option<*mut Object> {
             return None;
         }
         let _: *mut Object = msg_send![image, retain];
+        let bytes: *const u8 = msg_send![data, bytes];
+        let length: usize = msg_send![data, length];
+        if !bytes.is_null() && length > 0 && crate::now_playing_widget::available() {
+            let id = crate::now_playing_widget::cover_id(key);
+            crate::now_playing_widget::store_cover(&id, std::slice::from_raw_parts(bytes, length));
+        }
         Some(image)
     }
 }
@@ -1466,6 +1514,7 @@ fn set_ios_now_playing_info(
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn clear_ios_now_playing_info() {
+    crate::now_playing_widget::publish(None);
     unsafe {
         let center = get_ios_now_playing_center();
         if center.is_null() {
