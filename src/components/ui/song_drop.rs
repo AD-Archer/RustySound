@@ -32,7 +32,8 @@
 
 use crate::api::{NavidromeClient, ServerConfig, Song};
 use crate::components::ui::row_gestures::row_gestures_script;
-use crate::components::ui::{KitQueue, StatusToast};
+use crate::components::ui::StatusToast;
+use crate::components::{PlayerCtx, QueuePosition};
 use dioxus::prelude::*;
 use serde::Deserialize;
 
@@ -62,7 +63,7 @@ struct DropMessage {
 pub fn use_song_drop_host() {
     let toast = use_context::<StatusToast>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let kit_queue = KitQueue::from_context();
+    let player = PlayerCtx::from_context();
     use_hook(move || {
         let mut channel = document::eval(&row_gestures_script(
             "rowGestures.setHost((message) => dioxus.send(message));",
@@ -79,7 +80,7 @@ pub fn use_song_drop_host() {
                     continue;
                 };
                 if message.queue {
-                    kit_queue.enqueue(vec![song.clone()], false);
+                    player.enqueue(vec![song.clone()], QueuePosition::End);
                     toast.show(format!("Added \"{}\" to the queue.", song.title), false);
                 } else if let Some(playlist) = message.playlist {
                     let server_id = message.server.unwrap_or_else(|| song.server_id.clone());

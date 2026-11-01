@@ -45,21 +45,29 @@ pub(crate) struct PlayerCtx {
 }
 
 pub(crate) fn use_player() -> PlayerCtx {
-    use_hook(|| PlayerCtx {
-        servers: consume_context(),
-        queue: consume_context(),
-        queue_index: consume_context(),
-        now_playing: consume_context(),
-        is_playing: consume_context::<IsPlayingSignal>().0,
-        repeat: consume_context(),
-        shuffle: consume_context::<ShuffleEnabledSignal>().0,
-        settings: consume_context(),
-        audio: consume_context(),
-        volume: consume_context::<VolumeSignal>().0,
-        position: consume_context::<PlaybackPositionSignal>().0,
-        track_menu: consume_context(),
-        toast: consume_context(),
-    })
+    use_hook(PlayerCtx::from_context)
+}
+
+impl PlayerCtx {
+    /// From the shell's contexts, outside hooks too (event handlers, the
+    /// kit's row swipe and drop host); `use_player` is the hook form.
+    pub(crate) fn from_context() -> Self {
+        Self {
+            servers: consume_context(),
+            queue: consume_context(),
+            queue_index: consume_context(),
+            now_playing: consume_context(),
+            is_playing: consume_context::<IsPlayingSignal>().0,
+            repeat: consume_context(),
+            shuffle: consume_context::<ShuffleEnabledSignal>().0,
+            settings: consume_context(),
+            audio: consume_context(),
+            volume: consume_context::<VolumeSignal>().0,
+            position: consume_context::<PlaybackPositionSignal>().0,
+            track_menu: consume_context(),
+            toast: consume_context(),
+        }
+    }
 }
 
 /// Where [`PlayerCtx::enqueue`] puts songs.
@@ -144,7 +152,12 @@ enum NextStep {
 
 /// Repeat-one restarts, the end of the queue wraps (repeat all), grows a
 /// similar queue (`grows`, asked only at the end with repeat off), or stops.
-fn next_step(index: usize, len: usize, repeat: RepeatMode, grows: impl FnOnce() -> bool) -> NextStep {
+fn next_step(
+    index: usize,
+    len: usize,
+    repeat: RepeatMode,
+    grows: impl FnOnce() -> bool,
+) -> NextStep {
     if repeat == RepeatMode::One {
         NextStep::Restart
     } else if index + 1 < len {
@@ -198,8 +211,7 @@ impl PlayerCtx {
     /// files this device can't decode never join the queue. Call from
     /// handlers or tasks, never from render (it checks the filesystem).
     fn playable(self, songs: Vec<Song>, start: usize) -> Result<(Vec<Song>, usize), String> {
-        let offline =
-            self.settings.peek().offline_mode || crate::cache_service::is_offline_mode();
+        let offline = self.settings.peek().offline_mode || crate::cache_service::is_offline_mode();
         keep_playable(songs, start, offline, |song| {
             crate::local_music::is_playable(song)
                 && (!offline
@@ -279,7 +291,10 @@ impl PlayerCtx {
 
     pub fn toggle_play(&mut self) {
         let current = *self.is_playing.peek();
-        ios_diag_log("ui.control", &format!("source=play-pause current={current} next={}", !current));
+        ios_diag_log(
+            "ui.control",
+            &format!("source=play-pause current={current} next={}", !current),
+        );
         self.is_playing.set(!current);
     }
 
@@ -504,7 +519,11 @@ impl PlayerCtx {
                 apply_song_change(item, &change);
             }
         });
-        let playing = self.now_playing.peek().as_ref().is_some_and(|song| change.matches(song));
+        let playing = self
+            .now_playing
+            .peek()
+            .as_ref()
+            .is_some_and(|song| change.matches(song));
         if playing {
             self.now_playing.with_mut(|current| {
                 if let Some(song) = current.as_mut() {
@@ -609,7 +628,10 @@ pub(crate) fn format_badge(song: &Song) -> Option<String> {
                 .and_then(|ct| ct.split('/').nth(1))
                 .map(|s| s.trim_start_matches("x-").to_ascii_uppercase())
         })?;
-    let lossless = matches!(suffix.as_str(), "FLAC" | "ALAC" | "WAV" | "AIFF" | "APE" | "WV" | "DSF");
+    let lossless = matches!(
+        suffix.as_str(),
+        "FLAC" | "ALAC" | "WAV" | "AIFF" | "APE" | "WV" | "DSF"
+    );
     match song.bitrate.filter(|b| *b > 0) {
         Some(kbps) if !lossless => Some(format!("{suffix} {kbps}")),
         _ => Some(suffix),
@@ -667,8 +689,14 @@ mod tests {
 
     #[test]
     fn playable_errors_say_why() {
-        assert_eq!(keep_playable(Vec::new(), 0, false, |_| true).unwrap_err(), NOTHING_TO_PLAY);
-        assert_eq!(keep_playable(vec![song("a")], 0, true, |_| false).unwrap_err(), OFFLINE_NOTHING);
+        assert_eq!(
+            keep_playable(Vec::new(), 0, false, |_| true).unwrap_err(),
+            NOTHING_TO_PLAY
+        );
+        assert_eq!(
+            keep_playable(vec![song("a")], 0, true, |_| false).unwrap_err(),
+            OFFLINE_NOTHING
+        );
         let online = keep_playable(vec![song("a")], 0, false, |_| false).unwrap_err();
         assert!(online.starts_with(crate::local_music::NOT_PLAYABLE));
     }
@@ -680,9 +708,15 @@ mod tests {
         assert_eq!(next_step(1, 3, RepeatMode::One, never), NextStep::Restart);
         assert_eq!(next_step(2, 3, RepeatMode::All, never), NextStep::Play(0));
         assert_eq!(next_step(2, 3, RepeatMode::Off, never), NextStep::Stop);
-        assert_eq!(next_step(0, 1, RepeatMode::Off, || true), NextStep::GrowSimilar);
+        assert_eq!(
+            next_step(0, 1, RepeatMode::Off, || true),
+            NextStep::GrowSimilar
+        );
         // Growth is only considered with repeat off at the end.
-        assert_eq!(next_step(0, 1, RepeatMode::All, || panic!("not asked")), NextStep::Play(0));
+        assert_eq!(
+            next_step(0, 1, RepeatMode::All, || panic!("not asked")),
+            NextStep::Play(0)
+        );
         assert_eq!(next_step(0, 0, RepeatMode::All, never), NextStep::Stop);
     }
 
@@ -697,8 +731,16 @@ mod tests {
     fn moving_entries_keeps_the_playing_one() {
         // Playing entry 2.
         assert_eq!(index_after_move(2, 0, 2), 0, "the playing entry moves");
-        assert_eq!(index_after_move(0, 3, 2), 1, "an earlier entry moves past it");
-        assert_eq!(index_after_move(4, 1, 2), 3, "a later entry moves before it");
+        assert_eq!(
+            index_after_move(0, 3, 2),
+            1,
+            "an earlier entry moves past it"
+        );
+        assert_eq!(
+            index_after_move(4, 1, 2),
+            3,
+            "a later entry moves before it"
+        );
         assert_eq!(index_after_move(3, 4, 2), 2, "after it, untouched");
         assert_eq!(index_after_move(0, 1, 2), 2, "before it, untouched");
     }
@@ -710,7 +752,10 @@ mod tests {
         change.starred = Some(true);
         apply_song_change(&mut target, &change);
         assert!(target.starred.is_some());
-        assert_eq!(target.user_rating, None, "a favourite leaves the rating alone");
+        assert_eq!(
+            target.user_rating, None,
+            "a favourite leaves the rating alone"
+        );
 
         change.starred = None;
         change.rating = Some(4);

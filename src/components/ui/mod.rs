@@ -82,12 +82,12 @@ pub use skeleton::Skeleton;
 pub use states::{ErrorState, GridSkeleton, LoadMore, NoServers, PageFoot};
 pub use stage::Stage;
 pub use status_toast::{StatusToast, StatusToastHost};
-pub use story::{Story, StoryCard, StoryProgress};
+pub use story::{Story, StoryCard};
 pub use switch::Switch;
 pub use tab_bar::TabBar;
 pub use tiles::{AlbumTile, ArtistTile};
 pub use track_menu::{
-    KitQueue, SongChange, TrackMenu, TrackMenuController, TrackMenuRemove, TrackMenuRequest,
+    SongChange, TrackMenu, TrackMenuController, TrackMenuRemove, TrackMenuRequest,
 };
 pub use track_menu_host::TrackMenuHost;
 pub use track_row::{SongRow, TrackRow};

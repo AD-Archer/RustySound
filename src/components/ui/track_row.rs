@@ -9,10 +9,9 @@ use crate::components::ui::list_row::{is_menu_key, menu_point, more_button_point
 use crate::components::ui::row_gestures::help_id;
 use crate::components::ui::song_drop::carry_song;
 use crate::components::ui::{
-    Artwork, KitQueue, RowGestureListId, RowRemoveRequest, RowSwipe, TrackMenuController,
-    TrackMenuRemove,
+    Artwork, RowGestureListId, RowRemoveRequest, RowSwipe, TrackMenuController, TrackMenuRemove,
 };
-use crate::components::{AddIntent, AddMenuController, Icon};
+use crate::components::{AddIntent, AddMenuController, Icon, PlayerCtx, QueuePosition};
 use dioxus::prelude::*;
 
 /// One song in a list (`li`), for use inside an `InsetList`.
@@ -141,7 +140,9 @@ pub fn TrackRow(
                             "data-testid": "row-swipe-next",
                             onclick: {
                                 let song = song.clone();
-                                move |_| KitQueue::from_context().enqueue(vec![song.clone()], true)
+                                move |_| {
+                                    PlayerCtx::from_context().enqueue(vec![song.clone()], QueuePosition::Next);
+                                }
                             },
                             Icon { name: "play-next".to_string(), class: "rs-ic".to_string() }
                             span { "Play Next" }

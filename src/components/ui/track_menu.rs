@@ -21,7 +21,8 @@ use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{
     can_share, quick_listen_id, share_link, ui::StatusToast, AddIntent, AddMenuController, AppView,
-    Icon, IsPlayingSignal, Navigation, Preview, ShareTarget, SongDetailsController, SongDetailsTab,
+    Icon, IsPlayingSignal, Navigation, PlayerCtx, Preview, QueuePosition, ShareTarget,
+    SongDetailsController, SongDetailsTab,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -138,59 +139,6 @@ impl TrackMenuController {
     }
 }
 
-/// The queue signals the kit's queue actions write: the track menu's Play
-/// Next / Add to Queue, a row's swipe Play Next and a carry onto the queue.
-/// Chunk B's `PlayerCtx::enqueue` is meant to replace it.
-#[derive(Clone, Copy)]
-pub struct KitQueue {
-    queue: Signal<Vec<Song>>,
-    queue_index: Signal<usize>,
-    now_playing: Signal<Option<Song>>,
-    is_playing: Signal<bool>,
-}
-
-impl KitQueue {
-    /// From the shell's contexts; call in a component or its handlers.
-    pub fn from_context() -> Self {
-        Self {
-            queue: consume_context(),
-            queue_index: consume_context(),
-            now_playing: consume_context(),
-            is_playing: consume_context::<IsPlayingSignal>().0,
-        }
-    }
-
-    /// Puts `songs` after the current song (`next`) or at the end. With
-    /// nothing playing and an empty queue they become the queue and play.
-    pub fn enqueue(self, songs: Vec<Song>, next: bool) {
-        let songs = normalize_manual_queue_songs(songs);
-        let Self {
-            mut queue,
-            mut queue_index,
-            mut now_playing,
-            mut is_playing,
-        } = self;
-        if now_playing.peek().is_none() && queue.peek().is_empty() {
-            let first = songs.first().cloned();
-            queue.set(songs);
-            queue_index.set(0);
-            now_playing.set(first);
-            is_playing.set(true);
-        } else {
-            let at = (*queue_index.peek() + 1).min(queue.peek().len());
-            queue.with_mut(|items| {
-                if next {
-                    let tail = items.split_off(at);
-                    items.extend(songs);
-                    items.extend(tail);
-                } else {
-                    items.extend(songs);
-                }
-            });
-        }
-    }
-}
-
 fn update_song_everywhere(
     mut queue: Signal<Vec<Song>>,
     mut now_playing: Signal<Option<Song>>,
@@ -277,9 +225,15 @@ pub fn TrackMenu(
         .unwrap_or(false);
     let can_download = !cfg!(target_arch = "wasm32") && !radio && !local;
     let is_downloaded = downloaded().unwrap_or(false);
-    let can_quick_listen = player.is_none() && !radio && !local && !app_settings.read().offline_mode;
+    let can_quick_listen =
+        player.is_none() && !radio && !local && !app_settings.read().offline_mode;
     let quick_listening = (preview.current)().as_deref() == Some(quick_listen_id(&song).as_str());
-    let can_share_song = !radio && can_share(&servers.read(), &song.server_id, app_settings.read().offline_mode);
+    let can_share_song = !radio
+        && can_share(
+            &servers.read(),
+            &song.server_id,
+            app_settings.read().offline_mode,
+        );
 
     // ---- Quick Listen ---------------------------------------------------
     // Starts inside the click (the page keeps the user gesture for play()).
@@ -294,14 +248,16 @@ pub fn TrackMenu(
     // ---- Queue actions --------------------------------------------------
     let enqueue = {
         let song = song.clone();
-        let kit_queue = KitQueue {
-            queue,
-            queue_index,
-            now_playing,
-            is_playing,
-        };
+        let player = PlayerCtx::from_context();
         move |next: bool| {
-            kit_queue.enqueue(vec![song.clone()], next);
+            player.enqueue(
+                vec![song.clone()],
+                if next {
+                    QueuePosition::Next
+                } else {
+                    QueuePosition::End
+                },
+            );
             controller.close();
         }
     };
@@ -332,7 +288,10 @@ pub fn TrackMenu(
                 (queue, queue_index, now_playing, is_playing);
             spawn(async move {
                 let client = MusicClient::new(server);
-                let mut similar = client.get_similar_songs(&seed.id, 50).await.unwrap_or_default();
+                let mut similar = client
+                    .get_similar_songs(&seed.id, 50)
+                    .await
+                    .unwrap_or_default();
                 if similar.is_empty() {
                     similar = client.get_random_songs(50).await.unwrap_or_default();
                 }
