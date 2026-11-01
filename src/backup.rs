@@ -147,7 +147,8 @@ fn settings_area(field: &str) -> &'static str {
         "equalizer" => "Equalizer",
         "discover_saved_mix_playlists" => "Saved mixes",
         f if f.starts_with("lyrics_") => "Lyrics",
-        "theme" | "appearance" | "custom_css" => "Appearance",
+        "theme" | "appearance" | "custom_css" | "art_colors" => "Appearance",
+        f if f.starts_with("ambient_") => "Appearance",
         f if f.starts_with("lastfm_") || f.starts_with("listenbrainz_") || f.starts_with("discovery_") => "Discovery",
         f if f.starts_with("cache_")
             || f.contains("download")
