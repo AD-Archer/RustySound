@@ -3345,13 +3345,14 @@ button.rs-bar__art {
   to { opacity: 1; }
 }
 
-/* ---- Android TV nav bar: the sidebar's places along the top ----------- */
+/* ---- Android TV nav bar: the sidebar's places as a row of cards -------- */
 
 .rs-tv-nav {
   display: flex;
-  gap: 10px;
-  padding: 20px 32px 12px;
+  gap: 14px;
+  padding: 18px 32px 14px;
   overflow-x: auto;
+  scroll-padding-inline: 32px;
   scrollbar-width: none;
   /* Part of the stage, like the Home Cover Flow beneath it. */
   background: var(--stage-base);
@@ -3359,24 +3360,26 @@ button.rs-bar__art {
 
 .rs-tv-nav__item {
   flex: none;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 8px;
-  height: 40px;
-  padding: 0 16px;
+  width: 128px;
+  height: 80px;
   border: 0;
-  border-radius: 20px;
+  border-radius: 16px;
   background: var(--stage-surface, rgba(255, 255, 255, .06));
   color: var(--stage-ink);
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 
 .rs-tv-nav__item .rs-ic {
-  width: 18px;
-  height: 18px;
+  width: 26px;
+  height: 26px;
 }
 
 .rs-tv-nav__item--on {
@@ -3389,6 +3392,12 @@ button.rs-bar__art {
   transform: scale(1.08);
   background: var(--accent);
   color: #fff;
+}
+
+/* TV: menus open with a long press of OK, so the "…" buttons go. */
+[data-tv] button[aria-label^="More for"],
+[data-tv] button[aria-label^="More actions"] {
+  display: none;
 }
 
 @media (prefers-reduced-motion: reduce) {

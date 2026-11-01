@@ -88,13 +88,51 @@
       const r = el.getBoundingClientRect();
       return r.width > 0 && r.height > 0 && getComputedStyle(el).visibility !== "hidden";
     };
+    // The remote's OK arrives as Enter, which a web view doesn't turn into a
+    // click on its own: OK clicks the focused control when released, and
+    // held for half a second it opens the control's menu instead (what a
+    // long press or right click does), so cards need no "…" button.
+    const HOLD_MS = 500;
+    let okAt = 0;
+    let okHeld = false;
+    const focused = () => (document.activeElement && document.activeElement !== document.body ? document.activeElement : null);
+    const openMenu = (el) => {
+      const target = el.closest("[data-long-press]") || el;
+      const r = target.getBoundingClientRect();
+      target.dispatchEvent(
+        new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + r.width / 2, clientY: r.top + r.height / 2 }),
+      );
+    };
+    document.addEventListener(
+      "keyup",
+      (e) => {
+        if (e.key !== "Enter" || !okAt) return;
+        const active = focused();
+        const held = okHeld;
+        okAt = 0;
+        okHeld = false;
+        if (!active || editsText(active)) return;
+        e.preventDefault();
+        if (!held) active.click();
+      },
+      true,
+    );
     document.addEventListener(
       "keydown",
       (e) => {
-        const active = document.activeElement && document.activeElement !== document.body ? document.activeElement : null;
-        if (e.key === "Enter" && active && active.matches('[role="button"], [tabindex]:not(a, button, input, select, textarea)')) {
+        const active = focused();
+        if (e.key === "Enter" && active && !editsText(active)) {
           e.preventDefault();
-          active.click();
+          if (!okAt) {
+            okAt = performance.now();
+            return;
+          }
+          // Held: repeats go nowhere else; past HOLD_MS the menu opens once.
+          e.stopPropagation();
+          if (!okHeld && performance.now() - okAt > HOLD_MS) {
+            okHeld = true;
+            openMenu(active);
+          }
           return;
         }
         const dir = DIRS[e.key];

@@ -1,6 +1,7 @@
 package app.adarcher.rustysound.tv;
 
 import android.app.Activity;
+import android.graphics.Color;
 import android.os.Bundle;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
@@ -20,7 +21,11 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        // Inspectable over adb (chrome://inspect), like any debug build.
+        WebView.setWebContentsDebuggingEnabled(true);
         web = new WebView(this);
+        // The stage's near-black while the web app loads, not a white flash.
+        web.setBackgroundColor(Color.parseColor("#0B0B0E"));
         WebSettings settings = web.getSettings();
         settings.setJavaScriptEnabled(true);
         settings.setDomStorageEnabled(true);

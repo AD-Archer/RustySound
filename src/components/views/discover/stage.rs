@@ -49,7 +49,11 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
     let data = use_context::<HomeData>();
     let navigation = use_context::<Navigation>();
     let servers = use_servers();
-    let cover_px = if wide { COVER_WIDE } else { COVER_COMPACT };
+    // TV: smaller covers, so the shelves below peek into view.
+    let tv = crate::components::ui::env::is_android_tv();
+    let cover_px = if tv { COVER_COMPACT } else if wide { COVER_WIDE } else { COVER_COMPACT };
+    let player = use_player();
+    let toast = use_context::<StatusToast>();
 
     // Recently played; a library nobody has played yet shows its newest albums.
     let picks = use_memo(move || {
@@ -67,9 +71,15 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
             .map(|albums| flow_items(albums, &servers.read(), cover_px))
     });
 
+    // The centre cover: opens its album; on TV, OK plays it instead (there
+    // the round play button is gone).
     let open_album = move |index: usize| {
         let picked = picks.peek().as_ref().and_then(|list| list.get(index).cloned());
         if let Some(pick) = picked {
+            if tv {
+                super::actions::play_album(player, toast, pick.album);
+                return;
+            }
             navigation.navigate_to(AppView::AlbumDetailView {
                 album_id: pick.album.id,
                 server_id: pick.album.server_id,
@@ -111,7 +121,9 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
                                 centre.set(index);
                             },
                         }
-                        CentrePlay { picks }
+                        if !tv {
+                            CentrePlay { picks }
+                        }
                     }
                 },
             }
