@@ -449,6 +449,54 @@ pub(crate) fn spawn_shuffle_queue(
     });
 }
 
+/// A gapless (or crossfaded) start of the next song by the audio backend
+/// (`gapless.rs`): scrobbles the finished song, then moves the queue on to
+/// `next_id` without loading anything. `last_src` is set first, so the
+/// controller's source effect sees the song as loaded already. Nothing moves
+/// when the controller has followed the player already (iOS syncs the song
+/// id) or the user picked another song meanwhile (that load replaces it).
+#[allow(clippy::too_many_arguments)]
+fn apply_gapless_handover(
+    finished_id: &str,
+    next_id: &str,
+    queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut last_src: Signal<Option<String>>,
+    preview: bool,
+    servers: &[ServerConfig],
+    resolve: impl Fn(&Song) -> Option<String>,
+) {
+    let (finished, target) = {
+        let queue_list = queue.peek();
+        let finished = queue_list
+            .iter()
+            .find(|song| song.id == finished_id)
+            .cloned()
+            .or_else(|| now_playing.peek().clone().filter(|song| song.id == finished_id));
+        let idx = *queue_index.peek();
+        let target = Some(idx + 1)
+            .filter(|&i| queue_list.get(i).is_some_and(|song| song.id == next_id))
+            .or_else(|| queue_list.iter().position(|song| song.id == next_id))
+            .map(|i| (i, queue_list[i].clone()));
+        (finished, target)
+    };
+    if !preview {
+        if let Some(song) = finished.as_ref() {
+            scrobble_song(servers, song, true);
+        }
+    }
+    let current_id = now_playing.peek().as_ref().map(|song| song.id.clone());
+    if current_id.as_deref() != Some(finished_id) {
+        return;
+    }
+    if let Some((index, song)) = target {
+        last_src.set(resolve(&song));
+        queue_index.set(index);
+        now_playing.set(Some(song));
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
     if song.server_name == "Radio" {

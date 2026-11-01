@@ -95,21 +95,50 @@ pub fn play_song(
     is_playing.set(true);
 }
 
+/// The current song's levelling multiplier (`levelling.rs`), as f64 bits.
+/// Every output volume write goes through it, so `VolumeSignal` and the
+/// fades keep working in the user's scale.
+static LEVELLING_GAIN: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0x3FF0_0000_0000_0000); // 1.0
+
+pub fn levelling_gain_now() -> f64 {
+    f64::from_bits(LEVELLING_GAIN.load(std::sync::atomic::Ordering::Relaxed))
+}
+
+pub fn set_levelling_gain(gain: f64) {
+    let gain = if gain.is_finite() && gain > 0.0 { gain } else { 1.0 };
+    LEVELLING_GAIN.store(gain.to_bits(), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The element/player volume for a user volume and a levelling multiplier.
+pub fn levelled_volume(user: f64, gain: f64) -> f64 {
+    (user * gain).clamp(0.0, 1.0)
+}
+
 /// Sets the output volume directly, without touching `VolumeSignal` (fades:
-/// the sleep timer and the preview's duck). The next volume change or track
+/// the sleep timer and the preview's duck). `value` is in the user's scale;
+/// the levelling multiplier is applied here. The next volume change or track
 /// load puts the setting back.
-#[cfg(target_arch = "wasm32")]
 pub fn set_output_volume(value: f64) {
-    if let Some(audio) = get_or_create_audio_element() {
-        audio.set_volume(value.clamp(0.0, 1.0));
-    }
+    apply_output_volume(value, 0);
+}
+
+/// Like `set_output_volume`, ramped over `ramp_ms` (no click when the
+/// levelling changes mid-song). iOS and Windows set it at once.
+#[cfg(target_arch = "wasm32")]
+pub fn apply_output_volume(value: f64, ramp_ms: u64) {
+    let output = levelled_volume(value.clamp(0.0, 1.0), levelling_gain_now());
+    let _ = web_deck_call("setVolume", &[output.into(), (ramp_ms as f64).into()]);
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-pub fn set_output_volume(value: f64) {
+pub fn apply_output_volume(value: f64, ramp_ms: u64) {
+    let user = value.clamp(0.0, 1.0);
     native_audio_command(serde_json::json!({
         "type": "volume",
-        "value": value.clamp(0.0, 1.0),
+        "value": levelled_volume(user, levelling_gain_now()),
+        "user": user,
+        "ramp_ms": ramp_ms,
     }));
 }
 
@@ -158,6 +187,8 @@ pub fn set_playback_rate(rate: f64) {
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 pub fn set_stop_after_current(on: bool) {
     IOS_STOP_AFTER_CURRENT.store(on, std::sync::atomic::Ordering::SeqCst);
+    // No next song waiting in the queue player while it's set (gapless).
+    let _ = with_ios_player(|player| player.sync_next_item());
 }
 
 #[cfg(not(all(not(target_arch = "wasm32"), target_os = "ios")))]

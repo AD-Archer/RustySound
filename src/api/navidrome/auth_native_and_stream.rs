@@ -283,6 +283,7 @@ impl NavidromeClient {
                 genre,
                 server_id: self.server.id.clone(),
                 server_name: self.server.name.clone(),
+                replay_gain: None,
                 queue_meta: None,
             };
             normalize_song_cover_art(&mut song);

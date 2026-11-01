@@ -114,8 +114,32 @@ pub struct Song {
     pub server_id: String,
     #[serde(default)]
     pub server_name: String,
+    /// OpenSubsonic `replayGain`, for volume levelling. `None` when the
+    /// server sends none (plain Subsonic, untagged files).
+    #[serde(default, alias = "replayGain", skip_serializing_if = "Option::is_none")]
+    pub replay_gain: Option<ReplayGain>,
     #[serde(skip)]
     pub queue_meta: Option<QueueSongMeta>,
+}
+
+/// OpenSubsonic `replayGain`: gains in dB, peaks as linear sample peaks
+/// (1.0 = full scale). Every field is optional on the wire.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ReplayGain {
+    #[serde(default, alias = "trackGain")]
+    pub track_gain: Option<f64>,
+    #[serde(default, alias = "albumGain")]
+    pub album_gain: Option<f64>,
+    #[serde(default, alias = "trackPeak")]
+    pub track_peak: Option<f64>,
+    #[serde(default, alias = "albumPeak")]
+    pub album_peak: Option<f64>,
+    /// Gain the decoder already applies (Opus output gain). Not added again.
+    #[serde(default, alias = "baseGain")]
+    pub base_gain: Option<f64>,
+    /// The server's gain for files without track or album gain.
+    #[serde(default, alias = "fallbackGain")]
+    pub fallback_gain: Option<f64>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

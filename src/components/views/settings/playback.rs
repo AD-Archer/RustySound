@@ -1,12 +1,56 @@
-//! Settings → Playback: default volume, bookmarks, queue sync, Offline Mode.
+//! Settings → Playback: default volume, gapless, crossfade, volume levelling,
+//! bookmarks, queue sync, Offline Mode.
 //!
-//! Crossfade and Replay Gain are hidden on purpose: no audio backend ever used
-//! them. Their `AppSettings` fields stay so old settings files still load.
+//! Crossfade needs two players, so the iPhone app (one AVQueuePlayer) hides
+//! it and plays gapless instead. The Windows player has neither yet. The old
+//! `replay_gain` switch is unused since `volume_levelling`; the field stays so
+//! old settings files still load.
 
-use super::shared::{use_settings_ctx, Footnote, GroupTitle, NumberRow, SwitchRow};
+use super::shared::{use_settings_ctx, Footnote, GroupTitle, NumberRow, SelectRow, SwitchRow};
 use crate::components::ui::{ProgressTrack, TrackVariant};
-use crate::components::{Icon, VolumeSignal};
+use crate::components::{Icon, VolumeSignal, CROSSFADE_MAX_SECS, CROSSFADE_MIN_SECS};
+use crate::db::VolumeLevelling;
 use dioxus::prelude::*;
+
+/// Gapless needs the audio deck (Mac, web) or AVQueuePlayer (iPhone).
+const GAPLESS_AVAILABLE: bool = !cfg!(all(not(target_arch = "wasm32"), target_os = "windows"));
+/// The iPhone app has one native player: no crossfade there.
+const CROSSFADE_AVAILABLE: bool =
+    GAPLESS_AVAILABLE && !cfg!(all(not(target_arch = "wasm32"), target_os = "ios"));
+
+const LEVELLING_CHOICES: [(VolumeLevelling, &str, &str); 4] = [
+    (VolumeLevelling::Auto, "auto", "Auto"),
+    (VolumeLevelling::Album, "album", "Album"),
+    (VolumeLevelling::Track, "track", "Track"),
+    (VolumeLevelling::Off, "off", "Off"),
+];
+
+const PREAMP_CHOICES: [f64; 5] = [-6.0, -3.0, 0.0, 3.0, 6.0];
+
+fn levelling_key(mode: VolumeLevelling) -> &'static str {
+    LEVELLING_CHOICES
+        .iter()
+        .find(|(m, _, _)| *m == mode)
+        .map(|(_, key, _)| *key)
+        .unwrap_or("auto")
+}
+
+fn parse_levelling(key: &str) -> VolumeLevelling {
+    LEVELLING_CHOICES
+        .iter()
+        .find(|(_, k, _)| *k == key)
+        .map(|(mode, _, _)| *mode)
+        .unwrap_or_default()
+}
+
+/// "+3 dB", "0 dB", "-6 dB".
+fn preamp_label(db: f64) -> String {
+    if db > 0.0 {
+        format!("+{db:.0} dB")
+    } else {
+        format!("{db:.0} dB")
+    }
+}
 
 #[component]
 pub(super) fn PlaybackSection() -> Element {
@@ -27,6 +71,13 @@ pub(super) fn PlaybackSection() -> Element {
     let limit = settings.bookmark_limit as i64;
     let offline = settings.offline_mode;
     let queue_sync = settings.queue_sync_enabled;
+    let gapless = settings.gapless_playback;
+    let crossfade = settings.crossfade_enabled && CROSSFADE_AVAILABLE;
+    let crossfade_secs = settings
+        .crossfade_duration
+        .clamp(CROSSFADE_MIN_SECS, CROSSFADE_MAX_SECS) as i64;
+    let levelling = settings.volume_levelling;
+    let preamp = settings.replay_gain_preamp_db;
     drop(settings);
 
     let mut set_volume = move |value: f64| volume.set((value / 100.0).clamp(0.0, 1.0));
@@ -50,6 +101,71 @@ pub(super) fn PlaybackSection() -> Element {
                         on_commit: move |v| set_volume(v),
                     }
                     span { class: "rs-row__detail rs-settings-volume__value", "{percent:.0}%" }
+                }
+            }
+        }
+
+        if GAPLESS_AVAILABLE {
+            GroupTitle { title: "Transitions".to_string() }
+            ul { class: "rs-list rs-list--text",
+                SwitchRow {
+                    id: "gapless-playback".to_string(),
+                    title: "Gapless playback".to_string(),
+                    subtitle: "Start the next song the moment this one ends.".to_string(),
+                    checked: gapless,
+                    on_toggle: move |on| ctx.update(|s| s.gapless_playback = on),
+                }
+                if CROSSFADE_AVAILABLE {
+                    SwitchRow {
+                        id: "crossfade".to_string(),
+                        title: "Crossfade".to_string(),
+                        subtitle: "Fade each song into the next. Songs from the same album and radio play gapless instead.".to_string(),
+                        checked: crossfade,
+                        on_toggle: move |on| ctx.update(|s| s.crossfade_enabled = on),
+                    }
+                    if crossfade {
+                        NumberRow {
+                            id: "crossfade-duration".to_string(),
+                            title: "Crossfade length".to_string(),
+                            value: crossfade_secs,
+                            min: CROSSFADE_MIN_SECS as i64,
+                            max: CROSSFADE_MAX_SECS as i64,
+                            unit: "seconds".to_string(),
+                            on_commit: move |v: i64| ctx.update(|s| s.crossfade_duration = v as u32),
+                        }
+                    }
+                }
+            }
+        }
+
+        GroupTitle { title: "Volume Levelling".to_string() }
+        ul { class: "rs-list rs-list--text",
+            SelectRow {
+                id: "volume-levelling".to_string(),
+                title: "Volume levelling".to_string(),
+                subtitle: "Plays songs at a similar loudness, from the server's ReplayGain tags. Auto keeps an album's own dynamics.".to_string(),
+                value: levelling_key(levelling).to_string(),
+                options: LEVELLING_CHOICES
+                    .iter()
+                    .map(|(_, key, label)| (key.to_string(), label.to_string()))
+                    .collect::<Vec<_>>(),
+                on_change: move |v: String| ctx.update(|s| s.volume_levelling = parse_levelling(&v)),
+            }
+            if levelling != VolumeLevelling::Off {
+                SelectRow {
+                    id: "replay-gain-preamp".to_string(),
+                    title: "Pre-amp".to_string(),
+                    subtitle: "Added to every song's gain. Peaks are never pushed past full scale.".to_string(),
+                    value: format!("{preamp:.0}"),
+                    options: PREAMP_CHOICES
+                        .iter()
+                        .map(|db| (format!("{db:.0}"), preamp_label(*db)))
+                        .collect::<Vec<_>>(),
+                    on_change: move |v: String| {
+                        if let Ok(db) = v.parse::<f64>() {
+                            ctx.update(|s| s.replay_gain_preamp_db = db);
+                        }
+                    },
                 }
             }
         }

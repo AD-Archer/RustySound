@@ -17,7 +17,7 @@
 //     POST [/t/<tag>]/__mock/now-playing  seed another player: { id?, playerName, state? }
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { buildLibrary, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
+import { buildLibrary, hashString, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
 import { coverPng, STREAM_CAP_SECONDS, wavLength, wavSlice } from "./media";
 
 const PORT = Number(process.env.MOCK_PORT ?? 4533);
@@ -186,8 +186,26 @@ function songJson(s: SongRec) {
     channelCount: 1,
     samplingRate: 11025,
     bitDepth: 16,
-    replayGain: { trackGain: -6.2, albumGain: -6.0, trackPeak: 0.9, albumPeak: 0.95 },
+    replayGain: replayGainFor(s, album),
   });
+}
+
+/**
+ * OpenSubsonic `replayGain`, varied per song (from a hash, so the library itself doesn't change):
+ * track gains of -2 to -11 dB, one album gain per album, peaks of 0.6 to 0.99. About one song in
+ * seven is untagged (no `replayGain`), except on the known album, whose songs are all tagged.
+ */
+function replayGainFor(s: SongRec, album: AlbumRec) {
+  const h = hashString(`${s.id}:rg`);
+  if (h % 7 === 0 && album.name !== KNOWN.artistAlbum) return undefined;
+  const ha = hashString(`${album.id}:rg`);
+  const trackPeak = 0.6 + ((h >>> 8) % 40) / 100;
+  return {
+    trackGain: -(2 + (h % 90) / 10),
+    albumGain: -(3 + (ha % 60) / 10),
+    trackPeak,
+    albumPeak: Math.max(trackPeak, 0.8 + ((ha >>> 8) % 20) / 100),
+  };
 }
 
 function albumStats(a: AlbumRec) {

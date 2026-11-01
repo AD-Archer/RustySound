@@ -14,6 +14,8 @@
         let mut last_bookmark = last_bookmark.clone();
         let mut audio_state = audio_state.clone();
         let preview_playback = preview_playback.clone();
+        let last_src = last_src.clone();
+        let volume = volume.clone();
 
         use_effect(move || {
             let Some(_audio) = get_or_create_audio_element() else {
@@ -87,6 +89,7 @@
                 let mut repeat_one_replayed_song: Option<String> = None;
                 let mut paused_streak: u8 = 0;
                 let mut playing_streak: u8 = 0;
+                let mut armer = DeckArmer::default();
 
                 loop {
                     gloo_timers::future::TimeoutFuture::new(200).await;
@@ -151,6 +154,48 @@
                                     }
                                 }
                             }
+                        }
+                    }
+
+                    // Gapless: the deck has already started the next song.
+                    if let Some((finished_id, next_id)) = web_deck_take_handover() {
+                        let servers_snapshot = servers.peek().clone();
+                        apply_gapless_handover(
+                            &finished_id,
+                            &next_id,
+                            queue,
+                            queue_index,
+                            now_playing,
+                            last_src,
+                            *preview_playback.peek(),
+                            &servers_snapshot,
+                            |song| resolve_stream_url(song, &servers_snapshot),
+                        );
+                        continue;
+                    }
+
+                    // Near the end, arm the standby element with the next song.
+                    armer.forget_unless_for(now_playing.peek().as_ref().map(|s| s.id.as_str()));
+                    let lead = preload_lead_secs(&app_settings.peek());
+                    if !paused
+                        && !*preview_playback.peek()
+                        && *sleep_timer.mode.peek() != SleepMode::EndOfTrack
+                        && should_preload(time, dur, lead)
+                    {
+                        if let Some(current) = now_playing.peek().clone() {
+                            let servers_snapshot = servers.peek().clone();
+                            let wanted = plan_next_track(
+                                &app_settings.peek(),
+                                &queue.peek(),
+                                *queue_index.peek(),
+                                *repeat_mode.peek(),
+                                &current,
+                            )
+                            .and_then(|next| {
+                                let src = resolve_stream_url(&next.song, &servers_snapshot)?;
+                                Some(DeckArm::new(next, &current, src, *volume.peek()))
+                            });
+                            armer.sync(wanted, web_deck_arm);
                         }
                     }
 

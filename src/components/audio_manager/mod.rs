@@ -26,10 +26,15 @@ include!("controller_web.rs");
 // Public playback utility API.
 include!("playback_api.rs");
 
-// Playback extras: speed, sleep timer and 30-second previews.
+// Playback extras: speed, sleep timer, 30-second previews, gapless and
+// crossfade decisions, and volume levelling.
+mod gapless;
+mod levelling;
 mod playback_speed;
 mod preview;
 mod sleep_timer;
+pub use gapless::*;
+pub use levelling::*;
 pub use playback_speed::*;
 pub use preview::*;
 pub use sleep_timer::*;

@@ -591,6 +591,7 @@ fn ios_apply_immediate_transition(
                     "position": 0.0,
                     "play": true,
                     "meta": item.meta,
+                    "gain": item.gain,
                 }));
                 player.apply(serde_json::json!({ "type": "play" }));
             });
@@ -820,6 +821,12 @@ extern "C" fn ios_handle_ended(_: &Object, _: objc::runtime::Sel, _: *mut Object
         push_ios_remote_action("ended");
         return;
     }
+    // Gapless: AVQueuePlayer has already started the queued next song.
+    let advanced = with_ios_player(|player| player.finish_gapless_advance()).flatten();
+    if let Some((finished, next)) = advanced {
+        push_ios_remote_action(&format!("gapless:{finished}|{next}"));
+        return;
+    }
     if let Some(item) = ios_plan_take_transition("ended") {
         if let Some(src) = item.src.clone() {
             clear_ios_transport_intents("ended-immediate");
@@ -835,6 +842,7 @@ extern "C" fn ios_handle_ended(_: &Object, _: objc::runtime::Sel, _: *mut Object
                     "position": 0.0,
                     "play": true,
                     "meta": item.meta,
+                    "gain": item.gain,
                 }));
                 player.apply(serde_json::json!({ "type": "play" }));
             });

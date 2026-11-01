@@ -5,27 +5,21 @@
     not(target_os = "ios"),
     not(target_os = "windows")
 ))]
-const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
+const NATIVE_AUDIO_BOOTSTRAP_JS: &str = concat!(
+    include_str!("audio_deck.js"),
+    r#"
 (() => {
   if (window.__rustysoundAudioBridge) {
     return true;
   }
 
-  const existing = document.getElementById("rustysound-audio-native");
-  const audio = existing || document.createElement("audio");
-  if (!existing) {
-    audio.id = "rustysound-audio-native";
-    audio.preload = "metadata";
-    audio.style.display = "none";
-    audio.setAttribute("playsinline", "true");
-    audio.setAttribute("webkit-playsinline", "true");
-    audio.setAttribute("x-webkit-airplay", "allow");
-    document.body.appendChild(audio);
-  }
+  // Two elements (gapless, crossfade); `audio()` is whichever is current.
+  const deck = window.__rsAudioDeck.install("rustysound-audio-native");
+  const audio = () => deck.current();
 
   const safePlay = async () => {
     try {
-      await audio.play();
+      await audio().play();
     } catch (_err) {}
   };
 
@@ -55,7 +49,7 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
   const setPlaybackState = () => {
     if (!("mediaSession" in navigator)) return;
     try {
-      navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+      navigator.mediaSession.playbackState = audio().paused ? "paused" : "playing";
     } catch (_err) {}
   };
 
@@ -63,7 +57,7 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     if (!("mediaSession" in navigator) || !navigator.mediaSession.setPositionState) {
       return;
     }
-    if (isLiveStream || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+    if (isLiveStream || !Number.isFinite(audio().duration) || audio().duration <= 0) {
       try {
         navigator.mediaSession.setPositionState();
       } catch (_err) {}
@@ -71,9 +65,9 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     }
     try {
       navigator.mediaSession.setPositionState({
-        duration: audio.duration,
-        playbackRate: audio.playbackRate || 1,
-        position: Math.max(0, Math.min(audio.currentTime || 0, audio.duration)),
+        duration: audio().duration,
+        playbackRate: audio().playbackRate || 1,
+        position: Math.max(0, Math.min(audio().currentTime || 0, audio().duration)),
       });
     } catch (_err) {}
   };
@@ -97,7 +91,7 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
   };
 
   const bridge = {
-    audio,
+    deck,
     currentSongId: null,
     remoteActions: [],
     apply(cmd) {
@@ -105,15 +99,15 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
 
       switch (cmd.type) {
         case "load":
-          if (cmd.src && audio.src !== cmd.src) {
-            audio.src = cmd.src;
+          if (cmd.src) {
+            deck.load(cmd.src);
           }
           if (typeof cmd.volume === "number") {
-            audio.volume = Math.max(0, Math.min(1, cmd.volume));
+            deck.setVolume(cmd.volume, 0);
           }
           if (typeof cmd.position === "number" && Number.isFinite(cmd.position)) {
             try {
-              audio.currentTime = Math.max(0, cmd.position);
+              audio().currentTime = Math.max(0, cmd.position);
             } catch (_err) {}
           }
           bridge.currentSongId = cmd.song_id || null;
@@ -122,7 +116,7 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
           if (cmd.play === true) {
             safePlay();
           } else if (cmd.play === false) {
-            audio.pause();
+            audio().pause();
           }
           setPlaybackState();
           break;
@@ -131,41 +125,53 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
           setPlaybackState();
           break;
         case "pause":
-          audio.pause();
+          audio().pause();
           setPlaybackState();
           break;
         case "seek":
           if (typeof cmd.position === "number" && Number.isFinite(cmd.position)) {
             try {
-              audio.currentTime = Math.max(0, cmd.position);
+              audio().currentTime = Math.max(0, cmd.position);
             } catch (_err) {}
           }
           updatePositionState();
           break;
         case "volume":
           if (typeof cmd.value === "number") {
-            audio.volume = Math.max(0, Math.min(1, cmd.value));
+            deck.setVolume(cmd.value, cmd.ramp_ms || 0);
           }
           break;
+        case "arm":
+          // The next song, preloaded for a gapless start or a crossfade.
+          deck.arm({
+            src: cmd.src,
+            from: cmd.from_id,
+            to: cmd.song_id,
+            volume: cmd.volume,
+            fadeMs: cmd.fade_ms || 0,
+            meta: cmd.meta || null,
+          });
+          break;
+        case "disarm":
+          deck.disarm();
+          break;
         case "loop":
-          audio.loop = !!cmd.enabled;
+          audio().loop = !!cmd.enabled;
           break;
         case "rate": {
           // Keep the pitch; the default rate carries over to the next load.
           const rate = typeof cmd.value === "number" && cmd.value > 0 ? cmd.value : 1;
-          audio.preservesPitch = true;
-          audio.webkitPreservesPitch = true;
-          audio.defaultPlaybackRate = rate;
-          audio.playbackRate = rate;
+          audio().preservesPitch = true;
+          audio().webkitPreservesPitch = true;
+          audio().defaultPlaybackRate = rate;
+          audio().playbackRate = rate;
           break;
         }
         case "metadata":
           setMetadata(cmd.meta || null);
           break;
         case "clear":
-          audio.pause();
-          audio.removeAttribute("src");
-          audio.load();
+          deck.clear();
           bridge.currentSongId = null;
           isLiveStream = false;
           if ("mediaSession" in navigator) {
@@ -181,12 +187,12 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
       }
     },
     snapshot() {
-      const duration = Number.isFinite(audio.duration) ? audio.duration : 0;
+      const duration = Number.isFinite(audio().duration) ? audio().duration : 0;
       return {
-        current_time: Number.isFinite(audio.currentTime) ? audio.currentTime : 0,
+        current_time: Number.isFinite(audio().currentTime) ? audio().currentTime : 0,
         duration,
-        paused: !!audio.paused,
-        ended: !!audio.ended,
+        paused: !!audio().paused,
+        ended: !!audio().ended,
         song_id: bridge.currentSongId,
         action: bridge.remoteActions.shift() || null,
       };
@@ -279,18 +285,18 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     } catch (_err) {}
     try {
       session.setActionHandler("pause", () => {
-        audio.pause();
+        audio().pause();
         pushRemoteAction("pause");
       });
     } catch (_err) {}
     try {
       session.setActionHandler("seekto", (details) => {
-        if (isLiveStream || !Number.isFinite(audio.duration) || audio.duration <= 0) {
+        if (isLiveStream || !Number.isFinite(audio().duration) || audio().duration <= 0) {
           return;
         }
         if (details && typeof details.seekTime === "number") {
           try {
-            audio.currentTime = Math.max(0, details.seekTime);
+            audio().currentTime = Math.max(0, details.seekTime);
           } catch (_err) {}
           updatePositionState();
         }
@@ -324,22 +330,32 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = r#"
     } catch (_err) {}
   }
 
-  audio.addEventListener("timeupdate", updatePositionState);
-  audio.addEventListener("durationchange", updatePositionState);
-  audio.addEventListener("ratechange", updatePositionState);
+  deck.on("timeupdate", updatePositionState);
+  deck.on("durationchange", updatePositionState);
+  deck.on("ratechange", updatePositionState);
   // Keep media session state updated, but do not mirror local transport events
   // into remoteActions: app-initiated load/play/pause commands also fire these
   // events and can create play/pause feedback loops in the native controller.
-  audio.addEventListener("play", () => {
+  deck.on("play", () => {
     setPlaybackState();
   });
-  audio.addEventListener("pause", () => {
+  deck.on("pause", () => {
     setPlaybackState();
   });
-  audio.addEventListener("ended", () => bridge.remoteActions.push("ended"));
+  deck.on("ended", () => bridge.remoteActions.push("ended"));
+  // A gapless or crossfaded start of the next song: the app moves its queue
+  // on ("gapless:<finished id>|<next id>") without loading anything.
+  deck.onHandover = (info) => {
+    bridge.currentSongId = info.to || null;
+    setMetadata(info.meta || null);
+    updatePositionState();
+    setPlaybackState();
+    bridge.remoteActions.push(`gapless:${info.from}|${info.to}`);
+  };
   document.addEventListener("keydown", handleShortcutKeyDown, true);
 
   window.__rustysoundAudioBridge = bridge;
   return true;
 })();
-"#;
+"#
+);
