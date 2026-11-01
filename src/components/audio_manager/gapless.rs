@@ -12,14 +12,19 @@
 //! (`IosAudioPlayer::sync_next_item`), so it starts with no gap even while the
 //! web view is suspended. No crossfade there: one player has one volume.
 //!
+//! Android: ExoPlayer holds the queue around the current song as a playlist
+//! (`android_sync_playback_plan`) and reports "gapless:from|to" the same way,
+//! so it keeps going while the web view is suspended. No crossfade there
+//! either.
+//!
 //! Crossfades are skipped (plain gapless) between songs of the same album, as
 //! Plexamp does, and radio is never preloaded or crossfaded.
-// iOS queues natively and Windows has no gapless yet: most of this is the
-// Mac and web path.
+// iOS and Android queue natively and Windows has no gapless yet: most of
+// this is the Mac and web path.
 #![cfg_attr(
     all(
         not(target_arch = "wasm32"),
-        any(target_os = "ios", target_os = "windows")
+        any(target_os = "ios", target_os = "windows", target_os = "android")
     ),
     allow(dead_code)
 )]

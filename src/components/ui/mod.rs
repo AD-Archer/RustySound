@@ -7,6 +7,7 @@
 // The kit is consumed by phase-2 views; until they land, parts are unused.
 #![allow(dead_code, unused_imports)]
 
+mod android_shell;
 mod artwork;
 mod artwork_mosaic;
 mod button;
@@ -43,6 +44,7 @@ mod undo_toast;
 mod virtual_list;
 mod window_drag;
 
+pub use android_shell::AndroidShell;
 pub use artwork::Artwork;
 pub use artwork_mosaic::ArtworkMosaic;
 pub use button::{Button, ButtonSize, ButtonVariant};

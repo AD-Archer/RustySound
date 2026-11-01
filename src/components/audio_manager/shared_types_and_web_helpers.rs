@@ -602,20 +602,21 @@ pub fn ios_audio_log_export_txt(_contents: &str) -> Result<String, String> {
     Err("iOS log export is only available in iOS builds.".to_string())
 }
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-#[derive(Clone, Debug)]
-struct IosPlaybackPlanItem {
+/// One queue entry as the native player (iOS, Android) sees it.
+#[cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "android")))]
+#[derive(Clone, Debug, Serialize)]
+struct NativePlanItem {
     song_id: String,
     src: Option<String>,
     meta: NativeTrackMetadata,
-    /// Levelling multiplier, applied when AVQueuePlayer moves on by itself.
+    /// Levelling multiplier, applied when the native player moves on by itself.
     gain: f64,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[derive(Clone, Debug)]
 struct IosPlaybackPlan {
-    items: Vec<IosPlaybackPlanItem>,
+    items: Vec<NativePlanItem>,
     index: usize,
     repeat_mode: RepeatMode,
     shuffle: bool,
@@ -640,18 +641,33 @@ impl Default for IosPlaybackPlan {
 static IOS_PLAYBACK_PLAN: Lazy<Mutex<IosPlaybackPlan>> =
     Lazy::new(|| Mutex::new(IosPlaybackPlan::default()));
 
-/// The queue as the native player sees it: sources, lock-screen metadata and
-/// levelling per song, so it can move on while the web view is suspended.
-#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn ios_plan_items(
+/// The queue (the `range` part of it) as the native player sees it: sources,
+/// lock-screen metadata and levelling per song, so it can move on while the
+/// web view is suspended.
+#[cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "android")))]
+fn native_plan_items(
     queue: &[Song],
+    range: impl std::ops::RangeBounds<usize>,
     servers: &[ServerConfig],
     settings: &AppSettings,
-) -> Vec<IosPlaybackPlanItem> {
+) -> Vec<NativePlanItem> {
+    let start = match range.start_bound() {
+        std::ops::Bound::Included(&i) => i,
+        std::ops::Bound::Excluded(&i) => i + 1,
+        std::ops::Bound::Unbounded => 0,
+    };
+    let end = match range.end_bound() {
+        std::ops::Bound::Included(&i) => i + 1,
+        std::ops::Bound::Excluded(&i) => i,
+        std::ops::Bound::Unbounded => queue.len(),
+    }
+    .min(queue.len());
     queue
         .iter()
         .enumerate()
-        .map(|(index, entry)| IosPlaybackPlanItem {
+        .take(end)
+        .skip(start)
+        .map(|(index, entry)| NativePlanItem {
             song_id: entry.id.clone(),
             src: resolve_stream_url(entry, servers, settings.offline_mode),
             meta: song_metadata(entry, servers),
@@ -667,7 +683,7 @@ fn ios_plan_items(
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn ios_update_playback_plan(
-    items: Vec<IosPlaybackPlanItem>,
+    items: Vec<NativePlanItem>,
     index: usize,
     repeat_mode: RepeatMode,
     shuffle: bool,
@@ -687,7 +703,7 @@ fn ios_update_playback_plan(
 /// The song AVQueuePlayer should start when the current one ends, if
 /// gapless applies (`gapless.rs`: not for repeat-one or radio).
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn ios_plan_peek_next() -> Option<IosPlaybackPlanItem> {
+fn ios_plan_peek_next() -> Option<NativePlanItem> {
     let plan = IOS_PLAYBACK_PLAN.lock().ok()?;
     if !plan.gapless {
         return None;
@@ -705,7 +721,7 @@ fn ios_plan_peek_next() -> Option<IosPlaybackPlanItem> {
 /// Moves the plan on to `song_id` after a gapless advance (the next entry,
 /// else the first with that id) and returns its item.
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn ios_plan_advance_to(song_id: &str) -> Option<IosPlaybackPlanItem> {
+fn ios_plan_advance_to(song_id: &str) -> Option<NativePlanItem> {
     let mut plan = IOS_PLAYBACK_PLAN.lock().ok()?;
     let len = plan.items.len();
     let current = plan.index.min(len.saturating_sub(1));
@@ -729,7 +745,7 @@ fn ios_plan_sync_current_song(song_id: Option<&str>) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn ios_plan_take_transition(action: &str) -> Option<IosPlaybackPlanItem> {
+fn ios_plan_take_transition(action: &str) -> Option<NativePlanItem> {
     let mut plan = IOS_PLAYBACK_PLAN.lock().ok()?;
     let len = plan.items.len();
     if len == 0 {

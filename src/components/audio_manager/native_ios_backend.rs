@@ -67,7 +67,7 @@ struct IosAudioPlayer {
     /// Gapless: the next song's item, queued behind the current one
     /// (retained here), and its plan entry.
     next_item: *mut Object,
-    next_entry: Option<IosPlaybackPlanItem>,
+    next_entry: Option<NativePlanItem>,
     /// The user's volume, before levelling (each item has its own gain).
     user_volume: f64,
 }

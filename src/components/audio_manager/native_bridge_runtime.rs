@@ -2,7 +2,8 @@
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 fn ensure_native_audio_bridge() {
     let _ = document::eval(NATIVE_AUDIO_BOOTSTRAP_JS);
@@ -18,10 +19,16 @@ fn ensure_native_audio_bridge() {
     let _ = with_ios_player(|_| ());
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn ensure_native_audio_bridge() {
+    let _ = android_audio();
+}
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 fn native_audio_command(value: serde_json::Value) {
     ensure_native_audio_bridge();
@@ -52,10 +59,16 @@ fn native_audio_command(value: serde_json::Value) {
     let _ = with_ios_player(|player| player.apply(value));
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn native_audio_command(value: serde_json::Value) {
+    android_audio_apply(&value);
+}
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     ensure_native_audio_bridge();
@@ -92,10 +105,16 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_ios_player(|player| player.snapshot())
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+    android_audio_snapshot()
+}
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 async fn native_delay_ms(ms: u64) {
     let script = format!(
@@ -112,7 +131,7 @@ async fn native_delay_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "android")))]
 async fn native_delay_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }

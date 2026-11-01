@@ -191,7 +191,17 @@ pub fn set_stop_after_current(on: bool) {
     let _ = with_ios_player(|player| player.sync_next_item());
 }
 
-#[cfg(not(all(not(target_arch = "wasm32"), target_os = "ios")))]
+/// Android: ExoPlayer moves on by itself too (it holds the queue), so it
+/// pauses at the end of the current song instead and reports "ended".
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+pub fn set_stop_after_current(on: bool) {
+    native_audio_command(serde_json::json!({ "type": "stop_after_current", "on": on }));
+}
+
+#[cfg(not(all(
+    not(target_arch = "wasm32"),
+    any(target_os = "ios", target_os = "android")
+)))]
 pub fn set_stop_after_current(_on: bool) {}
 
 #[cfg(test)]

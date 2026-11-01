@@ -35,6 +35,11 @@ pub fn app_cache_dir() -> Option<PathBuf> {
 
 #[cfg(not(target_arch = "wasm32"))]
 fn preferred_data_dir() -> Option<PathBuf> {
+    #[cfg(target_os = "android")]
+    {
+        return android_context_dir("getFilesDir");
+    }
+
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     {
         return home_dir().map(|home| {
@@ -60,7 +65,8 @@ fn preferred_data_dir() -> Option<PathBuf> {
         target_os = "macos",
         target_os = "ios",
         target_os = "windows",
-        target_os = "linux"
+        target_os = "linux",
+        target_os = "android"
     )))]
     {
         return home_dir()
@@ -80,12 +86,53 @@ fn preferred_cache_dir() -> Option<PathBuf> {
         return app_data_dir().map(|dir| dir.join("cache"));
     }
 
-    #[cfg(not(target_os = "ios"))]
+    #[cfg(target_os = "android")]
+    {
+        return android_context_dir("getCacheDir");
+    }
+
+    #[cfg(not(any(target_os = "ios", target_os = "android")))]
     {
         return dirs::cache_dir()
             .map(|dir| dir.join(LEGACY_CACHE_DIR))
             .or_else(|| app_data_dir().map(|dir| dir.join("cache")));
     }
+}
+
+/// The app's private folder from `Context.getFilesDir()` / `getCacheDir()`.
+/// Android gives apps no $HOME, so without this the database had nowhere to
+/// live and every launch started signed out. Looked up once per folder.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn android_context_dir(method: &'static str) -> Option<PathBuf> {
+    use jni::objects::{JObject, JString};
+    use std::sync::OnceLock;
+    static FILES: OnceLock<PathBuf> = OnceLock::new();
+    static CACHE: OnceLock<PathBuf> = OnceLock::new();
+    let cell = if method == "getCacheDir" { &CACHE } else { &FILES };
+    if let Some(dir) = cell.get() {
+        return Some(dir.clone());
+    }
+    // ndk_context panics outside an activity; there is no folder then.
+    let found = std::panic::catch_unwind(|| {
+        let ctx = ndk_context::android_context();
+        let vm = unsafe { jni::JavaVM::from_raw(ctx.vm().cast()) }.ok()?;
+        let mut env = vm.attach_current_thread().ok()?;
+        let path = env.with_local_frame(4, |env| -> jni::errors::Result<String> {
+            let context = unsafe { JObject::from_raw(ctx.context().cast()) };
+            let dir = env.call_method(&context, method, "()Ljava/io/File;", &[])?.l()?;
+            let path = env
+                .call_method(&dir, "getAbsolutePath", "()Ljava/lang/String;", &[])?
+                .l()?;
+            Ok(env.get_string(&JString::from(path))?.into())
+        });
+        if env.exception_check().unwrap_or(false) {
+            let _ = env.exception_clear();
+        }
+        path.ok().map(PathBuf::from)
+    })
+    .ok()
+    .flatten()?;
+    Some(cell.get_or_init(|| found).clone())
 }
 
 #[cfg(not(target_arch = "wasm32"))]

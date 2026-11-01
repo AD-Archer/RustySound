@@ -15,6 +15,8 @@ include!("native_windows_backend.rs");
 include!("native_ios_backend.rs");
 // iOS remote control and now-playing integration helpers.
 include!("native_ios_remote.rs");
+// Android player backend (Media3 service, JNI bridge, native queue).
+include!("native_android_backend.rs");
 // Cross-platform native bridge command/snapshot runtime helpers.
 include!("native_bridge_runtime.rs");
 // Native (non-wasm) audio controller component.

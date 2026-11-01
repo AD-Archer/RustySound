@@ -115,6 +115,12 @@ body {
   outline-offset: 2px;
 }
 
+/* Android TV (data-tv, android_shell.js): D-pad focus seen from the sofa. */
+[data-tv] :where(.rs-app) :focus-visible {
+  outline-width: 3px;
+  outline-offset: 3px;
+}
+
 /* Containers focused from code so keyboard and screen-reader focus lands in
    them (Now Playing, menus, sheets: tabindex="-1") never draw a ring. They
    are not tab stops, and WebKit counts a programmatic focus as
