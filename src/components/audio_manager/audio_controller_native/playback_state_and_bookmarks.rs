@@ -40,10 +40,7 @@
     {
         let volume = volume.clone();
         use_effect(move || {
-            native_audio_command(serde_json::json!({
-                "type": "volume",
-                "value": volume().clamp(0.0, 1.0),
-            }));
+            set_output_volume(volume());
         });
     }
 

@@ -17,6 +17,8 @@ pub fn AudioController() -> Element {
     let sleep_timer = use_context::<SleepTimer>();
     // Playback speed from the settings (1x for radio).
     use_playback_rate_sync(app_settings, now_playing);
+    // Volume levelling (ReplayGain) on the way out; VolumeSignal stays the user's.
+    use_volume_levelling(app_settings, now_playing, queue, queue_index, volume);
 
     let last_song_id = use_signal(|| None::<String>);
     let last_src = use_signal(|| None::<String>);

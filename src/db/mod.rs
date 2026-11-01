@@ -62,6 +62,18 @@ pub enum ArtworkDownloadPreference {
     PreferId3,
 }
 
+/// Volume levelling (ReplayGain) mode.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum VolumeLevelling {
+    Off,
+    Track,
+    Album,
+    /// Album gain while consecutive songs come from the same album, else track gain.
+    #[default]
+    Auto,
+}
+
 /// App settings stored in the database
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AppSettings {
@@ -70,7 +82,16 @@ pub struct AppSettings {
     pub theme: String,
     pub crossfade_enabled: bool,
     pub crossfade_duration: u32, // seconds
+    /// Unused since `volume_levelling`; kept so old settings files still load.
     pub replay_gain: bool,
+    /// Start the next song with no gap (preloaded one song ahead).
+    #[serde(default = "default_gapless_playback")]
+    pub gapless_playback: bool,
+    #[serde(default)]
+    pub volume_levelling: VolumeLevelling,
+    /// Added to every ReplayGain value, in dB.
+    #[serde(default)]
+    pub replay_gain_preamp_db: f64,
     #[serde(default)]
     pub shuffle_enabled: bool,
     #[serde(default)]
@@ -178,6 +199,10 @@ fn default_queue_sync_enabled() -> bool {
 
 fn default_playback_rate() -> f64 {
     1.0
+}
+
+fn default_gapless_playback() -> bool {
+    true
 }
 
 fn default_discover_rewind_months() -> u32 {
@@ -313,6 +338,12 @@ fn migrate_settings(mut settings: AppSettings) -> AppSettings {
         settings.cache_expiry_days = settings.cache_expiry_days.clamp(-1, 3650);
     }
 
+    settings.crossfade_duration = settings.crossfade_duration.clamp(1, 12);
+    settings.replay_gain_preamp_db = if settings.replay_gain_preamp_db.is_finite() {
+        settings.replay_gain_preamp_db.clamp(-12.0, 12.0)
+    } else {
+        0.0
+    };
     settings.auto_download_tier = settings.auto_download_tier.clamp(1, 3);
     settings.auto_download_album_count = settings.auto_download_album_count.clamp(0, 25);
     settings.auto_download_playlist_count = settings.auto_download_playlist_count.clamp(0, 25);
@@ -341,6 +372,9 @@ impl Default for AppSettings {
             crossfade_enabled: false,
             crossfade_duration: 3,
             replay_gain: false,
+            gapless_playback: default_gapless_playback(),
+            volume_levelling: VolumeLevelling::default(),
+            replay_gain_preamp_db: 0.0,
             shuffle_enabled: false,
             repeat_mode: RepeatMode::Off,
             cache_enabled: true,
