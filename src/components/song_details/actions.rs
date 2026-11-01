@@ -7,7 +7,7 @@
 //! `repeat-btn`. Handlers read with `peek`, so calling them never subscribes a
 //! component to the queue.
 
-use crate::api::{NavidromeClient, ServerConfig, Song};
+use crate::api::{MusicClient, ServerConfig, Song};
 use crate::components::audio_manager::{
     apply_collection_shuffle_mode, queue_should_generate_similar_on_end, spawn_shuffle_queue,
 };
@@ -327,7 +327,7 @@ impl PlayerCtx {
         let should_star = song.starred.is_none();
         let mut this = *self;
         spawn(async move {
-            let client = NavidromeClient::new(server);
+            let client = MusicClient::new(server);
             let result = if should_star {
                 client.star(&song.id, "song").await
             } else {
@@ -355,7 +355,7 @@ impl PlayerCtx {
         let value = value.min(5);
         let mut this = *self;
         spawn(async move {
-            let client = NavidromeClient::new(server);
+            let client = MusicClient::new(server);
             if client.set_rating(&song.id, value).await.is_ok() {
                 let stored = (value > 0).then_some(value);
                 this.update_song(&song, |s| s.user_rating = stored);

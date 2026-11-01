@@ -80,7 +80,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             let Some(server) = server else {
                 return Err("This playlist's server isn't configured.".to_string());
             };
-            NavidromeClient::new(server).get_playlist(&playlist_id).await
+            MusicClient::new(server).get_playlist(&playlist_id).await
         }
     }));
 

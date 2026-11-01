@@ -14,7 +14,7 @@
 //! lyrics and info. After a favourite, rating or download change the
 //! controller publishes a `SongChange` so lists can update their marks.
 
-use crate::api::{MusicClient, NavidromeClient, ServerConfig, Song};
+use crate::api::{Capabilities, MusicClient, ServerConfig, Song};
 use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest};
@@ -209,6 +209,11 @@ pub fn TrackMenu(
     // Music on the device: no server behind it for radio, Quick Listen,
     // playlists or downloads (favourites and ratings are kept locally).
     let local = crate::local_music::is_local_song(&song);
+    // What the song's server can do: rows for what it can't are left out
+    // (local songs keep their disabled rows, as before).
+    let caps = Capabilities::for_source(&servers.read(), &song.server_id);
+    let show_add_to_playlist = caps.playlist_edits || local;
+    let show_start_radio = caps.song_radio || local;
     let starred = song.starred.is_some();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let has_album = song.album_id.is_some();
@@ -286,7 +291,7 @@ pub fn TrackMenu(
             let (mut queue, mut queue_index, mut now_playing, mut is_playing) =
                 (queue, queue_index, now_playing, is_playing);
             spawn(async move {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 let mut similar = client.get_similar_songs(&seed.id, 50).await.unwrap_or_default();
                 if similar.is_empty() {
                     similar = client.get_random_songs(50).await.unwrap_or_default();
@@ -577,25 +582,29 @@ pub fn TrackMenu(
                     Icon { name: "headphones".to_string(), class: "rs-ic".to_string() }
                 }
             }
-            button {
-                r#type: "button",
-                class: "rs-menu__item",
-                role: "menuitem",
-                disabled: radio || local,
-                "data-testid": "track-menu-add-to-playlist",
-                onclick: add_to_playlist,
-                "Add to Playlist…"
-                Icon { name: "playlist".to_string(), class: "rs-ic".to_string() }
+            if show_add_to_playlist {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    disabled: radio || local,
+                    "data-testid": "track-menu-add-to-playlist",
+                    onclick: add_to_playlist,
+                    "Add to Playlist…"
+                    Icon { name: "playlist".to_string(), class: "rs-ic".to_string() }
+                }
             }
-            button {
-                r#type: "button",
-                class: "rs-menu__item",
-                role: "menuitem",
-                disabled: radio || local,
-                "data-testid": "track-menu-start-radio",
-                onclick: start_radio,
-                "Start Radio from Song"
-                Icon { name: "radio".to_string(), class: "rs-ic".to_string() }
+            if show_start_radio {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    disabled: radio || local,
+                    "data-testid": "track-menu-start-radio",
+                    onclick: start_radio,
+                    "Start Radio from Song"
+                    Icon { name: "radio".to_string(), class: "rs-ic".to_string() }
+                }
             }
             button {
                 r#type: "button",
@@ -618,26 +627,28 @@ pub fn TrackMenu(
                 Icon { name: "artist".to_string(), class: "rs-ic".to_string() }
             }
             div { class: "rs-menu__gap", aria_hidden: "true" }
-            button {
-                r#type: "button",
-                class: "rs-menu__item",
-                role: "menuitem",
-                aria_haspopup: "menu",
-                aria_expanded: if rate_open() { "true" } else { "false" },
-                disabled: radio,
-                "data-testid": "track-menu-rate",
-                onclick: move |_| rate_open.toggle(),
-                if rating > 0 {
-                    "Rate ({rating} of 5)"
-                } else {
-                    "Rate"
-                }
-                Icon {
-                    name: if rate_open() { "chevron-down".to_string() } else { "chevron-right".to_string() },
-                    class: "rs-ic rs-ic--sm rs-menu__sub".to_string(),
+            if caps.star_ratings {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    aria_haspopup: "menu",
+                    aria_expanded: if rate_open() { "true" } else { "false" },
+                    disabled: radio,
+                    "data-testid": "track-menu-rate",
+                    onclick: move |_| rate_open.toggle(),
+                    if rating > 0 {
+                        "Rate ({rating} of 5)"
+                    } else {
+                        "Rate"
+                    }
+                    Icon {
+                        name: if rate_open() { "chevron-down".to_string() } else { "chevron-right".to_string() },
+                        class: "rs-ic rs-ic--sm rs-menu__sub".to_string(),
+                    }
                 }
             }
-            if rate_open() {
+            if caps.star_ratings && rate_open() {
                 div {
                     class: "rs-menu__stars",
                     role: "group",

@@ -4,7 +4,7 @@
 use super::actions::{is_live_song, use_player};
 use super::source::source_page;
 use super::types::SongDetailsController;
-use crate::api::{ServerConfig, Song};
+use crate::api::{Capabilities, ServerConfig, Song};
 use crate::components::ui::{
     IconButton, PlayerMenu, ProgressTrack, TrackMenuController, TrackVariant,
 };
@@ -154,6 +154,11 @@ fn ArtistLinks(song: Song) -> Element {
     }
 }
 
+/// Whether the song's server keeps 1–5 star ratings (Jellyfin doesn't).
+pub(super) fn song_rates(servers: &[ServerConfig], song: &Song) -> bool {
+    Capabilities::for_source(servers, &song.server_id).star_ratings
+}
+
 /// 1–5 stars plus clear, for the current song (`rating-btn` lives in the
 /// player bar; these are the sheet's own controls).
 #[component]
@@ -224,6 +229,7 @@ pub(super) fn shows_volume() -> bool {
 /// Wide layout: rating and volume under the transport.
 #[component]
 pub(super) fn NowPlayingExtras(song: Song) -> Element {
+    let rates = song_rates(&use_context::<Signal<Vec<ServerConfig>>>().read(), &song);
     if is_live_song(&song) {
         return rsx! {
             div { class: "rs-player-extras",
@@ -235,7 +241,9 @@ pub(super) fn NowPlayingExtras(song: Song) -> Element {
     }
     rsx! {
         div { class: "rs-player-extras",
-            RatingStars { song }
+            if rates {
+                RatingStars { song }
+            }
             if shows_volume() {
                 VolumeSlider {}
             }

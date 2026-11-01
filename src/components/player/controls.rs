@@ -107,6 +107,11 @@ pub(super) fn RatingButton() -> Element {
         .unwrap_or(0)
         .min(5);
     let has_song = current.is_some();
+    // Servers without 1–5 stars (Jellyfin) get no rating button.
+    let rates = current
+        .as_ref()
+        .map(|s| Capabilities::for_source(&servers.read(), &s.server_id).star_ratings)
+        .unwrap_or(true);
 
     let on_rate = {
         let servers = servers.clone();
@@ -120,7 +125,7 @@ pub(super) fn RatingButton() -> Element {
                     let song_id = song.id.clone();
                     let normalized = if rating > 5 { 5 } else { rating };
                     spawn(async move {
-                        let client = NavidromeClient::new(server);
+                        let client = MusicClient::new(server);
                         if client.set_rating(&song_id, normalized).await.is_ok() {
                             let updated = if normalized == 0 {
                                 None
@@ -149,6 +154,9 @@ pub(super) fn RatingButton() -> Element {
         }
     };
 
+    if !rates {
+        return rsx! {};
+    }
     rsx! {
         div { class: "rs-rate",
             button {

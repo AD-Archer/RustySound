@@ -808,7 +808,7 @@ pub fn AppShell() -> Element {
 
             let mut candidates: Vec<Bookmark> = Vec::new();
 
-            for server in servers_snapshot.iter().filter(|s| s.active).cloned() {
+            for server in servers_snapshot.iter().filter(|s| s.active && Capabilities::of(s).bookmarks).cloned() {
                 let client = NavidromeClient::new(server.clone());
                 if let Ok(mut bookmarks) = client.get_bookmarks().await {
                     for bm in bookmarks.iter_mut() {

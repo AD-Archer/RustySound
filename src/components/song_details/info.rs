@@ -2,7 +2,7 @@
 //! Related (similar songs, each with an add button).
 
 use super::actions::{is_live_song, same_song, use_player};
-use super::meta::{shows_volume, RatingStars, VolumeSlider};
+use super::meta::{shows_volume, song_rates, RatingStars, VolumeSlider};
 use super::types::SongDetailsController;
 use crate::api::{format_duration, NavidromeClient, ServerConfig, Song};
 use crate::components::ui::{
@@ -72,6 +72,7 @@ pub(super) fn InfoPanel(song: Song, wide: bool) -> Element {
     let navigation = use_context::<Navigation>();
     let mut controller = use_context::<SongDetailsController>();
     let live = is_live_song(&song);
+    let rates = song_rates(&use_context::<Signal<Vec<ServerConfig>>>().read(), &song);
 
     let format = song
         .suffix
@@ -123,7 +124,7 @@ pub(super) fn InfoPanel(song: Song, wide: bool) -> Element {
             }
             if !wide {
                 InsetList { inset: ListInset::Text, class: "rs-player-sheet-gap".to_string(),
-                    if !live {
+                    if !live && rates {
                         ListRow {
                             title: "Rating".to_string(),
                             compact: true,

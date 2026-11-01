@@ -162,6 +162,7 @@ fn query_finds_the_songs_server() {
         username: "u".to_string(),
         password: "p".to_string(),
         active: true,
+        ..Default::default()
     };
     let song = Song {
         id: "song-1".to_string(),

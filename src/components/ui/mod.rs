@@ -70,7 +70,7 @@ pub use search_field::SearchField;
 pub use section_header::SectionHeader;
 pub use segmented::Segmented;
 pub use sheet::Sheet;
-pub use sidebar::Sidebar;
+pub use sidebar::{radio_available, Sidebar};
 pub use skeleton::Skeleton;
 pub use stage::Stage;
 pub use status_toast::{StatusToast, StatusToastHost};

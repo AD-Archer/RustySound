@@ -62,7 +62,7 @@ fn subtitle_for(playlist: &Playlist, me: &[String]) -> String {
 
 /// Loads the songs of a playlist and plays them (row menu Play / Shuffle).
 async fn fetch_playlist_songs(server: ServerConfig, playlist_id: String) -> Result<Vec<Song>, String> {
-    NavidromeClient::new(server)
+    MusicClient::new(server)
         .get_playlist(&playlist_id)
         .await
         .map(|(_, songs)| songs)
@@ -94,7 +94,7 @@ pub fn PlaylistsView() -> Element {
             let mut all = Vec::new();
             let mut last_error = None;
             for server in active {
-                match NavidromeClient::new(server).get_playlists().await {
+                match MusicClient::new(server).get_playlists().await {
                     Ok(list) => all.extend(list),
                     Err(err) => last_error = Some(err),
                 }
@@ -108,6 +108,10 @@ pub fn PlaylistsView() -> Element {
 
     let me: Vec<String> = servers.read().iter().map(|s| s.username.clone()).collect();
     let single_server = servers.read().iter().filter(|s| s.active).count() == 1;
+    // A lone server whose playlists are read-only here (Jellyfin) gets no
+    // New Playlist button.
+    let can_create = !single_server
+        || servers.read().iter().filter(|s| s.active).any(|s| Capabilities::of(s).playlist_edits);
 
     let filtered = use_memo(move || {
         let guard = playlists.read();
@@ -313,12 +317,14 @@ pub fn PlaylistsView() -> Element {
                         "{sort_text}"
                         Icon { name: "chevron-down".to_string(), class: "rs-ic rs-ic--sm".to_string() }
                     }
-                    IconButton {
-                        icon: "plus".to_string(),
-                        label: if single_server { "New Playlist".to_string() } else { "New Playlist (needs exactly one active server)".to_string() },
-                        disabled: !single_server,
-                        testid: "playlist-create".to_string(),
-                        onclick: move |_| creating.set(true),
+                    if can_create {
+                        IconButton {
+                            icon: "plus".to_string(),
+                            label: if single_server { "New Playlist".to_string() } else { "New Playlist (needs exactly one active server)".to_string() },
+                            disabled: !single_server,
+                            testid: "playlist-create".to_string(),
+                            onclick: move |_| creating.set(true),
+                        }
                     }
                 }
             }
@@ -397,7 +403,7 @@ pub fn PlaylistsView() -> Element {
                         onclick: move |_| {
                             filter_at.set(None);
                             for server in active_servers(&servers.peek()) {
-                                NavidromeClient::new(server).refresh_playlist_cache();
+                                MusicClient::new(server).refresh_playlist_cache();
                             }
                             refresh += 1;
                         },
@@ -408,7 +414,8 @@ pub fn PlaylistsView() -> Element {
             if let Some(menu) = row_menu() {
                 {
                     let playlist = menu.playlist.clone();
-                    let editable = !is_auto_imported(&playlist);
+                    let editable = !is_auto_imported(&playlist)
+                        && Capabilities::for_source(&servers.read(), &playlist.server_id).playlist_edits;
                     rsx! {
                         Menu {
                             label: format!("{} actions", playlist.name),

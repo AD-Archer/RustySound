@@ -107,6 +107,7 @@ pub fn source_config() -> ServerConfig {
         username: String::new(),
         password: String::new(),
         active: true,
+        ..Default::default()
     }
 }
 

@@ -3,7 +3,7 @@
 //! the server one call at a time, in order (each call's song indexes assume
 //! the ones before it landed); a failed call rolls its change back.
 
-use crate::api::{NavidromeClient, Playlist, ServerConfig, Song};
+use crate::api::{Capabilities, NavidromeClient, Playlist, ServerConfig, Song};
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{use_row_gestures, RowGesture};
 use crate::components::views::library::shared::{is_auto_imported, song_key, Player};
@@ -33,8 +33,8 @@ pub struct PlaylistUndo {
 
 /// The user can change this playlist here: it is theirs (Navidrome refuses
 /// edits to other users' public playlists), it wasn't auto-imported from a
-/// playlist file (read-only on the server), and its server is configured
-/// and active.
+/// playlist file (read-only on the server), and its server is configured,
+/// active and can edit playlists (Jellyfin playlists are read-only here).
 pub fn playlist_editable(playlist: &Playlist, server: Option<&ServerConfig>) -> bool {
     let Some(server) = server else {
         return false;
@@ -44,7 +44,7 @@ pub fn playlist_editable(playlist: &Playlist, server: Option<&ServerConfig>) -> 
         .as_deref()
         .map(|owner| owner.trim().is_empty() || owner.eq_ignore_ascii_case(&server.username))
         .unwrap_or(true);
-    server.active && own && !is_auto_imported(playlist)
+    server.active && own && !is_auto_imported(playlist) && Capabilities::of(server).playlist_edits
 }
 
 type PlaylistData = Resource<Result<(Playlist, Vec<Song>), String>>;

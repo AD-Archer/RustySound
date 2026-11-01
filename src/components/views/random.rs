@@ -57,7 +57,7 @@ fn shuffle<T>(items: &mut [T]) {
 async fn fetch_random_songs(servers: &[ServerConfig], per_server: u32) -> Vec<Song> {
     let mut songs = Vec::<Song>::new();
     for server in servers.iter().cloned() {
-        let client = NavidromeClient::new(server);
+        let client = MusicClient::new(server);
         let mut fetched = client.get_random_songs(per_server).await.unwrap_or_default();
         if fetched.is_empty() {
             fetched = client.get_random_songs(per_server).await.unwrap_or_default();
@@ -80,7 +80,7 @@ async fn fetch_random_albums(servers: &[ServerConfig]) -> Vec<Album> {
             "api:getAlbumList2:v1:{}:random:",
             server.id
         ));
-        if let Ok(mut list) = NavidromeClient::new(server)
+        if let Ok(mut list) = MusicClient::new(server)
             .get_albums("random", per_server, 0)
             .await
         {

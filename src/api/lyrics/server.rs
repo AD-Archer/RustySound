@@ -7,8 +7,9 @@
 //! pronunciations are left out for now.
 
 use super::{tidy_words, LyricLine, LyricWord, LyricsProvider, LyricsQuery, LyricsResult};
+use crate::api::jellyfin::dto::{LyricDto, LyricLineCue, TICKS_PER_SECOND};
 use crate::api::{
-    server_lyrics_support, CueLinePayload, NavidromeClient, ServerLyricsSupport,
+    server_lyrics_support, CueLinePayload, JellyfinClient, NavidromeClient, ServerLyricsSupport,
     StructuredLyricsPayload,
 };
 
@@ -22,6 +23,10 @@ pub(super) async fn fetch_from_server(
     if crate::local_music::is_local(&target.server.id) {
         return Ok(crate::local_music::embedded_lyrics(&target.song_id)
             .and_then(|text| lyrics_from_embedded(&text)));
+    }
+    if target.server.is_jellyfin() {
+        let client = JellyfinClient::new(target.server.clone());
+        return Ok(client.get_lyrics(&target.song_id).await?.and_then(|dto| lyrics_from_jellyfin(&dto)));
     }
     let client = NavidromeClient::new(target.server.clone());
     let support = server_lyrics_support(&client.get_open_subsonic_extensions(timeout_seconds).await?);
@@ -205,6 +210,86 @@ fn words_of(cue_line: &CueLinePayload, at: &impl Fn(f64) -> f64) -> Vec<LyricWor
     )
 }
 
+/// Lyrics from Jellyfin's `/Audio/{id}/Lyrics`: synced when the lines have
+/// start times, with word timing from their cues. Pure; used by tests.
+pub(crate) fn lyrics_from_jellyfin(dto: &LyricDto) -> Option<LyricsResult> {
+    let lines = dto.lyrics.as_deref().unwrap_or_default();
+    let seconds = |ticks: i64| (ticks as f64 / TICKS_PER_SECOND as f64).max(0.0);
+    let plain_lyrics = lines
+        .iter()
+        .map(|line| line.text.as_deref().unwrap_or_default().trim())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    let synced = lines.iter().any(|line| line.start.is_some());
+    let mut synced_lines = if synced {
+        lines
+            .iter()
+            .filter_map(|line| {
+                let text = line.text.as_deref().unwrap_or_default().trim_end();
+                if text.trim().is_empty() {
+                    return None;
+                }
+                let words = jellyfin_words(text, line.cues.as_deref().unwrap_or_default(), &seconds);
+                Some(LyricLine {
+                    timestamp_seconds: seconds(line.start.unwrap_or(0)),
+                    text: text.trim().to_string(),
+                    words,
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    synced_lines.sort_by(|left, right| {
+        left.timestamp_seconds
+            .partial_cmp(&right.timestamp_seconds)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    if plain_lyrics.is_empty() && synced_lines.is_empty() {
+        return None;
+    }
+    Some(LyricsResult {
+        provider: LyricsProvider::Server,
+        plain_lyrics,
+        synced_lines,
+    })
+}
+
+/// Word segments of a Jellyfin line. Cue positions are character indexes;
+/// each word runs from its cue's start to the next cue's, so the segments
+/// join back into the line, as with OpenSubsonic cues. Cues that don't fit
+/// the line give no words (the line still shows, untimed).
+fn jellyfin_words(text: &str, cues: &[LyricLineCue], seconds: &impl Fn(i64) -> f64) -> Vec<LyricWord> {
+    let trimmed = text.trim_start();
+    let lead = text.chars().count() - trimmed.chars().count();
+    let chars = trimmed.chars().count();
+    let starts = cues
+        .iter()
+        .map(|cue| usize::try_from(cue.position).ok().and_then(|p| p.checked_sub(lead)))
+        .collect::<Option<Vec<_>>>()
+        .filter(|starts| starts.windows(2).all(|pair| pair[0] <= pair[1]) && starts.iter().all(|s| *s <= chars));
+    let Some(starts) = starts.filter(|s| !s.is_empty()) else {
+        return Vec::new();
+    };
+    let byte_at = |char_index: usize| trimmed.char_indices().nth(char_index).map(|(b, _)| b).unwrap_or(trimmed.len());
+    let words = cues
+        .iter()
+        .enumerate()
+        .map(|(i, cue)| {
+            let from = if i == 0 { 0 } else { byte_at(starts[i]) };
+            let to = starts.get(i + 1).map(|s| byte_at(*s)).unwrap_or(trimmed.len());
+            LyricWord {
+                start_seconds: seconds(cue.start),
+                end_seconds: cue.end.map(|end| seconds(end)),
+                text: trimmed[from..to].to_string(),
+            }
+        })
+        .collect();
+    tidy_words(words)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -346,5 +431,40 @@ mod tests {
         assert!(plain.synced_lines.is_empty());
         assert_eq!(plain.plain_lyrics, "Just words\nmore words");
         assert!(lyrics_from_embedded("  ").is_none());
+    }
+
+    #[test]
+    fn jellyfin_cues_become_word_timings() {
+        // "Café lights" with a cue per word (character positions, ticks).
+        let dto: LyricDto = serde_json::from_str(
+            r#"{ "Metadata": { "IsSynced": true },
+                 "Lyrics": [
+                   { "Text": "Café lights", "Start": 40000000,
+                     "Cues": [ { "Position": 0, "EndPosition": 4, "Start": 40000000, "End": 44500000 },
+                               { "Position": 5, "EndPosition": 11, "Start": 44500000, "End": 49000000 } ] },
+                   { "Text": "No cues here", "Start": 60000000, "Cues": [] },
+                   { "Text": "Bad cues", "Start": 70000000, "Cues": [ { "Position": 40, "EndPosition": 44, "Start": 70000000 } ] }
+                 ] }"#,
+        )
+        .unwrap();
+        let lyrics = lyrics_from_jellyfin(&dto).unwrap();
+        assert_eq!(lyrics.plain_lyrics, "Café lights\nNo cues here\nBad cues");
+        let first = &lyrics.synced_lines[0];
+        assert_eq!(first.timestamp_seconds, 4.0);
+        let words: Vec<_> = first.words.iter().map(|w| (w.text.as_str(), w.start_seconds, w.end_seconds)).collect();
+        assert_eq!(words, vec![("Café ", 4.0, Some(4.45)), ("lights", 4.45, Some(4.9))]);
+        assert!(lyrics.synced_lines[1].words.is_empty());
+        assert!(lyrics.synced_lines[2].words.is_empty());
+        assert!(lyrics.has_word_timing());
+    }
+
+    #[test]
+    fn unsynced_jellyfin_lyrics_are_plain() {
+        let dto: LyricDto =
+            serde_json::from_str(r#"{ "Lyrics": [ { "Text": "One" }, { "Text": "Two" } ] }"#).unwrap();
+        let lyrics = lyrics_from_jellyfin(&dto).unwrap();
+        assert!(lyrics.synced_lines.is_empty());
+        assert_eq!(lyrics.plain_lyrics, "One\nTwo");
+        assert!(lyrics_from_jellyfin(&LyricDto::default()).is_none());
     }
 }

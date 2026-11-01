@@ -7,12 +7,17 @@
 //! (no capitalising, URL keyboard, saved passwords), and Return moves to the
 //! next field and finally signs in. HTTPS follows the typed address; the line
 //! under the address says which one will be used and offers the other.
+//!
+//! Jellyfin is found, not chosen: leaving the address (or signing in) asks
+//! it for `/System/Info/Public`, and a Jellyfin answer adds a quiet
+//! "Jellyfin server" to that line and signs in with Jellyfin's own API,
+//! keeping its access token rather than the password.
 
 use super::server_form::{
     check_address, final_server_url, format_connection_error, https_for_url, resolve_server_name,
     url_host,
 };
-use crate::api::{NavidromeClient, ServerConfig};
+use crate::api::{JellyfinClient, NavidromeClient, ServerConfig, ServerKind};
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{Button, ButtonVariant};
 use crate::components::Icon;
@@ -22,6 +27,8 @@ use futures_util::future::{select, Either};
 
 /// How long a sign-in waits for the server before giving up.
 const PING_TIMEOUT_MS: u64 = 15_000;
+/// How long the Jellyfin probe waits. Anything slower is taken as Subsonic.
+const PROBE_TIMEOUT_MS: u64 = 5_000;
 /// The "Connected" state stays up this long before the form closes.
 const SUCCESS_HOLD_MS: u64 = 450;
 
@@ -82,13 +89,42 @@ fn focus_field(field: Field, select_text: bool) {
     ));
 }
 
-/// Pings with a timeout, so a server that never answers doesn't spin forever.
-async fn ping_server(probe: ServerConfig) -> Result<(), String> {
-    let request = async move { NavidromeClient::new(probe).ping().await.map(|_| ()) };
-    match select(Box::pin(request), Box::pin(sleep_ms(PING_TIMEOUT_MS))).await {
+/// What a successful sign-in leaves to save.
+#[derive(Clone, PartialEq, Debug)]
+enum Credentials {
+    /// Subsonic signs every request with the password, so it's kept.
+    Password(String),
+    /// Jellyfin: the session from `AuthenticateByName`; no password kept.
+    Session { user_id: String, token: String },
+}
+
+/// Runs `request`, giving up after `ms`.
+async fn with_timeout<T>(ms: u64, request: impl std::future::Future<Output = Result<T, String>>) -> Result<T, String> {
+    match select(Box::pin(request), Box::pin(sleep_ms(ms))).await {
         Either::Left((result, _)) => result,
         Either::Right(_) => Err("timed out".to_string()),
     }
+}
+
+/// Pings with a timeout, so a server that never answers doesn't spin forever.
+async fn ping_server(probe: ServerConfig) -> Result<(), String> {
+    with_timeout(PING_TIMEOUT_MS, async move { NavidromeClient::new(probe).ping().await.map(|_| ()) }).await
+}
+
+/// Which API answers at `address`: Jellyfin when its public info does.
+async fn probe_kind(address: String) -> ServerKind {
+    let probe = async move { Ok(JellyfinClient::probe(&address).await) };
+    match with_timeout(PROBE_TIMEOUT_MS, probe).await {
+        Ok(Some(_)) => ServerKind::Jellyfin,
+        _ => ServerKind::Subsonic,
+    }
+}
+
+/// Signs in to Jellyfin with a timeout.
+async fn sign_in_jellyfin(address: String, username: String, password: String) -> Result<Credentials, String> {
+    let request = async move { JellyfinClient::authenticate(&address, &username, &password).await };
+    let (user_id, token) = with_timeout(PING_TIMEOUT_MS, request).await?;
+    Ok(Credentials::Session { user_id, token })
 }
 
 /// The form.
@@ -125,39 +161,75 @@ pub fn ServerForm(
     let mut url_error = use_signal(|| None::<String>);
     let mut user_error = use_signal(|| None::<String>);
     let mut pass_error = use_signal(|| None::<String>);
+    // The API found at an address (the probe runs once per address).
+    let probed = use_signal(|| initial.as_ref().map(|s| (s.url.clone(), s.kind)));
 
     let busy = matches!(phase(), Phase::Testing | Phase::Passed(_));
     let failed = matches!(phase(), Phase::Failed(_));
     let address_ok = check_address(&url()).is_ok();
     let target = if address_ok { final_server_url(&url(), use_https()) } else { String::new() };
+    // Shown only while the address is the one that answered as Jellyfin.
+    let jellyfin = probed
+        .read()
+        .as_ref()
+        .is_some_and(|(at, found)| address_ok && *at == target && *found == ServerKind::Jellyfin);
+
+    // Asks the address which API it speaks, unless it was asked already.
+    let detect = move |address: String| async move {
+        let mut probed = probed;
+        let known = probed.peek().clone().filter(|(at, _)| *at == address).map(|(_, k)| k);
+        let found = match known {
+            Some(found) => found,
+            None => probe_kind(address.clone()).await,
+        };
+        probed.set(Some((address, found)));
+        found
+    };
+
+    // An edited Jellyfin server keeps its session while its address and
+    // user stay the same and no new password is typed.
+    let kept_session = {
+        let editing = editing.clone();
+        move |address: &str, username: &str, password: &str| {
+            editing
+                .as_ref()
+                .filter(|s| s.is_jellyfin() && !s.access_token.is_empty())
+                .filter(|s| s.url == address && s.username == username && password.is_empty())
+                .map(|s| Credentials::Session { user_id: s.user_id.clone(), token: s.access_token.clone() })
+        }
+    };
 
     // Persists the form's values and hands the server to the caller.
     let editing_for_save = editing.clone();
-    let commit = move || {
+    let commit = move |credentials: Credentials| {
         let address = final_server_url(&url.peek(), *use_https.peek());
         let display = resolve_server_name(&name.peek(), &address);
         let username = user.peek().trim().to_string();
-        let password = pass.peek().clone();
-        let saved = match editing_for_save.clone() {
-            Some(original) => {
-                let mut updated = original.clone();
-                updated.name = display;
-                updated.url = address;
-                updated.username = username;
-                updated.password = password;
-                servers.with_mut(|list| {
-                    if let Some(slot) = list.iter_mut().find(|s| s.id == original.id) {
-                        *slot = updated.clone();
-                    }
-                });
-                updated
-            }
-            None => {
-                let created = ServerConfig::new(display, address, username, password);
-                servers.with_mut(|list| list.push(created.clone()));
-                created
-            }
+        let mut saved = match editing_for_save.clone() {
+            Some(original) => original,
+            None => ServerConfig::new(String::new(), String::new(), String::new(), String::new()),
         };
+        saved.name = display;
+        saved.url = address;
+        saved.username = username;
+        match credentials {
+            Credentials::Password(password) => {
+                saved.kind = ServerKind::Subsonic;
+                saved.password = password;
+                saved.user_id.clear();
+                saved.access_token.clear();
+            }
+            Credentials::Session { user_id, token } => {
+                saved.kind = ServerKind::Jellyfin;
+                saved.password.clear();
+                saved.user_id = user_id;
+                saved.access_token = token;
+            }
+        }
+        servers.with_mut(|list| match list.iter_mut().find(|s| s.id == saved.id) {
+            Some(slot) => *slot = saved.clone(),
+            None => list.push(saved.clone()),
+        });
         let _ = save_servers_now(&servers.peek());
         on_saved.call(saved);
     };
@@ -165,6 +237,7 @@ pub fn ServerForm(
     // Editing only the name doesn't need a round trip to the server.
     let editing_for_submit = editing.clone();
     let commit_after_test = commit.clone();
+    let kept_session_for_submit = kept_session.clone();
     let submit = move || {
         if matches!(*phase.peek(), Phase::Testing | Phase::Passed(_)) {
             return;
@@ -175,10 +248,14 @@ pub fn ServerForm(
             .trim()
             .is_empty()
             .then(|| "Enter your username.".to_string());
-        let pass_check = pass
-            .peek()
-            .is_empty()
-            .then(|| "Enter your password.".to_string());
+        let keeps_session = url_check.is_none()
+            && kept_session_for_submit(
+                &final_server_url(&url.peek(), *use_https.peek()),
+                user.peek().trim(),
+                &pass.peek(),
+            )
+            .is_some();
+        let pass_check = (pass.peek().is_empty() && !keeps_session).then(|| "Enter your password.".to_string());
         let first_invalid = if url_check.is_some() {
             Some(Field::Url)
         } else if user_check.is_some() {
@@ -200,24 +277,35 @@ pub fn ServerForm(
         let address = final_server_url(&url.peek(), *use_https.peek());
         let username = user.peek().trim().to_string();
         let password = pass.peek().clone();
+        let mut commit = commit_after_test.clone();
+        if let Some(session) = kept_session_for_submit(&address, &username, &password) {
+            commit(session);
+            return;
+        }
         let unchanged = editing_for_submit
             .as_ref()
-            .map(|s| s.url == address && s.username == username && s.password == password)
+            .map(|s| !s.is_jellyfin() && s.url == address && s.username == username && s.password == password)
             .unwrap_or(false);
-        let mut commit = commit_after_test.clone();
         if unchanged {
-            commit();
+            commit(Credentials::Password(password));
             return;
         }
 
         phase.set(Phase::Testing);
         spawn(async move {
-            let probe = ServerConfig::new("Test".to_string(), address, username.clone(), password);
-            match ping_server(probe).await {
-                Ok(()) => {
+            let found = detect(address.clone()).await;
+            let signed_in = match found {
+                ServerKind::Jellyfin => sign_in_jellyfin(address, username.clone(), password).await,
+                ServerKind::Subsonic => {
+                    let probe = ServerConfig::new("Test".to_string(), address, username.clone(), password.clone());
+                    ping_server(probe).await.map(|_| Credentials::Password(password))
+                }
+            };
+            match signed_in {
+                Ok(credentials) => {
                     phase.set(Phase::Passed(format!("Connected. Signed in as {username}.")));
                     sleep_ms(SUCCESS_HOLD_MS).await;
-                    commit();
+                    commit(credentials);
                 }
                 Err(error) => {
                     let message = format_connection_error(&error);
@@ -296,7 +384,14 @@ pub fn ServerForm(
                         onblur: move |_| {
                             let value = url.peek().clone();
                             if !value.trim().is_empty() {
-                                url_error.set(check_address(&value).err());
+                                let check = check_address(&value);
+                                if check.is_ok() {
+                                    let address = final_server_url(&value, *use_https.peek());
+                                    spawn(async move {
+                                        detect(address).await;
+                                    });
+                                }
+                                url_error.set(check.err());
                             }
                         },
                         onkeydown: {
@@ -310,6 +405,7 @@ pub fn ServerForm(
                 error: url_error(),
                 target: target.clone(),
                 secure: use_https(),
+                jellyfin,
                 busy,
                 on_switch: move |_| {
                     https_touched.set(true);
@@ -360,7 +456,7 @@ pub fn ServerForm(
                         "autocorrect": "off",
                         spellcheck: "false",
                         "enterkeyhint": "next",
-                        placeholder: "Your Navidrome username",
+                        placeholder: if jellyfin { "Your Jellyfin username" } else { "Your Navidrome username" },
                         readonly: busy,
                         aria_invalid: if user_error().is_some() { "true" } else { "false" },
                         aria_describedby: "server-account-hint",
@@ -439,10 +535,12 @@ pub fn ServerForm(
                         }
                     } else {
                         p { class: "rs-signin-hint", id: "server-account-hint",
-                            if welcome {
+                            if welcome && jellyfin {
+                                "Your password is only sent to your server, to sign in. It isn't kept on this device."
+                            } else if welcome {
                                 "Your password stays on this device and is only ever sent to your server."
                             } else {
-                                "The account you sign in to Navidrome with."
+                                if jellyfin { "The account you sign in to Jellyfin with." } else { "The account you sign in to Navidrome with." }
                             }
                         }
                     }
@@ -480,7 +578,20 @@ pub fn ServerForm(
                         testid: "server-save-anyway".to_string(),
                         onclick: {
                             let mut commit = commit.clone();
-                            move |_| commit()
+                            let kept_session = kept_session.clone();
+                            // A Jellyfin server saved untested keeps the session it had (if any).
+                            move |_| {
+                                let address = final_server_url(&url.peek(), *use_https.peek());
+                                let credentials = if jellyfin {
+                                    kept_session(&address, user.peek().trim(), "").unwrap_or(Credentials::Session {
+                                        user_id: String::new(),
+                                        token: String::new(),
+                                    })
+                                } else {
+                                    Credentials::Password(pass.peek().clone())
+                                };
+                                commit(credentials)
+                            }
                         },
                     }
                 }
@@ -504,8 +615,16 @@ pub fn ServerForm(
 
 /// The line under the address: what's wrong with it, or the exact address
 /// that will be used with "Use HTTP" / "Use HTTPS", or what to type.
+/// `jellyfin`: the address answered as Jellyfin, which the line says.
 #[component]
-fn AddressHint(error: Option<String>, target: String, secure: bool, busy: bool, on_switch: EventHandler<()>) -> Element {
+fn AddressHint(
+    error: Option<String>,
+    target: String,
+    secure: bool,
+    jellyfin: bool,
+    busy: bool,
+    on_switch: EventHandler<()>,
+) -> Element {
     if let Some(error) = error {
         return rsx! {
             p { class: "rs-signin-hint rs-signin-hint--error", id: "server-url-hint",
@@ -517,7 +636,7 @@ fn AddressHint(error: Option<String>, target: String, secure: bool, busy: bool, 
     if target.is_empty() {
         return rsx! {
             p { class: "rs-signin-hint", id: "server-url-help",
-                "The address you open Navidrome at. A home server looks like 192.168.1.10:4533."
+                "The address you open Navidrome or Jellyfin at. A home server looks like 192.168.1.10:4533."
             }
         };
     }
@@ -530,6 +649,9 @@ fn AddressHint(error: Option<String>, target: String, secure: bool, busy: bool, 
             span { class: "rs-signin-hint__text",
                 if secure { "Connects securely to " } else { "Connects without encryption to " }
                 span { class: "rs-signin-hint__url", "{target}" }
+                if jellyfin {
+                    span { "data-testid": "server-kind", " · Jellyfin server" }
+                }
             }
             button {
                 r#type: "button",

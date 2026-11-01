@@ -120,7 +120,7 @@ pub async fn load_recently_played(servers: &[ServerConfig], settings: &AppSettin
                 server.id
             ));
         }
-        server_call(NavidromeClient::new(server).get_albums("recent", RECENT_LIMIT as u32, 0)).await
+        server_call(crate::api::MusicClient::new(server).get_albums("recent", RECENT_LIMIT as u32, 0)).await
     }))
     .await;
     let any_ok = lists.iter().any(Result::is_ok);
@@ -174,7 +174,7 @@ pub async fn load_home_playlists(servers: &[ServerConfig], settings: &AppSetting
     };
     let mixes = load_discover_mixes(servers, settings).await;
     let lists = join_all(ctx.servers.iter().cloned().map(|server| async move {
-        server_call(NavidromeClient::new(server).get_playlists())
+        server_call(crate::api::MusicClient::new(server).get_playlists())
             .await
             .unwrap_or_default()
     }))
@@ -336,7 +336,7 @@ pub async fn load_albums_you_might_like(servers: &[ServerConfig], settings: &App
         let server = ctx.server(&seed.server_id);
         let heavy = &heavy;
         async move {
-            let (_, albums) = server_call(NavidromeClient::new(server?).get_artist(&artist_id))
+            let (_, albums) = server_call(crate::api::MusicClient::new(server?).get_artist(&artist_id))
                 .await
                 .ok()?;
             let fresh: Vec<Album> = albums
@@ -522,6 +522,7 @@ mod tests {
             username: "u".into(),
             password: "p".into(),
             active: false,
+            ..Default::default()
         }];
         runtime.block_on(async {
             assert!(load_recently_played(&servers, &settings).await.is_empty());
