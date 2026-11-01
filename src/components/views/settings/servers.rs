@@ -1,6 +1,8 @@
-//! Settings → Servers: the server list, enable/disable, edit, delete, add.
+//! Settings → Servers: the server list, enable/disable, edit, delete, add,
+//! and (Mac and iPhone) the music on this device.
 
 use super::server_form::{format_connection_error, ServerSheet};
+use super::local_music::LocalMusicGroup;
 use super::shared::{use_settings_ctx, ActionRow, Footnote};
 use crate::api::{NavidromeClient, ServerConfig};
 use crate::components::ui::{
@@ -126,6 +128,11 @@ pub(super) fn ServersSection() -> Element {
                     onclick: move |_| overlay.set(Overlay::Add),
                 }
             }
+        }
+
+        // The device's own music is a source beside the servers.
+        if crate::local_music::SUPPORTED {
+            LocalMusicGroup {}
         }
 
         match overlay() {

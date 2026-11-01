@@ -14,11 +14,11 @@
 //! lyrics and info. After a favourite, rating or download change the
 //! controller publishes a `SongChange` so lists can update their marks.
 
-use crate::api::{NavidromeClient, ServerConfig, Song};
+use crate::api::{MusicClient, NavidromeClient, ServerConfig, Song};
 use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest};
-use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
+use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{
     quick_listen_id, AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
     Preview, SongDetailsController, SongDetailsTab,
@@ -205,6 +205,9 @@ pub fn TrackMenu(
     };
 
     let radio = is_radio_song(&song);
+    // Music on the device: no server behind it for radio, Quick Listen,
+    // playlists or downloads (favourites and ratings are kept locally).
+    let local = crate::local_music::is_local_song(&song);
     let starred = song.starred.is_some();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let has_album = song.album_id.is_some();
@@ -213,9 +216,9 @@ pub fn TrackMenu(
         .as_deref()
         .map(|a| !a.trim().is_empty())
         .unwrap_or(false);
-    let can_download = !cfg!(target_arch = "wasm32") && !radio;
+    let can_download = !cfg!(target_arch = "wasm32") && !radio && !local;
     let is_downloaded = downloaded().unwrap_or(false);
-    let can_quick_listen = player.is_none() && !radio && !app_settings.read().offline_mode;
+    let can_quick_listen = player.is_none() && !radio && !local && !app_settings.read().offline_mode;
     let quick_listening = (preview.current)().as_deref() == Some(quick_listen_id(&song).as_str());
 
     // ---- Quick Listen ---------------------------------------------------
@@ -313,18 +316,12 @@ pub fn TrackMenu(
         move |_| {
             controller.close();
             let should_star = song.starred.is_none();
-            let server = servers
-                .peek()
-                .iter()
-                .find(|s| s.id == song.server_id)
-                .cloned();
-            let Some(server) = server else {
+            let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
                 return;
             };
             let song = song.clone();
             let mut last_change = controller.last_change;
             spawn(async move {
-                let client = NavidromeClient::new(server);
                 let result = if should_star {
                     client.star(&song.id, "song").await
                 } else {
@@ -347,18 +344,12 @@ pub fn TrackMenu(
         let song = song.clone();
         move |value: u32| {
             controller.close();
-            let server = servers
-                .peek()
-                .iter()
-                .find(|s| s.id == song.server_id)
-                .cloned();
-            let Some(server) = server else {
+            let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
                 return;
             };
             let song = song.clone();
             let mut last_change = controller.last_change;
             spawn(async move {
-                let client = NavidromeClient::new(server);
                 if client.set_rating(&song.id, value).await.is_ok() {
                     let stored = (value > 0).then_some(value);
                     update_song_everywhere(queue, now_playing, &song.server_id, &song.id, |s| {
@@ -441,17 +432,12 @@ pub fn TrackMenu(
             let Some(name) = names.into_iter().next() else {
                 return;
             };
-            let server = servers
-                .peek()
-                .iter()
-                .find(|s| s.id == song.server_id)
-                .cloned();
-            let Some(server) = server else {
+            let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
                 return;
             };
             let server_id = song.server_id.clone();
             spawn(async move {
-                if let Some(artist_id) = resolve_artist_id_for_name(server, name).await {
+                if let Some(artist_id) = resolve_artist_id(client, name).await {
                     navigation.navigate_to(AppView::ArtistDetailView {
                         artist_id,
                         server_id,
@@ -577,7 +563,7 @@ pub fn TrackMenu(
                 r#type: "button",
                 class: "rs-menu__item",
                 role: "menuitem",
-                disabled: radio,
+                disabled: radio || local,
                 "data-testid": "track-menu-add-to-playlist",
                 onclick: add_to_playlist,
                 "Add to Playlist…"
@@ -587,7 +573,7 @@ pub fn TrackMenu(
                 r#type: "button",
                 class: "rs-menu__item",
                 role: "menuitem",
-                disabled: radio,
+                disabled: radio || local,
                 "data-testid": "track-menu-start-radio",
                 onclick: start_radio,
                 "Start Radio from Song"

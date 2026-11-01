@@ -49,6 +49,13 @@ fn cover_art_cache_dir() -> Option<PathBuf> {
     Some(base)
 }
 
+/// The cover cache folder, where the local-music scanner writes embedded art.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg_attr(not(any(feature = "desktop", feature = "mobile")), allow(dead_code))]
+pub(crate) fn cover_art_dir() -> Option<PathBuf> {
+    cover_art_cache_dir()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn cover_art_file_path(server_id: &str, cover_art_id: &str, size: u32) -> Option<PathBuf> {
     let dir = cover_art_cache_dir()?;
@@ -214,6 +221,19 @@ async fn serve_cover(
                 return ok(bytes);
             }
         }
+    }
+    // A local cover whose cache file was cleared: read it from the song again.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(path) = path.clone().filter(|_| name.starts_with("local__")) {
+        let name = name.to_string();
+        let rebuilt = tokio::task::spawn_blocking(move || crate::local_music::rebuild_cover(&name, &path))
+            .await
+            .ok()
+            .flatten();
+        return match rebuilt {
+            Some(bytes) => ok(bytes),
+            None => status(StatusCode::NOT_FOUND),
+        };
     }
     if crate::cache_service::is_offline_mode() {
         return status(StatusCode::NOT_FOUND);

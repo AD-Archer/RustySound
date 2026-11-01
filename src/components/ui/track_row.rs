@@ -26,6 +26,10 @@ const LONG_PRESS_SLOP_PX: f64 = 10.0;
 /// * `live`: animate the equaliser (playing and not paused).
 /// * `downloaded`: show the downloaded mark (pass from a cached set, never
 ///   from a filesystem call in render).
+///
+/// Songs on the device carry a small "On This Device" mark; ones this device
+/// can't decode say so in place of the subtitle and don't play. A song the
+/// latest scan just found fades in the first time its row appears.
 /// * `show_duration`: trailing duration. `index`: written as data-index.
 ///
 /// Inside a `RowGestureList` (see `row_gestures.rs`, which needs `index`):
@@ -88,9 +92,16 @@ pub fn TrackRow(
     };
 
     let starred = song.starred.is_some();
+    let local = crate::local_music::is_local_song(&song);
+    let playable = crate::local_music::is_playable(&song);
+    let fresh = use_hook(|| local && crate::local_music::take_fresh(&song.id));
     let duration = format_clock(song.duration as f64);
     let numbered = number.is_some();
-    let sub = if numbered {
+    // An album's own page says where it lives once, in its header.
+    let local_mark = local && !numbered;
+    let sub = if !playable {
+        Some(crate::local_music::NOT_PLAYABLE.to_string())
+    } else if numbered {
         None
     } else {
         subtitle
@@ -149,6 +160,8 @@ pub fn TrackRow(
                 class: "rs-trow rs-trow--split",
                 class: if !numbered { "rs-trow--art" },
                 class: if playing { "rs-trow--playing" },
+                class: if !playable { "rs-trow--unplayable" },
+                class: if fresh { "rs-fresh" },
                 "data-testid": "track-row",
                 onkeydown: {
                     let open_menu = open_menu.clone();
@@ -213,9 +226,13 @@ pub fn TrackRow(
                     r#type: "button",
                     class: "rs-trow__main",
                     aria_current: if playing { Some("true") } else { None },
+                    aria_disabled: if !playable { Some("true") } else { None },
                     onclick: move |_| {
                         if *long_pressed.peek() {
                             long_pressed.set(false);
+                            return;
+                        }
+                        if !playable {
                             return;
                         }
                         on_play.call(());
@@ -248,7 +265,7 @@ pub fn TrackRow(
                             span { class: "rs-trow__sub", "{sub}" }
                         }
                     }
-                    if starred || downloaded {
+                    if starred || downloaded || local_mark {
                         span { class: "rs-trow__marks",
                             if starred {
                                 span { class: "rs-trow__star", role: "img", aria_label: "Favorite",
@@ -258,6 +275,15 @@ pub fn TrackRow(
                             if downloaded {
                                 span { class: "rs-trow__dl", role: "img", aria_label: "Downloaded",
                                     Icon { name: "downloaded".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                                }
+                            }
+                            if local_mark {
+                                span {
+                                    class: "rs-trow__src",
+                                    role: "img",
+                                    aria_label: crate::local_music::LOCAL_SOURCE_NAME,
+                                    title: crate::local_music::LOCAL_SOURCE_NAME,
+                                    Icon { name: "hard-drive".to_string(), class: "rs-ic rs-ic--xs".to_string() }
                                 }
                             }
                         }

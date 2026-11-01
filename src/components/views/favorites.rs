@@ -13,6 +13,7 @@ use crate::components::ui::{
     use_long_press, Menu, Artwork, EmptyState, InsetList, MenuAction, Button,
     ButtonVariant, Segmented, Skeleton, TrackMenuController, TrackRow, VirtualList,
 };
+use crate::components::views::library::shared::has_sources;
 use crate::components::{AddIntent, AddMenuController, AppView, IsPlayingSignal, Navigation};
 use crate::diagnostics::{log_perf, PerfTimer};
 use dioxus::prelude::*;
@@ -42,8 +43,7 @@ async fn load_favorites(servers: Vec<ServerConfig>) -> FavoritesData {
     let started = PerfTimer::now();
     let mut data = FavoritesData::default();
     let mut seen = HashSet::<String>::new();
-    for server in servers {
-        let client = NavidromeClient::new(server);
+    for client in MusicClient::sources(&servers) {
         if let Ok((artists, albums, songs)) = client.get_starred().await {
             data.artists.extend(artists);
             data.albums.extend(albums);
@@ -89,6 +89,7 @@ pub fn FavoritesView() -> Element {
     // Load (and reload when the server list changes). The API layer caches
     // getStarred2 and drops that cache on every star/unstar.
     use_effect(move || {
+        let _ = crate::local_music::generation();
         let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
         spawn(async move {
             let loaded = load_favorites(active).await;
@@ -162,11 +163,11 @@ pub fn FavoritesView() -> Element {
                 }),
                 "add" => add_menu.open(AddIntent::from_album(&album)),
                 "play" | "shuffle" => {
-                    let server = servers.peek().iter().find(|s| s.id == album.server_id).cloned();
-                    let Some(server) = server else { return };
+                    let Some(client) = MusicClient::for_source(&servers.peek(), &album.server_id) else {
+                        return;
+                    };
                     let shuffle = key == "shuffle";
                     spawn(async move {
-                        let client = NavidromeClient::new(server);
                         if let Ok((_, songs)) = client.get_album(&album.id).await {
                             if songs.is_empty() {
                                 return;
@@ -192,10 +193,10 @@ pub fn FavoritesView() -> Element {
                     });
                 }
                 "unfavorite" => {
-                    let server = servers.peek().iter().find(|s| s.id == album.server_id).cloned();
-                    let Some(server) = server else { return };
+                    let Some(client) = MusicClient::for_source(&servers.peek(), &album.server_id) else {
+                        return;
+                    };
                     spawn(async move {
-                        let client = NavidromeClient::new(server);
                         match client.unstar(&album.id, "album").await {
                             Ok(()) => data.with_mut(|d| {
                                 if let Some(d) = d.as_mut() {
@@ -216,10 +217,10 @@ pub fn FavoritesView() -> Element {
                     server_id: artist.server_id.clone(),
                 }),
                 "unfavorite" => {
-                    let server = servers.peek().iter().find(|s| s.id == artist.server_id).cloned();
-                    let Some(server) = server else { return };
+                    let Some(client) = MusicClient::for_source(&servers.peek(), &artist.server_id) else {
+                        return;
+                    };
                     spawn(async move {
-                        let client = NavidromeClient::new(server);
                         match client.unstar(&artist.id, "artist").await {
                             Ok(()) => data.with_mut(|d| {
                                 if let Some(d) = d.as_mut() {
@@ -237,7 +238,7 @@ pub fn FavoritesView() -> Element {
         }
     };
 
-    let has_servers = servers.read().iter().any(|s| s.active);
+    let has_servers = has_sources(&servers.read());
     let active_tab = tab();
     let snapshot = data.read();
     let counts = snapshot
@@ -401,12 +402,17 @@ pub fn FavoritesView() -> Element {
                             album.name.clone(),
                             *anchor,
                             vec![
-                                MenuAction::new("play", "Play", "play"),
-                                MenuAction::new("shuffle", "Shuffle", "shuffle"),
-                                MenuAction::new("add", "Add to Playlist…", "playlist"),
-                                MenuAction::new("open", "Go to Album", "disc"),
-                                MenuAction::new("unfavorite", "Remove from Favorites", "heart-filled"),
-                            ],
+                                Some(MenuAction::new("play", "Play", "play")),
+                                Some(MenuAction::new("shuffle", "Shuffle", "shuffle")),
+                                // Server playlists can't hold files from this device.
+                                (!crate::local_music::is_local(&album.server_id))
+                                    .then(|| MenuAction::new("add", "Add to Playlist…", "playlist")),
+                                Some(MenuAction::new("open", "Go to Album", "disc")),
+                                Some(MenuAction::new("unfavorite", "Remove from Favorites", "heart-filled")),
+                            ]
+                            .into_iter()
+                            .flatten()
+                            .collect::<Vec<_>>(),
                         ),
                         TileMenu::Artist(artist, anchor) => (
                             artist.name.clone(),

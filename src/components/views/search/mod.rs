@@ -11,7 +11,7 @@ mod results;
 mod scoring;
 
 
-use crate::api::{NavidromeClient, SearchResult, ServerConfig};
+use crate::api::{MusicClient, SearchResult, ServerConfig};
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{
     use_layout, EmptyState, IconButton, IconButtonSize, InsetList, ListInset, ListRow,
@@ -25,7 +25,7 @@ use scoring::{dedupe_search_results, filter_and_score_results, normalize_text, t
 
 const DEBOUNCE_MS: u64 = 220;
 
-/// Searches every active server with the full query plus each significant
+/// Searches every active server and the device's music with the full query plus each significant
 /// token (3+ characters), so "all falls down kanye" finds title + artist.
 async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResult {
     let mut combined = SearchResult::default();
@@ -37,8 +37,7 @@ async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResu
         }
     }
     queries.dedup();
-    for server in servers {
-        let client = NavidromeClient::new(server);
+    for client in MusicClient::sources(&servers) {
         for q in &queries {
             if let Ok(result) = client.search(q, 24, 48, 96).await {
                 combined.artists.extend(result.artists);
@@ -47,7 +46,9 @@ async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResu
             }
         }
     }
-    filter_and_score_results(dedupe_search_results(combined), &query)
+    let mut combined = dedupe_search_results(combined);
+    crate::local_music::dedupe_search(&mut combined);
+    filter_and_score_results(combined, &query)
 }
 
 #[component]
@@ -178,7 +179,7 @@ pub fn SearchView() -> Element {
         }
     };
 
-    let no_servers = !servers.read().iter().any(|s| s.active);
+    let no_servers = !crate::components::views::library::shared::has_sources(&servers.read());
 
     rsx! {
         div { class: "rs-view rs-search", "data-testid": "search",

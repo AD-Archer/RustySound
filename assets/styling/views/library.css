@@ -160,6 +160,18 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* "On This Device" mark at the end of a tile's second line. */
+.rs-library-tile__src {
+  flex: none;
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.rs-library-tile__year + .rs-library-tile__src {
+  margin-left: 6px;
+}
+
 .rs-library-tile__skel {
   aspect-ratio: 1;
   width: 100%;

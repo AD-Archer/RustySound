@@ -1451,6 +1451,17 @@
 
 .rs-trow__star { color: var(--accent); }
 .rs-trow__dl { color: var(--muted); }
+/* "On This Device": as quiet as the downloaded mark. */
+.rs-trow__src { color: var(--muted); }
+
+/* A local file this device can't decode: dimmed, says why in place of the
+   subtitle, and doesn't play. */
+.rs-trow--unplayable .rs-trow__main { cursor: default; }
+.rs-trow--unplayable :is(.rs-trow__title, .rs-trow__n, .rs-art) { opacity: .5; }
+
+/* Rows and tiles a scan just found fade in once (reduced motion: instantly,
+   see base.css). */
+.rs-fresh { animation: rs-fade-in var(--dur-flow) var(--ease-out) both; }
 
 .rs-trow__dur {
   flex: none;

@@ -28,8 +28,16 @@ background_modes = ["audio"]
 # with this SDK"). The delegate class is registered at startup by
 # src/ios_scene.rs, which attaches tao's window to the scene; keep the class
 # name in sync with SCENE_DELEGATE_CLASS there.
+#
+# UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace show the app's
+# Documents folder in the Files app (On My iPhone → RustySound) and in
+# Finder; music put there plays "On This Device" (src/local_music).
 [ios.raw]
 info_plist = """
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

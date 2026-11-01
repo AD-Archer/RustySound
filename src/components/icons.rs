@@ -39,6 +39,7 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "grip" => (Stroke, r#"<path d="M5 8.5h14M5 12h14M5 15.5h14"/>"#),
         "server" => (Stroke, r#"<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>"#),
         "hard-drive" => (Stroke, r#"<rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M5 13 8 5h8l3 8"/><path d="M7.5 16.5h.01"/>"#),
+        "folder" => (Stroke, r#"<path d="M3.5 7a2 2 0 0 1 2-2h3.8l2 2.5h7.2a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>"#),
         "offline" => (Stroke, r#"<path d="m3.5 3.5 17 17"/><path d="M9.2 5.3A6 6 0 0 1 17.6 10a4 4 0 0 1 2.4 6.6"/><path d="M6.4 8.4A4.5 4.5 0 0 0 7 17.5h10"/>"#),
 
         // ---- Transport (solid) -----------------------------------------

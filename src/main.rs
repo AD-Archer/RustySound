@@ -11,6 +11,7 @@ mod diagnostics;
 // iOS 27 SDK: UIScene life-cycle bridge for tao 0.34 (see the module docs).
 #[cfg(target_os = "ios")]
 mod ios_scene;
+mod local_music;
 mod offline_art;
 mod offline_audio;
 mod storage;

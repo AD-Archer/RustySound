@@ -1,5 +1,6 @@
 //! The server provider: OpenSubsonic `getLyricsBySongId` on the song's own
-//! server (lyrics embedded in its files or in sidecars next to them).
+//! server (lyrics embedded in its files or in sidecars next to them). For
+//! music on the device, the lyrics the scanner found embedded in the file.
 //!
 //! Asks with `enhanced=true` when the server speaks `songLyrics` v2, and
 //! keeps the word cues of the main vocal layer. Translations and
@@ -18,6 +19,10 @@ pub(super) async fn fetch_from_server(
     let Some(target) = query.server_song.as_ref() else {
         return Ok(None);
     };
+    if crate::local_music::is_local(&target.server.id) {
+        return Ok(crate::local_music::embedded_lyrics(&target.song_id)
+            .and_then(|text| lyrics_from_embedded(&text)));
+    }
     let client = NavidromeClient::new(target.server.clone());
     let support = server_lyrics_support(&client.get_open_subsonic_extensions(timeout_seconds).await?);
     if support == ServerLyricsSupport::None {
@@ -31,6 +36,29 @@ pub(super) async fn fetch_from_server(
         )
         .await?;
     Ok(lyrics_from_structured(&entries))
+}
+
+/// Lyrics from a file's tag: synced when the text is LRC, plain otherwise.
+pub(crate) fn lyrics_from_embedded(text: &str) -> Option<LyricsResult> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let synced_lines = super::parse_lrc_lines(text);
+    let plain_lyrics = if synced_lines.is_empty() {
+        text.to_string()
+    } else {
+        synced_lines
+            .iter()
+            .map(|line| line.text.trim())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    Some(LyricsResult {
+        provider: LyricsProvider::Server,
+        plain_lyrics,
+        synced_lines,
+    })
 }
 
 fn is_main(entry: &StructuredLyricsPayload) -> bool {
@@ -306,5 +334,17 @@ mod tests {
               {"synced":false,"line":[{"value":"  "}]}]}}}"#,
         );
         assert!(lyrics_from_structured(&blank).is_none());
+    }
+
+    #[test]
+    fn embedded_lyrics_are_synced_when_lrc() {
+        let synced = lyrics_from_embedded("[00:01.00]Hello\n[00:02.50]World").unwrap();
+        assert_eq!(synced.synced_lines.len(), 2);
+        assert_eq!(synced.synced_lines[1].timestamp_seconds, 2.5);
+        assert_eq!(synced.plain_lyrics, "Hello\nWorld");
+        let plain = lyrics_from_embedded("Just words\nmore words").unwrap();
+        assert!(plain.synced_lines.is_empty());
+        assert_eq!(plain.plain_lyrics, "Just words\nmore words");
+        assert!(lyrics_from_embedded("  ").is_none());
     }
 }

@@ -32,6 +32,15 @@ png = "0.17"
 [target.'cfg(target_os = "ios")'.dependencies]
 objc = "0.2"
 
+# Music stored on the device (src/local_music): tag reading on Mac and iPhone,
+# the folder picker and folder watching on the Mac app only.
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
+lofty = "0.25.5"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+rfd = { version = "0.17.2", optional = true }
+notify = { version = "8.2.1", optional = true, default-features = false, features = ["macos_fsevent"] }
+
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.60", features = ["Foundation", "Media", "Media_Core", "Media_Playback", "Storage_Streams"] }
 
@@ -49,7 +58,7 @@ wasm-bindgen-futures = "0.4"
 [features]
 default = ["web"]
 web = ["dioxus/web"]
-desktop = ["dioxus/desktop"]
+desktop = ["dioxus/desktop", "dep:rfd", "dep:notify"]
 mobile = ["dioxus/mobile"]
 server = ["dioxus/server"]
 

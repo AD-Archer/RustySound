@@ -56,9 +56,13 @@ fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }
 
-/// Library songs sync; radio and songs without ids don't.
+/// Library songs sync; radio, music on the device and songs without ids
+/// don't (no server queue or play reports for them).
 fn can_sync(song: &Song) -> bool {
-    song.server_name != "Radio" && !song.id.trim().is_empty() && !song.server_id.trim().is_empty()
+    song.server_name != "Radio"
+        && !crate::local_music::is_local_song(song)
+        && !song.id.trim().is_empty()
+        && !song.server_id.trim().is_empty()
 }
 
 /// Another device's queue, offered by [`ContinueCapsule`].
@@ -687,6 +691,23 @@ mod tests {
         assert_eq!(save.ids, vec!["1", "2", "3"]);
         assert_eq!(save.current_index, 1);
         assert_eq!(save.position_ms, 5_000);
+    }
+
+    #[test]
+    fn local_songs_stay_out_of_the_server_queue() {
+        let local = |id: &str| {
+            let mut s = song(id, crate::local_music::LOCAL_SOURCE_ID);
+            s.server_name = crate::local_music::LOCAL_SOURCE_NAME.into();
+            s
+        };
+        // A mixed queue saves only the playing server's songs.
+        let queue = vec![song("1", "a"), local("l1"), song("2", "a"), local("l2")];
+        let save = plan_queue_save(&queue, 2, &queue[2], 0, &servers()).unwrap();
+        assert_eq!(save.ids, vec!["1", "2"]);
+        assert_eq!(save.current_index, 1);
+        // Playing a local song saves nothing and reports nothing.
+        assert!(plan_queue_save(&queue, 1, &queue[1], 0, &servers()).is_none());
+        assert!(!can_sync(&queue[1]));
     }
 
     #[test]
