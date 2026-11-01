@@ -43,16 +43,9 @@ pub fn effective_rate(setting: f64, song: Option<&Song>) -> f64 {
 }
 
 /// Saves a new speed; the controllers' sync hook applies it.
-pub fn set_playback_speed(mut settings: Signal<AppSettings>, rate: f64) {
+pub fn set_playback_speed(settings: Signal<AppSettings>, rate: f64) {
     let rate = normalize_speed(rate);
-    if settings.peek().playback_rate == rate {
-        return;
-    }
-    settings.with_mut(|s| s.playback_rate = rate);
-    let snapshot = settings.peek().clone();
-    spawn(async move {
-        let _ = crate::db::save_settings(snapshot).await;
-    });
+    crate::components::update_settings(settings, |s| s.playback_rate = rate);
 }
 
 /// Applies the speed when the setting changes or playback moves between

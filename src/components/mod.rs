@@ -5,12 +5,12 @@ mod app;
 mod app_view;
 mod audio_manager;
 pub mod audio_output;
-mod cached_image;
 mod icons;
 mod navigation;
 pub mod playback_sync;
 pub mod playlist_sync;
 mod player;
+mod settings_store;
 mod share;
 mod song_details;
 pub mod ui;
@@ -42,10 +42,14 @@ pub use app::*;
 pub use app_view::AppView;
 pub use audio_manager::*;
 pub use audio_output::{AudioOutput, OutputPicker};
+pub use settings_store::{update_cache_settings, update_settings, use_servers, use_setting};
 pub use share::{can_share, share_link, ShareTarget};
 pub use icons::*;
 pub use navigation::{Navigation, PageMotion};
 pub use playback_sync::{note_track_finished, PlaybackSync};
 pub use playlist_sync::{PlaylistSync, SyncStatus};
 pub use song_details::*;
+// The playback API views start music with (`PlayerCtx::play`, `enqueue`…).
+#[allow(unused_imports)]
+pub(crate) use song_details::actions::{use_player, PlayerCtx, QueuePosition};
 // Views are accessed via views::ViewName

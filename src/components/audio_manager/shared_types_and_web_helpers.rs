@@ -785,57 +785,14 @@ pub fn ios_diag_log(_tag: &str, _message: &str) {}
 
 #[cfg(target_arch = "wasm32")]
 fn web_sync_media_session_metadata(song: Option<&Song>, servers: &[ServerConfig]) {
-    let payload = if let Some(song) = song {
-        let is_live = song.server_name == "Radio";
-        let title = if is_live && song.title.trim().eq_ignore_ascii_case("unknown song") {
-            song.artist
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "Unknown Song".to_string())
-        } else if song.title.trim().is_empty() {
-            "Unknown Song".to_string()
-        } else {
-            song.title.clone()
-        };
-
-        let artist = song
-            .artist
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| {
-                if is_live {
-                    "Internet Radio".to_string()
-                } else {
-                    "Unknown Artist".to_string()
-                }
-            });
-
-        let album = if is_live {
-            "LIVE".to_string()
-        } else {
-            song.album
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "Unknown Album".to_string())
-        };
-
-        let artwork = servers
-            .iter()
-            .find(|server| server.id == song.server_id)
-            .and_then(|server| {
-                song.cover_art
-                    .as_ref()
-                    .map(|cover| MusicClient::new(server.clone()).get_cover_art_url(cover, 512))
-            });
-
-        serde_json::json!({
-            "title": title,
-            "artist": artist,
-            "album": album,
-            "artwork": artwork,
-        })
-    } else {
-        serde_json::Value::Null
+    let payload = match song.map(|song| track_labels(song, servers)) {
+        Some(labels) => serde_json::json!({
+            "title": labels.title,
+            "artist": labels.artist,
+            "album": labels.album,
+            "artwork": labels.artwork,
+        }),
+        None => serde_json::Value::Null,
     };
 
     let payload = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());

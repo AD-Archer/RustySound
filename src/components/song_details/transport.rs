@@ -105,7 +105,7 @@ pub(super) fn NowPlayingTransport(song: Song) -> Element {
                 id: "np-prev-btn".to_string(),
                 testid: "now-playing-prev".to_string(),
                 icon_class: "rs-ic rs-ic--xl".to_string(),
-                onclick: move |_| player.previous(),
+                onclick: move |_| player.previous("now-playing.prev"),
             }
             IconButton {
                 icon: if playing { "pause".to_string() } else { "play".to_string() },
@@ -125,7 +125,7 @@ pub(super) fn NowPlayingTransport(song: Song) -> Element {
                 id: "np-next-btn".to_string(),
                 testid: "now-playing-next".to_string(),
                 icon_class: "rs-ic rs-ic--xl".to_string(),
-                onclick: move |_| player.next(),
+                onclick: move |_| player.next("now-playing.next"),
             }
             IconButton {
                 icon: if repeat == RepeatMode::One { "repeat-1".to_string() } else { "repeat".to_string() },

@@ -78,6 +78,7 @@ impl SleepMode {
     }
 }
 
+// TODO(chunk A): moves to `src/time.rs`.
 /// Wall clock in ms. Wall time (not monotonic) so a timer stays right after
 /// the device sleeps; on the web Playwright's clock controls it.
 pub fn now_ms() -> f64 {

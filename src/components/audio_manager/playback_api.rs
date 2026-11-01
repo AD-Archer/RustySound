@@ -15,84 +15,13 @@ pub fn seek_to(position: f64) {
     }));
 }
 
-/// Get the current playback position.
+/// The audio element's playback position (web; native backends report it
+/// through the polled `AudioState`).
 #[cfg(target_arch = "wasm32")]
-#[allow(dead_code)]
 pub fn get_current_time() -> f64 {
     get_or_create_audio_element()
         .map(|a| a.current_time())
         .unwrap_or(0.0)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub fn get_current_time() -> f64 {
-    0.0
-}
-
-/// Get the current track duration.
-#[cfg(target_arch = "wasm32")]
-#[allow(dead_code)]
-pub fn get_duration() -> f64 {
-    get_or_create_audio_element()
-        .map(|a| {
-            let d = a.duration();
-            if d.is_nan() {
-                0.0
-            } else {
-                d
-            }
-        })
-        .unwrap_or(0.0)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub fn get_duration() -> f64 {
-    0.0
-}
-
-/// Helper function to play a song and keep queue/now_playing aligned.
-#[cfg(target_arch = "wasm32")]
-#[allow(dead_code)]
-pub fn play_song(
-    song: Song,
-    mut now_playing: Signal<Option<Song>>,
-    mut queue: Signal<Vec<Song>>,
-    mut queue_index: Signal<usize>,
-    mut is_playing: Signal<bool>,
-) {
-    let queue_list = queue.read().clone();
-    if let Some(pos) = find_song_instance_index(&queue_list, &song) {
-        queue_index.set(pos);
-        now_playing.set(Some(song));
-    } else {
-        queue.set(normalize_manual_queue_songs(vec![song.clone()]));
-        queue_index.set(0);
-        now_playing.set(Some(song));
-    }
-    is_playing.set(true);
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-#[allow(dead_code)]
-pub fn play_song(
-    song: Song,
-    mut now_playing: Signal<Option<Song>>,
-    mut queue: Signal<Vec<Song>>,
-    mut queue_index: Signal<usize>,
-    mut is_playing: Signal<bool>,
-) {
-    let queue_list = queue.read().clone();
-    if let Some(pos) = find_song_instance_index(&queue_list, &song) {
-        queue_index.set(pos);
-        now_playing.set(Some(song));
-    } else {
-        queue.set(normalize_manual_queue_songs(vec![song.clone()]));
-        queue_index.set(0);
-        now_playing.set(Some(song));
-    }
-    is_playing.set(true);
 }
 
 /// The current song's levelling multiplier (`levelling.rs`), as f64 bits.

@@ -1,7 +1,7 @@
 use crate::api::*;
 use crate::cache_service::apply_settings as apply_cache_settings;
 use crate::components::ui::env::{
-    appearance_attr, platform_name, stage_theme, use_layout_provider,
+    appearance_attr, platform_name, sleep_ms, stage_theme, use_layout_provider,
 };
 use crate::components::ui::{
     use_main_scroll_provider, EdgeSwipe, LayoutSignal, MainScroll, PageTransition, PlayerBar, Sidebar, SongChange, TabBar, TrackMenuController,
@@ -12,7 +12,7 @@ use crate::components::{
     AddToMenuOverlay, AppView, AudioController, AudioState, Icon,
     IsPlayingSignal, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
     ShuffleEnabledSignal, SongDetailsController, SongDetailsOverlay, use_preview_provider,
-    use_sleep_timer_provider,
+    use_sleep_timer_provider, update_cache_settings, update_settings, use_setting,
     SongDetailsState, VolumeSignal,
 };
 use crate::components::playback_sync::{
@@ -24,6 +24,7 @@ use crate::db::{
     save_servers, save_settings, save_temporary_queue_snapshot, AppSettings, PlaybackState,
     QueueItem, TemporaryQueueSnapshot,
 };
+use std::hash::{Hash, Hasher};
 use crate::offline_audio::{prune_temporary_queue_prefetch_downloads, run_auto_download_pass};
 use chrono::Utc;
 #[cfg(all(feature = "desktop", target_os = "macos"))]
@@ -35,30 +36,69 @@ use dioxus::prelude::*;
 use dioxus_router::use_navigator;
 
 const AUTO_DOWNLOAD_POLL_INTERVAL_MS: u64 = 5 * 60 * 1000;
+/// While a song plays, its position is saved at most this often. Song,
+/// queue and play/pause changes save at once.
+const PLAYBACK_SAVE_INTERVAL_MS: u64 = 5_000;
 
-fn queue_snapshot_signature(
-    queue: &[Song],
-    queue_index: usize,
-    now_playing: Option<&Song>,
-) -> String {
-    let mut signature = String::new();
-    signature.push_str(&queue.len().to_string());
-    signature.push('|');
-    signature.push_str(&queue_index.to_string());
-    signature.push('|');
-    if let Some(song) = now_playing {
-        signature.push_str(song.server_id.trim());
-        signature.push(':');
-        signature.push_str(song.id.trim());
-    }
-    signature.push('|');
+/// What the temporary queue snapshot was last saved for: length, index and
+/// hashes of the playing song and of the queue's songs, in order. Built from
+/// a borrow (no clone, no string), so checking it on every queue write is
+/// cheap; the queue is cloned only when it really changed.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+struct QueueSignature {
+    len: usize,
+    index: usize,
+    now_playing: u64,
+    songs: u64,
+}
+
+fn hash_song_identity(song: &Song, hasher: &mut impl Hasher) {
+    song.server_id.trim().hash(hasher);
+    song.id.trim().hash(hasher);
+}
+
+fn queue_signature(queue: &[Song], index: usize, now_playing: Option<&Song>) -> QueueSignature {
+    let mut songs = std::collections::hash_map::DefaultHasher::new();
     for song in queue {
-        signature.push_str(song.server_id.trim());
-        signature.push(':');
-        signature.push_str(song.id.trim());
-        signature.push(';');
+        hash_song_identity(song, &mut songs);
     }
-    signature
+    let mut playing = std::collections::hash_map::DefaultHasher::new();
+    if let Some(song) = now_playing {
+        hash_song_identity(song, &mut playing);
+    }
+    QueueSignature {
+        len: queue.len(),
+        index,
+        now_playing: playing.finish(),
+        songs: songs.finish(),
+    }
+}
+
+/// What the playback state was last saved with.
+#[derive(Clone, PartialEq, Debug)]
+struct PlaybackSaveMark {
+    /// `(id, server_id)`.
+    song: (String, String),
+    position_ms: u64,
+    index: usize,
+    queue_len: usize,
+    playing: bool,
+}
+
+/// Whether the playback state is due a save: a different song, queue entry,
+/// queue length or play state saves at once; position alone every
+/// [`PLAYBACK_SAVE_INTERVAL_MS`].
+fn playback_save_due(previous: Option<&PlaybackSaveMark>, next: &PlaybackSaveMark) -> bool {
+    match previous {
+        Some(previous) => {
+            previous.song != next.song
+                || previous.index != next.index
+                || previous.queue_len != next.queue_len
+                || previous.playing != next.playing
+                || next.position_ms.abs_diff(previous.position_ms) >= PLAYBACK_SAVE_INTERVAL_MS
+        }
+        None => true,
+    }
 }
 
 /// Focuses (and selects) the Search field once the Search view has mounted.
@@ -226,28 +266,6 @@ fn normalize_volume(mut value: f64) -> f64 {
     value.clamp(0.0, 1.0)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-async fn loading_log_poll_sleep() {
-    tokio::time::sleep(std::time::Duration::from_millis(350)).await;
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn loading_log_poll_sleep() {
-    gloo_timers::future::TimeoutFuture::new(350).await;
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn auto_download_poll_sleep() {
-    tokio::time::sleep(std::time::Duration::from_millis(
-        AUTO_DOWNLOAD_POLL_INTERVAL_MS,
-    ))
-    .await;
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn auto_download_poll_sleep() {
-    gloo_timers::future::TimeoutFuture::new(AUTO_DOWNLOAD_POLL_INTERVAL_MS as u32).await;
-}
 
 #[component]
 pub fn AppShell() -> Element {
@@ -263,8 +281,8 @@ pub fn AppShell() -> Element {
     let mut volume = use_signal(|| 0.8f64);
     let mut app_settings = use_signal(AppSettings::default);
     let mut playback_position = use_signal(|| 0.0f64);
-    let mut last_playback_save = use_signal(|| None::<(String, String, u64, usize, usize)>);
-    let mut last_queue_snapshot_signature = use_signal(String::new);
+    let mut last_playback_save = use_signal(|| None::<PlaybackSaveMark>);
+    let mut last_queue_snapshot_signature = use_signal(|| None::<QueueSignature>);
     let mut db_initialized = use_signal(|| false);
     let mut servers_loaded = use_signal(|| false);
     let mut settings_loaded = use_signal(|| false);
@@ -549,8 +567,9 @@ pub fn AppShell() -> Element {
     use_context_provider(|| PlaybackPositionSignal(playback_position));
 
     // Inject user-defined custom CSS into the document whenever it changes
+    let custom_css = use_setting(|s| s.custom_css.clone());
     use_effect(move || {
-        let raw = app_settings().custom_css.clone();
+        let raw = custom_css();
         let escaped = raw
             .replace('\\', "\\\\")
             .replace('"', "\\\"")
@@ -587,11 +606,14 @@ pub fn AppShell() -> Element {
     // overscroll area and scrollbars follow the theme too. data-layout lives on
     // .rs-app only (no CSS reads it from <html>). `lang` covers the desktop and
     // iOS webviews, whose index page has none; the web index.html sets it too.
+    // Memos, so neither this effect nor the shell re-runs on every settings
+    // write (volume drags, lyrics offsets…) or track change.
+    let theme = use_setting(|s| stage_theme(&s.theme));
+    let appearance = use_setting(appearance_attr);
+    let offline_mode = use_setting(|s| s.offline_mode);
+    let has_song = use_memo(move || now_playing.read().is_some());
     use_effect(move || {
-        let (theme, appearance) = {
-            let settings = app_settings.read();
-            (stage_theme(&settings.theme), appearance_attr(&settings))
-        };
+        let (theme, appearance) = (theme(), appearance());
         let js = format!(
             "(function(){{var r=document.documentElement;r.lang='en';r.setAttribute('data-theme','{theme}');r.setAttribute('data-appearance','{appearance}');r.setAttribute('data-platform','{}');}})();",
             platform_name()
@@ -694,7 +716,7 @@ pub fn AppShell() -> Element {
         spawn(async move {
             loop {
                 ios_loading_log_lines.set(ios_audio_log_snapshot(8));
-                loading_log_poll_sleep().await;
+                sleep_ms(350).await;
                 if *ios_loading_log_poll_generation.peek() != generation {
                     break;
                 }
@@ -760,7 +782,7 @@ pub fn AppShell() -> Element {
         let auto_download_poll_generation = auto_download_poll_generation.clone();
         spawn(async move {
             loop {
-                auto_download_poll_sleep().await;
+                sleep_ms(AUTO_DOWNLOAD_POLL_INTERVAL_MS).await;
                 if *auto_download_poll_generation.peek() != generation {
                     break;
                 }
@@ -928,29 +950,23 @@ pub fn AppShell() -> Element {
         }
     });
 
-    // Auto-save settings when volume, shuffle, or repeat changes
+    // Save volume, shuffle and repeat to the settings when they change (the
+    // controls only set their signals). Reads the settings with `peek`, so
+    // other settings writes don't re-run it.
     use_effect(move || {
-        let vol = volume();
-        let vol = normalize_volume(vol);
+        let vol = normalize_volume(volume());
         let shuffle = shuffle_enabled();
         let repeat = repeat_mode();
-        let mut settings = app_settings();
-
-        if db_initialized() {
-            let changed = (settings.volume - vol).abs() > 0.01
-                || settings.shuffle_enabled != shuffle
-                || settings.repeat_mode != repeat;
-
-            if changed {
-                settings.volume = vol;
-                settings.shuffle_enabled = shuffle;
-                settings.repeat_mode = repeat;
-                app_settings.set(settings.clone());
-                spawn(async move {
-                    let _ = save_settings(settings).await;
-                });
-            }
+        if !db_initialized() {
+            return;
         }
+        update_settings(app_settings, |settings| {
+            if (settings.volume - vol).abs() > 0.01 {
+                settings.volume = vol;
+            }
+            settings.shuffle_enabled = shuffle;
+            settings.repeat_mode = repeat;
+        });
     });
 
     // Normalize volume if any writer pushes it out of range
@@ -964,10 +980,12 @@ pub fn AppShell() -> Element {
 
     // Auto-save playback position periodically.
     // Runs on every position tick, so it must stay cheap: it reads the queue
-    // length (no clone) and only builds the queue list when it actually saves.
+    // length (no clone) and only builds the queue list when it actually saves
+    // (`playback_save_due`).
     use_effect(move || {
         let pos = playback_position();
         let idx = queue_index();
+        let playing = is_playing();
         let previewing = preview_playback();
         let ready = db_initialized();
         let queue_len = queue.read().len();
@@ -979,32 +997,21 @@ pub fn AppShell() -> Element {
         if !ready || previewing {
             return;
         }
-        let Some((song_id, server_id)) = song_key else {
+        let Some(song) = song_key else {
             return;
         };
-        let position_ms = (pos.max(0.0) * 1000.0).round() as u64;
-
-        let should_save = match &*last_playback_save.peek() {
-            Some((prev_song_id, prev_server_id, prev_pos_ms, prev_idx, prev_queue_len)) => {
-                *prev_song_id != song_id
-                    || *prev_server_id != server_id
-                    || *prev_idx != idx
-                    || *prev_queue_len != queue_len
-                    || position_ms.abs_diff(*prev_pos_ms) >= 1500
-            }
-            None => true,
+        let mark = PlaybackSaveMark {
+            song,
+            position_ms: (pos.max(0.0) * 1000.0).round() as u64,
+            index: idx,
+            queue_len,
+            playing,
         };
-        if !should_save {
+        if !playback_save_due(last_playback_save.peek().as_ref(), &mark) {
             return;
         }
-
-        last_playback_save.set(Some((
-            song_id.clone(),
-            server_id.clone(),
-            position_ms,
-            idx,
-            queue_len,
-        )));
+        let (song_id, server_id) = mark.song.clone();
+        last_playback_save.set(Some(mark));
 
         let state = PlaybackState {
             song_id: Some(song_id),
@@ -1034,22 +1041,21 @@ pub fn AppShell() -> Element {
             return;
         }
 
-        let queue_snapshot = queue();
-        if queue_snapshot.is_empty() {
+        let index = queue_index();
+        let (signature, clamped_queue_index) = {
+            let items = queue.read();
+            if items.is_empty() {
+                return;
+            }
+            let clamped = index.min(items.len() - 1);
+            (queue_signature(&items, clamped, now_playing.read().as_ref()), clamped)
+        };
+        if Some(signature) == *last_queue_snapshot_signature.peek() {
             return;
         }
-
-        let clamped_queue_index = queue_index().min(queue_snapshot.len().saturating_sub(1));
-        let now_playing_snapshot = now_playing();
-        let signature = queue_snapshot_signature(
-            &queue_snapshot,
-            clamped_queue_index,
-            now_playing_snapshot.as_ref(),
-        );
-        if signature == *last_queue_snapshot_signature.peek() {
-            return;
-        }
-        last_queue_snapshot_signature.set(signature);
+        last_queue_snapshot_signature.set(Some(signature));
+        let queue_snapshot = queue.peek().clone();
+        let now_playing_snapshot = now_playing.peek().clone();
 
         let saved_at_epoch_ms = Utc::now().timestamp_millis();
         let snapshot = TemporaryQueueSnapshot {
@@ -1075,14 +1081,8 @@ pub fn AppShell() -> Element {
     } else {
         Vec::new()
     };
-    let (offline_mode_enabled, theme_attr, appearance) = {
-        let settings = app_settings.read();
-        (
-            settings.offline_mode,
-            stage_theme(&settings.theme),
-            appearance_attr(&settings),
-        )
-    };
+    let (offline_mode_enabled, theme_attr, appearance) =
+        (offline_mode(), theme(), appearance());
     let is_transport_loading = transport_loading_signal();
     let show_transport_loading_overlay =
         is_transport_loading && !is_startup_bootstrapping;
@@ -1091,8 +1091,7 @@ pub fn AppShell() -> Element {
     } else {
         String::new()
     };
-    let has_song = now_playing.read().is_some();
-    let player_on = !compact || has_song;
+    let player_on = !compact || has_song();
 
     rsx! {
         div {
@@ -1124,17 +1123,7 @@ pub fn AppShell() -> Element {
                                 r#type: "button",
                                 class: "rs-btn rs-btn--tinted rs-btn--small",
                                 onclick: move |_| {
-                                    let mut settings = app_settings();
-                                    if !settings.offline_mode {
-                                        return;
-                                    }
-                                    settings.offline_mode = false;
-                                    apply_cache_settings(&settings);
-                                    let settings_clone = settings.clone();
-                                    app_settings.set(settings);
-                                    spawn(async move {
-                                        let _ = save_settings(settings_clone).await;
-                                    });
+                                    update_cache_settings(app_settings, |s| s.offline_mode = false);
                                 },
                                 "Go Online"
                             }
@@ -1189,5 +1178,52 @@ pub fn AppShell() -> Element {
             // Reports plays and syncs the queue with the server.
             PlaybackSyncHost { ready: settings_loaded }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn song(id: &str) -> Song {
+        Song {
+            id: id.to_string(),
+            server_id: "srv".to_string(),
+            ..Song::default()
+        }
+    }
+
+    #[test]
+    fn queue_signature_changes_only_with_the_queue() {
+        let queue = vec![song("a"), song("b"), song("c")];
+        let base = queue_signature(&queue, 1, queue.get(1));
+        assert_eq!(base, queue_signature(&queue.clone(), 1, queue.get(1)));
+        assert_ne!(base, queue_signature(&queue, 2, queue.get(1)), "index");
+        assert_ne!(base, queue_signature(&queue, 1, queue.get(2)), "playing song");
+        let reordered = vec![song("a"), song("c"), song("b")];
+        assert_ne!(base, queue_signature(&reordered, 1, queue.get(1)), "order");
+        let mut other_server = queue.clone();
+        other_server[0].server_id = "other".to_string();
+        assert_ne!(base, queue_signature(&other_server, 1, queue.get(1)), "server");
+    }
+
+    #[test]
+    fn playback_saves_on_changes_and_every_few_seconds() {
+        let mark = |position_ms: u64, playing: bool| PlaybackSaveMark {
+            song: ("a".to_string(), "srv".to_string()),
+            position_ms,
+            index: 0,
+            queue_len: 3,
+            playing,
+        };
+        let saved = mark(10_000, true);
+        assert!(playback_save_due(None, &saved));
+        assert!(!playback_save_due(Some(&saved), &mark(12_000, true)));
+        assert!(playback_save_due(Some(&saved), &mark(10_000 + PLAYBACK_SAVE_INTERVAL_MS, true)));
+        assert!(playback_save_due(Some(&saved), &mark(10_400, false)), "pause saves at once");
+        assert!(playback_save_due(Some(&saved), &mark(2_000, true)), "a seek back");
+        let mut next_song = mark(10_100, true);
+        next_song.song.0 = "b".to_string();
+        assert!(playback_save_due(Some(&saved), &next_song));
     }
 }

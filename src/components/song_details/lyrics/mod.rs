@@ -17,7 +17,7 @@ use super::actions::{is_live_song, song_key};
 use super::types::SongDetailsController;
 use crate::api::{LyricsResult, Song};
 use crate::components::ui::{IconButton, IconButtonSize, InsetList, ListInset, ListRow, Sheet};
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{update_settings, AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 use lines::{PlainLyrics, SyncedLyrics};
@@ -173,7 +173,7 @@ fn LyricsMenu(
     on_shot: EventHandler<()>,
 ) -> Element {
     let mut source = use_context::<LyricsSource>();
-    let mut settings = use_context::<Signal<AppSettings>>();
+    let settings = use_context::<Signal<AppSettings>>();
     let navigation = use_context::<Navigation>();
     let mut controller = use_context::<SongDetailsController>();
     let offset_ms = settings.read().lyrics_offset_ms;
@@ -183,13 +183,9 @@ fn LyricsMenu(
         format!("{:+.2} s", offset_ms as f64 / 1000.0)
     };
 
-    let mut set_offset = move |value: i32| {
+    let set_offset = move |value: i32| {
         let value = value.clamp(-OFFSET_LIMIT_MS, OFFSET_LIMIT_MS);
-        settings.with_mut(|s| s.lyrics_offset_ms = value);
-        let snapshot = settings.peek().clone();
-        spawn(async move {
-            let _ = crate::db::save_settings(snapshot).await;
-        });
+        update_settings(settings, |s| s.lyrics_offset_ms = value);
     };
 
     rsx! {

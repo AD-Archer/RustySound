@@ -1,14 +1,16 @@
 //! Add-to-menu overlay and queue/playlist insertion workflows.
 
 use crate::api::*;
-use crate::components::audio_manager::normalize_manual_queue_songs;
-use crate::components::ui::{Artwork, IconButton, IconButtonSize, SectionHeader, Sheet, Skeleton};
+use crate::components::song_details::actions::song_key;
+use crate::components::ui::{
+    Artwork, IconButton, IconButtonSize, SectionHeader, Sheet, Skeleton, StatusToast,
+};
 use crate::components::{
-    AppView, Icon, Navigation, PlaybackPositionSignal, PreviewPlaybackSignal, SeekRequestSignal,
+    quick_listen_id, use_player, use_servers, use_setting, AppView, Icon, Navigation, Preview,
+    QueuePosition,
 };
 use dioxus::prelude::*;
 use std::collections::HashSet;
-use std::rc::Rc;
 
 // Intent and controller types that drive the add overlay.
 include!("intent.rs");

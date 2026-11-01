@@ -12,6 +12,8 @@
 
 use crate::api::LyricLine;
 use crate::components::song_details::actions::use_player;
+// TODO(chunk A): `src/time.rs` (`now_ms`, `sleep_ms`) replaces these homes.
+use crate::components::now_ms;
 use crate::components::ui::env::sleep_ms;
 use crate::components::AudioState;
 use crate::db::AppSettings;
@@ -28,21 +30,6 @@ const MANUAL_HOLD_MS: f64 = 1800.0;
 const FOCUS_SETTLE_MS: u64 = 330;
 /// Scroll events within this window after our own scroll are ignored.
 const PROGRAMMATIC_MS: f64 = 700.0;
-
-fn now_ms() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        js_sys::Date::now()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0)
-    }
-}
 
 /// Scrolls line `index` of list `dom_id` to 40% of the list's height. On
 /// compact, the panel's place comes from the sheet's measurements; take them
