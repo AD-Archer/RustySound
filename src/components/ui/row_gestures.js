@@ -100,6 +100,12 @@ function install() {
 
   const ms = (value) => (reduceMotion.matches ? 0 : value);
   const asElement = (t) => (t instanceof Element ? t : null);
+  // A haptic tick on Android (android/MainActivity.kt); nothing elsewhere.
+  const tick = () => {
+    try {
+      if (window.RustySoundAndroid) window.RustySoundAndroid.haptic("tick");
+    } catch (_) {}
+  };
   const listOf = (el) => el && el.closest("[data-rowg]");
   const rowOf = (el) => el && el.closest("li[data-index]");
   const indexOf = (li) => Number(li.dataset.index);
@@ -306,6 +312,7 @@ function install() {
     const scroller = scrollerOf(list);
     if (open) closeOpen(false);
     cancelPress();
+    tick();
     const ghost = makeGhost(list, li, rect);
     list.classList.add("rs-rowg-sorting");
     const from = indexOf(li);
@@ -587,7 +594,9 @@ function install() {
     }
     if (e.cancelable) e.preventDefault();
     s.dx = clamp(s.base + dx, 0, s.width);
+    const wasArmed = s.armed;
     s.armed = s.canRemove && s.dx > s.width * FULL_RATIO;
+    if (s.armed && !wasArmed) tick();
     pushSample(s.samples, nowMs(), x);
     schedule();
   }

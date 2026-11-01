@@ -18,6 +18,8 @@ just serve-ios                  # iOS Simulator
 just serve-android              # Android emulator
 ```
 
+Android plays audio natively through a Media3 service. [ANDROID.md](ANDROID.md) covers how that works, how it's wired into dx, and building and testing in Docker.
+
 On iOS, use Xcode's developer directory (`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`) if `xcode-select` points at the Command Line Tools.
 
 ## Test

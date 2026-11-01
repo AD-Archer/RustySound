@@ -9,6 +9,7 @@
 //! Rust work per move: `edge_swipe`, `page_transition`, `row_gestures`
 //! (long-press, swipes, reorder, carry), `cover_flow` and `sheet_swipe`.
 
+mod android_shell;
 mod artwork;
 mod button;
 mod collection_actions;
@@ -51,6 +52,7 @@ mod vertical_slider;
 mod virtual_list;
 mod window_drag;
 
+pub use android_shell::AndroidShell;
 pub use artwork::Artwork;
 pub use button::{Button, ButtonSize, ButtonVariant};
 pub use collection_actions::CollectionActions;

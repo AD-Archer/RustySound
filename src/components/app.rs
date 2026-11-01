@@ -1142,6 +1142,10 @@ pub fn AppShell() -> Element {
 
             // Edge swipe back/forward; the script only acts on compact.
             EdgeSwipe {}
+            // System Back, edge-to-edge insets and bar colours.
+            if cfg!(target_os = "android") {
+                crate::components::ui::AndroidShell {}
+            }
             // Push / pop / fade between pages (Navigation announces each one).
             PageTransition {}
 

@@ -30,8 +30,8 @@
                 let mut play_retry_cooldown_ticks: u8 = 0;
                 let mut last_desired_playing: bool = *is_playing.peek();
                 let mut last_heartbeat_ms: u128 = 0;
-                // The webview's audio deck (Mac, Linux); iOS queues natively.
-                #[cfg(not(any(target_os = "ios", target_os = "windows")))]
+                // The webview's audio deck (Mac, Linux); iOS and Android queue natively.
+                #[cfg(not(any(target_os = "ios", target_os = "windows", target_os = "android")))]
                 let mut armer = DeckArmer::default();
                 loop {
                     native_delay_ms(250).await;
@@ -211,7 +211,7 @@
                     }
 
                     // Near the end, arm the deck's standby element with the next song.
-                    #[cfg(not(any(target_os = "ios", target_os = "windows")))]
+                    #[cfg(not(any(target_os = "ios", target_os = "windows", target_os = "android")))]
                     {
                         armer.forget_unless_for(
                             now_playing.peek().as_ref().map(|song| song.id.as_str()),

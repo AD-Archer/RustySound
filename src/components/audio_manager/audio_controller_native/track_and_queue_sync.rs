@@ -18,6 +18,38 @@
         });
     }
 
+    // Android: ExoPlayer holds the queue around the current song, so it moves
+    // on by itself. Registered before the source sync below, so a load finds
+    // its song in the plan.
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+    {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        let repeat_mode = repeat_mode.clone();
+        let plan_settings = use_memo(move || {
+            let settings = app_settings.read();
+            (
+                settings.offline_mode,
+                settings.volume_levelling,
+                settings.replay_gain_preamp_db.to_bits(),
+            )
+        });
+        use_effect(move || {
+            let _ = plan_settings();
+            android_sync_playback_plan(
+                &queue.read(),
+                queue_index(),
+                now_playing.read().as_ref(),
+                repeat_mode(),
+                &servers.read(),
+                &app_settings.peek(),
+            );
+        });
+    }
+
     // Update source + metadata and persist bookmark when songs change.
     {
         let servers = servers.clone();
@@ -97,7 +129,7 @@
                 {
                     let settings = app_settings.peek();
                     ios_update_playback_plan(
-                        ios_plan_items(&queue(), &servers.peek(), &settings),
+                        native_plan_items(&queue(), .., &servers.peek(), &settings),
                         queue_index(),
                         repeat_mode(),
                         shuffle_enabled(),
@@ -125,7 +157,7 @@
             {
                 let settings = app_settings.peek();
                 ios_update_playback_plan(
-                    ios_plan_items(&queue(), &servers_snapshot, &settings),
+                    native_plan_items(&queue(), .., &servers_snapshot, &settings),
                     queue_index(),
                     repeat_mode(),
                     shuffle_enabled(),
@@ -337,7 +369,7 @@
             let _ = plan_settings();
             let settings = app_settings.peek();
             ios_update_playback_plan(
-                ios_plan_items(&queue.peek(), &servers.peek(), &settings),
+                native_plan_items(&queue.peek(), .., &servers.peek(), &settings),
                 *queue_index.peek(),
                 *repeat_mode.peek(),
                 *shuffle_enabled.peek(),

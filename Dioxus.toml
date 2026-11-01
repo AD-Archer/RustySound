@@ -1,5 +1,11 @@
 [application]
 
+# Android (docs/ANDROID.md): our activity and manifest replace dx's defaults.
+# Native playback is the Gradle module android/rustysound-audio, which dx
+# bundles through the manganis::ffi declaration in native_android_backend.rs.
+android_main_activity = "android/MainActivity.kt"
+android_manifest = "android/AndroidManifest.xml"
+
 # Desktop app configuration
 [application.desktop]
 
@@ -56,6 +62,11 @@ info_plist = """
 		</dict>
 	</dict>
 """
+
+[android]
+min_sdk = 24
+target_sdk = 35
+compile_sdk = 35
 
 [web.app]
 

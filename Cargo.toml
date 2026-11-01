@@ -32,6 +32,16 @@ png = "0.17"
 [target.'cfg(target_os = "ios")'.dependencies]
 objc = "0.2"
 
+# Android: JNI calls into the Media3 playback service
+# (src/components/audio_manager/native_android_backend.rs) and for the app's
+# private folders (src/storage.rs), and manganis's `ffi` declaration that has
+# dx bundle android/rustysound-audio into the APK. All three already come in
+# through dioxus; keep manganis on the dioxus version.
+[target.'cfg(target_os = "android")'.dependencies]
+jni = "0.21"
+ndk-context = "0.1"
+manganis = "=0.7.10"
+
 # Music stored on the device (src/local_music): tag reading on Mac and iPhone,
 # the folder picker and folder watching on the Mac app only.
 [target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
