@@ -422,6 +422,12 @@ impl NavidromeClient {
         }
     }
 
+    /// The cover's URL on the server (never a cached copy), for a device
+    /// that fetches it itself: a network speaker.
+    pub fn get_cover_art_network_url(&self, cover_art_id: &str, size: u32) -> String {
+        self.build_cover_art_network_url(&normalize_cover_art_id(cover_art_id), size.min(COVER_ART_MAX_PX))
+    }
+
     fn build_cover_art_network_url(&self, cover_art_id: &str, requested_size: u32) -> String {
         if self.server.is_jellyfin() {
             return SUBSONIC_ONLY_URL.to_string();

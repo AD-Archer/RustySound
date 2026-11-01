@@ -591,6 +591,8 @@ pub fn AppShell() -> Element {
     // and the view that started them.
     use_sleep_timer_provider();
     use_preview_provider();
+    // Network speakers (Mac and iPhone): the list and the cast in progress.
+    crate::components::cast::use_cast_provider();
     // Playlists kept up to date: on launch, on foreground, every 30 minutes.
     crate::components::playlist_sync::use_playlist_sync_provider(
         servers,

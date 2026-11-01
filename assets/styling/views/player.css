@@ -724,6 +724,28 @@
   .rs-player-sleep:hover { color: var(--stage-ink); }
 }
 
+/* Playing on a network speaker: the sleep timer's look, a step brighter;
+   opens the menu on Speakers. */
+.rs-player-cast {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 160px;
+  min-height: 20px;
+  padding: 0 var(--sp-2);
+  border-radius: 4px;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-medium);
+  color: var(--stage-ink);
+  white-space: nowrap;
+  animation: rs-fade-in var(--dur-med) var(--ease-out);
+}
+
+.rs-player-cast .rs-ic { flex: none; }
+
+.rs-player-cast:active { background: var(--stage-pressed); }
+
 /* ---- Transport -------------------------------------------------------- */
 
 .rs-player-transport {

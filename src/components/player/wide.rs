@@ -50,6 +50,8 @@ pub(super) fn WidePlayer() -> Element {
     let view = use_route::<AppView>();
 
     let song = now_playing();
+    // While a network speaker plays, its name sits by the format badge.
+    let playing_on = crate::components::cast::use_playing_on();
     let on_queue = matches!(view, AppView::QueueView {});
 
     let open_details = move |tab: Option<SongDetailsTab>| {
@@ -151,6 +153,12 @@ pub(super) fn WidePlayer() -> Element {
                 PlaybackTime { remaining: true, class: "rs-time--start".to_string() }
             }
             div { class: "rs-bar__rt",
+                if let Some(name) = playing_on {
+                    span { class: "rs-bar__cast", title: "Playing on {name}", "data-testid": "player-cast",
+                        crate::components::Icon { name: "speaker".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                        span { class: "rs-truncate", "{name}" }
+                    }
+                }
                 if let Some(badge) = song.as_ref().and_then(format_badge) {
                     span { class: "rs-bar__fmt", "{badge}" }
                 }

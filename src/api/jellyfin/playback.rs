@@ -92,6 +92,11 @@ impl JellyfinClient {
     }
 
     /// A square cover at `size` px. Images need no token.
+    /// As `NavidromeClient::get_cover_art_network_url`.
+    pub fn get_cover_art_network_url(&self, item_id: &str, size: u32) -> String {
+        self.build_cover_art_network_url(item_id.trim(), size.min(COVER_ART_MAX_PX))
+    }
+
     fn build_cover_art_network_url(&self, item_id: &str, size: u32) -> String {
         with_query(
             &self.server.url,

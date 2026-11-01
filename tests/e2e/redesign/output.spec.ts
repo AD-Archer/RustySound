@@ -4,7 +4,7 @@
 // list (enumerateDevices) and record setSinkId calls instead of switching real hardware.
 import type { Locator, Page } from "@playwright/test";
 import { audioState, expect, MOCK_SERVER_ID, test, waitForAppReady, type MockFixtures } from "../../support/fixtures";
-import { isCompact, tid } from "./helpers";
+import { gotoReady, isCompact, tid } from "./helpers";
 
 declare global {
   interface Window {
@@ -124,5 +124,23 @@ test.describe("output picker", () => {
     expect(await page.evaluate(() => "setSinkId" in HTMLMediaElement.prototype)).toBe(false);
     menu = await openPlayerMenu(page);
     await expect(tid(menu, "track-menu-output")).toHaveCount(0);
+  });
+});
+
+// Network speakers (Sonos, DLNA, Chromecast) are Mac and iPhone only: the browser can't search
+// a network, so neither the menu row nor the settings group exists on the web.
+test.describe("speakers", () => {
+  test("are not offered on the web", async ({ connected: page, mock }) => {
+    await startPlayback(page, mock);
+    const menu = await openPlayerMenu(page);
+    await expect(tid(menu, "track-menu-speakers")).toHaveCount(0);
+    await page.keyboard.press("Escape");
+    await expect(tid(page, "cast-indicator")).toHaveCount(0);
+
+    await gotoReady(page, "/settings");
+    await page.getByRole("button", { name: /^Playback/ }).first().click();
+    await expect(tid(page, "gapless-playback")).toBeVisible();
+    await expect(tid(page, "settings-speakers")).toHaveCount(0);
+    await expect(tid(page, "speaker-discovery")).toHaveCount(0);
   });
 });

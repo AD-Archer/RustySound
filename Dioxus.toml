@@ -38,12 +38,24 @@ background_modes = ["audio"]
 # UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace show the app's
 # Documents folder in the Files app (On My iPhone → RustySound) and in
 # Finder; music put there plays "On This Device" (src/local_music).
+#
+# NSLocalNetworkUsageDescription + NSBonjourServices: finding speakers on
+# the network (src/cast), asked the first time the Speakers list opens.
+# SSDP (UPnP, Sonos) and the Cast mDNS query also need Apple's
+# com.apple.developer.networking.multicast entitlement in the provisioning
+# profile; without it the searches find nothing.
 [ios.raw]
 info_plist = """
 	<key>UIFileSharingEnabled</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
 	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>RustySound uses your local network to stream from your media server and to play on speakers.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

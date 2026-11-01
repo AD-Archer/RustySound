@@ -92,6 +92,8 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "sliders" => (Stroke, r#"<path d="M6 4v16M12 4v16M18 4v16"/><path d="M4 14h4M10 8h4M16 16h4"/>"#),
         // Quick Listen (a 30-second preview).
         // AirPlay audio: rings over a solid triangle.
+        // A network speaker (casting).
+        "speaker" => (Stroke, r#"<rect x="5.5" y="2.5" width="13" height="19" rx="2.5"/><circle cx="12" cy="14.5" r="3.6"/><path d="M12 6.8h.01"/>"#),
         "airplay" => (Stroke, r#"<path d="M7.3 16.2a7.5 7.5 0 1 1 9.4 0"/><path d="M9.4 13.6a4 4 0 1 1 5.2 0"/><path d="M12 15.2 16.3 20.5H7.7Z" fill="currentColor"/>"#),
         "share" => (Stroke, r#"<path d="M12 3.5v11"/><path d="m8 7.3 4-3.8 4 3.8"/><path d="M8.5 10.5H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/>"#),
         "headphones" => (Stroke, r#"<path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>"#),
