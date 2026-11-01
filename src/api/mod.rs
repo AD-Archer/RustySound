@@ -1,5 +1,6 @@
 pub mod discovery;
 pub mod jellyfin;
+pub mod listening;
 pub mod lyrics;
 pub mod models;
 pub mod music_client;

@@ -155,6 +155,11 @@ const { token: nd } = (await login.json()) as { token: string };
 const native = await fetch(`${base}/api/song?_start=0&_end=5&_sort=play_date&_order=DESC`, { headers: { "x-nd-authorization": `Bearer ${nd}` } });
 const nsongs = (await native.json()) as any[];
 expect(nsongs.length === 5 && Date.parse(nsongs[0].playDate) >= Date.parse(nsongs[4].playDate), "native /api/song play_date DESC");
+// Wrapped pages the whole play history newest first; last plays vary by hour of day.
+const history = (await (await fetch(`${base}/api/song?_start=0&_end=400&_sort=play_date&_order=DESC`, { headers: { "x-nd-authorization": `Bearer ${nd}` } })).json()) as any[];
+const playedTimes = history.filter((s) => s.playDate).map((s) => Date.parse(s.playDate));
+expect(playedTimes.every((t, i) => i === 0 || playedTimes[i - 1] >= t), "play_date DESC is ordered by the full timestamp");
+expect(new Set(playedTimes.map((t) => new Date(t).getUTCHours())).size >= 6, "last plays spread over the day");
 const lrc = await (await fetch(`${base}/lrclib/api/search?track_name=${encodeURIComponent("Paper Lanterns")}&artist_name=${encodeURIComponent("The Paper Comets")}`)).json();
 expect(Array.isArray(lrc) && lrc[0]?.syncedLyrics?.startsWith("[00:04"), "lrclib stand-in");
 

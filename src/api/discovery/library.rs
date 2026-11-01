@@ -4,11 +4,11 @@
 use super::cache::{memo_get, memo_put};
 use super::http::server_call;
 use super::util::normalize_name;
+use crate::api::listening::aggregate::Tally;
 use crate::api::models::{Album, ServerConfig, Song};
 use crate::api::MusicClient;
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
 
 /// Albums per list per server.
 const NEWEST_SIZE: u32 = 24;
@@ -131,7 +131,7 @@ fn artist_key(server_id: &str, name: &str) -> String {
 
 /// Artists ranked by plays (frequent albums + top songs). Pure.
 pub fn top_artists(snapshot: &LibrarySnapshot) -> Vec<ArtistSeed> {
-    let mut by_key: HashMap<String, ArtistSeed> = HashMap::new();
+    let mut tally: Tally<ArtistSeed> = Tally::default();
     let mut add = |server_id: &str, artist_id: Option<&String>, name: &str, plays: u64| {
         let (Some(artist_id), false) = (artist_id, name.trim().is_empty()) else {
             return;
@@ -139,15 +139,12 @@ pub fn top_artists(snapshot: &LibrarySnapshot) -> Vec<ArtistSeed> {
         if artist_id.trim().is_empty() {
             return;
         }
-        let entry = by_key
-            .entry(artist_key(server_id, name))
-            .or_insert_with(|| ArtistSeed {
-                server_id: server_id.to_string(),
-                artist_id: artist_id.clone(),
-                name: name.trim().to_string(),
-                plays: 0,
-            });
-        entry.plays += plays;
+        tally.add(artist_key(server_id, name), plays, || ArtistSeed {
+            server_id: server_id.to_string(),
+            artist_id: artist_id.clone(),
+            name: name.trim().to_string(),
+            plays: 0,
+        });
     };
     for album in &snapshot.frequent {
         add(
@@ -167,7 +164,11 @@ pub fn top_artists(snapshot: &LibrarySnapshot) -> Vec<ArtistSeed> {
             );
         }
     }
-    let mut seeds: Vec<ArtistSeed> = by_key.into_values().filter(|s| s.plays > 0).collect();
+    let mut seeds: Vec<ArtistSeed> = tally
+        .ranked()
+        .into_iter()
+        .map(|(seed, plays)| ArtistSeed { plays, ..seed })
+        .collect();
     seeds.sort_by(|a, b| b.plays.cmp(&a.plays).then_with(|| a.name.cmp(&b.name)));
     seeds
 }

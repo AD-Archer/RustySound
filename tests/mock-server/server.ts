@@ -152,6 +152,17 @@ const iso = (daysAgo: number | null | undefined) =>
   daysAgo === null || daysAgo === undefined ? undefined : new Date(S.now - daysAgo * DAY).toISOString();
 const isoMs = (ms: number) => new Date(ms).toISOString();
 
+// Last plays happen at a time of day picked from the song id (deterministic), mostly in the
+// evening, always on the same UTC date as "N days ago" (now is 12:00 UTC), so Wrapped's
+// listening clock, busiest day and streak have something to show.
+const PLAY_HOURS = [7, 8, 9, 12, 13, 15, 17, 18, 19, 20, 20, 21, 21, 22, 22, 23, 1];
+function playedMs(s: SongRec): number {
+  if (s.playedDaysAgo === null) return -Infinity;
+  const hour = PLAY_HOURS[hashString(`${s.id}:hour`) % PLAY_HOURS.length];
+  return S.now - s.playedDaysAgo * DAY + (hour - 12) * 3_600_000;
+}
+const playedIso = (s: SongRec) => (s.playedDaysAgo === null ? undefined : isoMs(playedMs(s)));
+
 // ---------------------------------------------------------------- serializers
 
 function songJson(s: SongRec) {
@@ -183,7 +194,7 @@ function songJson(s: SongRec) {
     isVideo: false,
     // OpenSubsonic / Navidrome extras
     playCount: s.playCount,
-    played: iso(s.playedDaysAgo),
+    played: playedIso(s),
     starred: iso(s.starredDaysAgo),
     userRating: s.userRating ?? undefined,
     bpm: s.bpm,
@@ -1087,7 +1098,7 @@ function streamSong(id: string, req: Request): Response {
 
 // Sort keys as numeric/string "values"; DESC puts the largest value first (as Navidrome does).
 const SORT_VALUE: Record<string, (s: SongRec) => number | string> = {
-  play_date: (s) => (s.playedDaysAgo === null ? -Infinity : -s.playedDaysAgo),
+  play_date: playedMs,
   play_count: (s) => s.playCount,
   title: (s) => s.title.toLowerCase(),
   rating: (s) => s.userRating ?? 0,

@@ -33,3 +33,4 @@ pub(crate) mod up_next;
 
 pub use overlay::SongDetailsOverlay;
 pub use types::{SongDetailsController, SongDetailsState, SongDetailsTab};
+pub(crate) use lyrics::share_element_image;

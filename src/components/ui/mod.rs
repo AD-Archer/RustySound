@@ -33,6 +33,7 @@ mod sheet;
 mod sidebar;
 mod skeleton;
 mod status_toast;
+mod story;
 mod stage;
 mod switch;
 mod tab_bar;
@@ -74,6 +75,7 @@ pub use sidebar::{radio_available, Sidebar};
 pub use skeleton::Skeleton;
 pub use stage::Stage;
 pub use status_toast::{StatusToast, StatusToastHost};
+pub use story::{Story, StoryCard, StoryProgress};
 pub use switch::Switch;
 pub use tab_bar::TabBar;
 pub use track_menu::{

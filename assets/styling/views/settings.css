@@ -1371,3 +1371,464 @@
 .rs-settings-row--tap:disabled .rs-settings-row__action {
   color: var(--muted);
 }
+
+/* ==========================================================================
+   WRAPPED (views/wrapped): the Settings entry and the story's cards, on the
+   kit's .rs-story / .rs-story-card.
+   ========================================================================== */
+
+/* ---- The entry: a calm row of its own near the top ------------------------ */
+
+.rs-settings-wrapped__lead {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-btn);
+  background: var(--stage-bg);
+  color: var(--stage-ink);
+}
+
+/* ---- Year picker in the story header -------------------------------------- */
+
+.rs-wrapped-year {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 100%;
+  color: var(--stage-ink);
+}
+
+.rs-wrapped-year select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: var(--touch);
+  padding: 0 var(--sp-6) 0 var(--sp-1);
+  margin-right: calc(var(--sp-6) * -1);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.rs-wrapped-year select option {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.rs-wrapped-year .rs-ic {
+  pointer-events: none;
+  opacity: .8;
+}
+
+/* ---- Type on the cards ------------------------------------------------------ */
+
+.rs-wrapped-big {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(64px, 19vw, 104px);
+  font-weight: var(--fw-bold);
+  line-height: .95;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-wrapped-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 9vw, 44px);
+  font-weight: var(--fw-bold);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+
+.rs-wrapped-title {
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-title1);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-title1);
+  letter-spacing: -.01em;
+}
+
+.rs-wrapped-lead {
+  margin: 0;
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-title2);
+}
+
+.rs-wrapped-lead--soft {
+  font-weight: var(--fw-regular);
+  color: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-line {
+  margin: 0;
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  color: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-line--soft {
+  font-size: var(--fs-callout);
+  color: rgba(255, 255, 255, .74);
+}
+
+.rs-wrapped-note {
+  margin: auto 0 0;
+  padding-top: var(--sp-6);
+  font-size: var(--fs-foot);
+  line-height: var(--lh-sub);
+  color: rgba(255, 255, 255, .7);
+}
+
+/* ---- Hero artwork ------------------------------------------------------------ */
+
+.rs-wrapped-hero {
+  width: min(70%, 280px);
+  aspect-ratio: 1;
+  margin-bottom: var(--sp-5);
+}
+
+.rs-wrapped-hero__art {
+  border-radius: var(--r-art);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+
+/* ---- Top lists ---------------------------------------------------------------- */
+
+.rs-wrapped-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-wrapped-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+
+.rs-wrapped-list__rank {
+  width: 1.4em;
+  flex: none;
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-list__art {
+  flex: none;
+  border-radius: var(--r-thumb);
+  overflow: hidden;
+}
+
+.rs-wrapped-list__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.rs-wrapped-list__name,
+.rs-wrapped-list__sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rs-wrapped-list__name {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-wrapped-list__sub {
+  font-size: var(--fs-sub);
+  color: rgba(255, 255, 255, .74);
+}
+
+.rs-wrapped-list__bar {
+  display: block;
+  height: 6px;
+  margin-top: var(--sp-2);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .14);
+  overflow: hidden;
+}
+
+.rs-wrapped-list__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-list__detail {
+  flex: none;
+  font-size: var(--fs-sub);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .78);
+}
+
+/* ---- Listening clock: one thin bar per hour --------------------------------- */
+
+.rs-wrapped-clock {
+  margin: var(--sp-6) 0 var(--sp-4);
+}
+
+.rs-wrapped-clock__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  border-bottom: 1px solid rgba(255, 255, 255, .24);
+}
+
+.rs-wrapped-clock__bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-clock__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-3);
+  font-size: var(--fs-cap);
+  color: rgba(255, 255, 255, .7);
+}
+
+.rs-wrapped-clock__axis span {
+  width: 25%;
+}
+
+/* ---- Personality facts ------------------------------------------------------ */
+
+.rs-wrapped-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6) var(--sp-8);
+  margin: var(--sp-6) 0 0;
+}
+
+.rs-wrapped-facts dt {
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-facts dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-semibold);
+}
+
+/* ---- Buttons on the cards (Quick Listen, Share) ----------------------------- */
+
+.rs-wrapped-preview {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: var(--touch);
+  margin-top: var(--sp-5);
+  padding: 0 var(--sp-6) 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-button);
+  background: rgba(255, 255, 255, .14);
+  color: var(--stage-ink);
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.rs-wrapped-preview:hover {
+  background: rgba(255, 255, 255, .24);
+}
+
+.rs-wrapped-preview:disabled {
+  cursor: default;
+  opacity: .7;
+}
+
+.rs-wrapped-preview__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+}
+
+/* ---- Loading ------------------------------------------------------------------ */
+
+.rs-wrapped-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+/* ---- The shareable summary ------------------------------------------------------
+   Captured to an image (the Lyrics Shot path), so: plain colours, no
+   color-mix, no tokens that depend on the page theme. */
+
+.rs-wrapped-summary {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 4 / 5;
+  max-height: 100%;
+  align-self: center;
+  border-radius: 12px;
+  background: #101114;
+  color: #fff;
+}
+
+.rs-wrapped-summary__wash {
+  position: absolute;
+  inset: -25%;
+  z-index: -2;
+  width: 150%;
+  height: 150%;
+  object-fit: cover;
+  filter: blur(48px) saturate(1.5);
+  -webkit-filter: blur(48px) saturate(1.5);
+  opacity: .7;
+}
+
+.rs-wrapped-summary__veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .2) 0%, rgba(0, 0, 0, .55) 60%, rgba(0, 0, 0, .8) 100%);
+}
+
+.rs-wrapped-summary__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  padding: 22px;
+  box-sizing: border-box;
+}
+
+.rs-wrapped-summary__brand {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .82);
+}
+
+.rs-wrapped-summary__hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rs-wrapped-summary__art {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+}
+
+.rs-wrapped-summary__label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-summary__name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.rs-wrapped-summary__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.rs-wrapped-summary__cols ol {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rs-wrapped-summary__cols li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rs-wrapped-summary__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.rs-wrapped-summary__value {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-wrapped-summary__foot {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-share {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  justify-content: center;
+}
+
+.rs-wrapped-share .rs-wrapped-preview {
+  align-self: center;
+}
+
+.rs-wrapped-share__note {
+  margin: var(--sp-5) 0 0;
+  font-size: var(--fs-sub);
+  color: rgba(255, 255, 255, .8);
+}
+
+/* The summary card: the captured card is the content, so less padding. */
+.rs-story-card:has(.rs-wrapped-summary) {
+  padding: var(--sp-7) var(--sp-6) var(--sp-6);
+}
+
+.rs-story-card:has(.rs-wrapped-summary) .rs-story-card__body {
+  justify-content: flex-start;
+  padding-top: var(--sp-5);
+}

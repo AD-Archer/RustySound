@@ -105,6 +105,7 @@ pub fn SettingsView() -> Element {
     let ctx = SettingsCtx::provide();
     let layout = use_layout();
     let mut selected = use_signal(|| None::<Section>);
+    let mut wrapped_open = use_signal(|| false);
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
 
     let toast = ctx.toast_text();
@@ -122,7 +123,7 @@ pub fn SettingsView() -> Element {
                 div { class: "rs-page-head",
                     h1 { class: "rs-large-title", "Settings" }
                 }
-                SectionNav { current: None, servers: servers(), on_pick: move |s| selected.set(Some(s)) }
+                SectionNav { current: None, servers: servers(), on_pick: move |s| selected.set(Some(s)), on_wrapped: move |_| wrapped_open.set(true) }
             },
             Some(section) => rsx! {
                 div { class: "rs-settings-back",
@@ -145,7 +146,7 @@ pub fn SettingsView() -> Element {
             div { class: "rs-settings-split",
                 nav { class: "rs-settings-split__nav", aria_label: "Settings sections",
                     h1 { class: "rs-large-title rs-settings-split__title", "Settings" }
-                    SectionNav { current: Some(section), servers: servers(), on_pick: move |s| selected.set(Some(s)) }
+                    SectionNav { current: Some(section), servers: servers(), on_pick: move |s| selected.set(Some(s)), on_wrapped: move |_| wrapped_open.set(true) }
                 }
                 section {
                     class: "rs-settings-split__detail",
@@ -170,6 +171,9 @@ pub fn SettingsView() -> Element {
                     span { class: "rs-settings-toast", "{message}" }
                 }
             }
+            if wrapped_open() {
+                super::wrapped::WrappedStory { on_close: move |_| wrapped_open.set(false) }
+            }
         }
     }
 }
@@ -181,6 +185,7 @@ fn SectionNav(
     current: Option<Section>,
     servers: Vec<ServerConfig>,
     on_pick: EventHandler<Section>,
+    on_wrapped: EventHandler<()>,
 ) -> Element {
     let active = servers.iter().filter(|s| s.active).count();
     let server_summary = match (servers.len(), active) {
@@ -234,6 +239,7 @@ fn SectionNav(
                     onclick: pick(Section::Servers),
                 }
             }
+            super::wrapped::WrappedEntry { on_open: move |_| on_wrapped.call(()) }
             for (index, group) in Section::GROUPS.iter().enumerate() {
                 ul { key: "{index}", class: "rs-list rs-list--icons",
                     for section in group.iter().copied() {

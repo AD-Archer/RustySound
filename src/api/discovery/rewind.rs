@@ -3,6 +3,7 @@
 use super::reasons::rewind_reason;
 use super::types::{DiscoverAlbum, DiscoverSong, ReasonKind};
 use super::util::{parse_timestamp, SeededRng};
+use crate::api::listening::aggregate::rank_by_plays;
 use crate::api::models::{Album, Song};
 
 /// Default Rewind window in months (the Discover segment's default).
@@ -52,14 +53,17 @@ pub fn select_rewind_albums(
     seed: u64,
     limit: usize,
 ) -> Vec<DiscoverAlbum> {
-    let mut candidates: Vec<&Album> = albums
-        .iter()
-        .filter(|a| {
-            is_rewind_candidate(a.played.as_deref(), a.play_count, MIN_ALBUM_PLAYS, now, cutoff_days)
-        })
-        .collect();
-    candidates.sort_by_key(|a| std::cmp::Reverse(a.play_count.unwrap_or(0)));
-    dedupe_by(&mut candidates, |a| format!("{}::{}", a.server_id, a.id));
+    let candidates: Vec<&Album> = rank_by_plays(
+        albums
+            .iter()
+            .filter(|a| {
+                is_rewind_candidate(a.played.as_deref(), a.play_count, MIN_ALBUM_PLAYS, now, cutoff_days)
+            })
+            .collect(),
+        |a| a.play_count.unwrap_or(0),
+        |a| format!("{}::{}", a.server_id, a.id),
+        usize::MAX,
+    );
     let mut picked = SeededRng::new(seed).pick_ordered(&candidates, limit * 2, limit);
     picked.sort_by_key(|a| std::cmp::Reverse(a.play_count.unwrap_or(0)));
     picked
@@ -77,17 +81,19 @@ pub fn select_rewind_albums(
 
 /// Rewind songs, most played first (no sampling: the list is short).
 pub fn select_rewind_songs(songs: &[Song], now: i64, cutoff_days: i64, limit: usize) -> Vec<DiscoverSong> {
-    let mut candidates: Vec<&Song> = songs
-        .iter()
-        .filter(|s| {
-            is_rewind_candidate(s.played.as_deref(), s.play_count, MIN_SONG_PLAYS, now, cutoff_days)
-        })
-        .collect();
-    candidates.sort_by_key(|s| std::cmp::Reverse(s.play_count.unwrap_or(0)));
-    dedupe_by(&mut candidates, |s| format!("{}::{}", s.server_id, s.id));
+    let candidates: Vec<&Song> = rank_by_plays(
+        songs
+            .iter()
+            .filter(|s| {
+                is_rewind_candidate(s.played.as_deref(), s.play_count, MIN_SONG_PLAYS, now, cutoff_days)
+            })
+            .collect(),
+        |s| s.play_count.unwrap_or(0),
+        |s| format!("{}::{}", s.server_id, s.id),
+        limit,
+    );
     candidates
         .into_iter()
-        .take(limit)
         .map(|song| {
             let last = song.played.as_deref().and_then(parse_timestamp).unwrap_or(now);
             DiscoverSong {
@@ -98,11 +104,6 @@ pub fn select_rewind_songs(songs: &[Song], now: i64, cutoff_days: i64, limit: us
             }
         })
         .collect()
-}
-
-fn dedupe_by<T>(items: &mut Vec<T>, key: impl Fn(&T) -> String) {
-    let mut seen = std::collections::HashSet::new();
-    items.retain(|item| seen.insert(key(item)));
 }
 
 #[cfg(test)]

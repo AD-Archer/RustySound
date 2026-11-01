@@ -2861,3 +2861,238 @@ button.rs-bar__art {
 }
 
 .rs-eq--live i { transform-origin: bottom; }
+
+/* ==========================================================================
+   STORIES (ui/story.rs; gestures in ui/story.js)
+   A full-screen stage of cards shown one at a time. Compact: the cards fill
+   the screen. Wide: one portrait card in the middle of a dark room.
+   ========================================================================== */
+
+.rs-story {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  justify-content: center;
+  padding: calc(var(--safe-top) + var(--sp-4)) calc(var(--safe-right) + var(--sp-4)) calc(var(--safe-bottom) + var(--sp-4)) calc(var(--safe-left) + var(--sp-4));
+  background: var(--stage-bg-tall);
+  color: var(--stage-ink);
+  -webkit-user-select: none;
+  user-select: none;
+  animation: rs-story-in var(--dur-med) var(--ease-out);
+}
+
+.rs-story:focus {
+  outline: none;
+}
+
+.rs-story :focus-visible {
+  outline-color: var(--accent-hi);
+}
+
+.rs-story__frame {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  max-width: 460px;
+  min-height: 0;
+}
+
+.rs-app[data-layout="wide"] .rs-story {
+  align-items: center;
+  padding-top: calc(var(--safe-top) + var(--sp-8));
+  padding-bottom: calc(var(--safe-bottom) + var(--sp-8));
+}
+
+.rs-app[data-layout="wide"] .rs-story__frame {
+  height: min(100%, 880px);
+}
+
+.rs-story__top {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-1);
+}
+
+.rs-story__bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: var(--touch);
+}
+
+.rs-story__header {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-story-progress {
+  display: flex;
+  gap: var(--sp-2);
+}
+
+.rs-story-progress__seg {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .22);
+}
+
+.rs-story-progress__seg--done {
+  background: rgba(255, 255, 255, .62);
+}
+
+.rs-story-progress__seg--on {
+  background: var(--stage-ink);
+}
+
+/* Drags start anywhere here; the script owns the touches. */
+.rs-story__stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  margin-top: var(--sp-3);
+  touch-action: none;
+}
+
+/* The tap zones sit under the cards, which let taps through except on
+   their own controls. */
+.rs-story__edge {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  padding: 0 var(--sp-4);
+  border: 0;
+  background: none;
+  color: var(--stage-ink);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.rs-story__edge:disabled {
+  cursor: default;
+}
+
+.rs-story__edge--prev {
+  left: 0;
+  width: 33%;
+}
+
+.rs-story__edge--next {
+  right: 0;
+  width: 67%;
+  justify-content: flex-end;
+}
+
+.rs-story__edge-ic {
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .rs-story__edge:not(:disabled):hover .rs-story__edge-ic {
+    opacity: .85;
+  }
+}
+
+.rs-story__track {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  pointer-events: none;
+}
+
+.rs-story__slot {
+  grid-area: 1 / 1;
+  display: flex;
+  min-width: 0;
+  min-height: 0;
+  will-change: transform, opacity;
+}
+
+.rs-story__slot button,
+.rs-story__slot a,
+.rs-story__slot select {
+  pointer-events: auto;
+}
+
+.rs-story__slot[data-story-leaving],
+.rs-story__slot[data-story-leaving] * {
+  pointer-events: none !important;
+}
+
+.rs-story[data-story-drag] .rs-story__slot {
+  cursor: grabbing;
+}
+
+/* ---- A card --------------------------------------------------------------- */
+
+.rs-story-card {
+  position: relative;
+  isolation: isolate;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  padding: var(--sp-9) var(--sp-8) var(--sp-8);
+  border-radius: var(--r-sheet);
+  background: #0c0c0e;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .55);
+}
+
+/* The album-art wash: the cover, far out of focus. */
+.rs-story-card__wash {
+  position: absolute;
+  inset: -25%;
+  z-index: -2;
+  width: 150%;
+  height: 150%;
+  object-fit: cover;
+  filter: blur(56px) saturate(1.5);
+  opacity: .6;
+  pointer-events: none;
+}
+
+.rs-story-card__veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .3) 0%, rgba(0, 0, 0, .52) 55%, rgba(0, 0, 0, .78) 100%);
+  pointer-events: none;
+}
+
+.rs-story-card__kicker {
+  margin: 0;
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .78);
+}
+
+.rs-story-card__body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: var(--sp-4);
+  min-height: 0;
+  padding-top: var(--sp-6);
+}
+
+/* Loading placeholders on the stage. */
+.rs-story-card .rs-skel {
+  background: linear-gradient(90deg, #17181a 0%, #24252a 50%, #17181a 100%);
+  background-size: 200% 100%;
+}
+
+@keyframes rs-story-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
