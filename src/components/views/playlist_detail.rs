@@ -164,9 +164,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     ));
     let can_download = !cfg!(target_arch = "wasm32");
     let row_h = 58.0;
-    // Cover Flow of the songs in the stage band (not while editing).
-    let show_flow = !is_editing
-        && wants_flow(&runs.read(), count > 0, playlist.song_count as usize);
+    // Cover Flow of the songs in the stage band.
+    let show_flow = wants_flow(&runs.read(), count > 0, playlist.song_count as usize);
     let wide = !layout.is_compact();
 
     // ---- Actions --------------------------------------------------------------
