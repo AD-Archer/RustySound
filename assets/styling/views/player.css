@@ -976,6 +976,29 @@
   .rs-player-lyric:not(:disabled):not(.rs-player-lyric--now):hover { color: var(--stage-muted); }
 }
 
+/* Karaoke: on the active word-timed line each word fills from muted to ink as
+   it is sung, with a soft edge. karaoke.js sets --rs-word-p (0..1) on that
+   line's words only; other lines keep their plain line colours. Reduced
+   motion skips the fill and lights the whole line. */
+.rs-app .rs-player-lyric--now.rs-player-lyric--words .rs-player-word {
+  --rs-word-edge: .45em;
+  background-image: linear-gradient(
+    90deg,
+    var(--stage-ink) calc(var(--rs-word-p, 0) * (100% + var(--rs-word-edge)) - var(--rs-word-edge)),
+    var(--stage-muted) calc(var(--rs-word-p, 0) * (100% + var(--rs-word-edge)))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-app .rs-player-lyric--now.rs-player-lyric--words .rs-player-word {
+    background-image: none;
+    color: inherit;
+  }
+}
+
 .rs-app .rs-player-lyric--plain {
   margin: 0;
   font-size: 19px;

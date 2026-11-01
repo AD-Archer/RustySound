@@ -9,7 +9,8 @@ export const MOCK_SERVER_ID = "mock-server-0001";
 export interface MockFixtures {
   artist: { id: string; name: string };
   album: { id: string; name: string; artist: string; songCount: number };
-  albumSongs: { id: string; title: string; duration: number }[];
+  /** `wordTimed`: the mock's getLyricsBySongId gives word cues for it (enhanced=true). */
+  albumSongs: { id: string; title: string; duration: number; wordTimed: boolean; hasLyrics: boolean }[];
   playlist: { id: string; name: string };
   bigPlaylist: { id: string; name: string; songCount: number; duration: number };
 }

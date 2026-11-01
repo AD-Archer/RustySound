@@ -1,6 +1,6 @@
 //! Lyrics | Up Next | Info, as a segmented control on the stage.
 
-use super::actions::{is_live_song, song_key};
+use super::actions::{is_live_song, song_key, use_player};
 use super::info::InfoPanel;
 use super::lyrics::{use_lyrics_source, LyricsAvailability, LyricsPanel};
 use super::types::{NowPlayingFocus, Panel, SongDetailsController, SongDetailsTab};
@@ -14,9 +14,11 @@ pub(super) fn NowPlayingPanels(song: Song, tab: Option<SongDetailsTab>, wide: bo
     let mut controller = use_context::<SongDetailsController>();
     // Song identity + lyrics query; unchanged by star/rating edits, so those
     // never refetch lyrics.
+    // The query carries the song's server so the server provider can ask it.
+    let player = use_player();
     let base = use_memo(use_reactive!(|song| Some((
         song_key(&song),
-        LyricsQuery::from_song(&song)
+        LyricsQuery::from_song_on(&song, &player.servers.read())
     ))));
     let source = use_lyrics_source(base);
     use_context_provider(|| source);

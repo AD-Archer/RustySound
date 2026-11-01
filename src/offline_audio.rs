@@ -1569,8 +1569,12 @@ fn warm_song_cover_art(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn warm_song_lyrics(song: &Song, settings: &AppSettings) -> Option<bool> {
-    let query = LyricsQuery::from_song(song);
+async fn warm_song_lyrics(
+    song: &Song,
+    server: &ServerConfig,
+    settings: &AppSettings,
+) -> Option<bool> {
+    let query = LyricsQuery::from_song_on(song, std::slice::from_ref(server));
     if query.title.trim().is_empty() {
         return None;
     }
@@ -1870,7 +1874,7 @@ pub async fn refresh_downloaded_cache(
             &mut seen_cover_requests,
         );
 
-        if let Some(warmed) = warm_song_lyrics(&song, settings).await {
+        if let Some(warmed) = warm_song_lyrics(&song, &client.server, settings).await {
             report.lyrics_attempted += 1;
             if warmed {
                 report.lyrics_warmed += 1;
@@ -1972,7 +1976,7 @@ pub async fn prefetch_song_audio_with_origin(
     );
 
     // Warm lyrics alongside audio download so offline playback has text available.
-    let _ = warm_song_lyrics(song, settings).await;
+    let _ = warm_song_lyrics(song, &client.server, settings).await;
 
     let size_budget_mb = if settings.downloads_enabled {
         settings.download_limit_mb

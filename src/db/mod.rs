@@ -1,7 +1,7 @@
 use crate::api::{
     default_lyrics_provider_order,
     models::{ServerConfig, Song},
-    normalize_lyrics_provider_order,
+    normalize_lyrics_provider_order, LyricsProvider,
 };
 #[cfg(not(target_arch = "wasm32"))]
 use crate::storage::app_data_dir;
@@ -89,6 +89,10 @@ pub struct AppSettings {
     pub offline_mode: bool,
     #[serde(default = "default_lyrics_provider_order")]
     pub lyrics_provider_order: Vec<String>,
+    /// Set once the server provider has been put at the front of a saved
+    /// order, so moving it down later sticks.
+    #[serde(default)]
+    pub lyrics_server_provider_added: bool,
     #[serde(default = "default_lyrics_request_timeout_secs")]
     pub lyrics_request_timeout_secs: u32,
     #[serde(default)]
@@ -240,23 +244,36 @@ fn default_home_feed_load_profile() -> String {
     "standard".to_string()
 }
 
+/// Orders saved before the server provider existed get it at the front,
+/// once: the user's own lyrics need no third-party call.
+fn add_server_lyrics_provider(settings: &mut AppSettings) {
+    if settings.lyrics_server_provider_added {
+        return;
+    }
+    let has_server = settings
+        .lyrics_provider_order
+        .iter()
+        .any(|key| LyricsProvider::from_key(key) == Some(LyricsProvider::Server));
+    if !has_server {
+        settings
+            .lyrics_provider_order
+            .insert(0, LyricsProvider::Server.key().to_string());
+    }
+    settings.lyrics_server_provider_added = true;
+}
+
 fn migrate_settings(mut settings: AppSettings) -> AppSettings {
+    add_server_lyrics_provider(&mut settings);
     let normalized = normalize_lyrics_provider_order(&settings.lyrics_provider_order);
-    let legacy_default_v1 = vec![
-        "netease".to_string(),
-        "lrclib".to_string(),
-        "genius".to_string(),
-    ];
-    let legacy_default_v2 = vec![
-        "lrclib".to_string(),
-        "netease".to_string(),
-        "genius".to_string(),
-    ];
-    let legacy_default_v3 = vec![
-        "genius".to_string(),
-        "lrclib".to_string(),
-        "netease".to_string(),
-    ];
+    let legacy = |keys: [&str; 3]| {
+        std::iter::once("server")
+            .chain(keys)
+            .map(str::to_string)
+            .collect::<Vec<_>>()
+    };
+    let legacy_default_v1 = legacy(["netease", "lrclib", "genius"]);
+    let legacy_default_v2 = legacy(["lrclib", "netease", "genius"]);
+    let legacy_default_v3 = legacy(["genius", "lrclib", "netease"]);
 
     settings.lyrics_provider_order = if normalized == legacy_default_v1
         || normalized == legacy_default_v2
@@ -317,6 +334,7 @@ impl Default for AppSettings {
             cache_images_enabled: true,
             offline_mode: false,
             lyrics_provider_order: default_lyrics_provider_order(),
+            lyrics_server_provider_added: true,
             lyrics_request_timeout_secs: default_lyrics_request_timeout_secs(),
             lyrics_offset_ms: 0,
             lyrics_unsynced_mode: false,
@@ -745,6 +763,79 @@ fn get_db_connection() -> Result<rusqlite::Connection, DbError> {
             e
         ))
     })
+}
+
+#[cfg(test)]
+mod lyrics_provider_migration_tests {
+    use super::*;
+
+    fn order(keys: &[&str]) -> Vec<String> {
+        keys.iter().map(|key| key.to_string()).collect()
+    }
+
+    /// Saved settings JSON with the given extra fields (`""` for none).
+    fn load(fields: &str) -> AppSettings {
+        let base = r#""volume":0.5,"theme":"rusty","crossfade_enabled":false,
+            "crossfade_duration":3,"replay_gain":false"#;
+        let json = if fields.is_empty() {
+            format!("{{{base}}}")
+        } else {
+            format!("{{{base},{fields}}}")
+        };
+        migrate_settings(serde_json::from_str(&json).unwrap())
+    }
+
+    #[test]
+    fn saved_custom_order_gains_server_at_the_front() {
+        let settings = load(r#""lyrics_provider_order":["genius","netease","lrclib"]"#);
+        assert_eq!(
+            settings.lyrics_provider_order,
+            order(&["server", "genius", "netease", "lrclib"])
+        );
+        assert!(settings.lyrics_server_provider_added);
+    }
+
+    #[test]
+    fn legacy_defaults_become_the_new_default() {
+        let settings = load(r#""lyrics_provider_order":["netease","lrclib","genius"]"#);
+        assert_eq!(settings.lyrics_provider_order, default_lyrics_provider_order());
+        assert_eq!(settings.lyrics_provider_order[0], "server");
+    }
+
+    #[test]
+    fn server_moved_down_stays_down() {
+        // Migrated once already, then the user moved the server to the end.
+        let settings = load(
+            r#""lyrics_provider_order":["lrclib","genius","netease","server"],
+                "lyrics_server_provider_added":true"#,
+        );
+        assert_eq!(
+            settings.lyrics_provider_order,
+            order(&["lrclib", "genius", "netease", "server"])
+        );
+        // And a second load changes nothing.
+        let again = migrate_settings(settings.clone());
+        assert_eq!(again.lyrics_provider_order, settings.lyrics_provider_order);
+    }
+
+    #[test]
+    fn migration_runs_once_even_if_reloaded() {
+        let first = load(r#""lyrics_provider_order":["lrclib","genius","netease"]"#);
+        let second = migrate_settings(first.clone());
+        assert_eq!(first.lyrics_provider_order, second.lyrics_provider_order);
+        assert_eq!(
+            first.lyrics_provider_order.iter().filter(|k| *k == "server").count(),
+            1
+        );
+    }
+
+    #[test]
+    fn new_settings_start_with_server_first() {
+        let settings = migrate_settings(AppSettings::default());
+        assert_eq!(settings.lyrics_provider_order, default_lyrics_provider_order());
+        let fresh = load("");
+        assert_eq!(fresh.lyrics_provider_order, default_lyrics_provider_order());
+    }
 }
 
 #[cfg(test)]

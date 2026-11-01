@@ -119,11 +119,11 @@ pub(super) fn LyricsSection() -> Element {
             }
         }
         Footnote {
-            "Tried top to bottom until one has the song. "
+            "Tried top to bottom until one has the song. Your Server is the lyrics in your music files and the sidecars next to them, word-timed when the server has the timing. "
             if cfg!(target_arch = "wasm32") {
-                "In the browser only LRCLIB answers (Netease and Genius block web requests), so keep it first here."
+                "In the browser only Your Server and LRCLIB answer (Netease and Genius block web requests), so keep them at the top here."
             } else {
-                "The web version can only reach LRCLIB, so keep it first if you also use that."
+                "The web version can only reach Your Server and LRCLIB, so keep them at the top if you also use that."
             }
         }
     }
