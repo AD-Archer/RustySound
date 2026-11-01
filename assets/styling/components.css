@@ -3345,70 +3345,53 @@ button.rs-bar__art {
   to { opacity: 1; }
 }
 
-/* ---- TV home (Android TV): big cards for the sidebar's places ------------ */
+/* ---- Android TV nav bar: the sidebar's places along the top ----------- */
 
-.rs-tv-home {
-  width: 100%;
-  max-width: 1100px;
-  margin: 0 auto;
-  padding: 28px 40px calc(var(--bar-h, 72px) + 32px);
-}
-
-.rs-tv-home__header {
+.rs-tv-nav {
   display: flex;
-  align-items: center;
-  gap: 16px;
-  margin-bottom: 24px;
-}
-
-.rs-tv-home__title {
-  margin: 0;
-  font-size: 30px;
-  font-weight: var(--fw-bold, 700);
-}
-
-.rs-tv-home__server {
-  color: var(--muted);
-  font-size: 20px;
-}
-
-.rs-tv-home__grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
-  gap: 16px;
-}
-
-.rs-tv-card {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
   gap: 10px;
-  height: 108px;
+  padding: 20px 32px 12px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  /* Part of the stage, like the Home Cover Flow beneath it. */
+  background: var(--stage-base);
+}
+
+.rs-tv-nav__item {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 40px;
+  padding: 0 16px;
   border: 0;
   border-radius: 20px;
   background: var(--stage-surface, rgba(255, 255, 255, .06));
-  color: var(--ink);
+  color: var(--stage-ink);
   font: inherit;
-  font-size: 18px;
+  font-size: 15px;
   cursor: pointer;
   transition: transform var(--dur-fast) var(--ease-out), background-color var(--dur-fast) var(--ease-out);
 }
 
-.rs-tv-card .rs-ic {
-  width: 32px;
-  height: 32px;
+.rs-tv-nav__item .rs-ic {
+  width: 18px;
+  height: 18px;
 }
 
-.rs-tv-card:hover,
-.rs-tv-card:focus-visible {
+.rs-tv-nav__item--on {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+}
+
+.rs-tv-nav__item:hover,
+.rs-tv-nav__item:focus-visible {
   outline: none;
-  transform: scale(1.06);
+  transform: scale(1.08);
   background: var(--accent);
   color: #fff;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .rs-tv-card { transition: none; }
-  .rs-tv-card:hover, .rs-tv-card:focus-visible { transform: none; }
+  .rs-tv-nav__item { transition: none; }
+  .rs-tv-nav__item:hover, .rs-tv-nav__item:focus-visible { transform: none; }
 }

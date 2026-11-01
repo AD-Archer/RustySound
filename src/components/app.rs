@@ -1088,6 +1088,10 @@ pub fn AppShell() -> Element {
                 }
                 main {
                     class: "rs-main main-scroll",
+                    // Android TV: the sidebar's places as a top row (no sidebar there).
+                    if crate::components::ui::env::is_android_tv() {
+                        crate::components::views::TvNavBar {}
+                    }
                     if offline_mode_enabled {
                         div { class: "rs-banner", role: "status", "data-testid": "offline-banner",
                             Icon { name: "offline".to_string(), class: "rs-ic".to_string() }

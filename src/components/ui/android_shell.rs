@@ -23,9 +23,9 @@ pub fn AndroidShell() -> Element {
         spawn(async move {
             while let Ok(message) = shell.recv::<String>().await {
                 if message == "tv" {
-                    // TV: wide layout with the TV home's cards.
+                    // TV: wide layout, with the nav bar on top of the real Home.
                     super::env::ANDROID_TV.store(true, std::sync::atomic::Ordering::Relaxed);
-                    navigation.navigate_to(crate::components::AppView::TvHome {});
+                    navigation.navigate_to(crate::components::AppView::HomeView {});
                     continue;
                 }
                 if message != "back" {
