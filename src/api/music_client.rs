@@ -12,6 +12,7 @@
 //! listed here (Discover mixes, radio stations, bookmarks, scans) still use
 //! `NavidromeClient`, which refuses Jellyfin servers without a request.
 
+use super::offline_queue::{self, Change};
 use super::{
     Album, Artist, JellyfinClient, NavidromeClient,
     PlaybackReportState, Playlist, SearchResult, ServerConfig, ServerKind, Song,
@@ -242,17 +243,62 @@ impl MusicClient {
         each!(self, c => c.get_starred().await)
     }
 
+    /// The server this client talks to; `None` for music on the device.
+    fn server(&self) -> Option<&ServerConfig> {
+        match self {
+            Self::Subsonic(c) => Some(&c.server),
+            Self::Jellyfin(c) => Some(&c.server),
+            Self::Local(_) => None,
+        }
+    }
+
     /// Favourites: on the server, or in the local index for local items.
+    /// While the server can't be reached the change waits in the offline
+    /// queue and this still succeeds (`offline_queue`).
     pub async fn star(&self, id: &str, item_type: &str) -> Result<(), String> {
-        each!(self, c => c.star(id, item_type).await)
+        self.favorite(id, item_type, true).await
     }
 
     pub async fn unstar(&self, id: &str, item_type: &str) -> Result<(), String> {
-        each!(self, c => c.unstar(id, item_type).await)
+        self.favorite(id, item_type, false).await
     }
 
-    /// 1–5 stars, where [`Capabilities::star_ratings`] says so.
+    async fn favorite(&self, id: &str, item_type: &str, starred: bool) -> Result<(), String> {
+        let send = self.send_favorite(id, item_type, starred);
+        let Some(server) = self.server() else {
+            return send.await;
+        };
+        let change = || {
+            let (id, item_type) = (id.to_string(), item_type.to_string());
+            Some((Change::Star { id, item_type, starred }, ()))
+        };
+        offline_queue::submit(server, send, change).await
+    }
+
+    /// The favourite call itself, never queued (replay sends with this).
+    pub(crate) async fn send_favorite(&self, id: &str, item_type: &str, starred: bool) -> Result<(), String> {
+        if starred {
+            each!(self, c => c.star(id, item_type).await)
+        } else {
+            each!(self, c => c.unstar(id, item_type).await)
+        }
+    }
+
+    /// 1–5 stars, where [`Capabilities::star_ratings`] says so. Queued like
+    /// favourites while the server can't be reached.
     pub async fn set_rating(&self, id: &str, rating: u32) -> Result<(), String> {
+        let send = self.send_rating(id, rating);
+        match self {
+            Self::Subsonic(c) => {
+                let change = || Some((Change::Rate { id: id.to_string(), rating }, ()));
+                offline_queue::submit(&c.server, send, change).await
+            }
+            Self::Local(_) | Self::Jellyfin(_) => send.await,
+        }
+    }
+
+    /// The rating call itself, never queued (replay sends with this).
+    pub(crate) async fn send_rating(&self, id: &str, rating: u32) -> Result<(), String> {
         match self {
             Self::Subsonic(c) => c.set_rating(id, rating).await,
             Self::Local(c) => c.set_rating(id, rating).await,

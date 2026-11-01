@@ -148,6 +148,8 @@ pub fn Sidebar() -> Element {
                     Icon { name: "settings".to_string(), class: "rs-nav__icon".to_string() }
                     span { "Settings" }
                 }
+                // Only there once a second profile exists.
+                crate::components::profiles::ProfileButton { sidebar: true }
                 div { class: "rs-side__server", "data-testid": "server-status",
                     span { class: "{led_class}", aria_hidden: "true" }
                     span { "{status_text}" }

@@ -159,6 +159,11 @@ fn subsonic_ok(json: &SubsonicResponse) -> Result<(), String> {
 /// Sends a Subsonic request and checks its status.
 async fn subsonic_send(request: reqwest::RequestBuilder) -> Result<SubsonicResponse, String> {
     let response = request.send().await.map_err(|e| e.to_string())?;
+    // A 5xx is the server (or a proxy) failing, not a Subsonic answer; say
+    // so, so the offline queue can tell it from a refusal.
+    if response.status().is_server_error() {
+        return Err(format!("status {}", response.status().as_u16()));
+    }
     let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
     subsonic_ok(&json)?;
     Ok(json)

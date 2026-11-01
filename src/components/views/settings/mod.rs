@@ -7,6 +7,7 @@
 mod about;
 mod advanced;
 mod appearance;
+mod backup;
 mod discovery;
 mod discovery_check;
 mod equalizer;
@@ -40,11 +41,12 @@ enum Section {
     Storage,
     Lyrics,
     Advanced,
+    Backup,
     About,
 }
 
 impl Section {
-    const ALL: [Section; 8] = [
+    const ALL: [Section; 9] = [
         Section::Servers,
         Section::Appearance,
         Section::Discovery,
@@ -52,6 +54,7 @@ impl Section {
         Section::Storage,
         Section::Lyrics,
         Section::Advanced,
+        Section::Backup,
         Section::About,
     ];
 
@@ -59,7 +62,7 @@ impl Section {
     const GROUPS: [&'static [Section]; 3] = [
         &[Section::Appearance, Section::Discovery],
         &[Section::Playback, Section::Storage, Section::Lyrics],
-        &[Section::Advanced, Section::About],
+        &[Section::Advanced, Section::Backup, Section::About],
     ];
 
     fn title(self) -> &'static str {
@@ -71,6 +74,7 @@ impl Section {
             Section::Storage => "Storage & Downloads",
             Section::Lyrics => "Lyrics",
             Section::Advanced => "Advanced",
+            Section::Backup => "Backup & Restore",
             Section::About => "About",
         }
     }
@@ -84,6 +88,7 @@ impl Section {
             Section::Storage => "hard-drive",
             Section::Lyrics => "lyrics",
             Section::Advanced => "zap",
+            Section::Backup => "file-text",
             Section::About => "info",
         }
     }
@@ -97,6 +102,7 @@ impl Section {
             Section::Storage => "storage",
             Section::Lyrics => "lyrics",
             Section::Advanced => "advanced",
+            Section::Backup => "backup",
             Section::About => "about",
         }
     }
@@ -122,8 +128,9 @@ pub fn SettingsView() -> Element {
     let body = if compact {
         match selected() {
             None => rsx! {
-                div { class: "rs-page-head",
+                div { class: "rs-page-head rs-settings-head",
                     h1 { class: "rs-large-title", "Settings" }
+                    crate::components::profiles::ProfileButton {}
                 }
                 SectionNav { current: None, servers: servers(), on_pick: move |s| selected.set(Some(s)), on_wrapped: move |_| wrapped_open.set(true) }
             },
@@ -147,7 +154,10 @@ pub fn SettingsView() -> Element {
         rsx! {
             div { class: "rs-settings-split",
                 nav { class: "rs-settings-split__nav", aria_label: "Settings sections",
-                    h1 { class: "rs-large-title rs-settings-split__title", "Settings" }
+                    div { class: "rs-settings-head",
+                        h1 { class: "rs-large-title rs-settings-split__title", "Settings" }
+                        crate::components::profiles::ProfileButton {}
+                    }
                     SectionNav { current: Some(section), servers: servers(), on_pick: move |s| selected.set(Some(s)), on_wrapped: move |_| wrapped_open.set(true) }
                 }
                 section {
@@ -319,6 +329,7 @@ fn SectionBody(section: Section) -> Element {
         Section::Storage => rsx! { storage::StorageSection {} },
         Section::Lyrics => rsx! { lyrics::LyricsSection {} },
         Section::Advanced => rsx! { advanced::AdvancedSection {} },
+        Section::Backup => rsx! { backup::BackupSection {} },
         Section::About => rsx! { about::AboutSection {} },
     }
 }
