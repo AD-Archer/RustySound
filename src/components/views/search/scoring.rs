@@ -28,17 +28,17 @@ pub(super) fn dedupe_search_results(mut results: SearchResult) -> SearchResult {
     let mut artist_seen = HashSet::new();
     results
         .artists
-        .retain(|artist| artist_seen.insert(format!("{}::{}", artist.server_id, artist.id)));
+        .retain(|artist| artist_seen.insert(artist.key()));
 
     let mut album_seen = HashSet::new();
     results
         .albums
-        .retain(|album| album_seen.insert(format!("{}::{}", album.server_id, album.id)));
+        .retain(|album| album_seen.insert(album.key()));
 
     let mut song_seen = HashSet::new();
     results
         .songs
-        .retain(|song| song_seen.insert(format!("{}::{}", song.server_id, song.id)));
+        .retain(|song| song_seen.insert(song.key()));
 
     results
 }

@@ -3,16 +3,16 @@
 //! the server one call at a time, in order (each call's song indexes assume
 //! the ones before it landed); a failed call rolls its change back.
 
-use crate::api::{Capabilities, NavidromeClient, Playlist, ServerConfig, Song};
-use crate::components::ui::env::sleep_ms;
+use crate::api::{NavidromeClient, Playlist, ServerConfig, Song};
 use crate::components::ui::{use_row_gestures, RowGesture};
-use crate::components::views::library::shared::{is_auto_imported, song_key};
+use crate::components::views::library::shared::playlist_editable;
 use crate::db::AppSettings;
 use crate::offline_audio::{
     is_playlist_auto_download_tracked, mark_collection_downloaded,
     mark_playlist_auto_download_tracked, prefetch_song_audio_with_origin,
     sync_downloaded_collection_members, DownloadOrigin,
 };
+use crate::time::sleep_ms;
 use dioxus::prelude::*;
 
 /// The list id the playlist's rows register under.
@@ -28,22 +28,6 @@ pub struct PlaylistUndo {
     pub index: usize,
     /// Restarts the toast's timer for each new remove.
     pub generation: u64,
-}
-
-/// The user can change this playlist here: it is theirs (Navidrome refuses
-/// edits to other users' public playlists), it wasn't auto-imported from a
-/// playlist file (read-only on the server), and its server is configured,
-/// active and can edit playlists (Jellyfin playlists are read-only here).
-pub fn playlist_editable(playlist: &Playlist, server: Option<&ServerConfig>) -> bool {
-    let Some(server) = server else {
-        return false;
-    };
-    let own = playlist
-        .owner
-        .as_deref()
-        .map(|owner| owner.trim().is_empty() || owner.eq_ignore_ascii_case(&server.username))
-        .unwrap_or(true);
-    server.active && own && !is_auto_imported(playlist) && Capabilities::of(server).playlist_edits
 }
 
 type PlaylistData = Resource<Result<(Playlist, Vec<Song>), String>>;
@@ -77,12 +61,7 @@ impl PlaylistEdits {
             Some(Ok((playlist, _))) => Some(playlist.clone()),
             _ => None,
         })?;
-        let server = self
-            .servers
-            .peek()
-            .iter()
-            .find(|s| s.id == playlist.server_id)
-            .cloned()?;
+        let server = ServerConfig::find(&self.servers.peek(), &playlist.server_id)?.clone();
         playlist_editable(&playlist, Some(&server)).then_some((server, playlist))
     }
 
@@ -91,7 +70,7 @@ impl PlaylistEdits {
         self.songs
             .peek()
             .get(index)
-            .filter(|song| song_key(song) == key)
+            .filter(|song| song.key() == key)
             .cloned()
     }
 

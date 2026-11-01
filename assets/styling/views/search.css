@@ -137,49 +137,6 @@
   grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
 }
 
-.rs-search-artist {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--sp-1);
-  width: 100%;
-  min-width: 0;
-  padding: var(--sp-2);
-  border-radius: var(--r-list);
-  color: var(--ink);
-  text-align: center;
-  cursor: pointer;
-}
-
-@media (hover: hover) {
-  .rs-search-artist:hover { background: var(--tint); }
-}
-
-.rs-search-artist__art {
-  width: 100%;
-  aspect-ratio: 1;
-  height: auto;
-  margin-bottom: var(--sp-3);
-}
-
-.rs-search-artist__name {
-  display: -webkit-box;
-  max-width: 100%;
-  overflow: hidden;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  font-size: var(--fs-sub);
-  font-weight: var(--fw-medium);
-  line-height: var(--lh-sub);
-  overflow-wrap: anywhere;
-}
-
-.rs-search-artist__count {
-  font-size: var(--fs-foot);
-  color: var(--muted);
-  font-variant-numeric: tabular-nums;
-}
-
 /* ---- Browse: genre tiles -------------------------------------------- */
 
 .rs-search-genres {

@@ -128,7 +128,11 @@ test.describe("kit gestures: wide", () => {
     const row = tid(page, "track-row").nth(1);
     const title = (await row.locator(".rs-trow__title").textContent())!.trim();
 
-    // No drop target on the page: a mouse drag carries nothing.
+    // No drop target on the page: a mouse drag carries nothing. (The sidebar's
+    // playlists are targets; set them aside for this part.)
+    await page.evaluate(() => {
+      for (const el of document.querySelectorAll("[data-drop-playlist]")) el.removeAttribute("data-drop-playlist");
+    });
     let box = (await row.boundingBox())!;
     await page.mouse.move(box.x + 120, box.y + box.height / 2);
     await page.mouse.down();

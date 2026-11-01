@@ -7,12 +7,10 @@ use crate::components::ui::{
     LoadMore, Menu, MenuGap, MenuItem, NoServers, PageFoot, SearchField, Stage,
 };
 use crate::components::views::library::shared::{
-    use_servers,
     active_servers, has_sources, use_debounced, use_pager,
 };
-
 use crate::components::views::library::tiles::AlbumGrid;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{use_servers, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const PAGE: u32 = 96;
@@ -174,7 +172,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         items
             .iter()
             .map(|album| CoverFlowItem {
-                key: format!("{}:{}", album.server_id, album.id),
+                key: album.key(),
                 title: album.name.clone(),
                 subtitle: album.artist.clone(),
                 reason: album.year.filter(|y| *y > 0).map(|y| y.to_string()).unwrap_or_default(),
@@ -202,7 +200,6 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
     } else {
         Vec::new()
     };
-    let grid_albums: Vec<Album> = if show_flow { Vec::new() } else { items.clone() };
     drop(items);
 
     rsx! {
@@ -294,7 +291,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                 }
             } else {
                 AlbumGrid {
-                    albums: grid_albums,
+                    albums: pager.items,
                     label: title.clone(),
                     ghosts: if !done && error.is_none() { GHOST_TILES } else { 0 },
                 }

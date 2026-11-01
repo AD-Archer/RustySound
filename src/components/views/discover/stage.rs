@@ -2,13 +2,14 @@
 //! Settings) and Cover Flow of recently played albums. Tapping the centre
 //! cover opens the album; the round play button beside the caption plays it.
 
-use super::actions::{play_album, use_player, Toast};
+use super::actions::play_album;
 use super::data::HomeData;
 use crate::api::discovery::DiscoverAlbum;
 use crate::api::ServerConfig;
-use crate::components::ui::{cover_art_src, CoverFlow, CoverFlowItem, IconButton, IconButtonSize, Stage};
-use crate::components::{AppView, Icon, Navigation};
-use crate::db::AppSettings;
+use crate::components::ui::{
+    cover_art_src, CoverFlow, CoverFlowItem, IconButton, IconButtonSize, Stage, StatusToast,
+};
+use crate::components::{use_player, use_servers, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 /// Cover edge in px: phone and Mac sizes from the mocks.
@@ -28,7 +29,7 @@ fn flow_items(albums: &[DiscoverAlbum], servers: &[ServerConfig], cover_px: u32)
         .map(|pick| {
             let album = &pick.album;
             CoverFlowItem {
-                key: format!("{}::{}", album.server_id, album.id),
+                key: album.key(),
                 title: album.name.clone(),
                 subtitle: album.artist.clone(),
                 reason: pick.reason.clone(),
@@ -47,7 +48,7 @@ fn flow_items(albums: &[DiscoverAlbum], servers: &[ServerConfig], cover_px: u32)
 pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
     let data = use_context::<HomeData>();
     let navigation = use_context::<Navigation>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let cover_px = if wide { COVER_WIDE } else { COVER_COMPACT };
 
     // Recently played; a library nobody has played yet shows its newest albums.
@@ -123,8 +124,7 @@ pub fn HomeStage(wide: bool, pull: Signal<f64>) -> Element {
 #[component]
 fn CentrePlay(picks: Memo<Option<Vec<DiscoverAlbum>>>) -> Element {
     let data = use_context::<HomeData>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let toast = use_context::<Toast>();
+    let toast = use_context::<StatusToast>();
     let player = use_player();
     let name = picks
         .read()
@@ -141,7 +141,7 @@ fn CentrePlay(picks: Memo<Option<Vec<DiscoverAlbum>>>) -> Element {
             onclick: move |_| {
                 let index = *data.centre.peek();
                 if let Some(pick) = picks.peek().as_ref().and_then(|list| list.get(index).cloned()) {
-                    play_album(player, toast, servers, pick.album);
+                    play_album(player, toast, pick.album);
                 }
             },
             Icon { name: "play".to_string(), class: "rs-ic".to_string() }
@@ -154,11 +154,10 @@ fn CentrePlay(picks: Memo<Option<Vec<DiscoverAlbum>>>) -> Element {
 #[component]
 fn SettingsButton(wide: bool) -> Element {
     let navigation = use_context::<Navigation>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let settings = use_context::<Signal<AppSettings>>();
-    let problem = if settings.read().offline_mode {
+    let data = use_context::<HomeData>();
+    let problem = if (data.offline)() {
         Some(("rs-led rs-led--warn", "offline"))
-    } else if !servers.read().iter().any(|s| s.active) {
+    } else if data.active.read().is_empty() {
         Some(("rs-led rs-led--off", "no server on"))
     } else {
         None

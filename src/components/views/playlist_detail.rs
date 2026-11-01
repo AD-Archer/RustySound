@@ -7,37 +7,35 @@
 //! holds Add Songs, Rename and Delete. Other playlists' rows swipe for
 //! Play Next / Add to….
 
-mod add_songs;
 mod edits;
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, Menu, MenuAction, MenuGap, MenuItem, Artwork, EmptyState,
-    Button, ButtonVariant, RowGestureList, RowSwipe, SectionHeader, StatusToast, TrackRow, UndoToast,
-    VirtualList,
+    use_layout, Artwork, Button, ButtonVariant, CollectionActions, EmptyState, ErrorState, Menu,
+    MenuAction, MenuGap, MenuItem, RowGestureList, RowSwipe, SectionHeader, Skeleton, StatusToast,
+    TrackRow, UndoToast, VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
+use crate::components::views::discover::saved::is_saved_mix_copy;
+use crate::components::views::library::add_songs::{AddSongsSheet, AddTarget};
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
 use crate::components::views::library::playlist_sheets::{DeletePlaylistSheet, RenamePlaylistSheet};
-use crate::components::views::library::song_flow::{use_song_runs, wants_flow, SongFlow};
 use crate::components::views::library::shared::{
-    use_servers,
-    is_auto_imported, song_key, songs_summary, use_downloaded_keys, use_now_playing, use_player,
-    use_song_patches, ErrorState, ListSkeleton,
+    is_auto_imported, playlist_editable, use_downloaded_keys, use_now_playing, use_song_patches,
 };
+use crate::components::views::library::song_flow::{use_song_runs, wants_flow, SongFlow};
 use crate::components::{
-    can_share, share_link, AddIntent, AddMenuController, AppView, Navigation, PlaylistSync,
-    ShareTarget, SyncStatus,
+    can_share, share_link, use_player, use_servers, use_setting, AddIntent, AddMenuController, AppView,
+    Navigation, PlaylistSync, QueuePosition, ShareTarget, SyncStatus,
 };
 use crate::db::AppSettings;
+use crate::format::songs_summary;
 use crate::offline_audio::{
     mark_collection_downloaded, mark_playlist_auto_download_tracked,
     sync_downloaded_collection_members,
 };
-use crate::components::views::discover::saved::is_saved_mix_copy;
-use add_songs::AddSongsSheet;
 use dioxus::prelude::*;
-use edits::{playlist_editable, use_playlist_edits, PLAYLIST_LIST, REMOVE_FROM_PLAYLIST};
+use edits::{use_playlist_edits, PLAYLIST_LIST, REMOVE_FROM_PLAYLIST};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sheet {
@@ -52,6 +50,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let offline = use_setting(|s| s.offline_mode);
+    let saved_mixes = use_setting(|s| s.discover_saved_mix_playlists.clone());
     let toast = use_context::<StatusToast>();
     // The data resource below takes `server_id`.
     let share_server = server_id.clone();
@@ -67,8 +67,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let dl_progress = use_signal(|| None::<(usize, usize)>);
     // "Remove Songs from Favorites" asks first (it can undo many hearts).
     let mut confirm_unstar = use_signal(|| false);
-    let mut queue = use_context::<Signal<Vec<Song>>>();
-    let mut now_playing = use_context::<Signal<Option<Song>>>();
     use_song_patches(songs);
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
@@ -80,12 +78,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let data = use_resource(use_reactive!(|(playlist_id, server_id)| {
         let _ = retry();
         let _ = (sync.revision)();
-        let server = servers().into_iter().find(|s| s.id == server_id);
+        let client = MusicClient::for_source(&servers(), &server_id);
         async move {
-            let Some(server) = server else {
+            let Some(client) = client else {
                 return Err("This playlist's server isn't configured.".to_string());
             };
-            MusicClient::new(server).get_playlist(&playlist_id).await
+            client.get_playlist(&playlist_id).await
         }
     }));
 
@@ -104,7 +102,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             return rsx! {
                 div { class: "rs-view rs-view--flush rs-library-detail",
                     DetailHeroSkeleton { back_label: "Playlists".to_string(), fallback: AppView::PlaylistsView {} }
-                    div { class: "rs-library-page", ListSkeleton { rows: 10 } }
+                    div { class: "rs-library-page", Skeleton { rows: 10 } }
                 }
             };
         }
@@ -138,7 +136,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     };
     let playlist = meta_override().unwrap_or(base);
 
-    let server = servers.read().iter().find(|s| s.id == playlist.server_id).cloned();
+    let server = ServerConfig::find(&servers.read(), &playlist.server_id).cloned();
     let auto_imported = is_auto_imported(&playlist);
     let editable = playlist_editable(&playlist, server.as_ref());
     let read_only = !editable;
@@ -157,7 +155,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     // The saved copy of a generated mix is the user's playlist (no RustySound
     // mark), but saving that mix again replaces it, so say so.
     let mix_copy = is_saved_mix_copy(
-        &app_settings.read().discover_saved_mix_playlists,
+        &saved_mixes.read(),
         &playlist.server_id,
         &playlist.id,
     );
@@ -168,10 +166,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     } else {
         playlist.comment.clone().filter(|c| !c.trim().is_empty())
     };
-    let source = Some((
-        QueueSourceKind::Playlist,
-        format!("{}::{}", playlist.server_id, playlist.id),
-    ));
+    let source = Some((QueueSourceKind::Playlist, playlist.key()));
     let can_download = !cfg!(target_arch = "wasm32");
     let row_h = 58.0;
     // Cover Flow of the songs in the stage band.
@@ -272,6 +267,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 });
                 // Keep the queue and the player's heart in step.
                 let in_set = |s: &Song| s.server_id == server.id && updated.contains(&s.id);
+                let (mut queue, mut now_playing) = (player.queue, player.now_playing);
                 queue.with_mut(|items| items.iter_mut().filter(|s| in_set(s)).for_each(|s| s.starred = marker.clone()));
                 if now_playing.peek().as_ref().map(|s| in_set(s)).unwrap_or(false) {
                     now_playing.with_mut(|s| {
@@ -338,27 +334,14 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
 
             div { class: "rs-library-page",
-                div { class: "rs-library-actions",
-                        Button {
-                            label: "Play".to_string(),
-                            icon: "play".to_string(),
-                            block: true,
-                            disabled: count == 0,
-                            testid: "playlist-play".to_string(),
-                            onclick: {
-                                let mut play_from = play_from.clone();
-                                move |_| play_from(0)
-                            },
-                        }
-                        Button {
-                            label: "Shuffle".to_string(),
-                            icon: "shuffle".to_string(),
-                            variant: ButtonVariant::Tinted,
-                            block: true,
-                            disabled: count == 0,
-                            testid: "playlist-shuffle".to_string(),
-                            onclick: shuffle_all,
-                        }
+                CollectionActions {
+                    testid: "playlist".to_string(),
+                    disabled: count == 0,
+                    on_play: {
+                        let mut play_from = play_from.clone();
+                        move |_| play_from(0)
+                    },
+                    on_shuffle: shuffle_all,
                 }
                 if let Some(detail) = dl_detail.clone() {
                     p { class: "rs-library-status", role: "status", "Downloading {detail}…" }
@@ -405,7 +388,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                                 let Some(song) = songs.read().get(index).cloned() else {
                                     return rsx! { li {} };
                                 };
-                                let key = song_key(&song);
+                                let key = song.key();
                                 let playing = playing_now.as_deref() == Some(key.as_str());
                                 rsx! {
                                     TrackRow {
@@ -443,7 +426,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         disabled: count == 0,
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), true);
+                            player.enqueue(songs.peek().clone(), QueuePosition::Next);
                         },
                     }
                     MenuItem {
@@ -452,7 +435,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         disabled: count == 0,
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), false);
+                            player.enqueue(songs.peek().clone(), QueuePosition::End);
                         },
                     }
                     MenuItem {
@@ -496,7 +479,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             onclick: download.clone(),
                         }
                     }
-                    if can_share(&servers.read(), &share_server, app_settings.read().offline_mode) {
+                    if can_share(&servers.read(), &share_server, offline()) {
                         MenuItem {
                             label: "Share Link…".to_string(),
                             icon: "share".to_string(),
@@ -611,9 +594,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 },
                 Some(Sheet::AddSongs) => rsx! {
                     AddSongsSheet {
-                        server: server.clone(),
+                        target: AddTarget::Playlist {
+                            server: server.clone(),
+                            on_add: EventHandler::new(move |song: Song| edits.add(song)),
+                        },
                         songs,
-                        on_add: move |song: Song| edits.add(song),
                         on_close: move |_| sheet.set(None),
                     }
                 },

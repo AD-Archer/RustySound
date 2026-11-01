@@ -94,13 +94,14 @@
   gap: var(--sp-8) var(--sp-7);
 }
 
+/* AlbumGrid mounts only the rows near the viewport (VirtualList); each row
+   is one line of the grid, its height (gap included) set by the view. */
+.rs-library-covers__row {
+  align-items: start;
+}
+
 .rs-library-covers__cell {
   min-width: 0;
-  /* A paged grid grows to thousands of tiles. Tiles far off screen skip
-     style, layout and paint until they come near; the remembered height
-     keeps the scroll length steady. */
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 240px;
 }
 
 /* Placeholder tiles while the next page loads: still, no shimmer. */
@@ -518,19 +519,6 @@
   padding: 0 var(--view-pad);
 }
 
-.rs-library-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  margin: var(--sp-6) 0;
-}
-
-.rs-app[data-layout="wide"] .rs-library-actions .rs-btn--block {
-  flex: 0 0 168px;
-  width: auto;
-}
-
-/* Download: a square tinted button beside Play and Shuffle (style A). */
 /* Similar artists: round thumbs in a row. */
 .rs-library-bubbles {
   display: flex;
@@ -646,38 +634,13 @@
 
 /* ---- Playlists list -------------------------------------------------- */
 
-.rs-library-prow {
-  height: 58px;
-  min-height: 58px;
-  padding: 0 var(--sp-2) 0 0;
-  gap: 0;
+/* Kit rows, exactly the windowed list's row height (58px, 62px wide). */
+.rs-library-playlists .rs-row {
+  height: var(--row-h);
 }
 
-.rs-app[data-layout="wide"] .rs-library-prow {
-  height: 62px;
-  min-height: 62px;
-  padding: 0 var(--sp-3) 0 0;
-}
-
-.rs-library-prow__open {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  padding: 0 var(--sp-2) 0 var(--sp-5);
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rs-library-prow:has(.rs-library-prow__open:hover) {
-  background: var(--tint);
-}
-
-.rs-library-prow__open:active {
-  background: var(--tint-strong);
+.rs-app[data-layout="wide"] .rs-library-playlists .rs-row {
+  height: var(--row-h-wide);
 }
 
 /* ---- Track lists ----------------------------------------------------- */
@@ -749,4 +712,29 @@
 /* The quiet "Updated 2 min ago" line under the playlist's actions. */
 .rs-library-sync {
   margin: calc(-1 * var(--sp-3)) 4px var(--sp-4);
+}
+
+/* ---- Sidebar playlists (wide): drop targets for carried songs --------- */
+
+.rs-library-sidelists .rs-side__head {
+  gap: var(--sp-2);
+}
+
+.rs-library-sidelists__chev {
+  width: 12px;
+  height: 12px;
+}
+
+.rs-library-sidelists__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-library-sidelists__more {
+  height: 26px;
+  padding-left: 37px;
+  color: var(--muted);
+  font-size: var(--fs-foot);
 }
