@@ -424,6 +424,40 @@ pub fn top_songs(conn: &Connection, artist: &str, count: u32) -> rusqlite::Resul
     query_songs(conn, &sql, vec![artist.to_string().into(), (count as i64).into()])
 }
 
+/// Songs to follow a song by `artist` in Autoplay: the same artist first,
+/// then the same genre, each in random order. `exclude_id` is the seed.
+pub fn similar_songs(
+    conn: &Connection,
+    artist: &str,
+    genre: &str,
+    exclude_id: &str,
+    count: u32,
+) -> rusqlite::Result<Vec<Song>> {
+    let by_artist = format!(
+        "{SONG_SELECT} WHERE (t.artist = ?1 COLLATE NOCASE OR t.album_artist = ?1 COLLATE NOCASE)
+         AND t.id <> ?2 ORDER BY RANDOM() LIMIT ?3"
+    );
+    let mut songs = query_songs(
+        conn,
+        &by_artist,
+        vec![artist.to_string().into(), exclude_id.to_string().into(), (count as i64).into()],
+    )?;
+    if !genre.trim().is_empty() && songs.len() < count as usize {
+        let by_genre = format!(
+            "{SONG_SELECT} WHERE t.genre = ?1 COLLATE NOCASE AND t.id <> ?2
+             AND NOT (COALESCE(t.artist, '') = ?3 COLLATE NOCASE OR COALESCE(t.album_artist, '') = ?3 COLLATE NOCASE)
+             ORDER BY RANDOM() LIMIT ?4"
+        );
+        let rest = (count as usize - songs.len()) as i64;
+        songs.extend(query_songs(
+            conn,
+            &by_genre,
+            vec![genre.to_string().into(), exclude_id.to_string().into(), artist.to_string().into(), rest.into()],
+        )?);
+    }
+    Ok(songs)
+}
+
 // ---- Albums ----------------------------------------------------------------------------
 
 /// Albums grouped from their tracks. Plays come from the songs' marks;

@@ -9,6 +9,7 @@ mod advanced;
 mod appearance;
 mod discovery;
 mod discovery_check;
+mod equalizer;
 mod first_run;
 mod local_music;
 mod lyrics;
@@ -21,6 +22,7 @@ mod smart_cache;
 mod storage;
 mod storage_downloads;
 
+pub use equalizer::EqualizerView;
 pub use first_run::FirstRun;
 
 use crate::api::ServerConfig;

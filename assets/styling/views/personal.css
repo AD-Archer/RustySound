@@ -364,3 +364,8 @@
   justify-content: center;
   margin-top: var(--sp-6);
 }
+
+/* Downloads: the quiet "Updated 2 min ago" line under the storage card. */
+.rs-downloads-sync {
+  margin: var(--sp-3) 4px 0;
+}

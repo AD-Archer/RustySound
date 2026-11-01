@@ -1,14 +1,19 @@
-//! Settings → Playback: default volume, gapless, crossfade, volume levelling,
-//! bookmarks, queue sync, Offline Mode.
+//! Settings → Playback: default volume, gapless, crossfade, Autoplay, the
+//! Equalizer (its own page), volume levelling, bookmarks, queue sync,
+//! Offline Mode.
 //!
 //! Crossfade needs two players, so the iPhone app (one AVQueuePlayer) hides
 //! it and plays gapless instead. The Windows player has neither yet. The old
 //! `replay_gain` switch is unused since `volume_levelling`; the field stays so
 //! old settings files still load.
 
-use super::shared::{use_settings_ctx, Footnote, GroupTitle, NumberRow, SelectRow, SwitchRow};
+use super::shared::{
+    use_settings_ctx, Footnote, GroupTitle, LinkRow, NumberRow, SelectRow, SwitchRow,
+};
 use crate::components::ui::{ProgressTrack, TrackVariant};
-use crate::components::{Icon, VolumeSignal, CROSSFADE_MAX_SECS, CROSSFADE_MIN_SECS};
+use crate::components::{
+    AppView, Icon, Navigation, VolumeSignal, CROSSFADE_MAX_SECS, CROSSFADE_MIN_SECS, EQ_AVAILABLE,
+};
 use crate::db::VolumeLevelling;
 use dioxus::prelude::*;
 
@@ -78,7 +83,10 @@ pub(super) fn PlaybackSection() -> Element {
         .clamp(CROSSFADE_MIN_SECS, CROSSFADE_MAX_SECS) as i64;
     let levelling = settings.volume_levelling;
     let preamp = settings.replay_gain_preamp_db;
+    let autoplay = settings.autoplay_enabled;
+    let eq_summary = settings.equalizer.summary();
     drop(settings);
+    let navigation = use_context::<Navigation>();
 
     let mut set_volume = move |value: f64| volume.set((value / 100.0).clamp(0.0, 1.0));
 
@@ -134,6 +142,29 @@ pub(super) fn PlaybackSection() -> Element {
                             on_commit: move |v: i64| ctx.update(|s| s.crossfade_duration = v as u32),
                         }
                     }
+                }
+            }
+        }
+
+        GroupTitle { title: "Queue".to_string() }
+        ul { class: "rs-list rs-list--text",
+            SwitchRow {
+                id: "autoplay".to_string(),
+                title: "Autoplay".to_string(),
+                subtitle: "When your queue is about to end, keep playing similar songs.".to_string(),
+                checked: autoplay,
+                on_toggle: move |on| ctx.update(|s| s.autoplay_enabled = on),
+            }
+        }
+
+        if EQ_AVAILABLE {
+            GroupTitle { title: "Sound".to_string() }
+            ul { class: "rs-list rs-list--text",
+                LinkRow {
+                    title: "Equalizer".to_string(),
+                    detail: eq_summary.to_string(),
+                    testid: "settings-equalizer".to_string(),
+                    onclick: move |_| navigation.navigate_to(AppView::EqualizerView {}),
                 }
             }
         }

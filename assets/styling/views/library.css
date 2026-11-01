@@ -745,3 +745,8 @@
   .rs-personal-tile:active .rs-personal-tile__art { transform: none; }
 }
 
+
+/* The quiet "Updated 2 min ago" line under the playlist's actions. */
+.rs-library-sync {
+  margin: calc(-1 * var(--sp-3)) 4px var(--sp-4);
+}

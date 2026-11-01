@@ -9,6 +9,7 @@ mod cached_image;
 mod icons;
 mod navigation;
 pub mod playback_sync;
+pub mod playlist_sync;
 mod player;
 mod share;
 mod song_details;
@@ -45,5 +46,6 @@ pub use share::{can_share, share_link, ShareTarget};
 pub use icons::*;
 pub use navigation::{Navigation, PageMotion};
 pub use playback_sync::{note_track_finished, PlaybackSync};
+pub use playlist_sync::{PlaylistSync, SyncStatus};
 pub use song_details::*;
 // Views are accessed via views::ViewName

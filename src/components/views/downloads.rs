@@ -41,7 +41,8 @@ mod native {
         TrackMenuController, VirtualList,
     };
     use crate::components::{
-        AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
+        AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation, PlaylistSync,
+        SyncStatus,
     };
     use crate::db::{save_settings, AppSettings};
     use crate::diagnostics::{log_perf, PerfTimer};
@@ -420,6 +421,15 @@ mod native {
             });
         });
 
+        // A playlist sync pass may have added or removed downloads.
+        let sync = use_context::<PlaylistSync>();
+        let seen_revision = use_hook(|| *sync.revision.peek());
+        use_effect(move || {
+            if (sync.revision)() != seen_revision {
+                store.reload();
+            }
+        });
+
         // A download started from a track menu elsewhere: pick it up. The
         // change that was already there when the view opened is ignored.
         let seen_change = use_hook(|| track_menu.last_change.peek().clone());
@@ -559,6 +569,8 @@ mod native {
                         }
                     },
                 }
+
+                div { class: "rs-downloads-sync", SyncStatus { testid: "downloads-sync".to_string() } }
 
                 // The switches live in the "…" menu; only "off" needs saying here.
                 if !downloads_on {

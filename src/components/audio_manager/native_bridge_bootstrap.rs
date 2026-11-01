@@ -158,6 +158,9 @@ const NATIVE_AUDIO_BOOTSTRAP_JS: &str = concat!(
         case "loop":
           audio().loop = !!cmd.enabled;
           break;
+        case "eq":
+          deck.setEq(cmd);
+          break;
         case "rate": {
           // Keep the pitch; the default rate carries over to the next load.
           const rate = typeof cmd.value === "number" && cmd.value > 0 ? cmd.value : 1;

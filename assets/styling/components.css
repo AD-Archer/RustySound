@@ -1801,6 +1801,10 @@
 .rs-menu__item:active:not(:disabled),
 .rs-menu__tile:active { background: var(--menu-hl); }
 
+/* On the highlight, --muted-strong drops under 4.5:1 in light mode. */
+.rs-menu__item:hover:not(:disabled) .rs-menu__detail,
+.rs-menu__item:active:not(:disabled) .rs-menu__detail { color: var(--ink); }
+
 /* A line of information, not an action ("Also playing on Mac"). */
 .rs-menu__item--note,
 .rs-menu__item--note svg { color: var(--muted-strong); }
@@ -2861,3 +2865,162 @@ button.rs-bar__art {
 }
 
 .rs-eq--live i { transform-origin: bottom; }
+
+/* ==========================================================================
+   VERTICAL SLIDER (equalizer bands)
+   ========================================================================== */
+
+/* A 4px trough with a flat accent fill from the origin to the value. The
+   native range underneath is turned on its side (rotate, not writing-mode,
+   so older WebKit drags the right way) and stays invisible. Its layout box
+   is wider than the slider while its rotated, hit-tested box fits exactly,
+   so the overflow is clipped. */
+.rs-vslider {
+  position: relative;
+  width: 36px;
+  height: 168px;
+  overflow: hidden;
+  touch-action: none;
+}
+
+.rs-vslider__trough {
+  position: absolute;
+  top: 12px;
+  bottom: 12px;
+  left: 50%;
+  width: 4px;
+  margin-left: -2px;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.rs-vslider__fill {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform-origin: center top;
+  will-change: transform;
+  background: var(--accent);
+}
+
+.rs-vslider__rail {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+  pointer-events: none;
+}
+
+.rs-vslider__knob {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: 18px;
+  height: 18px;
+  margin: -9px 0 0 -9px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: 0 0 0 .5px rgba(0, 0, 0, .18), 0 1px 3px rgba(0, 0, 0, .3);
+}
+
+.rs-vslider__input {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  /* Width runs along the slider once rotated. */
+  width: 168px;
+  height: 36px;
+  margin: 0;
+  transform: translate(-50%, -50%) rotate(-90deg);
+  opacity: 0;
+  cursor: pointer;
+  touch-action: none;
+}
+
+.rs-vslider:focus-within .rs-vslider__knob {
+  box-shadow: 0 0 0 3px var(--accent-fill), 0 1px 3px rgba(0, 0, 0, .3);
+}
+
+.rs-vslider--disabled .rs-vslider__fill { opacity: .4; }
+.rs-vslider--disabled .rs-vslider__input { cursor: default; }
+
+/* ==========================================================================
+   EQ CURVE
+   ========================================================================== */
+
+.rs-eq-curve {
+  display: block;
+  width: 100%;
+  height: 120px;
+  overflow: visible;
+}
+
+.rs-eq-curve__zero {
+  stroke: var(--line);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+}
+
+.rs-eq-curve__area {
+  fill: var(--accent);
+  opacity: .12;
+}
+
+.rs-eq-curve__line {
+  fill: none;
+  stroke: var(--accent);
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+
+.rs-eq-curve__dot { fill: var(--accent); }
+
+.rs-eq-curve--off .rs-eq-curve__line,
+.rs-eq-curve--off .rs-eq-curve__dot { stroke: var(--faint); fill: var(--faint); }
+.rs-eq-curve--off .rs-eq-curve__line { fill: none; }
+.rs-eq-curve--off .rs-eq-curve__area { opacity: .05; }
+
+/* ==========================================================================
+   SYNC STATUS ("Updated 2 min ago")
+   ========================================================================== */
+
+.rs-sync-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 0;
+  font-size: var(--fs-foot);
+  color: var(--muted);
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.rs-sync-status:hover { color: var(--ink); }
+
+.rs-sync-status:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+.rs-sync-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--faint);
+}
+
+.rs-sync-status--busy .rs-sync-status__dot {
+  background: var(--accent);
+  animation: rs-sync-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes rs-sync-pulse {
+  50% { opacity: .3; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-sync-status--busy .rs-sync-status__dot { animation: none; }
+}

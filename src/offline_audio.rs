@@ -24,6 +24,8 @@ use std::path::Path;
 
 #[cfg(any(test, all(feature = "desktop", any(target_os = "macos", target_os = "linux"))))]
 pub(crate) mod protocol;
+mod playlist_sync;
+pub use playlist_sync::sync_downloaded_playlists;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
