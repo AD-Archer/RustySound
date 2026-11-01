@@ -30,6 +30,9 @@
                 let mut play_retry_cooldown_ticks: u8 = 0;
                 let mut last_desired_playing: bool = *is_playing.peek();
                 let mut last_heartbeat_ms: u128 = 0;
+                // The webview's audio deck (Mac, Linux); iOS and Android queue natively.
+                #[cfg(not(any(target_os = "ios", target_os = "windows", target_os = "android")))]
+                let mut armer = DeckArmer::default();
                 loop {
                     native_delay_ms(250).await;
 
@@ -53,6 +56,31 @@
                     let mut current_time = snapshot.current_time.max(0.0);
                     if effective_duration.is_finite() && effective_duration > 0.0 {
                         current_time = current_time.min(effective_duration);
+                    }
+
+                    // Gapless: the backend has already started the next song.
+                    // Handled before the song id sync below, so the finished
+                    // song is reported before the queue moves on.
+                    if let Some((finished_id, next_id)) = snapshot
+                        .action
+                        .as_deref()
+                        .and_then(|action| action.strip_prefix("gapless:"))
+                        .and_then(parse_handover)
+                    {
+                        let servers_snapshot = servers.peek().clone();
+                        let offline_mode = app_settings.peek().offline_mode;
+                        apply_gapless_handover(
+                            &finished_id,
+                            &next_id,
+                            queue,
+                            queue_index,
+                            now_playing,
+                            last_src,
+                            *preview_playback.peek(),
+                            &servers_snapshot,
+                            |song| resolve_stream_url(song, &servers_snapshot, offline_mode),
+                        );
+                        continue;
                     }
 
                     if let Some(native_song_id) = snapshot.song_id.as_ref() {
@@ -162,7 +190,7 @@
                                         spawn(async move {
                                             if let Some(server) = servers_snapshot
                                                 .iter()
-                                                .find(|s| s.id == server_id)
+                                                .find(|s| s.id == server_id && Capabilities::of(s).bookmarks)
                                                 .cloned()
                                             {
                                                 let client = NavidromeClient::new(server);
@@ -178,6 +206,54 @@
                                         });
                                     }
                                 }
+                            }
+                        }
+                    }
+
+                    // Near the end, arm the deck's standby element with the next song.
+                    #[cfg(not(any(target_os = "ios", target_os = "windows", target_os = "android")))]
+                    {
+                        armer.forget_unless_for(
+                            now_playing.peek().as_ref().map(|song| song.id.as_str()),
+                        );
+                        let lead = preload_lead_secs(&app_settings.peek());
+                        if !snapshot.paused
+                            && !*preview_playback.peek()
+                            && *sleep_timer.mode.peek() != SleepMode::EndOfTrack
+                            && should_preload(current_time, effective_duration, lead)
+                        {
+                            if let Some(current) = now_playing.peek().clone() {
+                                let servers_snapshot = servers.peek().clone();
+                                let offline_mode = app_settings.peek().offline_mode;
+                                let wanted = plan_next_track(
+                                    &app_settings.peek(),
+                                    &queue.peek(),
+                                    *queue_index.peek(),
+                                    *repeat_mode.peek(),
+                                    &current,
+                                )
+                                .and_then(|next| {
+                                    let src = resolve_stream_url(
+                                        &next.song,
+                                        &servers_snapshot,
+                                        offline_mode,
+                                    )?;
+                                    Some(DeckArm::new(next, &current, src, *volume.peek()))
+                                });
+                                armer.sync(wanted, |arm| {
+                                    native_audio_command(match arm {
+                                        Some(arm) => serde_json::json!({
+                                            "type": "arm",
+                                            "src": arm.src,
+                                            "from_id": arm.from_id,
+                                            "song_id": arm.song_id,
+                                            "volume": arm.volume,
+                                            "fade_ms": arm.fade_ms,
+                                            "meta": song_metadata(&arm.song, &servers_snapshot),
+                                        }),
+                                        None => serde_json::json!({ "type": "disarm" }),
+                                    })
+                                });
                             }
                         }
                     }
@@ -461,6 +537,19 @@
                                 continue;
                             }
                             scrobble_song(&servers_snapshot, &song, true);
+                        }
+
+                        if sleep_timer.take_end_of_track() {
+                            // Sleep timer "End of Track": stop on this song,
+                            // rewound, instead of moving on (iOS has paused
+                            // already, see `set_stop_after_current`).
+                            native_audio_command(serde_json::json!({ "type": "pause" }));
+                            native_audio_command(serde_json::json!({
+                                "type": "seek",
+                                "position": 0.0
+                            }));
+                            is_playing.set(false);
+                            continue;
                         }
 
                         if repeat == RepeatMode::One {

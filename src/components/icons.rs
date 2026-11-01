@@ -30,13 +30,16 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "disc" => (Stroke, r#"<circle cx="12" cy="12" r="9.3"/><circle cx="12" cy="12" r="2.6"/>"#),
         "music" => (Stroke, r#"<path d="M9 18V5.5l11-2.2V16"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="16" r="2.6"/>"#),
         "radio" => (Stroke, r#"<circle cx="12" cy="12" r="1.9" fill="currentColor"/><path d="M8.3 8.3a5.2 5.2 0 0 0 0 7.4M15.7 8.3a5.2 5.2 0 0 1 0 7.4M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>"#),
-        "stats" | "bars" => (Stroke, r#"<path d="M5 20.5V13M10 20.5V6.5M15 20.5V10M20 20.5V3.5"/>"#),
+        "stats" => (Stroke, r#"<path d="M5 20.5V13M10 20.5V6.5M15 20.5V10M20 20.5V3.5"/>"#),
         "settings" => (Stroke, r#"<path d="M9.87 5.02 L9.89 2.84 L14.11 2.84 L14.13 5.02 L15.43 5.55 L16.98 4.03 L19.97 7.02 L18.45 8.57 L18.98 9.87 L21.16 9.89 L21.16 14.11 L18.98 14.13 L18.45 15.43 L19.97 16.98 L16.98 19.97 L15.43 18.45 L14.13 18.98 L14.11 21.16 L9.89 21.16 L9.87 18.98 L8.57 18.45 L7.02 19.97 L4.03 16.98 L5.55 15.43 L5.02 14.13 L2.84 14.11 L2.84 9.89 L5.02 9.87 L5.55 8.57 L4.03 7.02 L7.02 4.03 L8.57 5.55Z"/><circle cx="12" cy="12" r="3"/>"#),
         "bookmark" => (Stroke, r#"<path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/>"#),
         "queue" | "list" => (Stroke, r#"<path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><circle cx="4.2" cy="6" r=".9" fill="currentColor"/><circle cx="4.2" cy="12" r=".9" fill="currentColor"/><circle cx="4.2" cy="18" r=".9" fill="currentColor"/>"#),
         "menu" => (Stroke, r#"<path d="M4 7h16M4 12h16M4 17h16"/>"#),
+        // Reorder handle (iOS's three short bars).
+        "grip" => (Stroke, r#"<path d="M5 8.5h14M5 12h14M5 15.5h14"/>"#),
         "server" => (Stroke, r#"<rect x="3.5" y="4" width="17" height="7" rx="2"/><rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M7 7.5h.01M7 16.5h.01"/>"#),
         "hard-drive" => (Stroke, r#"<rect x="3.5" y="13" width="17" height="7" rx="2"/><path d="M5 13 8 5h8l3 8"/><path d="M7.5 16.5h.01"/>"#),
+        "folder" => (Stroke, r#"<path d="M3.5 7a2 2 0 0 1 2-2h3.8l2 2.5h7.2a2 2 0 0 1 2 2V17a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>"#),
         "offline" => (Stroke, r#"<path d="m3.5 3.5 17 17"/><path d="M9.2 5.3A6 6 0 0 1 17.6 10a4 4 0 0 1 2.4 6.6"/><path d="M6.4 8.4A4.5 4.5 0 0 0 7 17.5h10"/>"#),
 
         // ---- Transport (solid) -----------------------------------------
@@ -73,23 +76,37 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "trash" => (Stroke, r#"<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7"/><path d="m6.5 6.5.9 12.6c.1 1 .9 1.9 2 1.9h5.2c1.1 0 1.9-.9 2-1.9l.9-12.6"/><path d="M10 10.5v6M14 10.5v6"/>"#),
         "external" => (Stroke, r#"<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M17.5 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2h4"/>"#),
 
-        // ---- Chevrons and arrows ---------------------------------------
+        // ---- Chevrons --------------------------------------------------
         "chevron-left" | "back" => (Stroke, r#"<path d="m15 5-7 7 7 7"/>"#),
         "chevron-right" => (Stroke, r#"<path d="m9 5 7 7-7 7"/>"#),
         "chevron-up" => (Stroke, r#"<path d="m5 15 7-7 7 7"/>"#),
         "chevron-down" => (Stroke, r#"<path d="m5 9 7 7 7-7"/>"#),
-        "arrow-left" => (Stroke, r#"<path d="M20 12H5M11 5l-7 7 7 7"/>"#),
-        "arrow-right" => (Stroke, r#"<path d="M4 12h15M13 5l7 7-7 7"/>"#),
-        "arrow-down" => (Stroke, r#"<path d="M12 4v15M5 13l7 7 7-7"/>"#),
 
         // ---- Misc ------------------------------------------------------
-        "loader" => (Stroke, r#"<path d="M12 3a9 9 0 1 0 9 9"/>"#),
         "clock" => (Stroke, r#"<circle cx="12" cy="12" r="9.3"/><path d="M12 7v5.2l3.4 2"/>"#),
+        // Sleep timer.
+        "moon" => (Stroke, r#"<path d="M19.8 14.6A8.3 8.3 0 1 1 9.4 4.2a6.6 6.6 0 0 0 10.4 10.4Z"/>"#),
+        // Playback speed (a gauge).
+        "speed" => (Stroke, r#"<path d="M4.3 17.5a8.5 8.5 0 1 1 15.4 0"/><path d="m12 13.6 3.6-4.1"/><circle cx="12" cy="13.6" r="1.1" fill="currentColor"/>"#),
+        // Equalizer: three faders.
+        "sliders" => (Stroke, r#"<path d="M6 4v16M12 4v16M18 4v16"/><path d="M4 14h4M10 8h4M16 16h4"/>"#),
+        // Quick Listen (a 30-second preview).
+        // AirPlay audio: rings over a solid triangle.
+        // A network speaker (casting).
+        "speaker" => (Stroke, r#"<rect x="5.5" y="2.5" width="13" height="19" rx="2.5"/><circle cx="12" cy="14.5" r="3.6"/><path d="M12 6.8h.01"/>"#),
+        "airplay" => (Stroke, r#"<path d="M7.3 16.2a7.5 7.5 0 1 1 9.4 0"/><path d="M9.4 13.6a4 4 0 1 1 5.2 0"/><path d="M12 15.2 16.3 20.5H7.7Z" fill="currentColor"/>"#),
+        "share" => (Stroke, r#"<path d="M12 3.5v11"/><path d="m8 7.3 4-3.8 4 3.8"/><path d="M8.5 10.5H7a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-1.5"/>"#),
+        "headphones" => (Stroke, r#"<path d="M4 15.5V12a8 8 0 0 1 16 0v3.5"/><rect x="3.5" y="14" width="4.5" height="6.5" rx="1.6"/><rect x="16" y="14" width="4.5" height="6.5" rx="1.6"/>"#),
         "eye" => (Stroke, r#"<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/>"#),
+        "eye-off" => (Stroke, r#"<path d="M9.9 5.8A9.6 9.6 0 0 1 12 5.5c6 0 9.5 6.5 9.5 6.5a17 17 0 0 1-2.6 3.4"/><path d="M6.3 7.4C3.9 9.1 2.5 12 2.5 12S6 18.5 12 18.5c1.8 0 3.3-.6 4.6-1.4"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/><path d="m3.5 3.5 17 17"/>"#),
+        "lock" => (Stroke, r#"<rect x="5" y="10.5" width="14" height="10" rx="2"/><path d="M8.5 10.5V7.5a3.5 3.5 0 0 1 7 0v3"/>"#),
+        "alert" => (Stroke, r#"<circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5"/><path d="M12 16.4h.01"/>"#),
         "refresh-cw" => (Stroke, r#"<path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/>"#),
         "file-text" => (Stroke, r#"<path d="M14 3.5H7a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-10Z"/><path d="M14 3.5v5h5"/><path d="M8.5 13h7M8.5 16.5h5"/>"#),
         "zap" => (Stroke, r#"<path d="M13 2.5 4.5 13.5H12l-1 8 8.5-11H12Z"/>"#),
         "swatch" => (Stroke, r#"<rect x="3" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="3" width="7.5" height="7.5" rx="1.5"/><rect x="3" y="13.5" width="7.5" height="7.5" rx="1.5"/><rect x="13.5" y="13.5" width="7.5" height="7.5" rx="1.5"/>"#),
+        // Ambient Mode: the four corners of a full screen.
+        "maximize" => (Stroke, r#"<path d="M8.5 3.5h-3a2 2 0 0 0-2 2v3M15.5 3.5h3a2 2 0 0 1 2 2v3M8.5 20.5h-3a2 2 0 0 1-2-2v-3M15.5 20.5h3a2 2 0 0 0 2-2v-3"/>"#),
         _ => (Stroke, r#"<circle cx="12" cy="12" r="9"/>"#),
     }
 }

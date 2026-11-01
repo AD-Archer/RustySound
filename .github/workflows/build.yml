@@ -410,6 +410,23 @@ jobs:
         ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
         ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+    - uses: gradle/actions/setup-gradle@v4
+      with:
+        gradle-version: "8.10.2"
+    # 32-bit Android TVs can't run the native app (Dioxus 0.7 builds 64-bit
+    # Android only); this small wrapper opens the web build with the same TV
+    # bridge. Releases point it at GitHub Pages unless TV_WEB_URL is set.
+    - name: Build Android TV wrapper APK
+      run: |
+        WEB_URL="${{ vars.TV_WEB_URL }}"
+        if [[ -z "$WEB_URL" ]]; then
+          OWNER="$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')"
+          WEB_URL="https://${OWNER}.github.io/${{ github.event.repository.name }}/"
+        fi
+        VERSION="${{ needs.version.outputs.semver }}"
+        gradle -p android/tv-wrapper assembleDebug -PwebUrl="$WEB_URL" -PversionName="${VERSION:-1.0}"
+        mkdir -p dist/android/tv
+        cp android/tv-wrapper/app/build/outputs/apk/debug/app-debug.apk "dist/android/tv/RustySound-TV.apk"
     - name: Collect Android release APKs
       run: |
         mkdir -p artifacts

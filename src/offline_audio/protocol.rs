@@ -7,8 +7,9 @@
 //! slice from disk on a worker thread, so playback starts after the first slice
 //! and seeking jumps straight to the right byte offset.
 //!
-//! The handler only serves plain file names from the audio cache directory; it
-//! never accepts a path.
+//! The handler only serves plain file names from the audio cache directory,
+//! and on the Mac songs from the local library by their opaque id
+//! (`local__<id>.audio`, looked up in the index). It never accepts a path.
 
 #[cfg(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))]
 use std::path::Path;
@@ -33,6 +34,40 @@ const MAX_CHUNK_BYTES: u64 = 2 * 1024 * 1024;
 pub(crate) fn url_for_cached_file(path: &Path) -> Option<String> {
     let name = path.file_name()?.to_str()?;
     is_safe_file_name(name).then(|| format!("{ORIGIN}/{ROUTE}/{name}"))
+}
+
+/// Builds the URL the webview loads for a song in the local library (Mac).
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+pub(crate) fn url_for_local_song(song_id: &str) -> Option<String> {
+    crate::local_music::is_local_id(song_id)
+        .then(|| format!("{ORIGIN}/{ROUTE}/{LOCAL_PREFIX}{song_id}.audio"))
+}
+
+/// File-name prefix of local-library requests.
+const LOCAL_PREFIX: &str = "local__";
+
+/// The song id in a local-library request name, if it is one.
+fn local_song_id(name: &str) -> Option<&str> {
+    name.strip_prefix(LOCAL_PREFIX)?.strip_suffix(".audio")
+}
+
+/// The file a request names: a downloaded song in the audio cache, or (Mac)
+/// a local-library song, resolved by id through the index.
+#[cfg(all(feature = "desktop", any(target_os = "macos", target_os = "linux")))]
+fn resolve_file(name: &str) -> Option<std::path::PathBuf> {
+    if let Some(id) = local_song_id(name) {
+        #[cfg(target_os = "macos")]
+        return crate::local_music::song_file(id);
+        #[cfg(not(target_os = "macos"))]
+        return {
+            let _ = id;
+            None
+        };
+    }
+    if !is_safe_file_name(name) {
+        return None;
+    }
+    super::audio_cache_dir().map(|dir| dir.join(name))
 }
 
 /// Registers the offline-audio handler for the lifetime of the calling component.
@@ -65,10 +100,7 @@ fn serve(
         .strip_prefix(ROUTE)
         .and_then(|rest| rest.strip_prefix('/'))
         .unwrap_or_default();
-    if !is_safe_file_name(name) {
-        return error(StatusCode::NOT_FOUND);
-    }
-    let Some(path) = super::audio_cache_dir().map(|dir| dir.join(name)) else {
+    let Some(path) = resolve_file(name) else {
         return error(StatusCode::NOT_FOUND);
     };
     let Ok(mut file) = File::open(&path) else {
@@ -93,7 +125,9 @@ fn serve(
 
     let mut head = [0u8; 12];
     let head_len = file.read(&mut head).unwrap_or(0);
-    let mime = mime_for(name, &head[..head_len]);
+    // The real file name: local songs keep their own extension.
+    let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or(name);
+    let mime = mime_for(file_name, &head[..head_len]);
 
     let body = if request.method() == Method::HEAD {
         Vec::new()
@@ -225,10 +259,11 @@ fn mime_for(name: &str, head: &[u8]) -> &'static str {
     match ext.as_str() {
         "mp3" => "audio/mpeg",
         "flac" => "audio/flac",
-        "ogg" => "audio/ogg",
-        "m4a" | "mp4" => "audio/mp4",
+        "ogg" | "oga" | "opus" => "audio/ogg",
+        "m4a" | "m4b" | "mp4" | "alac" => "audio/mp4",
         "aac" => "audio/aac",
         "wav" => "audio/wav",
+        "aif" | "aiff" => "audio/aiff",
         _ => sniff_mime(head),
     }
 }
@@ -334,7 +369,19 @@ mod tests {
     }
 
     #[test]
+    fn local_requests_carry_only_an_id() {
+        assert_eq!(local_song_id("local__lt-0123456789abcdef.audio"), Some("lt-0123456789abcdef"));
+        assert_eq!(local_song_id("local__lt-1.flac"), None);
+        assert_eq!(local_song_id("srv__song.audio"), None);
+        // A traversal attempt is not a scanner id, so the index never sees it.
+        let sneaky = local_song_id("local__..%2F..%2Fetc.audio").unwrap();
+        assert!(!crate::local_music::is_local_id(sneaky));
+    }
+
+    #[test]
     fn mime_from_extension_or_magic() {
+        assert_eq!(mime_for("Song.aiff", b"FORM"), "audio/aiff");
+        assert_eq!(mime_for("Song.opus", b"OggS"), "audio/ogg");
         assert_eq!(mime_for("a__b.flac", b""), "audio/flac");
         assert_eq!(mime_for("a__b.audio", b"fLaC\0\0\0\x22"), "audio/flac");
         assert_eq!(mime_for("a__b.audio", b"RIFF\0\0\0\0WAVEfmt "), "audio/wav");

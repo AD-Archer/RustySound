@@ -20,6 +20,8 @@ static AUTH_CACHE: Lazy<Mutex<HashMap<String, String>>> = Lazy::new(|| Mutex::ne
 static NATIVE_AUTH_CACHE: Lazy<Mutex<HashMap<String, NativeAuthSession>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
+/// App name: the User-Agent, and the start of the `c=` client name
+/// (`client_name()`, which adds the device).
 const CLIENT_NAME: &str = "RustySound";
 const API_VERSION: &str = "1.16.1";
 
@@ -33,18 +35,15 @@ struct NativeAuthSession {
     client_unique_id: String,
 }
 
+/// Sort field for the deprecated `get_native_songs`; goes with it.
 #[derive(Debug, Clone, Copy)]
 pub enum NativeSongSortField {
-    /// Recently played. No caller since the old Home shelf went; kept as API.
-    #[allow(dead_code)]
-    PlayDate,
     PlayCount,
 }
 
 impl NativeSongSortField {
     fn as_query_value(self) -> &'static str {
         match self {
-            Self::PlayDate => "play_date",
             Self::PlayCount => "play_count",
         }
     }
@@ -53,14 +52,6 @@ impl NativeSongSortField {
 #[derive(Debug, Clone, Copy)]
 pub enum NativeSortOrder {
     Desc,
-}
-
-impl NativeSortOrder {
-    fn as_query_value(self) -> &'static str {
-        match self {
-            Self::Desc => "DESC",
-        }
-    }
 }
 
 #[derive(Debug, Serialize)]
@@ -151,6 +142,40 @@ fn json_pick_bool(value: &serde_json::Value, keys: &[&str]) -> Option<bool> {
     }
 }
 
+/// The one Subsonic status check: `Ok` for `status="ok"`, else the
+/// server's error message.
+fn subsonic_ok(json: &SubsonicResponse) -> Result<(), String> {
+    if json.subsonic_response.status == "ok" {
+        return Ok(());
+    }
+    Err(json
+        .subsonic_response
+        .error
+        .as_ref()
+        .map(|e| e.message.clone())
+        .unwrap_or_else(|| "Unknown error".to_string()))
+}
+
+/// Sends a Subsonic request and checks its status.
+async fn subsonic_send(request: reqwest::RequestBuilder) -> Result<SubsonicResponse, String> {
+    let response = request.send().await.map_err(|e| e.to_string())?;
+    // A 5xx is the server (or a proxy) failing, not a Subsonic answer; say
+    // so, so the offline queue can tell it from a refusal.
+    if response.status().is_server_error() {
+        return Err(format!("status {}", response.status().as_u16()));
+    }
+    let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
+    subsonic_ok(&json)?;
+    Ok(json)
+}
+
+impl NavidromeClient {
+    /// GET a Subsonic URL from `build_url` and check its status.
+    async fn subsonic_get(&self, url: &str) -> Result<SubsonicResponse, String> {
+        subsonic_send(HTTP_CLIENT.get(url)).await
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 pub struct IcyNowPlaying {
     pub title: String,
@@ -164,7 +189,10 @@ include!("bookmarks_favorites_and_playlists.rs");
 include!("playlist_mutations.rs");
 include!("radio_search_and_scrobble.rs");
 include!("artist_info.rs");
+include!("opensubsonic.rs");
+include!("play_queue.rs");
 include!("library_paging.rs");
+include!("shares.rs");
 
 fn normalize_cover_art_id(cover_art_id: &str) -> String {
     let trimmed = cover_art_id.trim();

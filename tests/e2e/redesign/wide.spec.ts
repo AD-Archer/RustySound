@@ -1,6 +1,6 @@
 // Redesign suite, wide layout (Mac). Expected to fail until phase 2 lands.
 import { audioState, expect, test } from "../../support/fixtures";
-import { expectTrackMenuComplete, gotoReady, isCompact, KEPT_PLAYER_IDS, openAlbum, tid } from "./helpers";
+import { expectTrackMenuComplete, gotoReady, isCompact, KEPT_PLAYER_IDS, openAlbum, playFirstTrack, tid } from "./helpers";
 
 const SIDEBAR: [testid: string, url: RegExp][] = [
   ["nav-search", /\/search$/],
@@ -37,6 +37,72 @@ test.describe("wide layout", () => {
     const bar = tid(page, "player-bar");
     await expect(bar).toBeVisible();
     for (const id of KEPT_PLAYER_IDS) await expect(bar.locator(`#${id}`), id).toBeAttached();
+  });
+
+  test("the bar stays calm: shuffle, repeat and rating live in its playback menu", async ({ connected: page, mock }) => {
+    await playFirstTrack(page, mock);
+    const bar = tid(page, "player-bar");
+    // Only the press targets carry the ids; nothing for them shows in the bar.
+    for (const id of ["shuffle-btn", "repeat-btn", "rating-btn"]) {
+      await expect(bar.locator(`#${id}`), id).toHaveClass(/rs-sr-only/);
+      await expect(bar.locator(`#${id}`), id).toHaveAttribute("aria-hidden", "true");
+    }
+    // Favourite, previous, play, next, Output, add, lyrics, Up Next and "…"
+    // (was eleven with shuffle, repeat, rating).
+    expect(await bar.locator(".rs-iconbtn:visible").count(), "icon buttons in the bar").toBe(9);
+    await expect(tid(page, "player-output")).toBeVisible();
+
+    // Keyboard: the "…" opens the menu, Escape closes it.
+    const more = tid(page, "player-more");
+    await more.focus();
+    await page.keyboard.press("Enter");
+    const menu = tid(page, "player-menu");
+    await expect(menu).toBeVisible();
+    await expect(more).toHaveAttribute("aria-expanded", "true");
+    // It opens on screen, near the button that opened it.
+    const box = (await menu.boundingBox())!;
+    const moreBox = (await more.boundingBox())!;
+    const viewport = page.viewportSize()!;
+    expect(box.x).toBeGreaterThanOrEqual(0);
+    expect(box.x + box.width).toBeLessThanOrEqual(viewport.width);
+    expect(box.y + box.height).toBeLessThanOrEqual(moreBox.y);
+    expect(Math.abs(box.x + box.width / 2 - moreBox.x)).toBeLessThan(300);
+
+    const shuffle = tid(menu, "player-menu-shuffle");
+    const shuffleWas = (await shuffle.locator(".rs-menu__detail").textContent())!.trim();
+    await shuffle.click();
+    await expect(shuffle.locator(".rs-menu__detail")).toHaveText(shuffleWas === "On" ? "Off" : "On");
+    await shuffle.click();
+    await expect(shuffle.locator(".rs-menu__detail")).toHaveText(shuffleWas);
+
+    const repeat = tid(menu, "player-menu-repeat");
+    await expect(repeat.locator(".rs-menu__detail")).toHaveText("Off");
+    await repeat.click();
+    await expect(repeat.locator(".rs-menu__detail")).toHaveText("All");
+    await repeat.click();
+    await expect(repeat.locator(".rs-menu__detail")).toHaveText("One");
+    await repeat.click();
+    await expect(repeat.locator(".rs-menu__detail")).toHaveText("Off");
+
+    // Rating goes to the server and shows on the stars.
+    const stars = tid(menu, "player-menu-rating");
+    const rated = page.waitForRequest((r) => r.url().includes("/rest/setRating") && r.url().includes("rating=4"));
+    await stars.getByRole("button", { name: "4 star" }).click();
+    await rated;
+    await expect(stars.getByRole("button", { name: "4 star" })).toHaveAttribute("aria-pressed", "true");
+    await stars.getByRole("button", { name: "Clear rating" }).click();
+    await expect(stars.getByRole("button", { name: "4 star" })).toHaveAttribute("aria-pressed", "false");
+
+    await page.keyboard.press("Escape");
+    await expect(menu).toHaveCount(0);
+
+    // The macOS Playback menu still presses the hidden ids.
+    await page.evaluate(() => (document.getElementById("repeat-btn") as HTMLButtonElement).click());
+    await more.click();
+    await expect(tid(page, "player-menu-repeat").locator(".rs-menu__detail")).toHaveText("All");
+    await tid(page, "player-menu-repeat").click();
+    await tid(page, "player-menu-repeat").click();
+    await expect(tid(page, "player-menu-repeat").locator(".rs-menu__detail")).toHaveText("Off");
   });
 
   test("Cover Flow responds to arrow keys", async ({ connected: page }) => {
@@ -142,6 +208,10 @@ test.describe("wide layout", () => {
 
   test("Settings: the off-server switch comes first in Discovery; a server row opens its editor", async ({ connected: page }) => {
     await gotoReady(page, "/settings");
+    // Music on the device is a Mac and iPhone app feature: no folder rows on the web.
+    await expect(tid(page, "server-edit").first()).toBeVisible();
+    await expect(tid(page, "local-folders")).toHaveCount(0);
+    await expect(tid(page, "local-folder-add")).toHaveCount(0);
     await tid(page, "server-edit").first().click();
     const form = tid(page, "server-form");
     await expect(form).toBeVisible();

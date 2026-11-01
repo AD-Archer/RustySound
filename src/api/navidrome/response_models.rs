@@ -39,6 +39,18 @@ pub struct SubsonicResponseInner {
     pub bookmarks: Option<BookmarksContainer>,
     #[serde(default, alias = "artistInfo2")]
     pub artist_info2: Option<ArtistInfo2Payload>,
+    #[serde(default, alias = "openSubsonicExtensions")]
+    pub open_subsonic_extensions: Option<Vec<OpenSubsonicExtension>>,
+    #[serde(default, alias = "lyricsList")]
+    pub lyrics_list: Option<LyricsListPayload>,
+    #[serde(default, alias = "playQueue")]
+    pub play_queue: Option<PlayQueuePayload>,
+    #[serde(default, alias = "playQueueByIndex")]
+    pub play_queue_by_index: Option<PlayQueuePayload>,
+    #[serde(default, alias = "nowPlaying")]
+    pub now_playing: Option<NowPlayingPayload>,
+    #[serde(default)]
+    pub shares: Option<SharesPayload>,
 }
 
 #[derive(Debug, Deserialize)]

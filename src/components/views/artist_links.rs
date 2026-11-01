@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::components::{AppView, Navigation};
+use crate::components::{use_servers, AppView, Navigation};
 use dioxus::prelude::*;
 
 pub(crate) fn parse_artist_names(artist_text: &str) -> Vec<String> {
@@ -43,6 +43,12 @@ pub(crate) async fn resolve_artist_id_for_name(
     server: ServerConfig,
     artist_name: String,
 ) -> Option<String> {
+    resolve_artist_id(MusicClient::new(server), artist_name).await
+}
+
+/// The id of the artist called `artist_name` in `client`'s library (a
+/// server's, or the device's), by search, then by the full artist list.
+pub(crate) async fn resolve_artist_id(client: MusicClient, artist_name: String) -> Option<String> {
     let query = artist_name.trim().to_string();
     if query.is_empty() {
         eprintln!("[artist-nav.resolve.skip] empty query");
@@ -58,12 +64,11 @@ pub(crate) async fn resolve_artist_id_for_name(
         return None;
     }
 
-    let server_id = server.id.clone();
+    let server_id = client.source_id().to_string();
     eprintln!(
         "[artist-nav.resolve.start] server_id={} query='{}' normalized='{}'",
         server_id, query, normalized_target
     );
-    let client = NavidromeClient::new(server);
 
     if let Ok(results) = client.search(&query, 50, 0, 0).await {
         let artist_count = results.artists.len();
@@ -131,7 +136,7 @@ pub fn ArtistNameLinks(
     #[props(default = "rs-library-names__link".to_string())] button_class: String,
     #[props(default = "rs-library-names__sep".to_string())] separator_class: String,
 ) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let navigation = use_context::<Navigation>();
 
     let artist_parts = parse_artist_names(&artist_text);
@@ -180,8 +185,7 @@ pub fn ArtistNameLinks(
                                 return;
                             }
 
-                            let server = servers().iter().find(|s| s.id == server_id).cloned();
-                            let Some(server) = server else {
+                            let Some(client) = MusicClient::for_source(&servers.peek(), &server_id) else {
                                 eprintln!(
                                     "[artist-nav.link.missing-server] server_id={} artist='{}'",
                                     server_id, artist_name
@@ -194,7 +198,7 @@ pub fn ArtistNameLinks(
                             let artist_name = artist_name.clone();
                             spawn(async move {
                                 if let Some(artist_id) =
-                                    resolve_artist_id_for_name(server, artist_name).await
+                                    resolve_artist_id(client, artist_name).await
                                 {
                                     eprintln!(
                                         "[artist-nav.link.resolved] server_id={} artist_id={}",

@@ -18,6 +18,38 @@
         });
     }
 
+    // Android: ExoPlayer holds the queue around the current song, so it moves
+    // on by itself. Registered before the source sync below, so a load finds
+    // its song in the plan.
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+    {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let now_playing = now_playing.clone();
+        let repeat_mode = repeat_mode.clone();
+        let plan_settings = use_memo(move || {
+            let settings = app_settings.read();
+            (
+                settings.offline_mode,
+                settings.volume_levelling,
+                settings.replay_gain_preamp_db.to_bits(),
+            )
+        });
+        use_effect(move || {
+            let _ = plan_settings();
+            android_sync_playback_plan(
+                &queue.read(),
+                queue_index(),
+                now_playing.read().as_ref(),
+                repeat_mode(),
+                &servers.read(),
+                &app_settings.peek(),
+            );
+        });
+    }
+
     // Update source + metadata and persist bookmark when songs change.
     {
         let servers = servers.clone();
@@ -69,7 +101,7 @@
                             spawn(async move {
                                 last_bookmark.set(Some((song_id.clone(), position_ms)));
                                 if let Some(server) =
-                                    servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                                    servers_snapshot.iter().find(|s| s.id == server_id && Capabilities::of(s).bookmarks).cloned()
                                 {
                                     let client = NavidromeClient::new(server);
                                     let _ = client
@@ -95,21 +127,14 @@
             let Some(song) = song else {
                 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
                 {
-                    let queue_snapshot = queue();
-                    let queue_idx = queue_index();
-                    let servers_snapshot = servers.peek().clone();
-                    let offline_mode = app_settings.peek().offline_mode;
-                    let repeat = repeat_mode();
-                    let shuffle = shuffle_enabled();
-                    let plan_items = queue_snapshot
-                        .iter()
-                        .map(|entry| IosPlaybackPlanItem {
-                            song_id: entry.id.clone(),
-                            src: resolve_stream_url(entry, &servers_snapshot, offline_mode),
-                            meta: song_metadata(entry, &servers_snapshot),
-                        })
-                        .collect::<Vec<_>>();
-                    ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
+                    let settings = app_settings.peek();
+                    ios_update_playback_plan(
+                        native_plan_items(&queue(), .., &servers.peek(), &settings),
+                        queue_index(),
+                        repeat_mode(),
+                        shuffle_enabled(),
+                        settings.gapless_playback,
+                    );
                 }
 
                 let should_clear = last_src.peek().is_some()
@@ -130,19 +155,14 @@
             let offline_mode = app_settings.peek().offline_mode;
             #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
             {
-                let queue_snapshot = queue();
-                let queue_idx = queue_index();
-                let repeat = repeat_mode();
-                let shuffle = shuffle_enabled();
-                let plan_items = queue_snapshot
-                    .iter()
-                    .map(|entry| IosPlaybackPlanItem {
-                        song_id: entry.id.clone(),
-                        src: resolve_stream_url(entry, &servers_snapshot, offline_mode),
-                        meta: song_metadata(entry, &servers_snapshot),
-                    })
-                    .collect::<Vec<_>>();
-                ios_update_playback_plan(plan_items, queue_idx, repeat, shuffle);
+                let settings = app_settings.peek();
+                ios_update_playback_plan(
+                    native_plan_items(&queue(), .., &servers_snapshot, &settings),
+                    queue_index(),
+                    repeat_mode(),
+                    shuffle_enabled(),
+                    settings.gapless_playback,
+                );
             }
 
             if let Some(url) = resolve_stream_url(&song, &servers_snapshot, offline_mode) {
@@ -228,7 +248,8 @@
                         "src": url,
                         "song_id": song.id,
                         "position": target_start,
-                        "volume": volume.peek().clamp(0.0, 1.0),
+                        "volume": levelled_volume(volume.peek().clamp(0.0, 1.0), levelling_gain_now()),
+                        "user": volume.peek().clamp(0.0, 1.0),
                         "play": should_play_after_load,
                         "meta": metadata,
                     }));
@@ -323,6 +344,37 @@
                 };
                 audio_state.write().playback_error.set(Some(message));
             }
+        });
+    }
+
+    // iOS: the gapless and levelling settings change what the native player
+    // queues next and how loud it plays it.
+    #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+    {
+        let servers = servers.clone();
+        let app_settings = app_settings.clone();
+        let queue = queue.clone();
+        let queue_index = queue_index.clone();
+        let repeat_mode = repeat_mode.clone();
+        let shuffle_enabled = shuffle_enabled.clone();
+        let plan_settings = use_memo(move || {
+            let settings = app_settings.read();
+            (
+                settings.gapless_playback,
+                settings.volume_levelling,
+                settings.replay_gain_preamp_db.to_bits(),
+            )
+        });
+        use_effect(move || {
+            let _ = plan_settings();
+            let settings = app_settings.peek();
+            ios_update_playback_plan(
+                native_plan_items(&queue.peek(), .., &servers.peek(), &settings),
+                *queue_index.peek(),
+                *repeat_mode.peek(),
+                *shuffle_enabled.peek(),
+                settings.gapless_playback,
+            );
         });
     }
 

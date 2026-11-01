@@ -1,9 +1,10 @@
 //! "Browse" before typing: genre tiles built from a sample of the library's
 //! albums (Subsonic genres come with the album, so one request per server).
 
-use crate::api::{Album, NavidromeClient, ServerConfig};
+use crate::api::{Album, MusicClient};
 use crate::components::ui::{Artwork, SectionHeader, Skeleton};
-use crate::components::{AppView, Navigation};
+use crate::components::views::library::shared::active_servers;
+use crate::components::{use_servers, AppView, Navigation};
 use dioxus::prelude::*;
 use std::collections::HashMap;
 
@@ -47,15 +48,15 @@ pub(super) fn genre_tiles(albums: &[Album]) -> Vec<GenreTile> {
 
 #[component]
 pub(super) fn BrowseGenres() -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let navigation = use_context::<Navigation>();
 
     let tiles = use_resource(move || {
-        let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+        let active = active_servers(&servers());
         async move {
             let mut albums = Vec::new();
             for server in active {
-                if let Ok(mut list) = NavidromeClient::new(server)
+                if let Ok(mut list) = MusicClient::new(server)
                     .get_albums("frequent", SAMPLE_PER_SERVER, 0)
                     .await
                 {

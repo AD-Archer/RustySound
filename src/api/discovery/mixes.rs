@@ -6,7 +6,7 @@ use super::reasons::{freshness_label, join_names, length_label, similar_reason};
 use super::rewind::{cutoff_days_for_months, is_rewind_candidate, DEFAULT_REWIND_MONTHS, MIN_SONG_PLAYS};
 use super::types::{CoverRef, DiscoverSong, Mix, MixKind, ReasonKind};
 use super::util::{normalize_name, SeededRng};
-use crate::api::models::{Album, Song};
+use crate::api::models::{item_key, Album, Song};
 use std::collections::{HashMap, HashSet};
 
 /// A mix needs at least this many songs to be shown.
@@ -40,13 +40,9 @@ impl MixContext {
     }
 }
 
-fn song_key(song: &Song) -> String {
-    format!("{}::{}", song.server_id, song.id)
-}
-
 fn dedupe(songs: Vec<Song>) -> Vec<Song> {
     let mut seen = HashSet::new();
-    songs.into_iter().filter(|s| seen.insert(song_key(s))).collect()
+    songs.into_iter().filter(|s| seen.insert(s.key())).collect()
 }
 
 /// Keep at most `cap` songs per artist, preserving order.
@@ -72,7 +68,7 @@ pub fn mosaic_covers(songs: &[Song]) -> Vec<CoverRef> {
             continue;
         };
         let album_key = song.album_id.clone().unwrap_or_else(|| cover.clone());
-        if !seen_albums.insert(format!("{}::{album_key}", song.server_id)) {
+        if !seen_albums.insert(item_key(&song.server_id, &album_key)) {
             continue;
         }
         covers.push(CoverRef {
@@ -294,7 +290,7 @@ pub fn select_songs_like(
             let artist = normalize_name(song.artist.as_deref().unwrap_or(""));
             if song.play_count.unwrap_or(0) >= HEAVY_PLAYS
                 || seed_names.contains(&artist)
-                || !seen.insert(song_key(song))
+                || !seen.insert(song.key())
             {
                 continue;
             }

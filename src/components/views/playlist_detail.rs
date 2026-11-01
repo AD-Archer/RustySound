@@ -1,34 +1,41 @@
-//! Playlist page: stage band with the cover, Play / Shuffle (Download is in "…"), a
-//! windowed track list (playlists run to thousands of songs), and an edit
-//! mode with Move Up / Down, Remove, Rename, Delete and an Add Songs sheet.
+//! Playlist page: stage band with the cover, Play / Shuffle (Download is in "…"), and a
+//! windowed track list (playlists run to thousands of songs).
+//!
+//! On the user's own playlists (see `edits::playlist_editable`) rows always
+//! drag by their handle and swipe for Remove / Add to…, with Undo; there is
+//! no Edit mode. "Add Songs" sits above the list, and the "…" menu also
+//! holds Add Songs, Rename and Delete. Other playlists' rows swipe for
+//! Play Next / Add to….
 
-mod add_songs;
-mod edit_row;
+mod edits;
 
 use crate::api::*;
 use crate::components::ui::{
-    use_layout, Menu, MenuAction, MenuGap, MenuItem, Artwork, EmptyState,
-    Button, ButtonVariant, TrackRow, VirtualList,
+    use_layout, Artwork, Button, ButtonVariant, CollectionActions, EmptyState, ErrorState, Menu,
+    MenuAction, MenuGap, MenuItem, RowGestureList, RowSwipe, SectionHeader, Skeleton, StatusToast,
+    TrackRow, UndoToast, VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
+use crate::components::views::discover::saved::is_saved_mix_copy;
+use crate::components::views::library::add_songs::{AddSongsSheet, AddTarget};
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
 use crate::components::views::library::playlist_sheets::{DeletePlaylistSheet, RenamePlaylistSheet};
 use crate::components::views::library::shared::{
-    use_servers,
-    is_auto_imported, song_key, songs_summary, use_downloaded_keys, use_now_playing, use_player,
-    use_song_patches, ErrorState, ListSkeleton,
+    is_auto_imported, playlist_editable, use_downloaded_keys, use_now_playing, use_song_patches,
 };
-use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
+use crate::components::views::library::song_flow::{use_song_runs, wants_flow, SongFlow};
+use crate::components::{
+    can_share, share_link, use_player, use_servers, use_setting, AddIntent, AddMenuController, AppView,
+    Navigation, PlaylistSync, QueuePosition, ShareTarget, SyncStatus,
+};
 use crate::db::AppSettings;
+use crate::format::songs_summary;
 use crate::offline_audio::{
-    is_playlist_auto_download_tracked, mark_collection_downloaded,
-    mark_playlist_auto_download_tracked, prefetch_song_audio_with_origin,
-    sync_downloaded_collection_members, DownloadOrigin,
+    mark_collection_downloaded, mark_playlist_auto_download_tracked,
+    sync_downloaded_collection_members,
 };
-use crate::components::views::discover::saved::is_saved_mix_copy;
-use add_songs::AddSongsSheet;
 use dioxus::prelude::*;
-use edit_row::EditRow;
+use edits::{use_playlist_edits, PLAYLIST_LIST, REMOVE_FROM_PLAYLIST};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sheet {
@@ -43,33 +50,40 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let navigation = use_context::<Navigation>();
     let add_menu = use_context::<AddMenuController>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let offline = use_setting(|s| s.offline_mode);
+    let saved_mixes = use_setting(|s| s.discover_saved_mix_playlists.clone());
+    let toast = use_context::<StatusToast>();
+    // The data resource below takes `server_id`.
+    let share_server = server_id.clone();
     let layout = use_layout();
     let player = use_player();
     let mut retry = use_signal(|| 0u32);
     let mut songs = use_signal(Vec::<Song>::new);
     let mut meta_override = use_signal(|| None::<Playlist>);
     let mut status = use_signal(|| None::<String>);
-    let mut editing = use_signal(|| false);
     let mut sheet = use_signal(|| None::<Sheet>);
     let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
     let mut dl_busy = use_signal(|| false);
     let dl_progress = use_signal(|| None::<(usize, usize)>);
     // "Remove Songs from Favorites" asks first (it can undo many hearts).
     let mut confirm_unstar = use_signal(|| false);
-    let mut queue = use_context::<Signal<Vec<Song>>>();
-    let mut now_playing = use_context::<Signal<Option<Song>>>();
     use_song_patches(songs);
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
+    let runs = use_song_runs(songs);
+    // Re-fetched (quietly: the page keeps showing the old list meanwhile)
+    // after each playlist sync pass.
+    let sync = use_context::<PlaylistSync>();
 
     let data = use_resource(use_reactive!(|(playlist_id, server_id)| {
         let _ = retry();
-        let server = servers().into_iter().find(|s| s.id == server_id);
+        let _ = (sync.revision)();
+        let client = MusicClient::for_source(&servers(), &server_id);
         async move {
-            let Some(server) = server else {
+            let Some(client) = client else {
                 return Err("This playlist's server isn't configured.".to_string());
             };
-            NavidromeClient::new(server).get_playlist(&playlist_id).await
+            client.get_playlist(&playlist_id).await
         }
     }));
 
@@ -80,12 +94,15 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         }
     });
 
+    let edits = use_playlist_edits(songs, data, meta_override, servers, status, retry);
+    let mut undo = edits.undo;
+
     let base = match &*data.read() {
         None => {
             return rsx! {
                 div { class: "rs-view rs-view--flush rs-library-detail",
                     DetailHeroSkeleton { back_label: "Playlists".to_string(), fallback: AppView::PlaylistsView {} }
-                    div { class: "rs-library-page", ListSkeleton { rows: 10 } }
+                    div { class: "rs-library-page", Skeleton { rows: 10 } }
                 }
             };
         }
@@ -119,9 +136,10 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     };
     let playlist = meta_override().unwrap_or(base);
 
-    let server = servers.read().iter().find(|s| s.id == playlist.server_id).cloned();
+    let server = ServerConfig::find(&servers.read(), &playlist.server_id).cloned();
     let auto_imported = is_auto_imported(&playlist);
-    let read_only = auto_imported;
+    let editable = playlist_editable(&playlist, server.as_ref());
+    let read_only = !editable;
     let count = songs.read().len();
     // Subsonic playlist durations are seconds (the old header divided by 1000).
     let total_secs: u64 = {
@@ -137,7 +155,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     // The saved copy of a generated mix is the user's playlist (no RustySound
     // mark), but saving that mix again replaces it, so say so.
     let mix_copy = is_saved_mix_copy(
-        &app_settings.read().discover_saved_mix_playlists,
+        &saved_mixes.read(),
         &playlist.server_id,
         &playlist.id,
     );
@@ -148,14 +166,12 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     } else {
         playlist.comment.clone().filter(|c| !c.trim().is_empty())
     };
-    let source = Some((
-        QueueSourceKind::Playlist,
-        format!("{}::{}", playlist.server_id, playlist.id),
-    ));
+    let source = Some((QueueSourceKind::Playlist, playlist.key()));
     let can_download = !cfg!(target_arch = "wasm32");
-    let is_editing = editing() && !read_only;
     let row_h = 58.0;
-    let _ = layout;
+    // Cover Flow of the songs in the stage band.
+    let show_flow = wants_flow(&runs.read(), count > 0, playlist.song_count as usize);
+    let wide = !layout.is_compact();
 
     // ---- Actions --------------------------------------------------------------
     let play_from = {
@@ -251,6 +267,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 });
                 // Keep the queue and the player's heart in step.
                 let in_set = |s: &Song| s.server_id == server.id && updated.contains(&s.id);
+                let (mut queue, mut now_playing) = (player.queue, player.now_playing);
                 queue.with_mut(|items| items.iter_mut().filter(|s| in_set(s)).for_each(|s| s.starred = marker.clone()));
                 if now_playing.peek().as_ref().map(|s| in_set(s)).unwrap_or(false) {
                     now_playing.with_mut(|s| {
@@ -265,94 +282,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     } else {
                         format!("Removed {done} songs from Favorites.")
                     }));
-                }
-            });
-        }
-    };
-
-    // Moves a song locally, then saves the order; reloads on failure.
-    let move_song = {
-        let playlist = playlist.clone();
-        let server = server.clone();
-        move |from: usize, to: usize| {
-            let mut ids = Vec::new();
-            songs.with_mut(|list| {
-                if from >= list.len() || to >= list.len() || from == to {
-                    return;
-                }
-                let song = list.remove(from);
-                list.insert(to, song);
-                ids = list.iter().map(|s| s.id.clone()).collect();
-            });
-            if ids.is_empty() {
-                return;
-            }
-            let Some(server) = server.clone() else { return };
-            let id = playlist.id.clone();
-            spawn(async move {
-                let total = ids.len();
-                let client = NavidromeClient::new(server);
-                if let Err(err) = client.reorder_playlist(&id, &ids, total).await {
-                    status.set(Some(format!("Couldn't save the new order: {err}")));
-                    retry += 1;
-                } else {
-                    client.refresh_playlist_cache();
-                }
-            });
-        }
-    };
-
-    let remove_song = {
-        let playlist = playlist.clone();
-        let server = server.clone();
-        move |index: usize| {
-            let Some(server) = server.clone() else { return };
-            if index >= songs.peek().len() {
-                return;
-            }
-            let removed = songs.write().remove(index);
-            let id = playlist.id.clone();
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                match client.remove_songs_from_playlist(&id, &[index]).await {
-                    Ok(_) => client.refresh_playlist_cache(),
-                    Err(err) => {
-                        songs.with_mut(|list| list.insert(index.min(list.len()), removed));
-                        status.set(Some(format!("Couldn't remove the song: {err}")));
-                    }
-                }
-            });
-        }
-    };
-
-    let add_song = {
-        let playlist = playlist.clone();
-        let server = server.clone();
-        move |song: Song| {
-            let Some(server) = server.clone() else { return };
-            let playlist = playlist.clone();
-            let settings = app_settings.peek().clone();
-            let servers_now = servers.peek().clone();
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                if let Err(err) = client.add_songs_to_playlist(&playlist.id, &[song.id.clone()]).await {
-                    status.set(Some(format!("Couldn't add “{}”: {err}", song.title)));
-                    return;
-                }
-                client.refresh_playlist_cache();
-                songs.write().push(song.clone());
-                // Keep a downloaded playlist complete.
-                if is_playlist_auto_download_tracked(&playlist.server_id, &playlist.id) {
-                    let total = songs.peek().len();
-                    mark_collection_downloaded("playlist", &playlist.server_id, &playlist.id, &playlist.name, total);
-                    mark_playlist_auto_download_tracked(&playlist.server_id, &playlist.id, &playlist.name, total);
-                    if settings.downloads_enabled && settings.auto_downloads_enabled {
-                        let mut settings = settings.clone();
-                        settings.downloads_enabled = true;
-                        let _ = prefetch_song_audio_with_origin(&song, &servers_now, &settings, DownloadOrigin::Auto).await;
-                    }
-                    let list = songs.peek().clone();
-                    sync_downloaded_collection_members("playlist", &playlist.server_id, &playlist.id, &list);
                 }
             });
         }
@@ -389,50 +318,30 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     let p = evt.client_coordinates();
                     menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                 },
+                flow: show_flow.then(|| rsx! {
+                    SongFlow {
+                        songs,
+                        runs,
+                        list_testid: "playlist-tracks".to_string(),
+                        wide,
+                        label: format!("Songs in {}", playlist.name),
+                        on_play: {
+                            let mut play_from = play_from.clone();
+                            move |index: usize| play_from(index)
+                        },
+                    }
+                }),
             }
 
             div { class: "rs-library-page",
-                if is_editing {
-                    div { class: "rs-library-actions",
-                        Button {
-                            label: "Add Songs".to_string(),
-                            icon: "plus".to_string(),
-                            variant: ButtonVariant::Tinted,
-                            block: true,
-                            testid: "playlist-add-songs".to_string(),
-                            onclick: move |_| sheet.set(Some(Sheet::AddSongs)),
-                        }
-                        Button {
-                            label: "Done".to_string(),
-                            icon: "check".to_string(),
-                            block: true,
-                            testid: "playlist-edit-done".to_string(),
-                            onclick: move |_| editing.set(false),
-                        }
-                    }
-                } else {
-                    div { class: "rs-library-actions",
-                        Button {
-                            label: "Play".to_string(),
-                            icon: "play".to_string(),
-                            block: true,
-                            disabled: count == 0,
-                            testid: "playlist-play".to_string(),
-                            onclick: {
-                                let mut play_from = play_from.clone();
-                                move |_| play_from(0)
-                            },
-                        }
-                        Button {
-                            label: "Shuffle".to_string(),
-                            icon: "shuffle".to_string(),
-                            variant: ButtonVariant::Tinted,
-                            block: true,
-                            disabled: count == 0,
-                            testid: "playlist-shuffle".to_string(),
-                            onclick: shuffle_all,
-                        }
-                    }
+                CollectionActions {
+                    testid: "playlist".to_string(),
+                    disabled: count == 0,
+                    on_play: {
+                        let mut play_from = play_from.clone();
+                        move |_| play_from(0)
+                    },
+                    on_shuffle: shuffle_all,
                 }
                 if let Some(detail) = dl_detail.clone() {
                     p { class: "rs-library-status", role: "status", "Downloading {detail}…" }
@@ -440,6 +349,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 if let Some(text) = status() {
                     p { class: "rs-library-status", role: "status", "{text}" }
                 }
+                div { class: "rs-library-sync", SyncStatus { testid: "playlist-sync".to_string() } }
 
                 if count == 0 {
                     EmptyState {
@@ -450,59 +360,55 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             Button {
                                 label: "Add Songs".to_string(),
                                 icon: "plus".to_string(),
-                                onclick: move |_| {
-                                    editing.set(true);
-                                    sheet.set(Some(Sheet::AddSongs));
-                                },
+                                testid: "playlist-add-songs".to_string(),
+                                onclick: move |_| sheet.set(Some(Sheet::AddSongs)),
                             }
                         }
                     }
                 } else {
-                    VirtualList {
-                        item_count: count,
-                        row_height: row_h,
-                        class: "rs-list rs-library-songlist".to_string(),
-                        testid: "playlist-tracks".to_string(),
-                        render_row: move |index: usize| {
-                            let Some(song) = songs.read().get(index).cloned() else {
-                                return rsx! { li {} };
-                            };
-                            let key = song_key(&song);
-                            if is_editing {
-                                let last = count.saturating_sub(1);
-                                return rsx! {
-                                    EditRow {
+                    if editable {
+                        // The one place to add songs without opening a menu:
+                        // a quiet text action above the list.
+                        SectionHeader {
+                            title: "Songs".to_string(),
+                            action: "Add Songs".to_string(),
+                            on_action: move |_| sheet.set(Some(Sheet::AddSongs)),
+                            testid: "playlist-add-songs".to_string(),
+                        }
+                    }
+                    RowGestureList {
+                        id: PLAYLIST_LIST,
+                        reorder: (editable && count > 1).then(|| (0, count - 1)),
+                        VirtualList {
+                            item_count: count,
+                            row_height: row_h,
+                            class: "rs-list rs-library-songlist".to_string(),
+                            testid: "playlist-tracks".to_string(),
+                            render_row: move |index: usize| {
+                                let Some(song) = songs.read().get(index).cloned() else {
+                                    return rsx! { li {} };
+                                };
+                                let key = song.key();
+                                let playing = playing_now.as_deref() == Some(key.as_str());
+                                rsx! {
+                                    TrackRow {
                                         key: "{key}:{index}",
-                                        song,
+                                        playing,
+                                        live: playing && live_now,
+                                        downloaded: downloaded.read().contains(&key),
                                         index,
-                                        last,
-                                        on_move: {
-                                            let mut move_song = move_song.clone();
-                                            move |(from, to): (usize, usize)| move_song(from, to)
-                                        },
-                                        on_remove: {
-                                            let mut remove_song = remove_song.clone();
-                                            move |i: usize| remove_song(i)
+                                        song,
+                                        handle: editable && count > 1,
+                                        swipe: if editable { RowSwipe::Edit } else { RowSwipe::Browse },
+                                        remove_label: editable.then(|| REMOVE_FROM_PLAYLIST.to_string()),
+                                        on_play: {
+                                            let mut play_from = play_from.clone();
+                                            move |_| play_from(index)
                                         },
                                     }
-                                };
-                            }
-                            let playing = playing_now.as_deref() == Some(key.as_str());
-                            rsx! {
-                                TrackRow {
-                                    key: "{key}:{index}",
-                                    playing,
-                                    live: playing && live_now,
-                                    downloaded: downloaded.read().contains(&key),
-                                    index,
-                                    song,
-                                    on_play: {
-                                        let mut play_from = play_from.clone();
-                                        move |_| play_from(index)
-                                    },
                                 }
-                            }
-                        },
+                            },
+                        }
                     }
                     p { class: "rs-list-foot", "{songs_summary(count, total_secs)}" }
                 }
@@ -520,7 +426,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         disabled: count == 0,
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), true);
+                            player.enqueue(songs.peek().clone(), QueuePosition::Next);
                         },
                     }
                     MenuItem {
@@ -529,7 +435,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                         disabled: count == 0,
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), false);
+                            player.enqueue(songs.peek().clone(), QueuePosition::End);
                         },
                     }
                     MenuItem {
@@ -573,24 +479,52 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             onclick: download.clone(),
                         }
                     }
+                    if can_share(&servers.read(), &share_server, offline()) {
+                        MenuItem {
+                            label: "Share Link…".to_string(),
+                            icon: "share".to_string(),
+                            testid: "playlist-menu-share".to_string(),
+                            onclick: {
+                                let playlist = playlist.clone();
+                                let server_id = share_server.clone();
+                                move |_| {
+                                    menu_at.set(None);
+                                    share_link(
+                                        &servers.peek(),
+                                        toast,
+                                        ShareTarget {
+                                            server_id: server_id.clone(),
+                                            id: playlist.id.clone(),
+                                            title: playlist.name.clone(),
+                                        },
+                                    );
+                                }
+                            },
+                        }
+                    }
                     MenuGap {}
                     if read_only {
                         div { class: "rs-menu__note",
-                            "Auto-imported playlists are read-only. Edit the playlist file on the server instead."
+                            if auto_imported {
+                                "Auto-imported playlists are read-only. Edit the playlist file on the server instead."
+                            } else {
+                                "This playlist belongs to someone else, so it's read-only here."
+                            }
                         }
                     } else {
                         MenuItem {
-                            label: if editing() { "Done Editing".to_string() } else { "Edit".to_string() },
-                            icon: "edit".to_string(),
-                            testid: "playlist-edit".to_string(),
+                            label: "Add Songs…".to_string(),
+                            icon: "plus".to_string(),
+                            testid: "playlist-menu-add-songs".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
-                                editing.toggle();
+                                sheet.set(Some(Sheet::AddSongs));
                             },
                         }
                         MenuItem {
                             label: "Rename…".to_string(),
                             icon: "edit".to_string(),
+                            testid: "playlist-menu-rename".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
                                 sheet.set(Some(Sheet::Rename));
@@ -600,12 +534,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             label: "Delete Playlist…".to_string(),
                             icon: "trash".to_string(),
                             danger: true,
+                            testid: "playlist-menu-delete".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
                                 sheet.set(Some(Sheet::Delete));
                             },
                         }
                     }
+                }
+            }
+
+            if let Some(entry) = undo() {
+                UndoToast {
+                    message: format!("Removed “{}” from the playlist", entry.song.title),
+                    generation: entry.generation,
+                    on_undo: move |_| edits.undo_remove(),
+                    on_close: move |_| undo.set(None),
                 }
             }
 
@@ -650,12 +594,11 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                 },
                 Some(Sheet::AddSongs) => rsx! {
                     AddSongsSheet {
-                        server: server.clone(),
-                        songs,
-                        on_add: {
-                            let add_song = add_song.clone();
-                            move |song: Song| add_song(song)
+                        target: AddTarget::Playlist {
+                            server: server.clone(),
+                            on_add: EventHandler::new(move |song: Song| edits.add(song)),
                         },
+                        songs,
                         on_close: move |_| sheet.set(None),
                     }
                 },

@@ -1,4 +1,4 @@
-use crate::api::Song;
+use crate::api::{ServerConfig, Song};
 use crate::cache_service::{
     get_json as cache_get_json, is_offline_mode, put_json as cache_put_json,
 };
@@ -14,14 +14,33 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::Duration;
 
+#[cfg(test)]
+mod lrc_tests;
+mod server;
+mod sync;
+use server::fetch_from_server;
+
 static LYRICS_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
 static LYRICS_SUCCESS_CACHE: Lazy<Mutex<HashMap<String, LyricsResult>>> =
     Lazy::new(|| Mutex::new(HashMap::new()));
 
-pub const DEFAULT_LYRICS_PROVIDER_KEYS: [&str; 3] = ["lrclib", "genius", "netease"];
+/// The user's own server comes first: lyrics from their files and sidecars
+/// need no third-party call.
+pub const DEFAULT_LYRICS_PROVIDER_KEYS: [&str; 4] = ["server", "lrclib", "genius", "netease"];
+
+/// Sent on LRCLIB requests where the platform allows it (browsers don't).
+/// LRCLIB asks clients to identify themselves.
+#[cfg(not(target_arch = "wasm32"))]
+const LRCLIB_USER_AGENT: &str = concat!(
+    "RustySound/",
+    env!("CARGO_PKG_VERSION"),
+    " (https://github.com/AD-Archer/rustysound)"
+);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LyricsProvider {
+    /// OpenSubsonic `getLyricsBySongId` on the song's own server.
+    Server,
     Netease,
     Lrclib,
     Genius,
@@ -30,6 +49,7 @@ pub enum LyricsProvider {
 impl LyricsProvider {
     pub fn key(self) -> &'static str {
         match self {
+            Self::Server => "server",
             Self::Netease => "netease",
             Self::Lrclib => "lrclib",
             Self::Genius => "genius",
@@ -38,6 +58,7 @@ impl LyricsProvider {
 
     pub fn label(self) -> &'static str {
         match self {
+            Self::Server => "Your Server",
             Self::Netease => "Netease",
             Self::Lrclib => "LRCLIB",
             Self::Genius => "Genius",
@@ -46,6 +67,7 @@ impl LyricsProvider {
 
     pub fn from_key(key: &str) -> Option<Self> {
         match key.trim().to_ascii_lowercase().as_str() {
+            "server" | "navidrome" | "opensubsonic" => Some(Self::Server),
             "netease" => Some(Self::Netease),
             "lrclib" | "lrc-lib" | "lrlib" => Some(Self::Lrclib),
             "genius" => Some(Self::Genius),
@@ -104,6 +126,16 @@ pub struct LyricsQuery {
     pub artist: String,
     pub album: String,
     pub duration_seconds: Option<u32>,
+    /// The song on its own server, for the server provider. `None` (manual
+    /// picks, prefetches without server context) skips that provider.
+    pub server_song: Option<ServerSong>,
+}
+
+/// A song id and the server it lives on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ServerSong {
+    pub server: ServerConfig,
+    pub song_id: String,
 }
 
 impl LyricsQuery {
@@ -113,14 +145,81 @@ impl LyricsQuery {
             artist: compact_whitespace(song.artist.as_deref().unwrap_or_default()),
             album: compact_whitespace(song.album.as_deref().unwrap_or_default()),
             duration_seconds: Some(song.duration).filter(|duration| *duration > 0),
+            server_song: None,
         }
     }
+
+    /// Like `from_song`, plus the song's server (when it is in `servers`) so
+    /// the server provider can ask it first.
+    pub fn from_song_on(song: &Song, servers: &[ServerConfig]) -> Self {
+        let mut query = Self::from_song(song);
+        query.server_song = ServerConfig::find(servers, &song.server_id)
+            .cloned()
+            // A local song's "server" is the device: its embedded lyrics.
+            .or_else(|| {
+                crate::local_music::is_local_song(song).then(crate::local_music::source_config)
+            })
+            .filter(|_| !song.id.trim().is_empty())
+            .map(|server| ServerSong {
+                server,
+                song_id: song.id.clone(),
+            });
+        query
+    }
+}
+
+/// One timed word (or syllable) of a synced line. `text` keeps its spacing,
+/// so a line's words joined back together give the line's text.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LyricWord {
+    pub start_seconds: f64,
+    /// When the source says; otherwise the next word's start ends it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub end_seconds: Option<f64>,
+    pub text: String,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct LyricLine {
     pub timestamp_seconds: f64,
     pub text: String,
+    /// Word timings (Enhanced LRC, OpenSubsonic cues). Empty for plain lines.
+    pub words: Vec<LyricWord>,
+}
+
+/// The longest a last word without an end time is held lit for, so a long
+/// gap after a line doesn't stretch its last word's fill across it.
+const LAST_WORD_MAX_SECONDS: f64 = 1.5;
+
+impl LyricLine {
+    /// `(start, end)` of each word. A word without an end runs until the next
+    /// word starts; the last one until `next_line` starts, at most
+    /// `LAST_WORD_MAX_SECONDS`.
+    pub fn word_bounds(&self, next_line: Option<f64>) -> Vec<(f64, f64)> {
+        let starts = self.words.iter().map(|word| word.start_seconds);
+        let next_starts = starts.skip(1).map(Some).chain(std::iter::once(None));
+        self.words
+            .iter()
+            .zip(next_starts)
+            .map(|(word, next_word)| {
+                let start = word.start_seconds;
+                let end = word.end_seconds.unwrap_or_else(|| match next_word {
+                    Some(next) => next,
+                    None => next_line
+                        .unwrap_or(f64::INFINITY)
+                        .min(start + LAST_WORD_MAX_SECONDS),
+                });
+                (start, end.max(start))
+            })
+            .collect()
+    }
+}
+
+impl LyricsResult {
+    /// Whether any synced line carries word timings (karaoke).
+    pub fn has_word_timing(&self) -> bool {
+        self.synced_lines.iter().any(|line| !line.words.is_empty())
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -134,6 +233,8 @@ pub struct LyricsResult {
 struct PersistentLyricLine {
     timestamp_seconds: f64,
     text: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    words: Vec<LyricWord>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -155,6 +256,7 @@ impl PersistentLyricsResult {
                 .map(|line| LyricLine {
                     timestamp_seconds: line.timestamp_seconds,
                     text: line.text.clone(),
+                    words: line.words.clone(),
                 })
                 .collect(),
         })
@@ -172,6 +274,7 @@ impl From<&LyricsResult> for PersistentLyricsResult {
                 .map(|line| PersistentLyricLine {
                     timestamp_seconds: line.timestamp_seconds,
                     text: line.text.clone(),
+                    words: line.words.clone(),
                 })
                 .collect(),
         }
@@ -203,15 +306,24 @@ pub async fn fetch_lyrics_with_fallback(
     let query_cache_key = lyrics_query_cache_key(query);
     // v2: results cached before the stricter Genius matching and header
     // stripping (2026-10) could be another song's lyrics or carry page junk.
-    let scoped_persistent_cache_key = format!("lyrics:v2:result:{scoped_cache_key}");
-    let query_persistent_cache_key = format!("lyrics:v2:result:{query_cache_key}");
-    let miss_cache_key = format!("lyrics:v2:miss:{scoped_cache_key}");
+    // v3: lines carry word timings (Enhanced LRC, server cues).
+    let scoped_persistent_cache_key = format!("lyrics:v3:result:{scoped_cache_key}");
+    let query_persistent_cache_key = format!("lyrics:v3:result:{query_cache_key}");
+    let miss_cache_key = format!("lyrics:v3:miss:{scoped_cache_key}");
+    // The per-song entry is shared by every lookup for the song, but only
+    // answers one whose providers include the one that found it (so an
+    // LRCLIB-only lookup never gets back a plain Genius or server result).
+    let wanted = |result: &LyricsResult| {
+        normalized_provider_order
+            .iter()
+            .any(|key| key == result.provider.key())
+    };
 
     if let Ok(cache) = LYRICS_SUCCESS_CACHE.lock() {
         if let Some(cached) = cache.get(&scoped_cache_key).cloned() {
             return Ok(cached);
         }
-        if let Some(cached) = cache.get(&query_cache_key).cloned() {
+        if let Some(cached) = cache.get(&query_cache_key).filter(|c| wanted(c)).cloned() {
             return Ok(cached);
         }
     }
@@ -227,7 +339,7 @@ pub async fn fetch_lyrics_with_fallback(
     }
 
     if let Some(cached) = cache_get_json::<PersistentLyricsResult>(&query_persistent_cache_key) {
-        if let Some(runtime) = cached.to_runtime() {
+        if let Some(runtime) = cached.to_runtime().filter(|r| wanted(r)) {
             if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
                 cache.insert(scoped_cache_key.clone(), runtime.clone());
                 cache.insert(query_cache_key.clone(), runtime.clone());
@@ -246,16 +358,34 @@ pub async fn fetch_lyrics_with_fallback(
         );
     }
 
-    let providers = normalized_provider_order
+    let mut providers = normalized_provider_order
         .iter()
         .filter_map(|key| LyricsProvider::from_key(key))
         .collect::<Vec<_>>();
 
+    // First the song's sync server, which asks the music server and LRCLIB
+    // once for everyone and caches the answer. "None found" there covers
+    // those two providers; anything else falls through to the chain.
     let mut errors = Vec::new();
     let mut saw_hard_error = false;
+    let mut sync_result = None;
+    if providers.iter().any(|p| matches!(p, LyricsProvider::Server | LyricsProvider::Lrclib)) {
+        match sync::fetch_from_sync(query, timeout_seconds).await {
+            sync::SyncLyrics::Found(result) if wanted(&result) => sync_result = Some(result),
+            sync::SyncLyrics::NotFound => {
+                providers.retain(|p| !matches!(p, LyricsProvider::Server | LyricsProvider::Lrclib));
+                errors.push("Your sync server found no lyrics".to_string());
+            }
+            _ => {}
+        }
+    }
 
     for provider in providers {
-        match fetch_from_provider(provider, query, timeout_seconds).await {
+        let fetched = match sync_result.take() {
+            Some(result) => Ok(Some(result)),
+            None => fetch_from_provider(provider, query, timeout_seconds).await,
+        };
+        match fetched {
             Ok(Some(result)) => {
                 if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
                     cache.insert(scoped_cache_key.clone(), result.clone());
@@ -386,6 +516,8 @@ async fn search_provider_candidates(
     timeout_seconds: u32,
 ) -> Result<Vec<(LyricsSearchCandidate, i32)>, String> {
     match provider {
+        // Server lyrics are looked up by song id; there is nothing to search.
+        LyricsProvider::Server => Ok(Vec::new()),
         LyricsProvider::Netease => search_netease_candidates(query, timeout_seconds).await,
         LyricsProvider::Lrclib => search_lrclib_candidates(query, timeout_seconds).await,
         LyricsProvider::Genius => search_genius_candidates(query, timeout_seconds).await,
@@ -398,6 +530,7 @@ async fn fetch_from_provider(
     timeout_seconds: u32,
 ) -> Result<Option<LyricsResult>, String> {
     match provider {
+        LyricsProvider::Server => fetch_from_server(query, timeout_seconds).await,
         LyricsProvider::Netease => fetch_from_netease(query, timeout_seconds).await,
         LyricsProvider::Lrclib => fetch_from_lrclib(query, timeout_seconds).await,
         LyricsProvider::Genius => fetch_from_genius(query, timeout_seconds).await,
@@ -489,6 +622,7 @@ async fn search_netease_candidates(
                 artist: artist.clone(),
                 album: album.clone(),
                 duration_seconds,
+                server_song: None,
             };
             let score = score_match(&title, &artist, duration_seconds, query);
             Some((
@@ -683,6 +817,7 @@ async fn search_lrclib_candidates(
 
     let search = LYRICS_HTTP_CLIENT
         .get("https://lrclib.net/api/search")
+        .headers(lrclib_headers())
         .query(&params)
         .timeout(request_timeout)
         .send()
@@ -717,6 +852,7 @@ async fn search_lrclib_candidates(
                 artist: artist.clone(),
                 album: album.clone(),
                 duration_seconds,
+                server_song: None,
             };
             let score = score_match(&title, &artist, duration_seconds, query);
             Some((
@@ -755,6 +891,7 @@ async fn fetch_from_lrclib(
     // Web: avoid `/api/get` which frequently returns 404 and spams console/network logs.
     let search = LYRICS_HTTP_CLIENT
         .get("https://lrclib.net/api/search")
+        .headers(lrclib_headers())
         .query(&search_params)
         .timeout(request_timeout)
         .send()
@@ -805,6 +942,7 @@ async fn fetch_from_lrclib(
 
     let direct = LYRICS_HTTP_CLIENT
         .get("https://lrclib.net/api/get")
+        .headers(lrclib_headers())
         .query(&direct_params)
         .timeout(request_timeout)
         .send()
@@ -828,6 +966,7 @@ async fn fetch_from_lrclib(
 
     let search = LYRICS_HTTP_CLIENT
         .get("https://lrclib.net/api/search")
+        .headers(lrclib_headers())
         .query(&search_params)
         .timeout(request_timeout)
         .send()
@@ -997,6 +1136,7 @@ async fn search_genius_candidates(
                 artist: artist.clone(),
                 album: String::new(),
                 duration_seconds: None,
+                server_song: None,
             };
             let score = score_match(&title, &artist, None, query);
             Some((
@@ -1132,6 +1272,20 @@ fn netease_headers() -> HeaderMap {
     headers
 }
 
+/// LRCLIB's requested etiquette: a User-Agent naming the app. Browsers
+/// forbid setting it, so the web build sends none.
+#[cfg(not(target_arch = "wasm32"))]
+fn lrclib_headers() -> HeaderMap {
+    let mut headers = HeaderMap::new();
+    headers.insert(USER_AGENT, HeaderValue::from_static(LRCLIB_USER_AGENT));
+    headers
+}
+
+#[cfg(target_arch = "wasm32")]
+fn lrclib_headers() -> reqwest::header::HeaderMap {
+    reqwest::header::HeaderMap::new()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn optional_browser_headers() -> HeaderMap {
     let mut headers = HeaderMap::new();
@@ -1232,10 +1386,34 @@ fn parse_lrc_lines(raw_lrc: &str) -> Vec<LyricLine> {
             continue;
         }
 
+        // Enhanced LRC: `<mm:ss.xx>` before each word. A line without a valid
+        // word tag keeps its text exactly as plain LRC always did.
+        let (text, words) = match parse_enhanced_lrc_words(text, timestamps[0]) {
+            Some(words) => (
+                words.iter().map(|word| word.text.as_str()).collect::<String>(),
+                words,
+            ),
+            None => (text.to_string(), Vec::new()),
+        };
+        if text.is_empty() {
+            continue;
+        }
+
+        let first = timestamps[0];
         for timestamp in timestamps {
+            // A line repeated under several stamps repeats its word timing.
+            let shift = timestamp - first;
             lines.push(LyricLine {
                 timestamp_seconds: timestamp,
-                text: text.to_string(),
+                text: text.clone(),
+                words: words
+                    .iter()
+                    .map(|word| LyricWord {
+                        start_seconds: word.start_seconds + shift,
+                        end_seconds: word.end_seconds.map(|end| end + shift),
+                        text: word.text.clone(),
+                    })
+                    .collect(),
             });
         }
     }
@@ -1247,6 +1425,84 @@ fn parse_lrc_lines(raw_lrc: &str) -> Vec<LyricLine> {
     });
 
     lines
+}
+
+/// The words of an Enhanced LRC (A2) line body, e.g.
+/// `<00:12.00>Hello <00:12.50>world<00:13.10>`. Text before the first tag
+/// starts with the line; an empty word (a tag at the end, or two tags in a
+/// row) only ends the word before it. `None` when the body has no valid tag.
+fn parse_enhanced_lrc_words(body: &str, line_start: f64) -> Option<Vec<LyricWord>> {
+    let mut raw = Vec::<(f64, String)>::new();
+    let mut current = (line_start, String::new());
+    let mut tagged = false;
+    let mut rest = body;
+
+    while let Some(open) = rest.find('<') {
+        let after = &rest[open + 1..];
+        let stamp = after
+            .find('>')
+            .and_then(|close| parse_lrc_timestamp(&after[..close]).map(|value| (close, value)));
+        match stamp {
+            Some((close, value)) => {
+                current.1.push_str(&rest[..open]);
+                raw.push(std::mem::replace(&mut current, (value, String::new())));
+                tagged = true;
+                rest = &after[close + 1..];
+            }
+            None => {
+                // Not a timestamp: a literal '<'.
+                current.1.push_str(&rest[..open + 1]);
+                rest = after;
+            }
+        }
+    }
+    current.1.push_str(rest);
+    raw.push(current);
+
+    if !tagged {
+        return None;
+    }
+
+    let mut words = Vec::<LyricWord>::new();
+    for (start, text) in raw {
+        if text.is_empty() {
+            if let Some(last) = words.last_mut() {
+                last.end_seconds.get_or_insert(start);
+            }
+            continue;
+        }
+        words.push(LyricWord {
+            start_seconds: start,
+            end_seconds: None,
+            text,
+        });
+    }
+    Some(tidy_words(words))
+}
+
+/// Shapes word segments for display: whitespace-only segments join the word
+/// before them, the line's outer spaces go, empty words drop. The words then
+/// join back into the trimmed line text.
+pub(crate) fn tidy_words(words: Vec<LyricWord>) -> Vec<LyricWord> {
+    let mut tidy = Vec::<LyricWord>::with_capacity(words.len());
+    for word in words {
+        if word.text.trim().is_empty() {
+            match tidy.last_mut() {
+                Some(last) => last.text.push_str(&word.text),
+                None => continue,
+            }
+        } else {
+            tidy.push(word);
+        }
+    }
+    if let Some(first) = tidy.first_mut() {
+        first.text = first.text.trim_start().to_string();
+    }
+    if let Some(last) = tidy.last_mut() {
+        last.text = last.text.trim_end().to_string();
+    }
+    tidy.retain(|word| !word.text.is_empty());
+    tidy
 }
 
 fn parse_lrc_timestamp(token: &str) -> Option<f64> {
@@ -1727,6 +1983,7 @@ mod genius_tests {
             artist: artist.to_string(),
             album: String::new(),
             duration_seconds: None,
+            server_song: None,
         }
     }
 

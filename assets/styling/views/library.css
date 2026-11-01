@@ -3,6 +3,19 @@
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-library- to keep them out of the kit namespace. */
 
+/* One line, ending in an ellipsis: base.css's .rs-truncate, for markup that
+   carries only its view class. */
+.rs-library-tile__title,
+.rs-library-tile__artist,
+.rs-personal-tile__title,
+.rs-personal-tile__sub,
+.rs-library-names__link {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ---- Page head tools: sort/filter menu button, view toggle ------------- */
 
 .rs-library-head-tools {
@@ -49,7 +62,7 @@
 
 .rs-library-status,
 .rs-library-note {
-  margin: 0 4px var(--sp-5);
+  margin: 0 var(--sp-2) var(--sp-5);
   font-size: var(--fs-sub);
   line-height: var(--lh-sub);
   color: var(--muted);
@@ -63,25 +76,32 @@
 }
 
 /* ---- Cover grid ------------------------------------------------------- */
+/* One tile look for every cover grid: the Library's albums, and Favorites'
+   albums and artists (.rs-personal-covers / .rs-personal-tile). personal.css
+   only adds what Favorites does differently: round artist tiles, and no text
+   selection under the long press that opens a tile's menu. */
 
-.rs-library-covers {
+.rs-library-covers,
+.rs-personal-covers {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--sp-7) var(--sp-6);
 }
 
-.rs-app[data-layout="wide"] .rs-library-covers {
+.rs-app[data-layout="wide"] .rs-library-covers,
+.rs-app[data-layout="wide"] .rs-personal-covers {
   grid-template-columns: repeat(auto-fill, minmax(164px, 1fr));
   gap: var(--sp-8) var(--sp-7);
 }
 
+/* AlbumGrid mounts only the rows near the viewport (VirtualList); each row
+   is one line of the grid, its height (gap included) set by the view. */
+.rs-library-covers__row {
+  align-items: start;
+}
+
 .rs-library-covers__cell {
   min-width: 0;
-  /* A paged grid grows to thousands of tiles. Tiles far off screen skip
-     style, layout and paint until they come near; the remembered height
-     keeps the scroll length steady. */
-  content-visibility: auto;
-  contain-intrinsic-block-size: auto 240px;
 }
 
 /* Placeholder tiles while the next page loads: still, no shimmer. */
@@ -89,7 +109,8 @@
   animation: none;
 }
 
-.rs-library-tile {
+.rs-library-tile,
+.rs-personal-tile {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -99,7 +120,8 @@
   cursor: pointer;
 }
 
-.rs-library-tile__art {
+.rs-library-tile__art,
+.rs-personal-tile__art {
   position: relative;
   aspect-ratio: 1;
   width: 100%;
@@ -109,32 +131,44 @@
   transition: transform var(--dur-fast) var(--ease-out);
 }
 
-.rs-library-tile__art .rs-art {
+.rs-library-tile__art .rs-art,
+.rs-personal-tile__art .rs-art {
   border-radius: var(--r-art);
 }
 
 @media (hover: hover) {
-  .rs-library-tile:hover .rs-library-tile__art { transform: translateY(-2px); }
+  .rs-library-tile:hover .rs-library-tile__art,
+  .rs-personal-tile:hover .rs-personal-tile__art { transform: translateY(-2px); }
 }
 
-.rs-library-tile:active .rs-library-tile__art { transform: scale(.98); }
+.rs-library-tile:active .rs-library-tile__art,
+.rs-personal-tile:active .rs-personal-tile__art { transform: scale(.98); }
 
-.rs-library-tile:focus-visible {
+.rs-library-tile:focus-visible,
+.rs-personal-tile:focus-visible {
   outline: none;
 }
 
-.rs-library-tile:focus-visible .rs-library-tile__art {
+.rs-library-tile:focus-visible .rs-library-tile__art,
+.rs-personal-tile:focus-visible .rs-personal-tile__art {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
-.rs-library-tile__title {
+.rs-library-tile__title,
+.rs-personal-tile__title {
   margin-top: var(--sp-4);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-callout);
   font-weight: var(--fw-medium);
+}
+
+/* The Library's second line is a row of parts (artist, year, source); the
+   Favorites one is a single line of text. */
+.rs-library-tile__sub,
+.rs-personal-tile__sub {
+  margin-top: 1px;
+  font-size: var(--fs-sub);
+  color: var(--muted);
 }
 
 .rs-library-tile__sub {
@@ -142,22 +176,24 @@
   align-items: baseline;
   gap: var(--sp-3);
   min-width: 0;
-  margin-top: 1px;
-  font-size: var(--fs-sub);
-  color: var(--muted);
-}
-
-.rs-library-tile__artist {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .rs-library-tile__year {
   flex: none;
   margin-left: auto;
   font-variant-numeric: tabular-nums;
+}
+
+/* "On This Device" mark at the end of a tile's second line. */
+.rs-library-tile__src {
+  flex: none;
+  display: inline-flex;
+  margin-left: auto;
+  color: var(--muted);
+}
+
+.rs-library-tile__year + .rs-library-tile__src {
+  margin-left: var(--sp-3);
 }
 
 .rs-library-tile__skel {
@@ -173,7 +209,7 @@
   grid-auto-columns: calc((100% - 2 * var(--sp-6)) / 2.4);
   gap: var(--sp-6);
   margin: 0 calc(-1 * var(--gutter));
-  padding: 2px var(--gutter) var(--sp-4);
+  padding: var(--sp-1) var(--gutter) var(--sp-4);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   scroll-padding-inline: var(--gutter);
@@ -185,7 +221,7 @@
 .rs-app[data-layout="wide"] .rs-library-shelf {
   grid-auto-columns: 164px;
   margin: 0;
-  padding: 2px 0 var(--sp-4);
+  padding: var(--sp-1) 0 var(--sp-4);
   scrollbar-width: thin;
 }
 
@@ -218,21 +254,21 @@
 
 .rs-library-foot--error {
   justify-content: space-between;
-  padding: 0 4px;
+  padding: 0 var(--sp-2);
 }
 
 /* ---- Albums: Cover Flow view ----------------------------------------- */
 
 .rs-library-flowstage {
   margin: 0 calc(-1 * var(--view-pad)) var(--sp-6);
-  padding: 32px 0 24px;
+  padding: var(--sp-9) 0 var(--sp-8);
   border-radius: 0;
 }
 
 /* ---- Detail pages: the stage band ------------------------------------ */
 
 .rs-library-detail {
-  padding-bottom: 32px;
+  padding-bottom: var(--sp-9);
 }
 
 .rs-library-hero {
@@ -248,13 +284,13 @@
   align-items: center;
   justify-content: space-between;
   height: 44px;
-  padding: 0 6px 0 4px;
+  padding: 0 var(--sp-3) 0 var(--sp-2);
 }
 
 /* Wide: the stage band spans the window; its content lines up with the
    centred column below (--view-pad, see .rs-view). */
 .rs-app[data-layout="wide"] .rs-library-hero__nav {
-  padding: 0 calc(var(--view-pad) - 12px);
+  padding: 0 calc(var(--view-pad) - var(--sp-5));
 }
 
 .rs-library-back {
@@ -262,7 +298,7 @@
   align-items: center;
   gap: 1px;
   height: 44px;
-  padding: 0 8px 0 2px;
+  padding: 0 var(--sp-4) 0 var(--sp-1);
   color: var(--accent);
   font-size: var(--fs-title);
   cursor: pointer;
@@ -297,7 +333,8 @@
   width: 124px;
   height: 124px;
   flex: none;
-  -webkit-box-reflect: below 3px linear-gradient(transparent 62%, rgba(255, 255, 255, .22));
+  /* The kit Cover Flow's reflection (.rs-cover); one recipe app-wide. */
+  -webkit-box-reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
 }
 
 .rs-app[data-layout="wide"] .rs-library-hero__art {
@@ -318,7 +355,7 @@
 .rs-library-hero__text {
   flex: 1;
   min-width: 0;
-  padding-top: 6px;
+  padding-top: var(--sp-3);
 }
 
 .rs-library-hero__title {
@@ -344,14 +381,14 @@
 
 /* A small line above the title (a mix's "Made by RustySound"). */
 .rs-library-hero__eyebrow {
-  margin-bottom: 4px;
+  margin-bottom: var(--sp-2);
   font-size: var(--fs-sub);
   line-height: 20px;
   color: var(--stage-muted);
 }
 
 .rs-library-hero__sub {
-  margin-top: 2px;
+  margin-top: var(--sp-1);
   font-size: var(--fs-title);
   line-height: var(--lh-title);
   color: var(--accent);
@@ -407,6 +444,43 @@
   height: 12px;
 }
 
+/* ---- Detail pages: Cover Flow of the songs (playlist and mix pages) ---
+   The band drops its single artwork: the title block on top, the flow of
+   song covers below it, the caption naming the centred song. */
+
+.rs-library-hero--flow {
+  padding-bottom: var(--sp-7);
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero--flow {
+  padding-bottom: var(--sp-8);
+}
+
+.rs-library-hero__body--flow {
+  padding-top: var(--sp-2);
+}
+
+.rs-library-hero__body--flow .rs-library-hero__text {
+  padding-top: 0;
+}
+
+.rs-library-hero__body--flow .rs-library-hero__meta {
+  margin-top: var(--sp-2);
+}
+
+.rs-library-hero__body--flow .rs-library-hero__note {
+  margin-top: var(--sp-3);
+  -webkit-line-clamp: 2;
+}
+
+.rs-library-hero__flow {
+  /* The flow's own reflection needs a little room under the covers. */
+  margin-top: var(--sp-2);
+}
+
+/* The song flow's loading placeholder shares Home's (.rs-home__flow-skel,
+   discover.css). */
+
 /* Artist links (ArtistNameLinks' default classes, used app-wide). */
 .rs-library-names {
   display: inline-flex;
@@ -418,10 +492,6 @@
 }
 
 .rs-library-names__link {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -449,25 +519,12 @@
   padding: 0 var(--view-pad);
 }
 
-.rs-library-actions {
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  margin: var(--sp-6) 0;
-}
-
-.rs-app[data-layout="wide"] .rs-library-actions .rs-btn--block {
-  flex: 0 0 168px;
-  width: auto;
-}
-
-/* Download: a square tinted button beside Play and Shuffle (style A). */
 /* Similar artists: round thumbs in a row. */
 .rs-library-bubbles {
   display: flex;
   gap: var(--sp-6);
   margin: 0 calc(-1 * var(--gutter));
-  padding: 2px var(--gutter) var(--sp-4);
+  padding: var(--sp-1) var(--gutter) var(--sp-4);
   overflow-x: auto;
   scrollbar-width: none;
 }
@@ -477,7 +534,7 @@
 .rs-app[data-layout="wide"] .rs-library-bubbles {
   flex-wrap: wrap;
   margin: 0;
-  padding: 2px 0 var(--sp-4);
+  padding: var(--sp-1) 0 var(--sp-4);
 }
 
 .rs-library-bubble {
@@ -515,14 +572,14 @@
 }
 
 .rs-library-artists .rs-art {
-  margin-right: 4px;
+  margin-right: var(--sp-2);
 }
 
 .rs-library-letter {
   height: 56px;
   display: flex;
   align-items: flex-end;
-  padding: 0 16px 6px;
+  padding: 0 var(--sp-6) var(--sp-3);
   background: color-mix(in srgb, var(--page) 55%, var(--surface));
 }
 
@@ -544,7 +601,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: 4px 2px;
+  padding: var(--sp-2) var(--sp-1);
   touch-action: none;
   -webkit-user-select: none;
   user-select: none;
@@ -563,7 +620,7 @@
 }
 
 .rs-library-artists-view {
-  padding-right: calc(var(--gutter) + 8px);
+  padding-right: calc(var(--gutter) + var(--sp-4));
 }
 
 .rs-app[data-layout="wide"] .rs-library-artists-view {
@@ -577,65 +634,25 @@
 
 /* ---- Playlists list -------------------------------------------------- */
 
-.rs-library-prow {
-  height: 58px;
-  min-height: 58px;
-  padding: 0 4px 0 0;
-  gap: 0;
+/* Kit rows, exactly the windowed list's row height (58px, 62px wide). */
+.rs-library-playlists .rs-row {
+  height: var(--row-h);
 }
 
-.rs-app[data-layout="wide"] .rs-library-prow {
-  height: 62px;
-  min-height: 62px;
-  padding: 0 6px 0 0;
-}
-
-.rs-library-prow__open {
-  flex: 1;
-  min-width: 0;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  gap: var(--sp-5);
-  padding: 0 4px 0 12px;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-}
-
-.rs-library-prow:has(.rs-library-prow__open:hover) {
-  background: var(--tint);
-}
-
-.rs-library-prow__open:active {
-  background: var(--tint-strong);
+.rs-app[data-layout="wide"] .rs-library-playlists .rs-row {
+  height: var(--row-h-wide);
 }
 
 /* ---- Track lists ----------------------------------------------------- */
 
-.rs-library-songlist .rs-trow,
-.rs-library-editrow {
+.rs-library-songlist .rs-trow {
   height: var(--row-h);
-}
-
-.rs-library-editrow {
-  cursor: default;
-  padding-right: 6px;
-  gap: var(--sp-3);
-}
-
-.rs-library-editrow .rs-trow__meta {
-  margin-right: var(--sp-3);
-}
-
-.rs-library-editrow__remove {
-  color: var(--danger);
 }
 
 /* Candidate rows in the Add Songs sheet. */
 .rs-library-cand {
   gap: var(--sp-4);
-  padding-right: 8px;
+  padding-right: var(--sp-4);
 }
 
 .rs-library-cand .rs-btn--plain {
@@ -683,8 +700,41 @@
 
 /* Reduced motion: no lift on tiles. */
 @media (prefers-reduced-motion: reduce) {
-  .rs-library-tile__art { transition: none; }
+  .rs-library-tile__art,
+  .rs-personal-tile__art { transition: none; }
   .rs-library-tile:hover .rs-library-tile__art,
-  .rs-library-tile:active .rs-library-tile__art { transform: none; }
+  .rs-library-tile:active .rs-library-tile__art,
+  .rs-personal-tile:hover .rs-personal-tile__art,
+  .rs-personal-tile:active .rs-personal-tile__art { transform: none; }
 }
 
+
+/* The quiet "Updated 2 min ago" line under the playlist's actions. */
+.rs-library-sync {
+  margin: calc(-1 * var(--sp-3)) 4px var(--sp-4);
+}
+
+/* ---- Sidebar playlists (wide): drop targets for carried songs --------- */
+
+.rs-library-sidelists .rs-side__head {
+  gap: var(--sp-2);
+}
+
+.rs-library-sidelists__chev {
+  width: 12px;
+  height: 12px;
+}
+
+.rs-library-sidelists__name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-library-sidelists__more {
+  height: 26px;
+  padding-left: 37px;
+  color: var(--muted);
+  font-size: var(--fs-foot);
+}

@@ -11,23 +11,26 @@ mod results;
 mod scoring;
 
 
-use crate::api::{NavidromeClient, SearchResult, ServerConfig};
-use crate::components::ui::env::sleep_ms;
+use crate::api::{MusicClient, SearchResult, ServerConfig};
 use crate::components::ui::{
     use_layout, EmptyState, IconButton, IconButtonSize, InsetList, ListInset, ListRow,
     SectionHeader, Skeleton,
 };
-use crate::components::Icon;
+use crate::components::views::library::shared::{active_servers, has_sources};
+use crate::components::{use_servers, Icon};
+use crate::time::sleep_ms;
 use browse::BrowseGenres;
 use dioxus::prelude::*;
 use results::Results;
-use scoring::{dedupe_search_results, filter_and_score_results, normalize_text, tokenize, top_hit};
+use scoring::{dedupe_search_results, filter_and_score_results, normalize_text, top_hit};
+pub(crate) use scoring::tokenize;
 
 const DEBOUNCE_MS: u64 = 220;
 
-/// Searches every active server with the full query plus each significant
+/// Searches every active server and the device's music with the full query plus each significant
 /// token (3+ characters), so "all falls down kanye" finds title + artist.
-async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResult {
+/// The command palette searches the library through this too.
+pub(crate) async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResult {
     let mut combined = SearchResult::default();
     let tokens = tokenize(&query);
     let mut queries: Vec<String> = vec![query.clone()];
@@ -37,22 +40,24 @@ async fn search_servers(servers: Vec<ServerConfig>, query: String) -> SearchResu
         }
     }
     queries.dedup();
-    for server in servers {
-        let client = NavidromeClient::new(server);
-        for q in &queries {
-            if let Ok(result) = client.search(q, 24, 48, 96).await {
-                combined.artists.extend(result.artists);
-                combined.albums.extend(result.albums);
-                combined.songs.extend(result.songs);
-            }
-        }
+    // Every source and query at once; answers merge in source order.
+    let clients = MusicClient::sources(&servers);
+    let calls = clients
+        .iter()
+        .flat_map(|client| queries.iter().map(move |q| client.search(q, 24, 48, 96)));
+    for result in futures_util::future::join_all(calls).await.into_iter().flatten() {
+        combined.artists.extend(result.artists);
+        combined.albums.extend(result.albums);
+        combined.songs.extend(result.songs);
     }
-    filter_and_score_results(dedupe_search_results(combined), &query)
+    let mut combined = dedupe_search_results(combined);
+    crate::local_music::dedupe_search(&mut combined);
+    filter_and_score_results(combined, &query)
 }
 
 #[component]
 pub fn SearchView() -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
+    let servers = use_servers();
     let layout = use_layout();
     let wide = !layout.is_compact();
 
@@ -95,7 +100,7 @@ pub fn SearchView() -> Element {
         if text.is_empty() {
             return;
         }
-        let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+        let active = active_servers(&servers());
         let ticket = *generation.peek();
         searching.set(true);
         spawn(async move {
@@ -178,7 +183,7 @@ pub fn SearchView() -> Element {
         }
     };
 
-    let no_servers = !servers.read().iter().any(|s| s.active);
+    let no_servers = !has_sources(&servers.read());
 
     rsx! {
         div { class: "rs-view rs-search", "data-testid": "search",
@@ -200,7 +205,7 @@ pub fn SearchView() -> Element {
                         placeholder: "Artists, albums, songs",
                         value: "{text}",
                         onmounted: move |evt| async move {
-                            // Wide: arriving at Search (sidebar, ⌘L) puts the caret in the field.
+                            // Wide: arriving at Search (sidebar, ⌘F) puts the caret in the field.
                             if wide {
                                 let _ = evt.set_focus(true).await;
                             }
@@ -227,6 +232,10 @@ pub fn SearchView() -> Element {
                 }
             }
             div { class: "rs-search-body", aria_busy: if busy { "true" } else { "false" },
+                // No ⌘K on a phone: the palette's actions answer here too.
+                if typed && !wide {
+                    crate::components::command_palette::SearchActions { query: text.clone() }
+                }
                 if no_servers {
                     EmptyState {
                         icon: "server".to_string(),

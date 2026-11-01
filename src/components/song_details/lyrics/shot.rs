@@ -3,13 +3,13 @@
 
 use super::shot_card::{CustomizePanel, ShotCard, ThemePicker};
 use super::shot_share::{
-    lyrics_share_delay_ms, screenshot_bar_label, screenshot_lyrics_bars,
+    screenshot_bar_label, screenshot_lyrics_bars,
     screenshot_share_file_name, screenshot_share_intent_key, screenshot_share_status_message,
     share_screenshot_lyrics_image, ScreenshotShareIntent, ScreenshotShotTheme,
     ScreenshotTextPalette,
 };
 use crate::api::{LyricsResult, ServerConfig, Song};
-use crate::components::ui::env::cover_art_url;
+use crate::components::ui::env::{cover_art_url, sleep_ms};
 use crate::components::ui::{IconButton, IconButtonSize, Button, ButtonVariant};
 use crate::components::AudioState;
 use crate::db::AppSettings;
@@ -47,13 +47,11 @@ pub(super) fn theme_setting(theme: ScreenshotShotTheme) -> &'static str {
 }
 
 /// Sets the shot background and remembers it as the default.
-pub(super) fn choose_theme(style: ShotStyle, mut settings: Signal<AppSettings>, theme: ScreenshotShotTheme) {
+pub(super) fn choose_theme(style: ShotStyle, settings: Signal<AppSettings>, theme: ScreenshotShotTheme) {
     let mut theme_signal = style.theme;
     theme_signal.set(theme);
-    settings.with_mut(|s| s.lyrics_default_theme = theme_setting(theme).to_string());
-    let snapshot = settings.peek().clone();
-    spawn(async move {
-        let _ = crate::db::save_settings(snapshot).await;
+    crate::components::update_settings(settings, |s| {
+        s.lyrics_default_theme = theme_setting(theme).to_string();
     });
 }
 
@@ -177,7 +175,7 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
                 .await;
                 pending.set(false);
                 feedback.set(Some(screenshot_share_status_message(&status, intent)));
-                lyrics_share_delay_ms(2600).await;
+                sleep_ms(2600).await;
                 if *feedback_generation.peek() == generation {
                     feedback.set(None);
                 }

@@ -25,7 +25,10 @@ A music player for your Navidrome or Subsonic server. Mac, iPhone, Windows, Linu
 | **Windows** | [Download installer](https://github.com/AD-Archer/RustySound/releases/latest) | Scoop, below |
 | **Linux** | | Flatpak, below |
 | **Android** | [Download .apk](https://github.com/AD-Archer/RustySound/releases/latest/download/app-debug.apk) | |
+| **Android TV** | [Download TV .apk](https://github.com/AD-Archer/RustySound/releases/latest/download/RustySound-TV.apk) | |
 | **Your own server** | | Docker, below |
+
+**Android TV:** the TV app works on every Android TV, including 32-bit sets the phone app can't run on. It opens RustySound's web app full screen, with remote-control (D-pad) navigation and a TV home. To use your own hosted copy of the web app, see [android/tv-wrapper](android/tv-wrapper/README.md).
 
 **Mac**
 

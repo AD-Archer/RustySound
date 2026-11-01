@@ -37,12 +37,21 @@ async function startPlayback(page: Page, m: MockFixtures) {
 
 const SCREENS: Screen[] = [
   { name: "First run", path: () => "/", ready: "first-run", noServer: true },
+  {
+    name: "Sign in",
+    path: () => "/",
+    ready: "server-form",
+    noServer: true,
+    open: async (page) => {
+      await tid(page, "first-run-add").click();
+    },
+  },
   { name: "Home", path: () => "/", ready: "shelf-playlists" },
   { name: "Library", path: () => "/library", ready: "library" },
   {
     name: "Search",
     path: () => "/search",
-    ready: "artist-card",
+    ready: "artist-tile",
     open: async (page) => {
       await tid(page, "search-input").fill("Paper Comets");
     },
@@ -58,6 +67,14 @@ const SCREENS: Screen[] = [
   { name: "Bookmarks", path: () => "/bookmarks", ready: "bookmark-row" },
   { name: "Stats", path: () => "/stats", ready: "stats-counts" },
   { name: "Settings", path: () => "/settings", ready: "settings" },
+  {
+    name: "Wrapped",
+    path: () => "/settings",
+    ready: "wrapped-card-minutes",
+    open: async (page) => {
+      await tid(page, "settings-wrapped").click();
+    },
+  },
   { name: "Album", path: (m) => `/album/${m.album.id}/${MOCK_SERVER_ID}`, ready: "track-row" },
   { name: "Artist", path: (m) => `/artist/${m.artist.id}/${MOCK_SERVER_ID}`, ready: "artist-detail" },
   { name: "Playlist", path: (m) => `/playlist/${m.playlist.id}/${MOCK_SERVER_ID}`, ready: "track-row" },

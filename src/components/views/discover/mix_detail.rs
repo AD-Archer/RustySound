@@ -9,19 +9,21 @@
 //! after a restart or on a deep link, and rebuilds an artist radio from the
 //! ids in its slug. A mix it can't find shows a calm empty state.
 
-use super::mixes::{count_label, mix_covers, MixArt, RsMark};
+use super::mixes::{count_label, mix_covers, mix_source, MixArt, RsMark};
 use super::saved::save_and_remember;
 use crate::api::discovery::{load_mix, mix_id_from_slug, Mix, MixLookup};
-use crate::api::{QueueSourceKind, Song};
+use crate::api::Song;
 use crate::components::ui::{
-    Button, ButtonVariant, EmptyState, Menu, MenuGap, MenuItem, TrackRow, VirtualList,
+    use_layout, Button, ButtonVariant, CollectionActions, EmptyState, Menu, MenuGap, MenuItem,
+    RowGestureList, RowSwipe, Skeleton, TrackRow, VirtualList,
 };
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
 use crate::components::views::library::shared::{
-    song_key, songs_summary, use_downloaded_keys, use_now_playing, use_player, use_servers,
-    use_song_patches, ListSkeleton,
+    use_downloaded_keys, use_now_playing, use_song_patches,
 };
-use crate::components::{AppView, Navigation};
+use crate::components::views::library::song_flow::{use_song_runs, wants_flow, SongFlow};
+use crate::components::{use_player, use_servers, AppView, Navigation, QueuePosition};
+use crate::format::songs_summary;
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -38,6 +40,8 @@ pub fn MixDetailView(mix_id: String) -> Element {
     use_song_patches(songs);
     let downloaded = use_downloaded_keys(songs);
     let (playing_key, live) = use_now_playing();
+    let runs = use_song_runs(songs);
+    let wide = !use_layout().is_compact();
 
     let data = use_resource(use_reactive!(|(mix_id)| {
         let servers = servers();
@@ -58,7 +62,7 @@ pub fn MixDetailView(mix_id: String) -> Element {
             return rsx! {
                 div { class: "rs-view rs-view--flush rs-library-detail", "data-testid": "mix-loading",
                     DetailHeroSkeleton { back_label: "Home".to_string(), fallback: AppView::HomeView {} }
-                    div { class: "rs-library-page", ListSkeleton { rows: 10 } }
+                    div { class: "rs-library-page", Skeleton { rows: 10 } }
                 }
             };
         }
@@ -96,8 +100,9 @@ pub fn MixDetailView(mix_id: String) -> Element {
     } else {
         format!("{} · {}", count_label(&mix), mix.freshness)
     };
-    let source = Some((QueueSourceKind::RandomMix, format!("discover:{}", mix.id)));
+    let source = mix_source(&mix);
     let row_h = 58.0;
+    let show_flow = wants_flow(&runs.read(), count > 0, mix.songs.len());
 
     let play_from = {
         let source = source.clone();
@@ -166,34 +171,36 @@ pub fn MixDetailView(mix_id: String) -> Element {
                     let p = evt.client_coordinates();
                     menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                 },
+                flow: show_flow.then(|| rsx! {
+                    SongFlow {
+                        songs,
+                        runs,
+                        list_testid: "mix-tracks".to_string(),
+                        wide,
+                        label: format!("Songs in {}", mix.name),
+                        on_play: {
+                            let mut play_from = play_from.clone();
+                            move |index: usize| play_from(index)
+                        },
+                    }
+                }),
             }
 
             div { class: "rs-library-page",
-                div { class: "rs-library-actions",
-                    Button {
-                        label: "Play".to_string(),
-                        icon: "play".to_string(),
-                        block: true,
-                        disabled: count == 0,
-                        testid: "mix-play".to_string(),
-                        onclick: {
-                            let mut play_from = play_from.clone();
-                            move |_| play_from(0)
-                        },
-                    }
-                    Button {
-                        label: "Shuffle".to_string(),
-                        icon: "shuffle".to_string(),
-                        variant: ButtonVariant::Tinted,
-                        block: true,
-                        disabled: count == 0,
-                        testid: "mix-shuffle".to_string(),
-                        onclick: shuffle_all,
-                    }
+                CollectionActions {
+                    testid: "mix".to_string(),
+                    disabled: count == 0,
+                    on_play: {
+                        let mut play_from = play_from.clone();
+                        move |_| play_from(0)
+                    },
+                    on_shuffle: shuffle_all,
                 }
                 if let Some(text) = status() {
                     p { class: "rs-library-status", role: "status", "data-testid": "mix-status", "{text}" }
                 }
+                // Swipe a song for Play Next / Add to….
+                RowGestureList { id: "mix-tracks", swipe: RowSwipe::Browse,
                 VirtualList {
                     item_count: count,
                     row_height: row_h,
@@ -203,7 +210,7 @@ pub fn MixDetailView(mix_id: String) -> Element {
                         let Some(song) = songs.read().get(index).cloned() else {
                             return rsx! { li {} };
                         };
-                        let key = song_key(&song);
+                        let key = song.key();
                         let playing = playing_now.as_deref() == Some(key.as_str());
                         rsx! {
                             TrackRow {
@@ -220,6 +227,7 @@ pub fn MixDetailView(mix_id: String) -> Element {
                             }
                         }
                     },
+                }
                 }
                 p { class: "rs-list-foot", "data-testid": "mix-foot",
                     "{songs_summary(count, total_secs)}. Made by RustySound from your listening; a new mix each day. Save as Playlist keeps a copy on your server."
@@ -240,7 +248,7 @@ pub fn MixDetailView(mix_id: String) -> Element {
                         testid: "mix-page-menu-next".to_string(),
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), true);
+                            player.enqueue(songs.peek().clone(), QueuePosition::Next);
                         },
                     }
                     MenuItem {
@@ -250,7 +258,7 @@ pub fn MixDetailView(mix_id: String) -> Element {
                         testid: "mix-page-menu-queue".to_string(),
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(songs.peek().clone(), false);
+                            player.enqueue(songs.peek().clone(), QueuePosition::End);
                             status.set(Some(format!("Added {count} songs to the queue.")));
                         },
                     }

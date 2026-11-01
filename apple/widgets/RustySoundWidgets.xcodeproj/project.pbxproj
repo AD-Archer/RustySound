@@ -1,0 +1,282 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		0B00000000000000000000B1 /* NowPlayingWidget.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A1 /* NowPlayingWidget.swift */; };
+		0B00000000000000000000B2 /* NowPlayingViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A2 /* NowPlayingViews.swift */; };
+		0B00000000000000000000B3 /* NowPlayingSnapshot.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A3 /* NowPlayingSnapshot.swift */; };
+		0B00000000000000000000B4 /* PlaybackIntents.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A4 /* PlaybackIntents.swift */; };
+		0B00000000000000000000B5 /* SharedContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A8 /* SharedContainer.swift */; };
+		0B00000000000000000000B6 /* WidgetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A6 /* WidgetBridge.swift */; };
+		0B00000000000000000000B7 /* SharedContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A00000000000000000000A8 /* SharedContainer.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		0A00000000000000000000A1 /* NowPlayingWidget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingWidget.swift; sourceTree = "<group>"; };
+		0A00000000000000000000A2 /* NowPlayingViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingViews.swift; sourceTree = "<group>"; };
+		0A00000000000000000000A3 /* NowPlayingSnapshot.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NowPlayingSnapshot.swift; sourceTree = "<group>"; };
+		0A00000000000000000000A4 /* PlaybackIntents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackIntents.swift; sourceTree = "<group>"; };
+		0A00000000000000000000A5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A00000000000000000000A6 /* WidgetBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WidgetBridge.swift; sourceTree = "<group>"; };
+		0A00000000000000000000A7 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		0A00000000000000000000A8 /* SharedContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SharedContainer.swift; sourceTree = "<group>"; };
+		0A00000000000000000000A9 /* RustySoundWidgets.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = RustySoundWidgets.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0A00000000000000000000AA /* RustySoundWidgetBridge.framework */ = {isa = PBXFileReference; explicitFileType = wrapper.framework; includeInIndex = 0; path = RustySoundWidgetBridge.framework; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		0C00000000000000000000C0 = {
+			isa = PBXGroup;
+			children = (
+				0C00000000000000000000C1 /* Widgets */,
+				0C00000000000000000000C2 /* Bridge */,
+				0C00000000000000000000C3 /* Shared */,
+				0C00000000000000000000C4 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0C00000000000000000000C1 /* Widgets */ = {
+			isa = PBXGroup;
+			children = (
+				0A00000000000000000000A1 /* NowPlayingWidget.swift */,
+				0A00000000000000000000A2 /* NowPlayingViews.swift */,
+				0A00000000000000000000A3 /* NowPlayingSnapshot.swift */,
+				0A00000000000000000000A4 /* PlaybackIntents.swift */,
+				0A00000000000000000000A5 /* Info.plist */,
+			);
+			path = Widgets;
+			sourceTree = "<group>";
+		};
+		0C00000000000000000000C2 /* Bridge */ = {
+			isa = PBXGroup;
+			children = (
+				0A00000000000000000000A6 /* WidgetBridge.swift */,
+				0A00000000000000000000A7 /* Info.plist */,
+			);
+			path = Bridge;
+			sourceTree = "<group>";
+		};
+		0C00000000000000000000C3 /* Shared */ = {
+			isa = PBXGroup;
+			children = (
+				0A00000000000000000000A8 /* SharedContainer.swift */,
+			);
+			path = Shared;
+			sourceTree = "<group>";
+		};
+		0C00000000000000000000C4 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				0A00000000000000000000A9 /* RustySoundWidgets.appex */,
+				0A00000000000000000000AA /* RustySoundWidgetBridge.framework */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		0D00000000000000000000D1 /* RustySoundWidgets */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1100000000000000000000F2 /* Build configuration list for PBXNativeTarget "RustySoundWidgets" */;
+			buildPhases = (
+				0E00000000000000000000E1 /* Sources */,
+				0E00000000000000000000E2 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RustySoundWidgets;
+			productName = RustySoundWidgets;
+			productReference = 0A00000000000000000000A9 /* RustySoundWidgets.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
+		0D00000000000000000000D2 /* RustySoundWidgetBridge */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1100000000000000000000F3 /* Build configuration list for PBXNativeTarget "RustySoundWidgetBridge" */;
+			buildPhases = (
+				0E00000000000000000000E3 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = RustySoundWidgetBridge;
+			productName = RustySoundWidgetBridge;
+			productReference = 0A00000000000000000000AA /* RustySoundWidgetBridge.framework */;
+			productType = "com.apple.product-type.framework";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		0F00000000000000000000F0 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+			};
+			buildConfigurationList = 1100000000000000000000F1 /* Build configuration list for PBXProject "RustySoundWidgets" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 0C00000000000000000000C0;
+			productRefGroup = 0C00000000000000000000C4 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				0D00000000000000000000D1 /* RustySoundWidgets */,
+				0D00000000000000000000D2 /* RustySoundWidgetBridge */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		0E00000000000000000000E2 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		0E00000000000000000000E1 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0B00000000000000000000B1 /* NowPlayingWidget.swift in Sources */,
+				0B00000000000000000000B2 /* NowPlayingViews.swift in Sources */,
+				0B00000000000000000000B3 /* NowPlayingSnapshot.swift in Sources */,
+				0B00000000000000000000B4 /* PlaybackIntents.swift in Sources */,
+				0B00000000000000000000B5 /* SharedContainer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		0E00000000000000000000E3 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				0B00000000000000000000B6 /* WidgetBridge.swift in Sources */,
+				0B00000000000000000000B7 /* SharedContainer.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		1000000000000000000000F1 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_REQUIRED = NO;
+				CODE_SIGN_IDENTITY = "";
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 1.0;
+				RS_APP_BUNDLE_ID = app.adarcher.rustysound;
+				RS_APP_GROUP = group.app.adarcher.rustysound;
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		1000000000000000000000F2 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				INFOPLIST_FILE = Widgets/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@executable_path/../../../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(RS_APP_BUNDLE_ID).widgets";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+		1000000000000000000000F3 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				DEFINES_MODULE = YES;
+				DYLIB_COMPATIBILITY_VERSION = 1;
+				DYLIB_CURRENT_VERSION = 1;
+				DYLIB_INSTALL_NAME_BASE = "@rpath";
+				INFOPLIST_FILE = Bridge/Info.plist;
+				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Frameworks";
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				"LD_RUNPATH_SEARCH_PATHS[sdk=macosx*]" = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "$(RS_APP_BUNDLE_ID).widgetbridge";
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		1100000000000000000000F1 /* Build configuration list for PBXProject "RustySoundWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000F1 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1100000000000000000000F2 /* Build configuration list for PBXNativeTarget "RustySoundWidgets" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000F2 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		1100000000000000000000F3 /* Build configuration list for PBXNativeTarget "RustySoundWidgetBridge" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				1000000000000000000000F3 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 0F00000000000000000000F0 /* Project object */;
+}

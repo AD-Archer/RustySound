@@ -81,14 +81,6 @@
                     span { class: "rs-spinner rs-spinner--page", aria_hidden: "true" }
                     "{processing_label().unwrap_or_else(|| \"Working…\".to_string())}"
                 }
-            } else if let Some((ok, text)) = message() {
-                div {
-                    class: "rs-player-addnote",
-                    class: if ok { "rs-player-addnote--ok" } else { "rs-player-addnote--error" },
-                    role: "status",
-                    Icon { name: if ok { "check".to_string() } else { "info".to_string() }, class: "rs-ic rs-ic--sm".to_string() }
-                    "{text}"
-                }
             }
 
             ul { class: "rs-list rs-list--icons", aria_label: "Queue actions",
@@ -98,7 +90,7 @@
                         class: "rs-row rs-row--compact",
                         disabled: busy,
                         "data-testid": "add-menu-play-next",
-                        onclick: make_add_to_queue("next"),
+                        onclick: make_add_to_queue(QueuePosition::Next),
                         span { class: "rs-row__lead", Icon { name: "play-next".to_string(), class: "rs-ic rs-ic--md".to_string() } }
                         span { class: "rs-row__meta", span { class: "rs-row__title", span { "Play Next" } } }
                     }
@@ -109,7 +101,7 @@
                         class: "rs-row rs-row--compact",
                         disabled: busy,
                         "data-testid": "add-menu-add-to-queue",
-                        onclick: make_add_to_queue("end"),
+                        onclick: make_add_to_queue(QueuePosition::End),
                         span { class: "rs-row__lead", Icon { name: "add-to-queue".to_string(), class: "rs-ic rs-ic--md".to_string() } }
                         span { class: "rs-row__meta", span { class: "rs-row__title", span { "Add to Queue" } } }
                     }
@@ -211,17 +203,19 @@
                                         div { class: "rs-trow__title", "{song.title}" }
                                         div { class: "rs-trow__sub", "{song.artist.clone().unwrap_or_else(|| \"Unknown Artist\".to_string())}" }
                                     }
-                                    button {
-                                        r#type: "button",
-                                        class: "rs-btn rs-btn--plain",
-                                        title: "Play 12 seconds, then return to your song",
-                                        disabled: preview_song_key() == Some(song_key(&song)),
-                                        onclick: {
-                                            let song = song.clone();
-                                            let on_preview_song = on_preview_song.clone();
-                                            move |_| on_preview_song(song.clone())
-                                        },
-                                        if preview_song_key() == Some(song_key(&song)) { "Previewing…" } else { "Preview" }
+                                    if can_quick_listen(&song) {
+                                        button {
+                                            r#type: "button",
+                                            class: "rs-btn rs-btn--plain",
+                                            title: "Play 30 seconds without changing your queue",
+                                            aria_pressed: if quick_listening(&song) { "true" } else { "false" },
+                                            "data-testid": "add-menu-quick-listen",
+                                            onclick: {
+                                                let song = song.clone();
+                                                move |_| on_quick_listen(song.clone())
+                                            },
+                                            if quick_listening(&song) { "Stop" } else { "Quick Listen" }
+                                        }
                                     }
                                     button {
                                         r#type: "button",

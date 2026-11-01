@@ -2,10 +2,13 @@
 //! the rating and volume controls.
 
 use super::actions::{is_live_song, use_player};
+use super::source::source_page;
 use super::types::SongDetailsController;
-use crate::api::{ServerConfig, Song};
-use crate::components::ui::{IconButton, ProgressTrack, TrackMenuController, TrackVariant};
-use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
+use crate::api::{Capabilities, ServerConfig, Song};
+use crate::components::ui::{
+    IconButton, PlayerMenu, ProgressTrack, TrackMenuController, TrackVariant,
+};
+use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
@@ -13,6 +16,8 @@ use dioxus::prelude::*;
 pub(super) fn NowPlayingMeta(song: Song) -> Element {
     let player = use_player();
     let mut menu = use_context::<TrackMenuController>();
+    let controller = use_context::<SongDetailsController>();
+    let navigation = use_context::<Navigation>();
     let radio = is_live_song(&song);
     let starred = song.starred.is_some();
     let title = if song.title.trim().is_empty() {
@@ -24,7 +29,27 @@ pub(super) fn NowPlayingMeta(song: Song) -> Element {
     rsx! {
         div { class: "rs-player-meta",
             div { class: "rs-player-meta__text",
-                h2 { class: "rs-player-meta__title", title: "{title}", "{title}" }
+                // The title opens where the song is playing from: its playlist
+                // or mix, otherwise its album.
+                if let Some(page) = source_page(&song) {
+                    h2 { class: "rs-player-meta__title",
+                        button {
+                            r#type: "button",
+                            class: "rs-player-meta__title-link",
+                            title: "{title}",
+                            aria_label: "{title}. {page.verb}",
+                            "data-testid": "now-playing-title-link",
+                            onclick: move |_| {
+                                let mut controller = controller;
+                                controller.close();
+                                navigation.navigate_to(page.view.clone());
+                            },
+                            "{title}"
+                        }
+                    }
+                } else {
+                    h2 { class: "rs-player-meta__title", title: "{title}", "{title}" }
+                }
                 if radio {
                     p { class: "rs-player-meta__artist",
                         "{song.album.clone().or(song.artist.clone()).unwrap_or_default()}"
@@ -55,7 +80,11 @@ pub(super) fn NowPlayingMeta(song: Song) -> Element {
                     let song = song.clone();
                     move |evt: MouseEvent| {
                         let point = evt.client_coordinates();
-                        menu.open(song.clone(), Some((point.x - 250.0, point.y + 16.0)));
+                        menu.open_for_player(
+                            song.clone(),
+                            Some((point.x - 250.0, point.y + 16.0)),
+                            PlayerMenu::Closed,
+                        );
                     }
                 },
             }
@@ -100,13 +129,12 @@ fn ArtistLinks(song: Song) -> Element {
                                 });
                                 return;
                             }
-                            let server = servers.peek().iter().find(|s| s.id == server_id).cloned();
-                            let Some(server) = server else {
+                            let Some(client) = crate::api::MusicClient::for_source(&servers.peek(), &server_id) else {
                                 return;
                             };
                             let (name, server_id) = (name.clone(), server_id.clone());
                             spawn(async move {
-                                if let Some(artist_id) = resolve_artist_id_for_name(server, name).await {
+                                if let Some(artist_id) = resolve_artist_id(client, name).await {
                                     controller.close();
                                     navigation.navigate_to(AppView::ArtistDetailView {
                                         artist_id,
@@ -124,6 +152,11 @@ fn ArtistLinks(song: Song) -> Element {
             }
         }
     }
+}
+
+/// Whether the song's server keeps 1–5 star ratings (Jellyfin doesn't).
+pub(super) fn song_rates(servers: &[ServerConfig], song: &Song) -> bool {
+    Capabilities::for_source(servers, &song.server_id).star_ratings
 }
 
 /// 1–5 stars plus clear, for the current song (`rating-btn` lives in the
@@ -196,6 +229,7 @@ pub(super) fn shows_volume() -> bool {
 /// Wide layout: rating and volume under the transport.
 #[component]
 pub(super) fn NowPlayingExtras(song: Song) -> Element {
+    let rates = song_rates(&use_context::<Signal<Vec<ServerConfig>>>().read(), &song);
     if is_live_song(&song) {
         return rsx! {
             div { class: "rs-player-extras",
@@ -207,7 +241,9 @@ pub(super) fn NowPlayingExtras(song: Song) -> Element {
     }
     rsx! {
         div { class: "rs-player-extras",
-            RatingStars { song }
+            if rates {
+                RatingStars { song }
+            }
             if shows_volume() {
                 VolumeSlider {}
             }

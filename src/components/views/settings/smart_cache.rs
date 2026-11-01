@@ -392,7 +392,7 @@ pub(super) async fn run_smart_cache(
     if lyric_total > 0 {
         for (index, song) in lyric_candidates.into_iter().enumerate() {
             status.set(Some(format!("Warming lyrics ({}/{})…", index + 1, lyric_total)));
-            let query = LyricsQuery::from_song(&song);
+            let query = LyricsQuery::from_song_on(&song, &active_servers);
             if !query.title.trim().is_empty()
                 && fetch_lyrics_with_fallback(&query, &provider_order, timeout_seconds)
                     .await

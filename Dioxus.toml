@@ -1,5 +1,11 @@
 [application]
 
+# Android (docs/ANDROID.md): our activity and manifest replace dx's defaults.
+# Native playback is the Gradle module android/rustysound-audio, which dx
+# bundles through the manganis::ffi declaration in native_android_backend.rs.
+android_main_activity = "android/MainActivity.kt"
+android_manifest = "android/AndroidManifest.xml"
+
 # Desktop app configuration
 [application.desktop]
 
@@ -28,8 +34,28 @@ background_modes = ["audio"]
 # with this SDK"). The delegate class is registered at startup by
 # src/ios_scene.rs, which attaches tao's window to the scene; keep the class
 # name in sync with SCENE_DELEGATE_CLASS there.
+#
+# UIFileSharingEnabled + LSSupportsOpeningDocumentsInPlace show the app's
+# Documents folder in the Files app (On My iPhone → RustySound) and in
+# Finder; music put there plays "On This Device" (src/local_music).
+#
+# NSLocalNetworkUsageDescription + NSBonjourServices: finding speakers on
+# the network (src/cast), asked the first time the Speakers list opens.
+# SSDP (UPnP, Sonos) and the Cast mDNS query also need Apple's
+# com.apple.developer.networking.multicast entitlement in the provisioning
+# profile; without it the searches find nothing.
 [ios.raw]
 info_plist = """
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>RustySound uses your local network to stream from your media server and to play on speakers.</string>
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_googlecast._tcp</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
@@ -48,6 +74,11 @@ info_plist = """
 		</dict>
 	</dict>
 """
+
+[android]
+min_sdk = 24
+target_sdk = 35
+compile_sdk = 35
 
 [web.app]
 

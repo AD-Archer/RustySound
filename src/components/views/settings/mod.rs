@@ -7,18 +7,25 @@
 mod about;
 mod advanced;
 mod appearance;
+mod backup;
 mod discovery;
 mod discovery_check;
+mod equalizer;
 mod first_run;
+mod local_music;
 mod lyrics;
 mod playback;
+mod server_fields;
 mod server_form;
 mod servers;
 mod shared;
 mod smart_cache;
+mod speakers;
 mod storage;
 mod storage_downloads;
+mod sync_server;
 
+pub use equalizer::EqualizerView;
 pub use first_run::FirstRun;
 
 use crate::api::ServerConfig;
@@ -36,11 +43,12 @@ enum Section {
     Storage,
     Lyrics,
     Advanced,
+    Backup,
     About,
 }
 
 impl Section {
-    const ALL: [Section; 8] = [
+    const ALL: [Section; 9] = [
         Section::Servers,
         Section::Appearance,
         Section::Discovery,
@@ -48,6 +56,7 @@ impl Section {
         Section::Storage,
         Section::Lyrics,
         Section::Advanced,
+        Section::Backup,
         Section::About,
     ];
 
@@ -55,7 +64,7 @@ impl Section {
     const GROUPS: [&'static [Section]; 3] = [
         &[Section::Appearance, Section::Discovery],
         &[Section::Playback, Section::Storage, Section::Lyrics],
-        &[Section::Advanced, Section::About],
+        &[Section::Advanced, Section::Backup, Section::About],
     ];
 
     fn title(self) -> &'static str {
@@ -67,6 +76,7 @@ impl Section {
             Section::Storage => "Storage & Downloads",
             Section::Lyrics => "Lyrics",
             Section::Advanced => "Advanced",
+            Section::Backup => "Backup & Restore",
             Section::About => "About",
         }
     }
@@ -80,6 +90,7 @@ impl Section {
             Section::Storage => "hard-drive",
             Section::Lyrics => "lyrics",
             Section::Advanced => "zap",
+            Section::Backup => "file-text",
             Section::About => "info",
         }
     }
@@ -93,6 +104,7 @@ impl Section {
             Section::Storage => "storage",
             Section::Lyrics => "lyrics",
             Section::Advanced => "advanced",
+            Section::Backup => "backup",
             Section::About => "about",
         }
     }
@@ -103,6 +115,7 @@ pub fn SettingsView() -> Element {
     let ctx = SettingsCtx::provide();
     let layout = use_layout();
     let mut selected = use_signal(|| None::<Section>);
+    let mut wrapped_open = use_signal(|| false);
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
 
     let toast = ctx.toast_text();
@@ -117,10 +130,11 @@ pub fn SettingsView() -> Element {
     let body = if compact {
         match selected() {
             None => rsx! {
-                div { class: "rs-page-head",
+                div { class: "rs-page-head rs-settings-head",
                     h1 { class: "rs-large-title", "Settings" }
+                    crate::components::profiles::ProfileButton {}
                 }
-                SectionNav { current: None, servers: servers(), on_pick: move |s| selected.set(Some(s)) }
+                SectionNav { current: None, servers: servers(), on_pick: move |s| selected.set(Some(s)), on_wrapped: move |_| wrapped_open.set(true) }
             },
             Some(section) => rsx! {
                 div { class: "rs-settings-back",
@@ -142,8 +156,11 @@ pub fn SettingsView() -> Element {
         rsx! {
             div { class: "rs-settings-split",
                 nav { class: "rs-settings-split__nav", aria_label: "Settings sections",
-                    h1 { class: "rs-large-title rs-settings-split__title", "Settings" }
-                    SectionNav { current: Some(section), servers: servers(), on_pick: move |s| selected.set(Some(s)) }
+                    div { class: "rs-settings-head",
+                        h1 { class: "rs-large-title rs-settings-split__title", "Settings" }
+                        crate::components::profiles::ProfileButton {}
+                    }
+                    SectionNav { current: Some(section), servers: servers(), on_pick: move |s| selected.set(Some(s)), on_wrapped: move |_| wrapped_open.set(true) }
                 }
                 section {
                     class: "rs-settings-split__detail",
@@ -168,6 +185,9 @@ pub fn SettingsView() -> Element {
                     span { class: "rs-settings-toast", "{message}" }
                 }
             }
+            if wrapped_open() {
+                super::wrapped::WrappedStory { on_close: move |_| wrapped_open.set(false) }
+            }
         }
     }
 }
@@ -179,6 +199,7 @@ fn SectionNav(
     current: Option<Section>,
     servers: Vec<ServerConfig>,
     on_pick: EventHandler<Section>,
+    on_wrapped: EventHandler<()>,
 ) -> Element {
     let active = servers.iter().filter(|s| s.active).count();
     let server_summary = match (servers.len(), active) {
@@ -232,6 +253,7 @@ fn SectionNav(
                     onclick: pick(Section::Servers),
                 }
             }
+            super::wrapped::WrappedEntry { on_open: move |_| on_wrapped.call(()) }
             for (index, group) in Section::GROUPS.iter().enumerate() {
                 ul { key: "{index}", class: "rs-list rs-list--icons",
                     for section in group.iter().copied() {
@@ -309,6 +331,7 @@ fn SectionBody(section: Section) -> Element {
         Section::Storage => rsx! { storage::StorageSection {} },
         Section::Lyrics => rsx! { lyrics::LyricsSection {} },
         Section::Advanced => rsx! { advanced::AdvancedSection {} },
+        Section::Backup => rsx! { backup::BackupSection {} },
         Section::About => rsx! { about::AboutSection {} },
     }
 }

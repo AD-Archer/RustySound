@@ -1,0 +1,336 @@
+/* views/ambient.css: colour from album art (components/art_palette) and
+   ambient mode (components/ambient). Loaded after player.css, so its rules
+   win ties with the kit and the player. Prefix: rs-ambient-, --art-. */
+
+/* ==========================================================================
+   COLOUR FROM ALBUM ART
+   --------------------------------------------------------------------------
+   The shell writes five colours onto <html> while a song plays, already
+   readable (WCAG AA) where they are used, and sets data-art="on":
+     --art-g  field colour     --art-t  second field colour
+     --art-s  stage accent     --art-l / --art-d  light / dark page accent
+   They become the four public properties below. Registered, so a new song
+   cross-fades them (each consumer declares its own transition, which keeps
+   the repaint on a few small elements); where @property isn't supported
+   they change at once. With no data-art, nothing here applies and the
+   theme accent stays.
+   ========================================================================== */
+
+@property --art-accent { syntax: "<color>"; inherits: true; initial-value: #2a7be4; }
+@property --art-accent-stage { syntax: "<color>"; inherits: true; initial-value: #2a7be4; }
+@property --art-glow { syntax: "<color>"; inherits: true; initial-value: #0e2442; }
+@property --art-tint { syntax: "<color>"; inherits: true; initial-value: #1d1838; }
+
+/* :root only (not .rs-app), so the app inherits one value. */
+:root {
+  --art-accent: var(--art-l, var(--accent));
+  --art-accent-stage: var(--art-s, var(--accent));
+  --art-glow: var(--art-g, color-mix(in srgb, var(--accent) 32%, #000));
+  --art-tint: var(--art-t, color-mix(in srgb, var(--accent-hi) 18%, #000));
+  --art-fade: 1.1s;
+}
+
+:root[data-appearance="dark"] {
+  --art-accent: var(--art-d, var(--accent));
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-appearance]),
+  :root[data-appearance="system"] {
+    --art-accent: var(--art-d, var(--accent));
+  }
+}
+
+/* ---- Now Playing: a wash of the cover's colour from the top ------------ */
+
+/* Over the stage's own lift. Mixed into black so the stage's muted text
+   keeps 4.5:1 at the brightest point. */
+[data-art] .rs-player-np::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  pointer-events: none;
+  background: radial-gradient(120% 70% at 50% 0%, color-mix(in srgb, var(--art-glow) 60%, #000) 0%, transparent 62%);
+  transition: --art-glow var(--art-fade) var(--ease-out);
+}
+
+/* ---- Progress: Now Playing's scrubber, the player bar, the mini line -- */
+
+[data-art] :is(.rs-player-np, .rs-bar) .rs-track:not(.rs-track--thin, .rs-track--page) .rs-track__fill {
+  background: linear-gradient(
+    color-mix(in srgb, var(--art-accent-stage) 55%, #fff),
+    var(--art-accent-stage) 50%,
+    color-mix(in srgb, var(--art-accent-stage) 78%, #000)
+  );
+  transition: --art-accent-stage var(--art-fade) var(--ease-out);
+}
+
+[data-art] .rs-mini__line i {
+  background: var(--art-accent-stage);
+  transition: --art-accent-stage var(--art-fade) var(--ease-out);
+}
+
+/* ---- The playing row ---------------------------------------------------- */
+
+/* Rows on the stage panels take the stage accent. */
+[data-art] :is(.rs-player-lyrics, .rs-player-upnext, .rs-player-info) {
+  --art-accent: var(--art-accent-stage);
+}
+
+[data-art] .rs-trow--playing {
+  background: color-mix(in srgb, var(--art-accent) 12%, transparent);
+  transition: --art-accent var(--art-fade) var(--ease-out);
+}
+
+[data-art] .rs-trow--playing.rs-trow--pressed,
+[data-art] .rs-trow--playing:active {
+  background: color-mix(in srgb, var(--art-accent) 20%, transparent);
+}
+
+[data-art] .rs-rowg--active > .rs-trow--playing {
+  background-image: linear-gradient(color-mix(in srgb, var(--art-accent) 12%, transparent), color-mix(in srgb, var(--art-accent) 12%, transparent));
+}
+
+[data-art] .rs-trow--playing .rs-trow__title {
+  color: var(--art-accent);
+}
+
+[data-art] .rs-trow--playing .rs-eq i {
+  background: var(--art-accent);
+}
+
+/* ==========================================================================
+   AMBIENT MODE
+   ========================================================================== */
+
+.rs-ambient {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  outline: none;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+  animation: rs-ambient-in .6s var(--ease-out);
+}
+
+@keyframes rs-ambient-in {
+  from { opacity: 0; }
+}
+
+.rs-ambient[data-idle] {
+  cursor: none;
+}
+
+/* The field: three soft pools of the palette, moved by transform only
+   (composited), over a minute or more. */
+.rs-ambient__field {
+  position: absolute;
+  inset: 0;
+  transition: --art-glow 2.4s ease, --art-tint 2.4s ease;
+}
+
+.rs-ambient__blob {
+  position: absolute;
+  width: 95vmax;
+  height: 95vmax;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, var(--art-glow), transparent);
+  will-change: transform;
+  animation: rs-ambient-drift-a 72s ease-in-out infinite alternate;
+}
+
+.rs-ambient__blob--a {
+  left: -35vmax;
+  top: -40vmax;
+}
+
+.rs-ambient__blob--b {
+  right: -40vmax;
+  bottom: -45vmax;
+  background: radial-gradient(closest-side, var(--art-tint), transparent);
+  animation-name: rs-ambient-drift-b;
+  animation-duration: 94s;
+}
+
+.rs-ambient__blob--c {
+  left: 10vmax;
+  top: 15vmax;
+  width: 70vmax;
+  height: 70vmax;
+  opacity: .7;
+  background: radial-gradient(closest-side, color-mix(in srgb, var(--art-glow) 55%, var(--art-tint)), transparent);
+  animation-name: rs-ambient-drift-c;
+  animation-duration: 117s;
+}
+
+@keyframes rs-ambient-drift-a {
+  to { transform: translate3d(22vmax, 16vmax, 0) scale(1.15); }
+}
+
+@keyframes rs-ambient-drift-b {
+  to { transform: translate3d(-18vmax, -20vmax, 0) scale(1.1); }
+}
+
+@keyframes rs-ambient-drift-c {
+  to { transform: translate3d(-14vmax, 10vmax, 0) scale(.85); }
+}
+
+.rs-ambient__body {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4vmin;
+  max-width: min(92vw, 1200px);
+  padding: 8vmin 6vmin;
+  text-align: center;
+}
+
+.rs-ambient__cover {
+  flex: none;
+  width: min(52vmin, 460px);
+  aspect-ratio: 1;
+  border-radius: 6px;
+  overflow: hidden;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, .5);
+}
+
+.rs-ambient__text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: .4em;
+}
+
+.rs-ambient__title,
+.rs-ambient__artist {
+  margin: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, .35);
+}
+
+.rs-ambient__title {
+  font-family: var(--font-display);
+  font-size: clamp(22px, 4.4vmin, 48px);
+  font-weight: var(--fw-bold);
+  letter-spacing: -.01em;
+}
+
+.rs-ambient__artist {
+  font-size: clamp(16px, 2.8vmin, 30px);
+  color: rgba(255, 255, 255, .8);
+}
+
+.rs-ambient__lyric {
+  min-height: 2.8em;
+  margin: .8em 0 0;
+  font-size: clamp(18px, 3.4vmin, 36px);
+  font-weight: var(--fw-semibold);
+  line-height: 1.3;
+  text-wrap: balance;
+}
+
+.rs-ambient__line {
+  display: block;
+  animation: rs-ambient-line .7s var(--ease-out);
+}
+
+@keyframes rs-ambient-line {
+  from { opacity: 0; transform: translateY(.3em); }
+}
+
+/* Wide screens (a desk, a TV): cover left, words right. */
+@media (min-aspect-ratio: 4/3) {
+  .rs-ambient__body {
+    flex-direction: row;
+    gap: 7vmin;
+    text-align: left;
+  }
+
+  .rs-ambient__cover {
+    width: min(58vh, 520px);
+  }
+
+  .rs-ambient__text {
+    align-items: flex-start;
+    max-width: min(46vw, 640px);
+  }
+}
+
+.rs-ambient__clock {
+  position: absolute;
+  z-index: 1;
+  top: calc(var(--safe-top) + 4vmin);
+  left: calc(var(--safe-left) + 5vmin);
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(28px, 6vmin, 72px);
+  font-weight: 300;
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .88);
+}
+
+/* Controls: fade after a few seconds without input (ambient.js). */
+.rs-ambient__chrome,
+.rs-ambient__transport {
+  position: absolute;
+  z-index: 2;
+  display: flex;
+  gap: var(--sp-3);
+  transition: opacity .6s var(--ease-out);
+}
+
+.rs-ambient__chrome {
+  top: calc(var(--safe-top) + 16px);
+  right: calc(var(--safe-right) + 16px);
+}
+
+.rs-ambient__transport {
+  bottom: calc(var(--safe-bottom) + 4vmin);
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.rs-ambient[data-idle] :is(.rs-ambient__chrome, .rs-ambient__transport) {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.rs-app .rs-ambient .rs-iconbtn {
+  color: #fff;
+  background: rgba(0, 0, 0, .3);
+}
+
+.rs-app .rs-ambient .rs-iconbtn[aria-pressed="false"] {
+  color: rgba(255, 255, 255, .7);
+}
+
+@media (hover: hover) {
+  .rs-app .rs-ambient .rs-iconbtn:hover:not(:disabled) { background: rgba(0, 0, 0, .45); }
+}
+
+.rs-ambient :focus-visible {
+  outline-color: #fff;
+}
+
+/* Reduced motion: a still field, no fades that move. */
+@media (prefers-reduced-motion: reduce) {
+  .rs-ambient,
+  .rs-ambient__blob,
+  .rs-ambient__line {
+    animation: none;
+  }
+}

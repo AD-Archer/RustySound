@@ -40,10 +40,7 @@
     {
         let volume = volume.clone();
         use_effect(move || {
-            native_audio_command(serde_json::json!({
-                "type": "volume",
-                "value": volume().clamp(0.0, 1.0),
-            }));
+            set_output_volume(volume());
         });
     }
 
@@ -92,7 +89,7 @@
                 spawn(async move {
                     last_bookmark.set(Some((song_id.clone(), position_ms)));
                     if let Some(server) =
-                        servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                        servers_snapshot.iter().find(|s| s.id == server_id && Capabilities::of(s).bookmarks).cloned()
                     {
                         let client = NavidromeClient::new(server);
                         let _ = client

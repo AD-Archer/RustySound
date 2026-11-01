@@ -4,14 +4,14 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    Menu, MenuGap, MenuItem, EmptyState, SearchField, TrackRow, VirtualList,
+    EmptyState, ErrorState, LoadMore, Menu, MenuGap, MenuItem, NoServers, PageFoot,
+    RowGestureList, RowSwipe, SearchField, Skeleton, TrackRow, VirtualList,
 };
 use crate::components::views::library::shared::{
-    use_servers,
-    active_servers, song_key, use_debounced, use_downloaded_keys, use_now_playing, use_pager,
-    use_player, use_song_patches, ErrorState, ListSkeleton, LoadMore, NoServers, PageFoot,
+    active_servers, has_sources, use_debounced, use_downloaded_keys, use_now_playing, use_pager,
+    use_song_patches,
 };
-use crate::components::Icon;
+use crate::components::{use_player, use_servers, Icon};
 use dioxus::prelude::*;
 
 const PAGE: u32 = 200;
@@ -58,8 +58,7 @@ async fn fetch_song_page(
     let mut more = false;
     let mut any_ok = false;
     let mut last_error = None;
-    for server in servers {
-        let client = NavidromeClient::new(server);
+    for client in MusicClient::sources(&servers) {
         let result = if query.is_empty() {
             match client
                 .get_native_song_page(&sort, ascending, offset as usize, PAGE as usize)
@@ -86,6 +85,7 @@ async fn fetch_song_page(
             return Err(err);
         }
     }
+    crate::local_music::dedupe_songs(&mut songs);
     Ok((songs, more))
 }
 
@@ -112,7 +112,7 @@ pub fn SongsView() -> Element {
     };
 
     use_effect(move || {
-        let _ = (sort(), ascending(), query(), servers());
+        let _ = (sort(), ascending(), query(), servers(), crate::local_music::generation());
         pager.reset();
         load_more();
     });
@@ -157,7 +157,7 @@ pub fn SongsView() -> Element {
         status.set(player.play(list, 0, None).err());
     };
 
-    let has_servers = servers.read().iter().any(|s| s.active);
+    let has_servers = has_sources(&servers.read());
     let ready = (pager.ready)();
     let loading = (pager.loading)();
     let error = (pager.error)();
@@ -211,7 +211,7 @@ pub fn SongsView() -> Element {
             if !has_servers {
                 NoServers {}
             } else if !ready {
-                ListSkeleton { rows: 12 }
+                Skeleton { rows: 12 }
             } else if rows == 0 && (done || error.is_some()) {
                 if let Some(err) = error.clone() {
                     ErrorState {
@@ -242,6 +242,8 @@ pub fn SongsView() -> Element {
                     }
                 }
             } else {
+                // Swipe a song for Play Next / Add to… (the row acts on its song).
+                RowGestureList { id: "songs", swipe: RowSwipe::Browse,
                 VirtualList {
                     item_count: rows,
                     row_height: ROW_H,
@@ -254,7 +256,7 @@ pub fn SongsView() -> Element {
                         let Some(song) = song else {
                             return rsx! { li {} };
                         };
-                        let key = song_key(&song);
+                        let key = song.key();
                         let playing = playing_key.read().as_deref() == Some(key.as_str());
                         let is_downloaded = downloaded.read().contains(&key);
                         let subtitle = match song.album.as_deref().filter(|a| !a.is_empty()) {
@@ -274,6 +276,7 @@ pub fn SongsView() -> Element {
                             }
                         }
                     },
+                }
                 }
                 if !done && error.is_none() {
                     LoadMore {

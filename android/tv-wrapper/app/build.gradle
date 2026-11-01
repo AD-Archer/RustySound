@@ -1,0 +1,21 @@
+plugins { id "com.android.application" }
+
+android {
+    namespace "app.adarcher.rustysound.tv"
+    compileSdk 35
+    defaultConfig {
+        applicationId "app.adarcher.rustysound.tv"
+        minSdk 21
+        targetSdk 35
+        versionCode 1
+        versionName "${project.findProperty('versionName') ?: '1.0'}"
+        // The RustySound web build this wrapper opens (served on the home
+        // server over Tailscale; override with -PwebUrl=...).
+        buildConfigField "String", "WEB_URL", "\"${project.findProperty('webUrl') ?: 'http://100.126.39.68:4748/'}\""
+    }
+    buildFeatures { buildConfig true }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

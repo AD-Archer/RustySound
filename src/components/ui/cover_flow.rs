@@ -4,6 +4,11 @@
 use crate::components::ui::env::sleep_ms;
 use crate::components::Icon;
 use dioxus::prelude::*;
+use std::sync::atomic::{AtomicU64, Ordering};
+
+const COVER_FLOW_JS: &str = concat!(include_str!("gesture_core.js"), "\n", include_str!("cover_flow.js"));
+
+static NEXT_FLOW: AtomicU64 = AtomicU64::new(1);
 
 /// One cover in the flow.
 #[derive(Clone, PartialEq, Debug)]
@@ -33,9 +38,14 @@ const FADE_AFTER: usize = 7;
 /// * `cover_px`: cover edge (148 phone, 216 Mac). `wide`: Mac variant (deeper
 ///   perspective and the range scrubber under the caption).
 /// * `label`: aria-label of the carousel.
+/// * `focus`: an index the flow moves to whenever this value changes (the
+///   playing song on a playlist). Flipping away keeps the user's choice until
+///   the value changes again; it never calls `on_select`.
 ///
-/// Input: ←/→ keys when focused, horizontal or vertical wheel, pointer swipe
-/// (one cover per third of a cover width), tapping a side cover to centre it.
+/// Input: ←/→ keys when focused, a horizontal wheel (one cover per gesture; a
+/// vertical wheel scrolls the page), pointer swipe (one cover per third of a
+/// cover width), tapping a side cover to centre it. The wheel and the swipe
+/// are tracked in `cover_flow.js`, which posts one step at a time.
 /// Transitions switch on only after the first layout (double rAF), so the
 /// resting state never animates in; reduced motion removes them in CSS.
 #[component]
@@ -47,14 +57,28 @@ pub fn CoverFlow(
     #[props(default = 148)] cover_px: u32,
     #[props(default)] wide: bool,
     #[props(default = "Covers".to_string())] label: String,
+    #[props(default)] focus: Option<usize>,
 ) -> Element {
-    let mut selected = use_signal(|| initial);
+    let mut selected = use_signal(|| focus.unwrap_or(initial));
     let mut ready = use_signal(|| false);
     let mut pulse = use_signal(|| false);
-    // Gesture state lives in signals nobody renders from, so writes are free.
-    let mut swipe_start = use_signal(|| None::<f64>);
-    let mut dragged = use_signal(|| false);
-    let mut wheel = use_signal(|| 0.0f64);
+    // Steps from the wheel and the swipe (cover_flow.js), and the item count
+    // the effect applying them clamps to (not reactive: render never reads it).
+    let mut step = use_signal(|| None::<isize>);
+    let mut item_count = use_hook(|| CopyValue::new(0usize));
+    item_count.set(items.len());
+    let token = use_hook(|| NEXT_FLOW.fetch_add(1, Ordering::Relaxed));
+    use_hook(move || {
+        let mut script = document::eval(&COVER_FLOW_JS.replace("__FLOW__", &token.to_string()));
+        spawn(async move {
+            while let Ok(delta) = script.recv::<isize>().await {
+                step.set(Some(delta));
+            }
+        });
+    });
+    use_drop(move || {
+        let _ = document::eval(&format!("window.__rsFlow && window.__rsFlow.unregister({token});"));
+    });
 
     use_hook(move || {
         spawn(async move {
@@ -66,13 +90,41 @@ pub fn CoverFlow(
         });
     });
 
+    // One step from the script: move on from wherever the flow is now.
+    use_effect(move || {
+        let Some(delta) = step() else {
+            return;
+        };
+        step.set(None);
+        let count = item_count();
+        if count == 0 {
+            return;
+        }
+        let current = *selected.peek();
+        let target = (current as isize + delta).clamp(0, count as isize - 1) as usize;
+        if target != current {
+            selected.set(target);
+            if let Some(handler) = on_select {
+                handler.call(target);
+            }
+        }
+    });
+
     let count = items.len();
+    // Render clamps `selected` to the item count, so no clamp here.
+    use_effect(use_reactive!(|focus| {
+        if let Some(index) = focus {
+            if index != *selected.peek() {
+                selected.set(index);
+            }
+        }
+    }));
     if count == 0 {
         return rsx! {};
     }
     let sel = selected().min(count - 1);
     let size = cover_px as f64;
-    let swipe_step = size * if wide { 0.3 } else { 0.34 };
+    let swipe_step = (size * if wide { 0.3 } else { 0.34 }).round();
 
     // Copies the index out so the `peek` guard is gone before `go` writes:
     // `go(*selected.peek() + 1)` keeps the guard alive for the whole call and
@@ -112,6 +164,11 @@ pub fn CoverFlow(
             aria_roledescription: "carousel",
             aria_label: "{label}",
             "data-testid": "coverflow",
+            "data-flow": "{token}",
+            "data-flow-step": "{swipe_step}",
+            onmounted: move |_| {
+                let _ = document::eval(&format!("window.__rsFlow && window.__rsFlow.attach({token});"));
+            },
             onkeydown: move |evt| {
                 match evt.key() {
                     Key::ArrowLeft => go(current() - 1),
@@ -124,37 +181,7 @@ pub fn CoverFlow(
                 }
                 evt.prevent_default();
             },
-            onwheel: move |evt| {
-                let delta = evt.delta().strip_units();
-                let d = if delta.x.abs() > delta.y.abs() { delta.x } else { delta.y };
-                evt.prevent_default();
-                let total = *wheel.peek() + d;
-                if total.abs() > 40.0 {
-                    wheel.set(0.0);
-                    go(current() + total.signum() as isize);
-                } else {
-                    wheel.set(total);
-                }
-            },
-            onpointerdown: move |evt| {
-                swipe_start.set(Some(evt.client_coordinates().x));
-                dragged.set(false);
-            },
-            onpointermove: move |evt| {
-                let Some(start_x) = *swipe_start.peek() else {
-                    return;
-                };
-                let x = evt.client_coordinates().x;
-                let dx = x - start_x;
-                if dx.abs() > swipe_step {
-                    go(current() - dx.signum() as isize);
-                    swipe_start.set(Some(x));
-                    dragged.set(true);
-                }
-            },
-            onpointerup: move |_| swipe_start.set(None),
-            onpointercancel: move |_| swipe_start.set(None),
-            onpointerleave: move |_| swipe_start.set(None),
+
             for index in start..end {
                 {
                     let item = &items[index];
@@ -200,12 +227,11 @@ pub fn CoverFlow(
                             aria_current: if a == 0 { Some("true") } else { None },
                             "data-testid": if a == 0 { "coverflow-center" } else { "coverflow-cover" },
                             onclick: move |evt| {
+                                // The click that ends a swipe never gets here
+                                // (cover_flow.js swallows it).
                                 evt.stop_propagation();
-                                if *dragged.peek() {
-                                    dragged.set(false);
-                                    return;
-                                }
                                 if index == *selected.peek() {
+
                                     open();
                                 } else {
                                     go(index as isize);

@@ -1,7 +1,7 @@
 // Starts the mock Subsonic server and a static server for the web build, unless they are
 // already running (or RS_WEB_URL points at another server). Returns the teardown.
 import { spawn, spawnSync, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readdirSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { MOCK_PORT, MOCK_URL, REPO_ROOT, WEB_DIR, WEB_PORT, WEB_URL } from "./env";
 
@@ -38,6 +38,19 @@ function start(label: string, args: string[], env: Record<string, string>): Chil
   return child;
 }
 
+/** A mock server left running from before its source last changed would quietly serve old
+ *  fixtures (it once survived a day), so reusing one is only allowed while it's current. */
+async function refuseStaleMock() {
+  const health = (await (await fetch(`${MOCK_URL}/__mock/health`)).json()) as { startedAt?: number };
+  const dir = join(REPO_ROOT, "tests/mock-server");
+  const changed = Math.max(...readdirSync(dir).filter((f) => f.endsWith(".ts")).map((f) => statSync(join(dir, f)).mtimeMs));
+  if (!health.startedAt || health.startedAt < changed) {
+    throw new Error(
+      `The mock server already running at ${MOCK_URL} is older than tests/mock-server/. Stop it (lsof -nP -iTCP:${MOCK_PORT} -sTCP:LISTEN) or pick another MOCK_PORT.`,
+    );
+  }
+}
+
 export default async function globalSetup() {
   const children: ChildProcess[] = [];
 
@@ -45,6 +58,8 @@ export default async function globalSetup() {
     const child = start("mock", ["tests/mock-server/server.ts"], { MOCK_PORT: String(MOCK_PORT), MOCK_QUIET: "1" });
     children.push(child);
     await waitUp(`${MOCK_URL}/__mock/health`, "mock server", child);
+  } else {
+    await refuseStaleMock();
   }
 
   if (!process.env.RS_WEB_URL && !(await isUp(WEB_URL))) {

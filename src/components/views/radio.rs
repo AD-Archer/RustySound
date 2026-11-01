@@ -67,7 +67,7 @@ pub fn RadioView() -> Element {
 
     use_effect(move || {
         let _ = refresh_key();
-        let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active).collect();
+        let active: Vec<ServerConfig> = servers().into_iter().filter(|s| s.active && Capabilities::of(s).internet_radio).collect();
         spawn(async move {
             let mut found = Vec::new();
             for server in active {

@@ -2,6 +2,7 @@
 //! server list, and "Most Played" from the listening data the API already
 //! exposes (frequent albums, songs by play count).
 
+use crate::api::listening::aggregate::rank_by_plays;
 use crate::api::*;
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{
@@ -43,7 +44,7 @@ async fn load_server_stats(server: ServerConfig) -> ServerStats {
     }
 }
 
-fn number(value: Option<u64>) -> String {
+pub(super) fn number(value: Option<u64>) -> String {
     let Some(value) = value else {
         return "—".to_string();
     };
@@ -137,6 +138,14 @@ async fn follow_scan(server: ServerConfig, mut stats: StatsRows) {
     });
 }
 
+fn album_key(album: &Album) -> String {
+    format!("{}:{}", album.server_id, album.id)
+}
+
+fn song_key(song: &Song) -> String {
+    format!("{}:{}", song.server_id, song.id)
+}
+
 #[component]
 pub fn StatsView() -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -182,10 +191,8 @@ pub fn StatsView() -> Element {
                     albums.append(&mut list);
                 }
             }
-            albums.sort_by(|a, b| b.play_count.unwrap_or(0).cmp(&a.play_count.unwrap_or(0)));
-            albums.retain(|a| a.play_count.unwrap_or(1) > 0);
-            albums.truncate(TOP_ALBUMS);
-            top_albums.set(Some(albums));
+            // An album without a count still counts as played.
+            top_albums.set(Some(rank_by_plays(albums, |a| a.play_count.unwrap_or(1), album_key, TOP_ALBUMS)));
         });
         spawn(async move {
             let mut songs = Vec::new();
@@ -197,10 +204,7 @@ pub fn StatsView() -> Element {
                     songs.append(&mut list);
                 }
             }
-            songs.sort_by(|a, b| b.play_count.unwrap_or(0).cmp(&a.play_count.unwrap_or(0)));
-            songs.retain(|s| s.play_count.unwrap_or(0) > 0);
-            songs.truncate(TOP_SONGS);
-            top_songs.set(Some(songs));
+            top_songs.set(Some(rank_by_plays(songs, |s| s.play_count.unwrap_or(0), song_key, TOP_SONGS)));
         });
     });
 

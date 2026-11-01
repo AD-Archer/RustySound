@@ -11,13 +11,16 @@ mod shot_card;
 mod shot_share;
 mod source;
 
+pub(crate) use lines::use_active_line;
 pub(crate) use source::{use_lyrics_source, LyricsAvailability, LyricsSource};
+// The Shot capture-and-share path, reused by Wrapped's summary card.
+pub(crate) use shot_share::share_screenshot_lyrics_image as share_element_image;
 
 use super::actions::{is_live_song, song_key};
 use super::types::SongDetailsController;
 use crate::api::{LyricsResult, Song};
 use crate::components::ui::{IconButton, IconButtonSize, InsetList, ListInset, ListRow, Sheet};
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{update_settings, AppView, Icon, Navigation};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 use lines::{PlainLyrics, SyncedLyrics};
@@ -85,11 +88,12 @@ pub(crate) fn LyricsPanel(song: Song) -> Element {
         Some(found) => {
             if sync && !found.synced_lines.is_empty() {
                 let key = format!(
-                    "{}:{}:{}:{}",
+                    "{}:{}:{}:{}:{}",
                     dom_id,
                     found.provider.label(),
                     found.synced_lines.len(),
-                    found.synced_lines.first().map(|l| l.timestamp_seconds).unwrap_or(0.0)
+                    found.synced_lines.first().map(|l| l.timestamp_seconds).unwrap_or(0.0),
+                    found.has_word_timing()
                 );
                 rsx! {
                     SyncedLyrics { key: "{key}", lines: found.synced_lines.clone(), live, dom_id: dom_id.clone() }
@@ -125,7 +129,7 @@ pub(crate) fn LyricsPanel(song: Song) -> Element {
                     }
                 }
                 IconButton {
-                    icon: "more".to_string(),
+                    icon: "eye".to_string(),
                     label: "Lyrics options".to_string(),
                     quiet: true,
                     size: IconButtonSize::Small,
@@ -172,7 +176,7 @@ fn LyricsMenu(
     on_shot: EventHandler<()>,
 ) -> Element {
     let mut source = use_context::<LyricsSource>();
-    let mut settings = use_context::<Signal<AppSettings>>();
+    let settings = use_context::<Signal<AppSettings>>();
     let navigation = use_context::<Navigation>();
     let mut controller = use_context::<SongDetailsController>();
     let offset_ms = settings.read().lyrics_offset_ms;
@@ -182,13 +186,9 @@ fn LyricsMenu(
         format!("{:+.2} s", offset_ms as f64 / 1000.0)
     };
 
-    let mut set_offset = move |value: i32| {
+    let set_offset = move |value: i32| {
         let value = value.clamp(-OFFSET_LIMIT_MS, OFFSET_LIMIT_MS);
-        settings.with_mut(|s| s.lyrics_offset_ms = value);
-        let snapshot = settings.peek().clone();
-        spawn(async move {
-            let _ = crate::db::save_settings(snapshot).await;
-        });
+        update_settings(settings, |s| s.lyrics_offset_ms = value);
     };
 
     rsx! {

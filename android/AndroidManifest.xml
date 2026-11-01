@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- RustySound's app manifest (Dioxus.toml: application.android_manifest),
+     dx's template plus:
+     * the playback service and its permissions, merged in from the
+       rustysound-audio module;
+     * plain-HTTP and user-installed certificates for self-hosted servers
+       (@xml/rustysound_network_security, in that module);
+     * predictive Back (MainActivity's OnBackPressedCallback);
+     * Android TV: the leanback launcher entry and banner, and no touch
+       screen required;
+     * configuration changes the web UI handles itself, so the activity, and
+       the Rust app with it, isn't recreated for them. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
+    <uses-feature android:name="android.software.leanback" android:required="false" />
+
+    <application android:hasCode="true" android:icon="@mipmap/ic_launcher"
+        android:extractNativeLibs="true"
+        android:allowNativeHeapPointerTagging="false"
+        android:label="@string/app_name"
+        android:supportsRtl="true"
+        android:theme="@style/AppTheme"
+        android:enableOnBackInvokedCallback="true"
+        android:banner="@drawable/rustysound_tv_banner"
+        android:networkSecurityConfig="@xml/rustysound_network_security">
+        <activity
+            android:configChanges="orientation|screenLayout|screenSize|smallestScreenSize|keyboardHidden|keyboard|navigation|uiMode|density|fontScale|locale|layoutDirection"
+            android:exported="true"
+            android:label="@string/app_name" android:name="dev.dioxus.main.MainActivity">
+            <meta-data android:name="android.app.lib_name" android:value="main" />
+            <meta-data android:name="android.app.func_name" android:value="ANativeActivity_onCreate" />
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

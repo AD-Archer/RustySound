@@ -4,36 +4,36 @@
 //! Perf: the active line is a memo over the playback clock. The memo re-runs
 //! on each tick (a binary search), but the list re-renders only when the
 //! active line changes.
+//!
+//! Word-timed lines (karaoke) render each word as a span with its start and
+//! end. The fill as words are sung is `karaoke.js` writing a CSS variable on
+//! the active line's words each frame; Rust only hands it the clock on each
+//! tick, so no frame goes through the VDOM.
 
 use crate::api::LyricLine;
 use crate::components::song_details::actions::use_player;
+// TODO(chunk A): `src/time.rs` (`now_ms`, `sleep_ms`) replaces these homes.
+use crate::components::now_ms;
 use crate::components::ui::env::sleep_ms;
 use crate::components::AudioState;
 use crate::db::AppSettings;
+use crate::components::song_details::types::NowPlayingFocus;
 use dioxus::prelude::*;
+use std::cell::Cell;
 use std::rc::Rc;
+
+const KARAOKE_JS: &str = include_str!("karaoke.js");
 
 /// After a manual scroll, auto-scroll waits this long.
 const MANUAL_HOLD_MS: f64 = 1800.0;
+/// The focused view's transition (`--np-dur` in player.css) plus a frame.
+const FOCUS_SETTLE_MS: u64 = 330;
 /// Scroll events within this window after our own scroll are ignored.
 const PROGRAMMATIC_MS: f64 = 700.0;
 
-fn now_ms() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        js_sys::Date::now()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        use std::time::{SystemTime, UNIX_EPOCH};
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0)
-    }
-}
-
-/// Scrolls line `index` of list `dom_id` to 40% of the list's height.
+/// Scrolls line `index` of list `dom_id` to 40% of the list's height. On
+/// compact, the panel's place comes from the sheet's measurements; take them
+/// first if the sheet has only just mounted.
 fn center_line(dom_id: &str, index: usize, instant: bool) {
     let id = serde_json::to_string(dom_id).unwrap_or_default();
     let script = format!(
@@ -41,6 +41,8 @@ fn center_line(dom_id: &str, index: usize, instant: bool) {
   const c = document.getElementById({id});
   const l = document.getElementById({id} + "-line-{index}");
   if (!c || !l) return;
+  const sheet = c.closest(".rs-player-np--compact");
+  if (sheet && !sheet.style.getPropertyValue("--np-panel-top") && window.__rsNpGestures) window.__rsNpGestures.measure();
   const cr = c.getBoundingClientRect(), lr = l.getBoundingClientRect();
   const top = c.scrollTop + (lr.top - cr.top) - cr.height * 0.4 + lr.height / 2;
   const still = {instant} || matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -48,6 +50,25 @@ fn center_line(dom_id: &str, index: usize, instant: bool) {
 }})();"#
     );
     let _ = document::eval(&script);
+}
+
+/// The index of the line being sung: a memo over the playback clock and the
+/// lyrics offset (a binary search per tick; readers re-render only when the
+/// line changes). `stamps` are the lines' start times, captured once, so
+/// mount the caller with a `key` per lyrics result. Shared by the Lyrics
+/// panel and ambient mode.
+pub(crate) fn use_active_line(stamps: Rc<Vec<f64>>, live: bool) -> Memo<Option<usize>> {
+    let audio = use_context::<Signal<AudioState>>();
+    let settings = use_context::<Signal<AppSettings>>();
+    let clock = use_hook(move || audio.peek().current_time);
+    use_memo(move || {
+        if live {
+            return None;
+        }
+        let offset = settings.read().lyrics_offset_ms as f64 / 1000.0;
+        let at = clock() + offset;
+        stamps.partition_point(|stamp| *stamp <= at).checked_sub(1)
+    })
 }
 
 /// Synced lines. Mount with a `key` per lyrics result: the line timestamps
@@ -60,18 +81,45 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
     let clock = use_hook(move || audio.peek().current_time);
     let stamps: Rc<Vec<f64>> =
         use_hook(|| Rc::new(lines.iter().map(|line| line.timestamp_seconds).collect()));
-
-    let active = use_memo({
-        let stamps = stamps.clone();
-        move || {
-            if live {
-                return None;
-            }
-            let offset = settings.read().lyrics_offset_ms as f64 / 1000.0;
-            let at = clock() + offset;
-            stamps.partition_point(|stamp| *stamp <= at).checked_sub(1)
+    // Each line's word `(start, end)`s, worked out once per result.
+    let word_bounds: Rc<Vec<Vec<(f64, f64)>>> = use_hook(|| {
+        Rc::new(
+            lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    line.word_bounds(lines.get(index + 1).map(|next| next.timestamp_seconds))
+                })
+                .collect(),
+        )
+    });
+    let karaoke = word_bounds.iter().any(|bounds| !bounds.is_empty());
+    let is_playing = player.is_playing;
+    use_hook(move || {
+        if karaoke {
+            let _ = document::eval(KARAOKE_JS);
         }
     });
+    {
+        let dom_id = dom_id.clone();
+        use_effect(move || {
+            if !karaoke || live {
+                return;
+            }
+            let at = clock();
+            let playing = is_playing();
+            let offset = settings.read().lyrics_offset_ms as f64 / 1000.0;
+            if !at.is_finite() {
+                return;
+            }
+            let id = serde_json::to_string(&dom_id).unwrap_or_default();
+            let _ = document::eval(&format!(
+                "window.__rsKaraoke&&window.__rsKaraoke.clock({id},{at},{playing},{offset});"
+            ));
+        });
+    }
+
+    let active = use_active_line(stamps.clone(), live);
 
     let mut hold_until = use_signal(|| 0.0f64);
     let mut programmatic_until = use_signal(|| 0.0f64);
@@ -91,6 +139,31 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
             centered_once.set(true);
             programmatic_until.set(now_ms() + PROGRAMMATIC_MS);
             center_line(&dom_id, index, instant);
+        });
+    }
+
+    // Compact's focused view changes how much of the list shows: once the
+    // panel has moved, bring the active line back to its spot.
+    let focus = try_use_context::<NowPlayingFocus>();
+    let seen = use_hook(|| Rc::new(Cell::new(focus.map(|f| *f.0.peek()).unwrap_or(false))));
+    {
+        let dom_id = dom_id.clone();
+        use_effect(move || {
+            let Some(NowPlayingFocus(focus)) = focus else {
+                return;
+            };
+            let now = focus();
+            if seen.replace(now) == now {
+                return;
+            }
+            let dom_id = dom_id.clone();
+            spawn(async move {
+                sleep_ms(FOCUS_SETTLE_MS).await;
+                if let Some(index) = *active.peek() {
+                    programmatic_until.set(now_ms() + PROGRAMMATIC_MS);
+                    center_line(&dom_id, index, false);
+                }
+            });
         });
     }
 
@@ -131,6 +204,7 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
                         r#type: "button",
                         id: "{dom_id}-line-{index}",
                         class: "rs-player-lyric",
+                        class: if !line.words.is_empty() { "rs-player-lyric--words" },
                         class: if Some(index) == current { "rs-player-lyric--now" },
                         class: if current.map(|c| index < c).unwrap_or(false) { "rs-player-lyric--past" },
                         aria_current: if Some(index) == current { Some("true") } else { None },
@@ -145,8 +219,17 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
                         },
                         if line.text.trim().is_empty() {
                             span { aria_label: "Instrumental", "\u{266A}" }
-                        } else {
+                        } else if line.words.is_empty() {
                             "{line.text}"
+                        } else {
+                            for (word, (start, end)) in line.words.iter().zip(word_bounds[index].iter().copied()) {
+                                span {
+                                    class: "rs-player-word",
+                                    "data-s": "{start:.3}",
+                                    "data-e": "{end:.3}",
+                                    "{word.text}"
+                                }
+                            }
                         }
                     }
                 }

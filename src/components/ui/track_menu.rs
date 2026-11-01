@@ -9,22 +9,71 @@
 //! ```
 //!
 //! Actions reuse the app's existing paths: the add-to menu (`AddIntent`) for
-//! playlists, the server star/rating calls, `prefetch_song_audio` for
+//! playlists, `PlayerCtx` for favourites and ratings, `prefetch_song_audio` for
 //! downloads, `Navigation` for album/artist, and the song-details overlay for
 //! lyrics and info. After a favourite, rating or download change the
 //! controller publishes a `SongChange` so lists can update their marks.
 
-use crate::api::{NavidromeClient, ServerConfig, Song};
+use crate::api::{Capabilities, MusicClient, ServerConfig, Song};
 use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::ui::env::is_radio_song;
-use crate::components::ui::Artwork;
-use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
+use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest};
+use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{
-    AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
+    can_share, quick_listen_id, share_link, ui::StatusToast, AddIntent, AddMenuController, AppView,
+    Icon, IsPlayingSignal, Navigation, PlayerCtx, Preview, QueuePosition, ShareTarget,
     SongDetailsController, SongDetailsTab,
 };
 use crate::db::AppSettings;
 use dioxus::prelude::*;
+
+/// Opens `song`'s album, closing Now Playing (the menu's and the command
+/// palette's "Go to Album").
+pub(crate) fn go_to_album(navigation: Navigation, mut song_details: SongDetailsController, song: &Song) {
+    if let Some(album_id) = song.album_id.clone() {
+        song_details.close();
+        navigation.navigate_to(AppView::AlbumDetailView {
+            album_id,
+            server_id: song.server_id.clone(),
+        });
+    }
+}
+
+/// Opens `song`'s artist, closing Now Playing; the first named artist of a
+/// "A feat. B" credit is looked up by name.
+pub(crate) fn go_to_artist(
+    navigation: Navigation,
+    mut song_details: SongDetailsController,
+    servers: Signal<Vec<ServerConfig>>,
+    song: &Song,
+) {
+    song_details.close();
+    let names = parse_artist_names(song.artist.as_deref().unwrap_or_default());
+    if names.len() <= 1 {
+        if let Some(artist_id) = song.artist_id.clone() {
+            navigation.navigate_to(AppView::ArtistDetailView {
+                artist_id,
+                server_id: song.server_id.clone(),
+            });
+            return;
+        }
+    }
+    let Some(name) = names.into_iter().next() else {
+        return;
+    };
+    let Some(client) = MusicClient::for_source(&servers.peek(), &song.server_id) else {
+        return;
+    };
+    let server_id = song.server_id.clone();
+    spawn(async move {
+        if let Some(artist_id) = resolve_artist_id(client, name).await {
+            navigation.navigate_to(AppView::ArtistDetailView {
+                artist_id,
+                server_id,
+            });
+        }
+    });
+}
 
 /// What the menu was opened for.
 #[derive(Clone, PartialEq, Debug)]
@@ -32,6 +81,21 @@ pub struct TrackMenuRequest {
     pub song: Song,
     /// Viewport point to anchor the popover at (wide layout). None centres it.
     pub anchor: Option<(f64, f64)>,
+    /// "Remove from Queue" / "Remove from Playlist", for rows of a list the
+    /// song can be removed from.
+    pub remove: Option<TrackMenuRemove>,
+    /// Now Playing's menu: adds Sleep Timer and Playback Speed, opening the
+    /// given row.
+    pub player: Option<PlayerMenu>,
+}
+
+/// The menu's remove item: its label and the row it removes. Picking it hands
+/// the request to the list (`TrackMenuController::remove`), which removes the
+/// song the same way a swipe does, Undo toast included.
+#[derive(Clone, PartialEq, Debug)]
+pub struct TrackMenuRemove {
+    pub label: String,
+    pub request: RowRemoveRequest,
 }
 
 /// A change made from the menu that list views may want to reflect.
@@ -67,6 +131,9 @@ pub struct TrackMenuController {
     pub request: Signal<Option<TrackMenuRequest>>,
     /// Last favourite/rating/download change made from the menu.
     pub last_change: Signal<Option<SongChange>>,
+    /// A "Remove from …" picked in the menu, until its list takes it
+    /// (`use_row_gestures`).
+    pub remove: Signal<Option<RowRemoveRequest>>,
 }
 
 impl TrackMenuController {
@@ -77,12 +144,40 @@ impl TrackMenuController {
         Self {
             request,
             last_change,
+            // Created with the controller, in the shell's scope.
+            remove: Signal::new(None),
         }
     }
 
     /// Opens the menu for `song`, anchored at a viewport point if given.
     pub fn open(&mut self, song: Song, anchor: Option<(f64, f64)>) {
-        self.request.set(Some(TrackMenuRequest { song, anchor }));
+        self.open_with(song, anchor, None);
+    }
+
+    /// Opens the menu with a "Remove from …" item for the row it came from.
+    pub fn open_with(
+        &mut self,
+        song: Song,
+        anchor: Option<(f64, f64)>,
+        remove: Option<TrackMenuRemove>,
+    ) {
+        self.request.set(Some(TrackMenuRequest {
+            song,
+            anchor,
+            remove,
+            player: None,
+        }));
+    }
+
+    /// Opens Now Playing's menu for the playing song: the song's actions plus
+    /// Sleep Timer and Playback Speed, with `open` expanded.
+    pub fn open_for_player(&mut self, song: Song, anchor: Option<(f64, f64)>, open: PlayerMenu) {
+        self.request.set(Some(TrackMenuRequest {
+            song,
+            anchor,
+            remove: None,
+            player: Some(open),
+        }));
     }
 
     pub fn close(&mut self) {
@@ -92,47 +187,24 @@ impl TrackMenuController {
     }
 }
 
-fn update_song_everywhere(
-    mut queue: Signal<Vec<Song>>,
-    mut now_playing: Signal<Option<Song>>,
-    server_id: &str,
-    song_id: &str,
-    apply: impl Fn(&mut Song),
-) {
-    queue.with_mut(|items| {
-        for item in items
-            .iter_mut()
-            .filter(|s| s.id == song_id && s.server_id == server_id)
-        {
-            apply(item);
-        }
-    });
-    let playing_matches = now_playing
-        .peek()
-        .as_ref()
-        .map(|s| s.id == song_id && s.server_id == server_id)
-        .unwrap_or(false);
-    if playing_matches {
-        now_playing.with_mut(|current| {
-            if let Some(song) = current.as_mut() {
-                apply(song);
-            }
-        });
-    }
-}
-
 /// The menu card itself: tile row (Play Next, Add to Queue, Favorite), then
 /// grouped rows. Rendered by `TrackMenuHost`; usable on its own in a sheet.
 /// * `song`: the target. `show_head`: show the song "lift" header (sheets).
 /// * `popover_style`: when set, the card is a fixed-position popover with
 ///   this inline style.
+/// * `remove`: adds the list's "Remove from …" item at the end.
+/// * `player`: Now Playing's menu: Sleep Timer and Playback Speed rows
+///   (`PlayerOptions`) after the tiles, and no Quick Listen.
 #[component]
 pub fn TrackMenu(
     song: Song,
     #[props(default)] show_head: bool,
     #[props(default)] popover_style: Option<String>,
+    #[props(default)] remove: Option<TrackMenuRemove>,
+    #[props(default)] player: Option<PlayerMenu>,
 ) -> Element {
     let mut controller = use_context::<TrackMenuController>();
+    let preview = use_context::<Preview>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let queue = use_context::<Signal<Vec<Song>>>();
     let queue_index = use_context::<Signal<usize>>();
@@ -142,6 +214,8 @@ pub fn TrackMenu(
     let song_details = use_context::<SongDetailsController>();
     let navigation = use_context::<Navigation>();
     let app_settings = use_context::<Signal<AppSettings>>();
+    let toast = use_context::<StatusToast>();
+    let library = crate::components::use_player();
     let mut rate_open = use_signal(|| false);
 
     let downloaded = {
@@ -153,6 +227,14 @@ pub fn TrackMenu(
     };
 
     let radio = is_radio_song(&song);
+    // Music on the device: no server behind it for radio, Quick Listen,
+    // playlists or downloads (favourites and ratings are kept locally).
+    let local = crate::local_music::is_local_song(&song);
+    // What the song's server can do: rows for what it can't are left out
+    // (local songs keep their disabled rows, as before).
+    let caps = Capabilities::for_source(&servers.read(), &song.server_id);
+    let show_add_to_playlist = caps.playlist_edits || local;
+    let show_start_radio = caps.song_radio || local;
     let starred = song.starred.is_some();
     let rating = song.user_rating.unwrap_or(0).min(5);
     let has_album = song.album_id.is_some();
@@ -161,37 +243,45 @@ pub fn TrackMenu(
         .as_deref()
         .map(|a| !a.trim().is_empty())
         .unwrap_or(false);
-    let can_download = !cfg!(target_arch = "wasm32") && !radio;
+    let can_download = !cfg!(target_arch = "wasm32") && !radio && !local;
     let is_downloaded = downloaded().unwrap_or(false);
+    let can_quick_listen =
+        player.is_none() && !radio && !local && !app_settings.read().offline_mode;
+    let quick_listening = (preview.current)().as_deref() == Some(quick_listen_id(&song).as_str());
+    let can_share_song = !radio
+        && can_share(
+            &servers.read(),
+            &song.server_id,
+            app_settings.read().offline_mode,
+        );
+
+    // ---- Quick Listen ---------------------------------------------------
+    // Starts inside the click (the page keeps the user gesture for play()).
+    let quick_listen = {
+        let song = song.clone();
+        move |_| {
+            controller.close();
+            preview.quick_listen(song.clone(), &servers.peek());
+        }
+    };
 
     // ---- Queue actions --------------------------------------------------
     let enqueue = {
         let song = song.clone();
+        let player = PlayerCtx::from_context();
         move |next: bool| {
-            let songs = normalize_manual_queue_songs(vec![song.clone()]);
-            let (mut queue, mut queue_index, mut now_playing, mut is_playing) =
-                (queue, queue_index, now_playing, is_playing);
-            if now_playing.peek().is_none() && queue.peek().is_empty() {
-                let first = songs.first().cloned();
-                queue.set(songs);
-                queue_index.set(0);
-                now_playing.set(first);
-                is_playing.set(true);
-            } else {
-                let at = (*queue_index.peek() + 1).min(queue.peek().len());
-                queue.with_mut(|items| {
-                    if next {
-                        let tail = items.split_off(at);
-                        items.extend(songs);
-                        items.extend(tail);
-                    } else {
-                        items.extend(songs);
-                    }
-                });
-            }
+            player.enqueue(
+                vec![song.clone()],
+                if next {
+                    QueuePosition::Next
+                } else {
+                    QueuePosition::End
+                },
+            );
             controller.close();
         }
     };
+
     let play_next = {
         let mut enqueue = enqueue.clone();
         move |_| enqueue(true)
@@ -217,8 +307,11 @@ pub fn TrackMenu(
             let (mut queue, mut queue_index, mut now_playing, mut is_playing) =
                 (queue, queue_index, now_playing, is_playing);
             spawn(async move {
-                let client = NavidromeClient::new(server);
-                let mut similar = client.get_similar_songs(&seed.id, 50).await.unwrap_or_default();
+                let client = MusicClient::new(server);
+                let mut similar = client
+                    .get_similar_songs(&seed.id, 50)
+                    .await
+                    .unwrap_or_default();
                 if similar.is_empty() {
                     similar = client.get_random_songs(50).await.unwrap_or_default();
                 }
@@ -244,38 +337,13 @@ pub fn TrackMenu(
     };
 
     // ---- Library actions -------------------------------------------------
+    // `PlayerCtx` runs these in the shell's scope, so closing the menu
+    // doesn't cancel them, and they share its offline queueing.
     let toggle_favorite = {
         let song = song.clone();
         move |_| {
             controller.close();
-            let should_star = song.starred.is_none();
-            let server = servers
-                .peek()
-                .iter()
-                .find(|s| s.id == song.server_id)
-                .cloned();
-            let Some(server) = server else {
-                return;
-            };
-            let song = song.clone();
-            let mut last_change = controller.last_change;
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                let result = if should_star {
-                    client.star(&song.id, "song").await
-                } else {
-                    client.unstar(&song.id, "song").await
-                };
-                if result.is_ok() {
-                    let marker = should_star.then(|| "local".to_string());
-                    update_song_everywhere(queue, now_playing, &song.server_id, &song.id, |s| {
-                        s.starred = marker.clone();
-                    });
-                    let mut change = SongChange::for_song(&song);
-                    change.starred = Some(should_star);
-                    last_change.set(Some(change));
-                }
-            });
+            library.toggle_favorite(song.clone());
         }
     };
 
@@ -283,28 +351,7 @@ pub fn TrackMenu(
         let song = song.clone();
         move |value: u32| {
             controller.close();
-            let server = servers
-                .peek()
-                .iter()
-                .find(|s| s.id == song.server_id)
-                .cloned();
-            let Some(server) = server else {
-                return;
-            };
-            let song = song.clone();
-            let mut last_change = controller.last_change;
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                if client.set_rating(&song.id, value).await.is_ok() {
-                    let stored = (value > 0).then_some(value);
-                    update_song_everywhere(queue, now_playing, &song.server_id, &song.id, |s| {
-                        s.user_rating = stored;
-                    });
-                    let mut change = SongChange::for_song(&song);
-                    change.rating = Some(value);
-                    last_change.set(Some(change));
-                }
-            });
+            library.set_rating(song.clone(), value);
         }
     };
 
@@ -345,55 +392,17 @@ pub fn TrackMenu(
     // ---- Navigation ----------------------------------------------------------
     let go_album = {
         let song = song.clone();
-        let mut song_details = song_details.clone();
         move |_| {
             controller.close();
-            if let Some(album_id) = song.album_id.clone() {
-                song_details.close();
-                navigation.navigate_to(AppView::AlbumDetailView {
-                    album_id,
-                    server_id: song.server_id.clone(),
-                });
-            }
+            go_to_album(navigation, song_details, &song);
         }
     };
 
     let go_artist = {
         let song = song.clone();
-        let mut song_details = song_details.clone();
         move |_| {
             controller.close();
-            song_details.close();
-            let names = parse_artist_names(song.artist.as_deref().unwrap_or_default());
-            if names.len() <= 1 {
-                if let Some(artist_id) = song.artist_id.clone() {
-                    navigation.navigate_to(AppView::ArtistDetailView {
-                        artist_id,
-                        server_id: song.server_id.clone(),
-                    });
-                    return;
-                }
-            }
-            let Some(name) = names.into_iter().next() else {
-                return;
-            };
-            let server = servers
-                .peek()
-                .iter()
-                .find(|s| s.id == song.server_id)
-                .cloned();
-            let Some(server) = server else {
-                return;
-            };
-            let server_id = song.server_id.clone();
-            spawn(async move {
-                if let Some(artist_id) = resolve_artist_id_for_name(server, name).await {
-                    navigation.navigate_to(AppView::ArtistDetailView {
-                        artist_id,
-                        server_id,
-                    });
-                }
-            });
+            go_to_artist(navigation, song_details, servers, &song);
         }
     };
 
@@ -414,6 +423,22 @@ pub fn TrackMenu(
     let show_info = {
         let mut open_details = open_details.clone();
         move |_| open_details(SongDetailsTab::Details)
+    };
+
+    let share = {
+        let song = song.clone();
+        move |_| {
+            controller.close();
+            share_link(
+                &servers.peek(),
+                toast,
+                ShareTarget {
+                    server_id: song.server_id.clone(),
+                    id: song.id.clone(),
+                    title: song.title.clone(),
+                },
+            );
+        }
     };
 
     let subtitle = song.artist.clone().unwrap_or_default();
@@ -490,25 +515,48 @@ pub fn TrackMenu(
                 }
             }
             div { class: "rs-menu__gap", aria_hidden: "true" }
-            button {
-                r#type: "button",
-                class: "rs-menu__item",
-                role: "menuitem",
-                disabled: radio,
-                "data-testid": "track-menu-add-to-playlist",
-                onclick: add_to_playlist,
-                "Add to Playlist…"
-                Icon { name: "playlist".to_string(), class: "rs-ic".to_string() }
+            if let Some(open) = player {
+                PlayerOptions {
+                    open,
+                    radio,
+                    on_done: move |_| controller.close(),
+                }
+                div { class: "rs-menu__gap", aria_hidden: "true" }
             }
-            button {
-                r#type: "button",
-                class: "rs-menu__item",
-                role: "menuitem",
-                disabled: radio,
-                "data-testid": "track-menu-start-radio",
-                onclick: start_radio,
-                "Start Radio from Song"
-                Icon { name: "radio".to_string(), class: "rs-ic".to_string() }
+            if can_quick_listen {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    "data-testid": "track-menu-quick-listen",
+                    onclick: quick_listen,
+                    if quick_listening { "Stop Quick Listen" } else { "Quick Listen" }
+                    Icon { name: "headphones".to_string(), class: "rs-ic".to_string() }
+                }
+            }
+            if show_add_to_playlist {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    disabled: radio || local,
+                    "data-testid": "track-menu-add-to-playlist",
+                    onclick: add_to_playlist,
+                    "Add to Playlist…"
+                    Icon { name: "playlist".to_string(), class: "rs-ic".to_string() }
+                }
+            }
+            if show_start_radio {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    disabled: radio || local,
+                    "data-testid": "track-menu-start-radio",
+                    onclick: start_radio,
+                    "Start Radio from Song"
+                    Icon { name: "radio".to_string(), class: "rs-ic".to_string() }
+                }
             }
             button {
                 r#type: "button",
@@ -531,26 +579,28 @@ pub fn TrackMenu(
                 Icon { name: "artist".to_string(), class: "rs-ic".to_string() }
             }
             div { class: "rs-menu__gap", aria_hidden: "true" }
-            button {
-                r#type: "button",
-                class: "rs-menu__item",
-                role: "menuitem",
-                aria_haspopup: "menu",
-                aria_expanded: if rate_open() { "true" } else { "false" },
-                disabled: radio,
-                "data-testid": "track-menu-rate",
-                onclick: move |_| rate_open.toggle(),
-                if rating > 0 {
-                    "Rate ({rating} of 5)"
-                } else {
-                    "Rate"
-                }
-                Icon {
-                    name: if rate_open() { "chevron-down".to_string() } else { "chevron-right".to_string() },
-                    class: "rs-ic rs-ic--sm rs-menu__sub".to_string(),
+            if caps.star_ratings {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    aria_haspopup: "menu",
+                    aria_expanded: if rate_open() { "true" } else { "false" },
+                    disabled: radio,
+                    "data-testid": "track-menu-rate",
+                    onclick: move |_| rate_open.toggle(),
+                    if rating > 0 {
+                        "Rate ({rating} of 5)"
+                    } else {
+                        "Rate"
+                    }
+                    Icon {
+                        name: if rate_open() { "chevron-down".to_string() } else { "chevron-right".to_string() },
+                        class: "rs-ic rs-ic--sm rs-menu__sub".to_string(),
+                    }
                 }
             }
-            if rate_open() {
+            if caps.star_ratings && rate_open() {
                 div {
                     class: "rs-menu__stars",
                     role: "group",
@@ -618,6 +668,33 @@ pub fn TrackMenu(
                 onclick: show_info,
                 "Song Info"
                 Icon { name: "info".to_string(), class: "rs-ic".to_string() }
+            }
+            if can_share_song {
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item",
+                    role: "menuitem",
+                    "data-testid": "track-menu-share",
+                    onclick: share,
+                    "Share Link…"
+                    Icon { name: "share".to_string(), class: "rs-ic".to_string() }
+                }
+            }
+            if let Some(remove) = remove.clone() {
+                div { class: "rs-menu__gap", aria_hidden: "true" }
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item rs-menu__item--danger",
+                    role: "menuitem",
+                    "data-testid": "track-menu-remove",
+                    onclick: move |_| {
+                        controller.close();
+                        let mut pending = controller.remove;
+                        pending.set(Some(remove.request.clone()));
+                    },
+                    "{remove.label}"
+                    Icon { name: "trash".to_string(), class: "rs-ic".to_string() }
+                }
             }
         }
     }

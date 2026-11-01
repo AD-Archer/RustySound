@@ -1,17 +1,5 @@
 // Core add-target models and controller state.
 
-const QUICK_PREVIEW_DURATION_MS: u64 = 12000;
-
-#[cfg(not(target_arch = "wasm32"))]
-async fn quick_preview_delay_ms(ms: u64) {
-    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-}
-
-#[cfg(target_arch = "wasm32")]
-async fn quick_preview_delay_ms(ms: u64) {
-    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
-}
-
 #[derive(Clone)]
 #[allow(dead_code)]
 pub enum AddTarget {
@@ -104,8 +92,4 @@ enum SuggestionDestination {
         playlist_id: String,
         server_id: String,
     },
-}
-
-fn song_key(song: &Song) -> String {
-    format!("{}::{}", song.server_id, song.id)
 }

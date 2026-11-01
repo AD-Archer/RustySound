@@ -1,8 +1,12 @@
-//! Settings → Servers: the server list, enable/disable, edit, delete, add.
+//! Settings → Servers: the server list, enable/disable, edit, delete, add,
+//! the sync server (`sync_server.rs`), and (Mac and iPhone) the music on
+//! this device.
 
 use super::server_form::{format_connection_error, ServerSheet};
+use super::local_music::LocalMusicGroup;
 use super::shared::{use_settings_ctx, ActionRow, Footnote};
-use crate::api::{NavidromeClient, ServerConfig};
+use super::sync_server::SyncServerGroup;
+use crate::api::{MusicClient, ServerConfig};
 use crate::components::ui::{
     Button, ButtonVariant, EmptyState, Sheet, Switch,
 };
@@ -58,7 +62,7 @@ pub(super) fn ServersSection() -> Element {
             });
             spawn(async move {
                 let id = server.id.clone();
-                let result = NavidromeClient::new(server).ping().await;
+                let result = MusicClient::new(server).ping().await;
                 reach.with_mut(|map| {
                     map.insert(
                         id,
@@ -76,6 +80,8 @@ pub(super) fn ServersSection() -> Element {
     let active_count = list.iter().filter(|s| s.active).count();
 
     rsx! {
+        // Only there while offline changes wait.
+        crate::components::offline_sync::PendingSyncLine {}
         if list.is_empty() {
             EmptyState {
                 icon: "server".to_string(),
@@ -126,6 +132,16 @@ pub(super) fn ServersSection() -> Element {
                     onclick: move |_| overlay.set(Overlay::Add),
                 }
             }
+        }
+
+        // Remote control and the media cache, per Subsonic server.
+        if !list.is_empty() {
+            SyncServerGroup {}
+        }
+
+        // The device's own music is a source beside the servers.
+        if crate::local_music::SUPPORTED {
+            LocalMusicGroup {}
         }
 
         match overlay() {

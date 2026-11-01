@@ -3,7 +3,19 @@
 /// Largest cover-art edge requested from the server, in pixels.
 const COVER_ART_MAX_PX: u32 = 1200;
 
+/// What a Subsonic call builds for a Jellyfin server: a URL no request can
+/// load, so a feature only Subsonic has fails at once instead of asking the
+/// Jellyfin server for `/rest/…`. Views hide those features from
+/// `Capabilities`; this covers any call site that doesn't.
+const SUBSONIC_ONLY_URL: &str = "unsupported://subsonic-only";
+
 impl NavidromeClient {
+    /// A client for the configured server with this id, for server-only
+    /// features (library calls go through `MusicClient::for_source`).
+    pub fn for_id(servers: &[ServerConfig], id: &str) -> Option<Self> {
+        ServerConfig::find(servers, id).cloned().map(Self::new)
+    }
+
     pub fn new(server: ServerConfig) -> Self {
         Self { server }
     }
@@ -46,8 +58,28 @@ impl NavidromeClient {
 
         format!(
             "u={}&t={}&s={}&v={}&c={}&f=json",
-            self.server.username, token, salt, API_VERSION, CLIENT_NAME
+            self.server.username,
+            token,
+            salt,
+            API_VERSION,
+            urlencoding_simple(client_name())
         )
+    }
+
+    /// The token and salt (`t`, `s`) of `auth_params`, cached for the
+    /// session, for the sync server's `hello` and media requests: the same
+    /// login as `/rest` calls, so its verification cache hits on reconnects.
+    /// Never log them.
+    pub fn sync_auth(&self) -> (String, String) {
+        let params = self.auth_params();
+        let get = |key: &str| {
+            params
+                .split('&')
+                .find_map(|pair| pair.strip_prefix(key))
+                .unwrap_or_default()
+                .to_string()
+        };
+        (get("t="), get("s="))
     }
 
     fn auth_params_for_binary(&self) -> String {
@@ -57,6 +89,9 @@ impl NavidromeClient {
     fn build_url(&self, endpoint: &str, extra_params: &[(&str, &str)]) -> String {
         if is_offline_mode() {
             return "offline://network-blocked".to_string();
+        }
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
         }
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
@@ -71,6 +106,9 @@ impl NavidromeClient {
     fn build_url_owned(&self, endpoint: &str, extra_params: Vec<(String, String)>) -> String {
         if is_offline_mode() {
             return "offline://network-blocked".to_string();
+        }
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
         }
         let auth = self.auth_params();
         let mut url = format!("{}/rest/{}?{}", self.server.url, endpoint, auth);
@@ -90,6 +128,9 @@ impl NavidromeClient {
     }
 
     fn native_base_url(&self, path: &str) -> String {
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         format!(
             "{}/{}",
             self.server.url.trim_end_matches('/'),
@@ -279,6 +320,7 @@ impl NavidromeClient {
                 genre,
                 server_id: self.server.id.clone(),
                 server_name: self.server.name.clone(),
+                replay_gain: None,
                 queue_meta: None,
             };
             normalize_song_cover_art(&mut song);
@@ -288,6 +330,7 @@ impl NavidromeClient {
         songs
     }
 
+    #[deprecated(note = "use get_native_song_page(\"play_count\", false, start, end - start)")]
     pub async fn get_native_songs(
         &self,
         sort: NativeSongSortField,
@@ -298,42 +341,9 @@ impl NavidromeClient {
         if end < start {
             return Ok(Vec::new());
         }
-
-        let url = self.native_base_url(&format!(
-            "api/song?_start={}&_end={}&_sort={}&_order={}",
-            start,
-            end,
-            sort.as_query_value(),
-            order.as_query_value()
-        ));
-
-        for attempt in 0..2 {
-            let session = self.ensure_native_auth_session().await?;
-            let response = HTTP_CLIENT
-                .get(&url)
-                .header("x-nd-authorization", format!("Bearer {}", session.token))
-                .header("x-nd-client-unique-id", session.client_unique_id)
-                .send()
-                .await
-                .map_err(|e| e.to_string())?;
-
-            if response.status() == reqwest::StatusCode::UNAUTHORIZED && attempt == 0 {
-                self.clear_native_auth_session();
-                continue;
-            }
-
-            if !response.status().is_success() {
-                return Err(format!(
-                    "Native songs request failed with status {}",
-                    response.status()
-                ));
-            }
-
-            let payload: serde_json::Value = response.json().await.map_err(|e| e.to_string())?;
-            return Ok(self.normalize_native_song_list(payload));
-        }
-
-        Err("Native songs request could not be authorized.".to_string())
+        let NativeSortOrder::Desc = order;
+        self.get_native_song_page(sort.as_query_value(), false, start, end - start)
+            .await
     }
 
     pub fn get_cover_art_url(&self, cover_art_id: &str, size: u32) -> String {
@@ -371,31 +381,57 @@ impl NavidromeClient {
     /// Cover URL for an `<img>` in the UI. Cheap enough to call while rendering:
     /// native webview builds get the local cover route (served and cached off the
     /// main thread, see `offline_art::use_cover_art_handler`), never a data URL;
-    /// the web build gets the server URL.
+    /// the web build gets the server URL. With a sync server that resizes
+    /// covers (`remote_sync::media::art_url` decides), its small WebP is used
+    /// instead, falling back to the server's (natively in the cover route,
+    /// on the web in `Artwork`'s `onerror`).
     pub fn get_cover_art_display_url(&self, cover_art_id: &str, size: u32) -> String {
+        let requested_size = size.min(COVER_ART_MAX_PX);
+        let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
+        let sync_art = crate::components::remote_sync::media::art_url(
+            &self.server,
+            &normalized_cover_art_id,
+            requested_size,
+        );
         #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
         {
-            let requested_size = size.min(COVER_ART_MAX_PX);
-            let normalized_cover_art_id = normalize_cover_art_id(cover_art_id);
             if normalized_cover_art_id.is_empty() {
                 return String::new();
             }
             let remote_url =
                 self.build_cover_art_network_url(&normalized_cover_art_id, requested_size);
-            crate::offline_art::cover_art_display_url(
-                &self.server.id,
-                &normalized_cover_art_id,
-                requested_size,
-                &remote_url,
-            )
+            match sync_art {
+                Some(art_url) => crate::offline_art::cover_art_display_url_via_sync(
+                    &self.server.id,
+                    &normalized_cover_art_id,
+                    requested_size,
+                    &art_url,
+                    &remote_url,
+                ),
+                None => crate::offline_art::cover_art_display_url(
+                    &self.server.id,
+                    &normalized_cover_art_id,
+                    requested_size,
+                    &remote_url,
+                ),
+            }
         }
         #[cfg(not(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile"))))]
         {
-            self.get_cover_art_url(cover_art_id, size)
+            sync_art.unwrap_or_else(|| self.get_cover_art_url(cover_art_id, size))
         }
     }
 
+    /// The cover's URL on the server (never a cached copy), for a device
+    /// that fetches it itself: a network speaker.
+    pub fn get_cover_art_network_url(&self, cover_art_id: &str, size: u32) -> String {
+        self.build_cover_art_network_url(&normalize_cover_art_id(cover_art_id), size.min(COVER_ART_MAX_PX))
+    }
+
     fn build_cover_art_network_url(&self, cover_art_id: &str, requested_size: u32) -> String {
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         let auth = self.auth_params_for_binary();
         format!(
             "{}/rest/getCoverArt?{}&id={}&size={}",
@@ -408,6 +444,9 @@ impl NavidromeClient {
 
     #[allow(dead_code)]
     pub fn get_stream_url(&self, song_id: &str) -> String {
+        if self.server.is_jellyfin() {
+            return SUBSONIC_ONLY_URL.to_string();
+        }
         let auth = self.auth_params_for_binary();
         format!(
             "{}/rest/stream?{}&id={}",

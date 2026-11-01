@@ -1,12 +1,12 @@
 //! Library cards for the Home shelves: albums (open; hover play on wide),
 //! server playlists (open) and songs (play; "…" opens the track menu).
 
-use super::actions::{play_album, use_player, Toast};
+use super::actions::play_album;
 use super::shelf::Card;
 use crate::api::discovery::{DiscoverAlbum, DiscoverSong};
-use crate::api::{Playlist, ServerConfig, Song};
-use crate::components::ui::{Artwork, TrackMenuController};
-use crate::components::{AppView, Icon, Navigation};
+use crate::api::{Playlist, Song};
+use crate::components::ui::{Artwork, StatusToast, TrackMenuController};
+use crate::components::{use_player, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 /// Artwork request size for a card (the card is ~150–220 CSS px wide).
@@ -18,8 +18,7 @@ pub const CARD_ART_PX: u32 = 200;
 #[component]
 pub fn AlbumCard(pick: DiscoverAlbum, #[props(default)] show_reason: bool) -> Element {
     let navigation = use_context::<Navigation>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let toast = use_context::<Toast>();
+    let toast = use_context::<StatusToast>();
     let player = use_player();
     let album = pick.album.clone();
     let target = AppView::AlbumDetailView {
@@ -48,7 +47,7 @@ pub fn AlbumCard(pick: DiscoverAlbum, #[props(default)] show_reason: bool) -> El
                     class: "rs-hcard__play rs-hcard__play--hover",
                     aria_label: "Play {album.name}",
                     title: "Play",
-                    onclick: move |_| play_album(player, toast, servers, to_play.clone()),
+                    onclick: move |_| play_album(player, toast, to_play.clone()),
                     Icon { name: "play".to_string(), class: "rs-ic rs-ic--sm".to_string() }
                 }
             },
@@ -99,7 +98,7 @@ pub fn PlaylistCard(playlist: Playlist) -> Element {
 #[component]
 pub fn SongCard(pick: DiscoverSong, index: usize, queue: Memo<Vec<Song>>) -> Element {
     let player = use_player();
-    let toast = use_context::<Toast>();
+    let toast = use_context::<StatusToast>();
     let menu = use_context::<TrackMenuController>();
     let song = pick.song.clone();
     let menu_song = song.clone();
@@ -119,7 +118,7 @@ pub fn SongCard(pick: DiscoverSong, index: usize, queue: Memo<Vec<Song>>) -> Ele
                 }
             },
             onclick: move |_| {
-                if let Err(message) = player.play_at(queue.peek().clone(), index) {
+                if let Err(message) = player.play(queue.peek().clone(), index, None) {
                     toast.show(message, true);
                 }
             },

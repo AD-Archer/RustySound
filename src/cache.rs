@@ -4,22 +4,10 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::Duration;
-#[cfg(not(target_arch = "wasm32"))]
-use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Also the serde default for entries saved without a timestamp.
 fn now_timestamp_millis() -> u64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        return js_sys::Date::now().max(0.0).round() as u64;
-    }
-
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|duration| duration.as_millis() as u64)
-            .unwrap_or(0)
-    }
+    crate::time::now_ms() as u64
 }
 
 fn deserialize_timestamp_millis<'de, D>(deserializer: D) -> Result<u64, D::Error>

@@ -2,7 +2,8 @@
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 fn ensure_native_audio_bridge() {
     let _ = document::eval(NATIVE_AUDIO_BOOTSTRAP_JS);
@@ -18,12 +19,18 @@ fn ensure_native_audio_bridge() {
     let _ = with_ios_player(|_| ());
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn ensure_native_audio_bridge() {
+    let _ = android_audio();
+}
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     ensure_native_audio_bridge();
     let payload = serde_json::to_string(&value).unwrap_or_else(|_| "{}".to_string());
     let script = format!(
@@ -38,12 +45,12 @@ fn native_audio_command(value: serde_json::Value) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     let _ = with_windows_player(|player| player.apply(value));
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn native_audio_command(value: serde_json::Value) {
+fn local_audio_command(value: serde_json::Value) {
     let cmd_type = value
         .get("type")
         .and_then(|raw| raw.as_str())
@@ -52,12 +59,18 @@ fn native_audio_command(value: serde_json::Value) {
     let _ = with_ios_player(|player| player.apply(value));
 }
 
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+fn local_audio_command(value: serde_json::Value) {
+    android_audio_apply(&value);
+}
+
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     ensure_native_audio_bridge();
     let eval = document::eval(
         r#"return (function () {
@@ -83,19 +96,25 @@ async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "windows"))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_windows_player(|player| player.snapshot())
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-async fn native_audio_snapshot() -> Option<NativeAudioSnapshot> {
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
     with_ios_player(|player| player.snapshot())
+}
+
+#[cfg(all(not(target_arch = "wasm32"), target_os = "android"))]
+async fn local_audio_snapshot() -> Option<NativeAudioSnapshot> {
+    android_audio_snapshot()
 }
 
 #[cfg(all(
     not(target_arch = "wasm32"),
     not(target_os = "ios"),
-    not(target_os = "windows")
+    not(target_os = "windows"),
+    not(target_os = "android")
 ))]
 async fn native_delay_ms(ms: u64) {
     let script = format!(
@@ -112,63 +131,101 @@ async fn native_delay_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+#[cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "android")))]
 async fn native_delay_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
+/// What the lock screen, MediaSession and the Now Playing widgets show for a
+/// song: one builder for every platform. Radio shows the station as the
+/// artist and "LIVE" as the album; songs add their year to the album.
+struct TrackLabels {
+    title: String,
+    artist: String,
+    album: String,
+    /// Cover URL (512 px) from the song's server.
+    artwork: Option<String>,
+    /// Native lock screens show no scrubber for radio (MediaSession infers it).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    is_live: bool,
+}
+
+// TODO(chunk A): `Song::is_radio()` replaces the `server_name` check.
+fn track_labels(song: &Song, servers: &[ServerConfig]) -> TrackLabels {
     let is_live = song.server_name == "Radio";
+    let named = |value: &Option<String>| value.clone().filter(|value| !value.trim().is_empty());
     let title = if is_live && song.title.trim().eq_ignore_ascii_case("unknown song") {
-        song.artist
-            .clone()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "Unknown Song".to_string())
+        named(&song.artist).unwrap_or_else(|| "Unknown Song".to_string())
+    } else if song.title.trim().is_empty() {
+        "Unknown Song".to_string()
     } else {
         song.title.clone()
     };
-    let artist = song
-        .artist
-        .clone()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            if is_live {
-                "Internet Radio".to_string()
-            } else {
-                "Unknown Artist".to_string()
-            }
-        });
-
-    let mut album = if is_live {
+    let artist = named(&song.artist).unwrap_or_else(|| {
+        if is_live { "Internet Radio" } else { "Unknown Artist" }.to_string()
+    });
+    let album = if is_live {
         "LIVE".to_string()
     } else {
-        song.album
-            .clone()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "Unknown Album".to_string())
-    };
-    if !is_live {
-        if let Some(year) = song.year {
-            album = format!("{album} ({year})");
+        let album = named(&song.album).unwrap_or_else(|| "Unknown Album".to_string());
+        match song.year {
+            Some(year) => format!("{album} ({year})"),
+            None => album,
         }
-    }
-
+    };
     let artwork = servers
         .iter()
         .find(|s| s.id == song.server_id)
         .and_then(|server| {
             song.cover_art
                 .as_ref()
-                .map(|cover| NavidromeClient::new(server.clone()).get_cover_art_url(cover, 512))
+                .map(|cover| MusicClient::new(server.clone()).get_cover_art_url(cover, 512))
         });
-
-    NativeTrackMetadata {
+    TrackLabels {
         title,
         artist,
         album,
         artwork,
-        duration: song.duration as f64,
         is_live,
     }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
+    let labels = track_labels(song, servers);
+    NativeTrackMetadata {
+        title: labels.title,
+        artist: labels.artist,
+        album: labels.album,
+        artwork: labels.artwork,
+        duration: song.duration as f64,
+        is_live: labels.is_live,
+    }
+}
+
+/// The Now Playing widget's view of a track: the same strings the lock
+/// screen shows. `artwork_key` is the cover URL without its auth salt
+/// ([`artwork_cache_key`]).
+#[cfg(any(target_os = "ios", all(feature = "desktop", target_os = "macos")))]
+fn widget_track(meta: &NativeTrackMetadata, artwork_key: Option<&str>) -> crate::now_playing_widget::WidgetTrack {
+    crate::now_playing_widget::WidgetTrack {
+        title: meta.title.clone(),
+        artist: meta.artist.clone(),
+        album: meta.album.clone(),
+        cover: artwork_key.map(crate::now_playing_widget::cover_id),
+        duration: meta.duration,
+        live: meta.is_live,
+    }
+}
+
+/// [`widget_track`] for a song (the Mac widget), plus the cover URL to fetch.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+pub(crate) fn widget_track_for_song(
+    song: &Song,
+    servers: &[ServerConfig],
+) -> (crate::now_playing_widget::WidgetTrack, Option<String>) {
+    let meta = song_metadata(song, servers);
+    let artwork = meta.artwork.clone().filter(|url| !url.trim().is_empty());
+    let key = artwork.as_deref().map(artwork_cache_key);
+    (widget_track(&meta, key.as_deref()), artwork)
 }

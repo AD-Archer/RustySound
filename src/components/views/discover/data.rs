@@ -53,7 +53,7 @@ impl HomeData {
 }
 
 /// Creates Home's data, provides it as context and drives the loads.
-pub fn use_home_data(servers: Signal<Vec<ServerConfig>>, settings: Signal<AppSettings>) -> HomeData {
+pub fn use_home_data(servers: Memo<Vec<ServerConfig>>, settings: Signal<AppSettings>) -> HomeData {
     let active = use_memo(move || {
         servers
             .read()

@@ -1,0 +1,20 @@
+[
+  {"dir": "client", "json": {"id": "h1", "type": "hello", "v": 1, "server": "https://music.example.com", "user": "alice", "auth": {"t": "26719a1196d2a940705a59634eb18eab", "s": "c19b2d"}, "device": {"id": "6f1c2e0a-mac", "name": "Mac", "platform": "mac", "can_play": true}}},
+  {"dir": "client", "json": {"type": "hello", "v": 1, "server": "https://music.example.com", "user": "alice", "auth": {"apiKey": "nd_9f8e7d6c5b4a"}, "device": {"id": "b2a4-web", "name": "Living room", "platform": "web", "can_play": true}}},
+  {"dir": "server", "json": {"ts": 1767225600120, "type": "welcome", "v": 1, "device_id": "6f1c2e0a-mac", "devices": [{"id": "a91d-iphone", "name": "iPhone", "platform": "ios", "can_play": true, "active": true}, {"id": "6f1c2e0a-mac", "name": "Mac", "platform": "mac", "can_play": true, "active": false}], "queue": {"from": "a91d-iphone", "at": 1767225590000, "rev": 7, "ids": ["tr-10", "tr-11", "tr-12"]}, "state": {"from": "a91d-iphone", "at": 1767225598000, "track_id": "tr-11", "queue_rev": 7, "index": 1, "position_ms": 61500, "playing": true, "rate": 1.0, "volume": 0.8, "sent_at": 1767225597950}, "limits": {"max_message_bytes": 524288, "max_queue_len": 10000, "max_devices": 16, "rate_per_sec": 20, "rate_burst": 60, "ping_interval_ms": 20000}}},
+  {"dir": "client", "json": {"type": "state", "track_id": "tr-11", "queue_rev": 7, "index": 1, "position_ms": 61500, "playing": true, "rate": 1.0, "volume": 0.8, "sent_at": 1767225597950}},
+  {"dir": "client", "json": {"id": "q8", "type": "queue", "rev": 8, "ids": ["tr-10", "tr-11", "tr-12", "tr-13"]}},
+  {"dir": "client", "json": {"id": "c1", "type": "cmd", "target": "a91d-iphone", "op": {"kind": "pause"}}},
+  {"dir": "client", "json": {"id": "c2", "type": "cmd", "target": "a91d-iphone", "op": {"kind": "seek", "ms": 90000}}},
+  {"dir": "client", "json": {"id": "c3", "type": "cmd", "target": "6f1c2e0a-mac", "op": {"kind": "play_queue", "ids": ["tr-20", "tr-21"], "index": 0, "ms": 0}}},
+  {"dir": "client", "json": {"id": "c4", "type": "cmd", "target": "6f1c2e0a-mac", "op": {"kind": "transfer"}}},
+  {"dir": "client", "json": {"type": "time", "client_at": 1767225600000}},
+  {"dir": "server", "json": {"ts": 1767225600300, "type": "devices", "devices": [{"id": "a91d-iphone", "name": "iPhone", "platform": "ios", "can_play": true, "active": false}, {"id": "6f1c2e0a-mac", "name": "Mac", "platform": "mac", "can_play": true, "active": true}]}},
+  {"dir": "server", "json": {"ts": 1767225600002, "type": "state", "from": "a91d-iphone", "at": 1767225600001, "track_id": "tr-11", "queue_rev": 7, "index": 1, "position_ms": 64000, "playing": true, "rate": 1.0, "volume": 0.8, "sent_at": 1767225599990}},
+  {"dir": "server", "json": {"ts": 1767225601000, "type": "queue", "from": "a91d-iphone", "at": 1767225601000, "rev": 8, "ids": ["tr-10", "tr-11", "tr-12", "tr-13"]}},
+  {"dir": "server", "json": {"ts": 1767225602000, "type": "cmd", "from": "6f1c2e0a-mac", "op": {"kind": "seek", "ms": 90000}}},
+  {"dir": "server", "json": {"ts": 1767225603000, "type": "cmd", "from": "a91d-iphone", "op": {"kind": "play_queue", "ids": ["tr-10", "tr-11", "tr-12"], "index": 1, "ms": 66500}, "transfer": true}},
+  {"dir": "server", "json": {"ts": 1767225602001, "type": "ack", "id": "c2"}},
+  {"dir": "server", "json": {"ts": 1767225602001, "type": "error", "id": "c9", "code": "unknown_target", "message": "no device \"tv\" in this room"}},
+  {"dir": "server", "json": {"ts": 1767225600020, "type": "time", "client_at": 1767225600000, "server_at": 1767225600020}}
+]
