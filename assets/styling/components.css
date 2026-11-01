@@ -294,52 +294,53 @@
   border-color: color-mix(in srgb, var(--danger) 60%, var(--stage-line));
 }
 
-/* Undo after removing a song from a list: low, above the player, and
-   pressable (the base capsule ignores the pointer). */
-.rs-capsule--undo {
-  top: auto;
-  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 20px);
-  gap: var(--sp-5);
-  max-width: min(440px, calc(100vw - 32px));
-  padding: 4px 4px 4px 14px;
-  pointer-events: auto;
-  animation-name: rs-rise-in;
-}
-
-.rs-app[data-layout="wide"] .rs-capsule--undo {
-  bottom: calc(var(--bar-h) + 28px);
-}
-
-/* Quick Listen: the same spot, with the song and a stop button carrying
-   the clip's progress ring. */
-.rs-capsule--preview {
-  top: auto;
-  bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 20px);
-  gap: var(--sp-4);
-  max-width: min(400px, calc(100vw - 32px));
-  padding: 6px 8px 6px 6px;
-  pointer-events: auto;
-  animation-name: rs-rise-in;
-}
-
-.rs-app[data-layout="wide"] .rs-capsule--preview {
-  bottom: calc(var(--bar-h) + 28px);
-}
-
-/* "Continue from iPhone": the same spot, fading up gently. The text is
-   the button; the cross dismisses. */
+/* Low capsules, above the player and pressable (the base capsule ignores
+   the pointer): Undo after removing a song, Quick Listen, and "Continue
+   from iPhone". They can show at once, so each lifts above the ones below
+   it: Undo lowest, then Quick Listen, then Continue. */
+.rs-capsule--undo,
+.rs-capsule--preview,
 .rs-capsule--continue {
   top: auto;
   bottom: calc(var(--tabbar-h) + var(--safe-bottom) + var(--mini-h) + 20px);
-  gap: var(--sp-2);
   max-width: min(440px, calc(100vw - 32px));
-  padding: 4px;
   pointer-events: auto;
-  animation: rs-capsule-rise var(--dur-flow) var(--ease-out);
+  animation-name: rs-rise-in;
+  transition: translate var(--dur-med) var(--ease-out);
 }
 
-.rs-app[data-layout="wide"] .rs-capsule--continue {
+.rs-app[data-layout="wide"] :is(.rs-capsule--undo, .rs-capsule--preview, .rs-capsule--continue) {
   bottom: calc(var(--bar-h) + 28px);
+}
+
+.rs-app:has(.rs-capsule--undo) { --rs-lift-undo: 1; }
+.rs-app:has(.rs-capsule--preview) { --rs-lift-preview: 1; }
+
+.rs-capsule--preview {
+  translate: 0 calc(var(--rs-lift-undo, 0) * -64px);
+}
+
+.rs-capsule--continue {
+  translate: 0 calc((var(--rs-lift-undo, 0) + var(--rs-lift-preview, 0)) * -64px);
+}
+
+.rs-capsule--undo {
+  gap: var(--sp-5);
+  padding: 4px 4px 4px 14px;
+}
+
+/* Quick Listen: the song and a stop button carrying the clip's progress ring. */
+.rs-capsule--preview {
+  gap: var(--sp-4);
+  max-width: min(400px, calc(100vw - 32px));
+  padding: 6px 8px 6px 6px;
+}
+
+/* "Continue from iPhone": the text is the button; the cross dismisses. */
+.rs-capsule--continue {
+  gap: var(--sp-2);
+  padding: 4px;
+  animation: rs-capsule-rise var(--dur-flow) var(--ease-out);
 }
 
 .rs-capsule__main {
