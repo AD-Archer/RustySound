@@ -1,15 +1,17 @@
 //! The Stage UI kit. One component per file; styles live in
 //! `assets/styling/components.css` (classes prefixed `rs-`).
 //!
-//! Phase-2 views build from these. To add a component, add a new file here
-//! and register it below; don't restyle existing kit classes from a view.
-
-// The kit is consumed by phase-2 views; until they land, parts are unused.
-#![allow(dead_code, unused_imports)]
+//! Views build from these. To add a component, add a new file here and
+//! register it below; don't restyle existing kit classes from a view.
+//!
+//! Gestures are JavaScript (`*.js` here, each loaded after the shared
+//! `gesture_core.js`), so they run in the iOS WKWebView too and cost no
+//! Rust work per move: `edge_swipe`, `page_transition`, `row_gestures`
+//! (long-press, swipes, reorder, carry), `cover_flow` and `sheet_swipe`.
 
 mod artwork;
-mod artwork_mosaic;
 mod button;
+mod collection_actions;
 mod cover_flow;
 mod edge_swipe;
 mod empty_state;
@@ -33,10 +35,13 @@ mod segmented;
 mod sheet;
 mod sidebar;
 mod skeleton;
+mod song_drop;
+mod states;
 mod status_toast;
 mod stage;
 mod switch;
 mod tab_bar;
+mod tiles;
 mod track_menu;
 mod track_menu_host;
 mod track_row;
@@ -46,19 +51,17 @@ mod virtual_list;
 mod window_drag;
 
 pub use artwork::Artwork;
-pub use artwork_mosaic::ArtworkMosaic;
 pub use button::{Button, ButtonSize, ButtonVariant};
+pub use collection_actions::CollectionActions;
 pub use cover_flow::{CoverFlow, CoverFlowItem};
 pub use edge_swipe::EdgeSwipe;
 pub use empty_state::EmptyState;
 pub use eq_curve::EqCurve;
-pub use env::{
-    cover_art_src, cover_art_url, format_clock, use_layout, Layout, LayoutSignal, COMPACT_MAX_WIDTH,
-};
+pub use env::{cover_art_src, format_clock, use_layout, LayoutSignal};
 pub use icon_button::{IconButton, IconButtonSize};
 pub use inset_list::{InsetList, ListInset};
 pub use list_row::ListRow;
-pub use long_press::{use_long_press, LongPress};
+pub use long_press::use_long_press;
 pub use menu::{Menu, MenuAction, MenuGap, MenuItem};
 pub use page_transition::PageTransition;
 pub use playback::{MiniProgressLine, PlaybackProgress, PlaybackTime};
@@ -72,19 +75,23 @@ pub use row_gestures::{
 pub use search_field::SearchField;
 pub use section_header::SectionHeader;
 pub use segmented::Segmented;
-pub use sheet::Sheet;
+pub use sheet::{MenuSheet, Sheet};
 pub use sidebar::{radio_available, Sidebar};
 pub use skeleton::Skeleton;
+pub use states::{ErrorState, GridSkeleton, LoadMore, NoServers, PageFoot};
 pub use stage::Stage;
 pub use status_toast::{StatusToast, StatusToastHost};
 pub use switch::Switch;
 pub use tab_bar::TabBar;
+pub use tiles::{AlbumTile, ArtistTile};
 pub use track_menu::{
-    SongChange, TrackMenu, TrackMenuController, TrackMenuRemove, TrackMenuRequest,
+    KitQueue, SongChange, TrackMenu, TrackMenuController, TrackMenuRemove, TrackMenuRequest,
 };
 pub use track_menu_host::TrackMenuHost;
-pub use track_row::TrackRow;
-pub use undo_toast::{UndoToast, UNDO_TOAST_MS};
+pub use track_row::{SongRow, TrackRow};
+
+pub use undo_toast::UndoToast;
+
 pub use vertical_slider::VerticalSlider;
 pub use virtual_list::{use_main_scroll_provider, MainScroll, VirtualList};
 pub use window_drag::WindowDragRegion;

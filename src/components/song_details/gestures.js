@@ -27,10 +27,11 @@
 //   mounted()  the compact sheet is in the DOM: measure it, watch its size.
 //   state()    "idle" | "panel" | "cover" | "busy", for tests.
 
-const LOCK_PX = 10;            // travel before the direction is decided
+// GESTURE_LOCK_PX, the samples, velocity and the click guard come from
+// ui/gesture_core.js, shared with the row and edge swipes.
+const FLICK_PX_PER_MS = 0.5;   // release speed that commits a shorter drag
 const PANEL_COMMIT = 0.3;      // of the panel's travel
 const COVER_COMMIT = 0.4;      // of the cover width
-const FLICK_PX_PER_MS = 0.5;   // release speed that commits a shorter drag
 const PANEL_FLICK_MIN_PX = 28;
 const COVER_FLICK_MIN = 0.18;  // of the cover width: a flick, not a twitch
 const SIDE_STEP = 0.62;        // side cover offset, in cover widths (player.css)
@@ -38,7 +39,6 @@ const PANEL_MS = 300;          // --np-dur in player.css
 const COVER_MS = 240;          // swipe settle in player.css
 const SONG_WAIT_MS = 1500;     // give up waiting for the new song after this
 const SETTLE_MS = 120;         // quiet time after the swap before the next swipe
-const CLICK_GUARD_MS = 400;    // swallow the click a finished drag may cause
 
 const SHEET = ".rs-player-np--compact";
 const FOCUSED = "rs-player-np--focused";
@@ -53,15 +53,14 @@ function install() {
   let panel = null; // panel drag
   let cover = null; // cover drag
   let busy = false; // a cover swipe is landing
-  let clickGuardUntil = 0; // swallow the click a finished drag causes, not a new tap's
   let resize = null;
   let classWatch = null;
   let handoff = null; // a panel drag waiting for Rust to flip the class
-  const reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
-
   const sheet = () => document.querySelector(SHEET);
   const isFocused = (s) => s.classList.contains(FOCUSED);
-  const now = () => performance.now();
+  // The click a finished panel or cover drag causes, not a new tap's.
+  const guard = clickGuard(GESTURE_CLICK_GUARD_MS, SHEET);
+  const reduceMotion = prefersReducedMotion();
 
   // ---- measuring ---------------------------------------------------------
 
@@ -202,7 +201,7 @@ function install() {
       // Full never scrolls; in focused, hold a downward drag at the top so
       // the content doesn't bounce before the direction is decided.
       if (e.cancelable && (panel.mode === "expand" || dy > 0)) e.preventDefault();
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < LOCK_PX) return;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < GESTURE_LOCK_PX) return;
       const vertical = Math.abs(dy) > Math.abs(dx) * 1.2;
       const toward = panel.mode === "expand" ? dy < 0 : dy > 0;
       if (!vertical || !toward) {
@@ -219,9 +218,7 @@ function install() {
     const travel = Math.max(1, panel.shift);
     panel.p = panel.mode === "expand" ? clamp(-dy / travel, 0, 1) : clamp(1 - dy / travel, 0, 1);
     panel.sheet.style.setProperty("--np-p", panel.p.toFixed(4));
-    const time = now();
-    panel.samples.push([time, t.clientY]);
-    while (panel.samples.length > 2 && time - panel.samples[0][0] > 100) panel.samples.shift();
+    pushSample(panel.samples, nowMs(), t.clientY);
   }
 
   function panelEnd(e) {
@@ -247,7 +244,7 @@ function install() {
     const g = panel;
     panel = null;
     if (!g) return;
-    clickGuardUntil = now() + CLICK_GUARD_MS;
+    guard.arm();
     if (!commit) {
       clearDrag(g.sheet);
       return;
@@ -302,7 +299,7 @@ function install() {
     const dx = e.clientX - cover.x0;
     const dy = e.clientY - cover.y0;
     if (cover.phase === "pending") {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < LOCK_PX) return;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < GESTURE_LOCK_PX) return;
       // Clearly sideways, or it isn't ours (a vertical drag pulls the sheet down).
       const dir = dx < 0 ? -1 : 1;
       if (Math.abs(dx) < Math.abs(dy) * 1.5 || (dir < 0 && !cover.next) || (dir > 0 && !cover.prev)) {
@@ -319,9 +316,7 @@ function install() {
     if (e.cancelable) e.preventDefault();
     // One direction per gesture: pulling back past the start just rests at 0.
     cover.dx = cover.dir < 0 ? Math.min(dx, 0) : Math.max(dx, 0);
-    const time = now();
-    cover.samples.push([time, e.clientX]);
-    while (cover.samples.length > 2 && time - cover.samples[0][0] > 100) cover.samples.shift();
+    pushSample(cover.samples, nowMs(), e.clientX);
     paintCover(cover.flow, cover.dx / (cover.width * SIDE_STEP));
   }
 
@@ -339,7 +334,7 @@ function install() {
     cover = null;
     if (g.phase !== "drag") return;
     e.stopPropagation();
-    clickGuardUntil = now() + CLICK_GUARD_MS;
+    guard.arm();
     const travel = Math.abs(g.dx);
     const speed = velocity(g.samples) * g.dir; // px/ms toward the goal (dir is the finger's way)
     const commit =
@@ -422,49 +417,15 @@ function install() {
     }, reduceMotion.matches ? 0 : COVER_MS);
   }
 
-  // ---- shared ----------------------------------------------------------------
-
-  function touchById(list, id) {
-    for (let i = 0; i < list.length; i++) if (list[i].identifier === id) return list[i];
-    return null;
-  }
-
-  // Speed over the last ~100 ms, px/ms (along whatever axis was sampled).
-  function velocity(samples) {
-    if (samples.length < 2) return 0;
-    const [t0, v0] = samples[0];
-    const [t1, v1] = samples[samples.length - 1];
-    return t1 > t0 ? (v1 - v0) / (t1 - t0) : 0;
-  }
-
-  function clamp(value, lo, hi) {
-    return Math.min(hi, Math.max(lo, value));
-  }
-
-  function guardClick(e) {
-    if (now() < clickGuardUntil && e.target instanceof Element && e.target.closest(SHEET)) {
-      clickGuardUntil = 0;
-      e.stopPropagation();
-      e.preventDefault();
-    }
-  }
-
-  // A new press is a new interaction: its click is wanted.
-  function newPress() {
-    clickGuardUntil = 0;
-  }
-
   const passive = { passive: true, capture: true };
   window.addEventListener("touchstart", panelStart, passive);
   window.addEventListener("touchmove", panelMove, { passive: false, capture: true });
   window.addEventListener("touchend", panelEnd, passive);
   window.addEventListener("touchcancel", panelEnd, passive);
-  window.addEventListener("pointerdown", newPress, true);
   window.addEventListener("pointerdown", coverDown, true);
   window.addEventListener("pointermove", coverMove, true);
   window.addEventListener("pointerup", coverUp, true);
   window.addEventListener("pointercancel", coverCancel, true);
-  window.addEventListener("click", guardClick, true);
 
   return {
     setSender(fn) {

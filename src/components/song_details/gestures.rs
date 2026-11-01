@@ -11,7 +11,7 @@ use super::actions::{is_live_song, song_key, use_player};
 use super::types::NowPlayingFocus;
 use dioxus::prelude::*;
 
-const GESTURES_JS: &str = include_str!("gestures.js");
+const GESTURES_JS: &str = concat!(include_str!("../ui/gesture_core.js"), include_str!("gestures.js"));
 
 /// Names the queue entry a cover swipe starts on: `index|server::id`.
 pub(super) fn song_token(index: usize, key: &str) -> String {

@@ -4,8 +4,8 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    format_clock, use_long_press, Menu, Artwork, EmptyState, IconButton, IconButtonSize,
-    InsetList, MenuAction, Button, Skeleton,
+    format_clock, Menu, Artwork, EmptyState, IconButton, InsetList, ListRow,
+    MenuAction, Button, Skeleton,
 };
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{AppView, IsPlayingSignal, Navigation, PlaybackPositionSignal, SeekRequestSignal};
@@ -277,81 +277,36 @@ fn resume(player: Player, bookmark: Bookmark) {
 
 #[component]
 fn BookmarkRow(bookmark: Bookmark, on_menu: EventHandler<(Bookmark, Option<(f64, f64)>)>) -> Element {
-    let press = use_long_press();
     let player = use_player();
     let song = bookmark.entry.clone();
     let at = format_clock((bookmark.position / 1000) as f64);
     let artist = song.artist.clone().filter(|a| !a.trim().is_empty());
-    let resume_now = {
-        let bookmark = bookmark.clone();
-        move || resume(player, bookmark.clone())
-    };
     rsx! {
-        li { "data-testid": "bookmark-row",
-            div { class: "rs-personal-row",
-                button {
-                    r#type: "button",
-                    class: "rs-row",
-                    onclick: {
-                        let resume_now = resume_now.clone();
-                        move |_| {
-                            if press.take_fired() {
-                                return;
-                            }
-                            resume_now();
-                        }
-                    },
-                    oncontextmenu: {
-                        let bookmark = bookmark.clone();
-                        move |evt: MouseEvent| {
-                            evt.prevent_default();
-                            press.cancel();
-                            let p = evt.client_coordinates();
-                            on_menu.call((bookmark.clone(), Some((p.x, p.y))));
-                        }
-                    },
-                    onpointerdown: {
-                        let bookmark = bookmark.clone();
-                        move |evt: PointerEvent| {
-                            let bookmark = bookmark.clone();
-                            press.down(&evt, move |p| on_menu.call((bookmark, Some(p))));
-                        }
-                    },
-                    onpointermove: move |evt| press.moved(&evt),
-                    onpointerup: move |_| press.cancel(),
-                    onpointercancel: move |_| press.cancel(),
-                    Artwork {
-                        cover_art: song.cover_art.clone(),
-                        server_id: song.server_id.clone(),
-                        size_px: 44,
-                    }
-                    span { class: "rs-row__meta",
-                        span { class: "rs-row__title", span { "{song.title}" } }
-                        span { class: "rs-row__sub", style: "display:block",
-                            span { class: "rs-personal-live", "Resume at {at}" }
-                            if let Some(artist) = artist {
-                                " · {artist}"
-                            }
-                        }
-                        if let Some(comment) = bookmark.comment.clone().filter(|c| !c.trim().is_empty()) {
-                            span { class: "rs-row__why", style: "display:block", "{comment}" }
-                        }
-                    }
+        ListRow {
+            title: song.title.clone(),
+            leading: rsx! {
+                Artwork {
+                    cover_art: song.cover_art.clone(),
+                    server_id: song.server_id.clone(),
+                    size_px: 44,
                 }
-                IconButton {
-                    icon: "more-horizontal".to_string(),
-                    label: "More for {song.title}".to_string(),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    onclick: {
-                        let bookmark = bookmark.clone();
-                        move |evt: MouseEvent| {
-                            let p = evt.client_coordinates();
-                            on_menu.call((bookmark.clone(), Some((p.x - 250.0, p.y + 12.0))));
-                        }
-                    },
+            },
+            sub_line: rsx! {
+                span { class: "rs-personal-live", "Resume at {at}" }
+                if let Some(artist) = artist {
+                    " · {artist}"
                 }
-            }
+            },
+            why: bookmark.comment.clone().filter(|c| !c.trim().is_empty()),
+            onclick: {
+                let bookmark = bookmark.clone();
+                move |_| resume(player, bookmark.clone())
+            },
+            on_menu: {
+                let bookmark = bookmark.clone();
+                move |anchor| on_menu.call((bookmark.clone(), anchor))
+            },
+            testid: "bookmark-row".to_string(),
         }
     }
 }

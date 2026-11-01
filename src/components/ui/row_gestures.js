@@ -1,82 +1,104 @@
-// Row gestures for editable song lists: the queue page, Now Playing's Up Next
-// and the user's own playlists. Loaded by `use_row_gestures` (row_gestures.rs)
-// through document::eval, so it runs in the iOS WKWebView as well as the
-// browser. Rust owns the lists: this script only follows the finger, mouse or
-// keys, and posts the decision once through dioxus.send. Per move it writes
-// transforms only (and one width), never layout that Rust renders.
+// Row gestures: long-press menus, swipe actions, drag-to-reorder and the
+// desktop "lift and carry" drag. Loaded through document::eval (so it runs in
+// the iOS WKWebView as well as the browser) by TrackMenuHost, once for the
+// whole app, and by `use_row_gestures` (row_gestures.rs) for each list that
+// takes reorders and removes. gesture_core.js is prepended to it. Rust owns
+// the lists: this script only follows the finger, mouse or keys, and posts
+// the decision once through dioxus.send. Per move it writes transforms only
+// (and one width), never layout that Rust renders.
 //
-// 1. Reorder. Pressing a row's grip handle ([data-row-handle]) lifts the row
+// 1. Long-press. A touch or pen press held 450 ms on a [data-long-press]
+//    element, without moving more than 10px, dispatches a `contextmenu` at
+//    the press point on that element, so the element's own oncontextmenu
+//    (the one right-click uses) opens its menu there. The click that ends
+//    the press is swallowed. Presses on its buttons that own a popup or a
+//    gesture ([aria-haspopup], a grip handle, a swipe action) don't count.
+//    Mouse pointers are left alone: they right-click.
+// 2. Reorder. Pressing a row's grip handle ([data-row-handle]) lifts the row
 //    at once: a floating copy follows the pointer, the rows in between slide
 //    aside, and the scroll area auto-scrolls near its top and bottom edges.
 //    Release posts {kind:"move", from, to, key}. The handle has
-//    touch-action:none, so it never fights scrolling, and it stops the row's
-//    long-press. Keyboard: focus the handle, Space or Enter picks up, arrows
-//    move, Space or Enter drops, Escape cancels; an aria-live region says
-//    what happened. Windowed lists (VirtualList) work too: the target comes
-//    from geometry (index x row height), not from mounted rows, and rows that
-//    mount during the drag get their offset on the next frame.
-// 2. Swipe. Dragging a row ([data-rowg-swipe]) from left to right slides it
+//    touch-action:none, so it never fights scrolling. Keyboard: focus the
+//    handle, Space or Enter picks up, arrows move, Space or Enter drops,
+//    Escape cancels; an aria-live region says what happened. Windowed lists
+//    (VirtualList) work too: the target comes from geometry (index x row
+//    height), not from mounted rows, and rows that mount during the drag get
+//    their offset on the next frame.
+// 3. Swipe. Dragging a row ([data-rowg-swipe]) from left to right slides it
 //    over the actions behind it (Remove + Add to..., or Play Next + Add to...).
 //    Released past half the actions it stays open; a full swipe past 60% of
 //    the width on an editable row slides it out, collapses it and posts
-//    {kind:"remove"}. Action taps post {kind:"remove"|"add"|"next"}.
+//    {kind:"remove"}. Remove taps post {kind:"remove"}; Play Next and Add
+//    to... are the row's own buttons (TrackRow acts on its song), so their
+//    clicks pass through and the row closes. Editable ("edit") rows need
+//    their list registered; "browse" rows only need the list wrapper.
 //    Touch uses touch events (a non-passive touchmove claims the gesture only
 //    once it is clearly horizontal, so vertical drags still scroll); a mouse
 //    drag does the same through pointer events.
+// 4. Carry (mouse). Dragging a song row ([data-carry]) with the mouse, other
+//    than a rightward swipe on a swipe row, lifts a small copy of it while
+//    any drop target is on the page: the queue ([data-drop-queue]: the
+//    player bar, Up Next) or a playlist ([data-drop-playlist="<id>"], with
+//    an optional data-drop-server="<server id>"). The row first gets a
+//    synthetic `dragstart`, so Rust knows which song is carried; releasing
+//    over a target posts {kind:"drop", key, queue, playlist, server} to the
+//    host. Escape or a release elsewhere puts it back.
 //
 // Coordination with the other gesture scripts:
-// * edge_swipe.js owns touches that start within 24px of either screen edge
-//   (its start zone). Row swipes never start there, and the edge swipe skips
-//   [data-row-handle], so a handle at the trailing edge never navigates.
-// * gestures.js (Now Playing) skips [data-row-handle]; its panel drag only
-//   claims vertical moves and this script only horizontal ones, so the two
-//   decide on the first few pixels without overlap.
-// * TrackRow's long-press is cancelled with a synthetic pointercancel as soon
-//   as a swipe or drag starts.
+// * edge_swipe.js owns touches that start within GESTURE_EDGE_PX of either screen
+//   edge (its start zone). Row swipes never start there, and the edge swipe
+//   skips [data-row-handle], so a handle at the trailing edge never navigates.
+// * song_details/gestures.js (Now Playing) skips [data-row-handle]; its panel
+//   drag only claims vertical moves and this script only horizontal ones, so
+//   the two decide on the first GESTURE_LOCK_PX without overlap.
+// * A pending long-press ends as soon as a swipe, drag or carry starts.
 //
-// DOM contract (rendered by RowGestureList and TrackRow):
+// DOM contract (rendered by RowGestureList, TrackRow and the kit rows):
+//   [data-long-press]               long-press opens the element's contextmenu
 //   [data-rowg="<list>"]            list wrapper; data-rowg-min / -max give
 //                                   the reorderable index range (inclusive)
 //   li[data-index][data-key]        rows; data-rowg-swipe="edit"|"browse"
+//   li[data-carry][data-key]        a song row the mouse can carry
 //   [data-row-handle]               grip button
 //   .rs-rowg__actions               the actions behind a row
 //   [data-rowg-action="remove"|"add"|"next"]
+//   [data-drop-queue], [data-drop-playlist="<id>"]   carry targets
 //
 // window.__rsRowG: register(list, token, send), unregister(list, token),
-// state() for tests.
+// setHost(send), state() for tests.
 
-const LIST_ID = __LIST__;
-const TOKEN = __TOKEN__;
 const rowGestures = window.__rsRowG || (window.__rsRowG = install());
-rowGestures.register(LIST_ID, TOKEN, (message) => dioxus.send(message));
+__CONNECT__
 await new Promise(() => {});
 
 function install() {
-  const EDGE_PX = 24; // edge_swipe.js start zone
-  const LOCK_PX = 8; // travel before a swipe's direction is decided
   const FULL_RATIO = 0.6; // of the row width: a full swipe removes
-  const FLICK_PX_PER_MS = 0.45;
+  const SWIPE_FLICK_PX_PER_MS = 0.45; // a little lighter than a page flick
   const AUTO_EDGE = 72; // px from the scroll area's edge where auto-scroll starts
   const AUTO_MAX = 18; // px per frame at the very edge
   const SETTLE_MS = 180;
   const WAIT_MS = 900; // give up waiting for Rust's re-render after this
-  const CLICK_GUARD_MS = 400;
+  const PRESS_MS = 450; // long-press
+  const PRESS_SLOP_PX = 10;
   const BOTTOM_CHROME = ".rs-tabbar, [data-testid='mini-player'], [data-testid='player-bar']";
+  // Buttons inside a long-press element that keep their own press.
+  const PRESS_SKIP = "[data-row-handle], [data-rowg-action], [aria-haspopup], input, textarea, select";
+  const DROP_TARGET = "[data-drop-queue], [data-drop-playlist]";
 
-  const reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
   const senders = new Map(); // list id -> { token, send }
+  let hostSend = () => {}; // TrackMenuHost: carry drops
   let drag = null; // reorder in progress (pointer or keys)
   let swipe = null; // swipe in progress
   let open = null; // row left open: { li, content, list, dx }
+  let press = null; // long-press waiting or fired
+  let carry = null; // carry pending or in progress
   let busy = 0; // removes and drops waiting for Rust
   let frame = 0;
-  let clickGuardUntil = 0;
   let swallowTap = false;
   let liveRegion = null;
+  const reduceMotion = prefersReducedMotion();
 
-  const now = () => performance.now();
   const ms = (value) => (reduceMotion.matches ? 0 : value);
-  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
   const asElement = (t) => (t instanceof Element ? t : null);
   const listOf = (el) => el && el.closest("[data-rowg]");
   const rowOf = (el) => el && el.closest("li[data-index]");
@@ -91,6 +113,11 @@ function install() {
     const el = li.querySelector(".rs-trow__title");
     return el ? el.textContent.trim() : "Song";
   };
+  // The click a swipe or reorder causes, on its list (action taps excepted).
+  const guard = clickGuard(GESTURE_CLICK_GUARD_MS, (el) => !!listOf(el) && !el.closest("[data-rowg-action]"));
+  // The click that ends a long-press or a carry, wherever it lands: the menu
+  // that just opened may be under the finger.
+  const pressGuard = clickGuard(GESTURE_CLICK_GUARD_MS, () => true);
 
   function post(list, message) {
     const entry = senders.get(list.dataset.rowg);
@@ -112,14 +139,7 @@ function install() {
     frame = 0;
     if (drag) paintDrag();
     if (swipe && swipe.phase === "drag") paintSwipe(swipe);
-  }
-
-  // TrackRow's long-press runs in Rust off pointer events; a synthetic
-  // pointercancel tells it this press became a gesture.
-  function cancelLongPress(el) {
-    try {
-      el.dispatchEvent(new PointerEvent("pointercancel", { bubbles: true }));
-    } catch (_) {}
+    if (carry && carry.phase === "carry") paintCarry(carry);
   }
 
   // Calls `done` once the list re-rendered so that `check()` holds, or after
@@ -155,6 +175,63 @@ function install() {
     liveRegion.textContent = text;
   }
 
+  // ---- long-press ----------------------------------------------------------
+
+  function pressDown(e) {
+    cancelPress();
+    if (e.pointerType === "mouse" || !e.isPrimary) return;
+    const el = asElement(e.target);
+    const target = el && el.closest("[data-long-press]");
+    if (!target || el.closest(PRESS_SKIP)) return;
+    press = { el: target, id: e.pointerId, x: e.clientX, y: e.clientY, fired: false, timer: 0 };
+    press.timer = setTimeout(firePress, PRESS_MS);
+  }
+
+  function firePress() {
+    const p = press;
+    if (!p || p.fired) return;
+    p.fired = true;
+    if (!p.el.isConnected) return;
+    p.el.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2, buttons: 0, clientX: p.x, clientY: p.y }),
+    );
+  }
+
+  // A swipe, drag or carry started, or the finger left: no long-press.
+  function cancelPress() {
+    if (press && !press.fired) {
+      clearTimeout(press.timer);
+      press = null;
+    }
+  }
+
+  function pressMove(e) {
+    if (press && !press.fired && e.pointerId === press.id && Math.hypot(e.clientX - press.x, e.clientY - press.y) > PRESS_SLOP_PX) {
+      cancelPress();
+    }
+  }
+
+  function pressUp(e) {
+    if (!press || e.pointerId !== press.id) return;
+    if (press.fired) pressGuard.arm();
+    else clearTimeout(press.timer);
+    press = null;
+  }
+
+  // A real contextmenu during a touch press (Android raises one for a long
+  // touch): before ours, it opens the menu and ours stands down; after, it is
+  // a second menu request and is dropped.
+  function onContextMenu(e) {
+    if (!e.isTrusted || !press) return;
+    if (press.fired) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
+    clearTimeout(press.timer);
+    press.fired = true;
+  }
+
   // ---- scroll areas ------------------------------------------------------
 
   function scrollerOf(el) {
@@ -188,6 +265,17 @@ function install() {
     "--surface", "--ink", "--muted", "--muted-strong", "--faint", "--line", "--accent",
     "--accent-text", "--tint", "--tint-strong", "--rowg-cover", "--skeleton",
   ];
+  // Attributes a copy of a row must not keep: ids, test ids, and the hooks
+  // this script and the page look rows up by.
+  const COPY_STRIP = ["id", "data-testid", "data-index", "data-key", "data-row-handle", "data-long-press", "data-carry"];
+
+  function inertCopy(el) {
+    const copy = el.cloneNode(true);
+    for (const node of [copy, ...copy.querySelectorAll("*")]) {
+      for (const name of COPY_STRIP) node.removeAttribute(name);
+    }
+    return copy;
+  }
 
   // The lifted row: a copy in the app root (not inside the list, whose
   // containers may clip or contain it), with the list's colour tokens.
@@ -200,13 +288,7 @@ function install() {
       const value = styles.getPropertyValue(name);
       if (value) ul.style.setProperty(name, value.trim());
     }
-    const copy = li.cloneNode(true);
-    for (const el of [copy, ...copy.querySelectorAll("[id], [data-testid], [data-index], [data-row-handle]")]) {
-      el.removeAttribute("id");
-      el.removeAttribute("data-testid");
-      el.removeAttribute("data-index");
-      el.removeAttribute("data-row-handle");
-    }
+    const copy = inertCopy(li);
     copy.classList.remove("rs-rowg--lifted", "rs-rowg--active", "rs-rowg--armed");
     copy.style.transform = "";
     copy.style.transition = "";
@@ -223,7 +305,7 @@ function install() {
     const rect = li.getBoundingClientRect();
     const scroller = scrollerOf(list);
     if (open) closeOpen(false);
-    cancelLongPress(li);
+    cancelPress();
     const ghost = makeGhost(list, li, rect);
     list.classList.add("rs-rowg-sorting");
     const from = indexOf(li);
@@ -463,7 +545,9 @@ function install() {
     if (!el || el.closest("[data-row-handle], [data-rowg-action]")) return null;
     const li = el.closest("li[data-rowg-swipe]");
     const list = listOf(li);
-    if (!li || !list || !senders.has(list.dataset.rowg)) return null;
+    if (!li || !list) return null;
+    // Removes go to the list's owner; browse actions are the row's own.
+    if (li.dataset.rowgSwipe === "edit" && !senders.has(list.dataset.rowg)) return null;
     const content = li.querySelector(":scope > .rs-trow");
     const actions = li.querySelector(":scope > .rs-rowg__actions");
     if (!content || !actions) return null;
@@ -478,7 +562,8 @@ function install() {
     s.phase = "drag";
     if (open && open.li !== s.li) closeOpen(false);
     if (open && open.li === s.li) open = null;
-    cancelLongPress(s.content);
+    cancelPress();
+    carry = null;
     s.reveal = revealWidth(s.actions);
     s.canRemove = s.li.dataset.rowgSwipe === "edit";
     s.li.classList.add("rs-rowg--active");
@@ -491,7 +576,7 @@ function install() {
     const dx = x - s.x0;
     const dy = y - s.y0;
     if (s.phase === "pending") {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < LOCK_PX) return;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < GESTURE_LOCK_PX) return;
       const horizontal = Math.abs(dx) > Math.abs(dy) * 1.2;
       // A closed row only opens rightward; an open one can also close.
       if (!horizontal || (s.base === 0 && dx < 0)) {
@@ -503,9 +588,7 @@ function install() {
     if (e.cancelable) e.preventDefault();
     s.dx = clamp(s.base + dx, 0, s.width);
     s.armed = s.canRemove && s.dx > s.width * FULL_RATIO;
-    const t = now();
-    s.samples.push([t, x]);
-    while (s.samples.length > 2 && t - s.samples[0][0] > 100) s.samples.shift();
+    pushSample(s.samples, nowMs(), x);
     schedule();
   }
 
@@ -517,20 +600,12 @@ function install() {
     s.li.classList.toggle("rs-rowg--armed", !!s.armed);
   }
 
-  function velocity(samples) {
-    if (samples.length < 2) return 0;
-    const [t0, x0] = samples[0];
-    const [t1, x1] = samples[samples.length - 1];
-    if (now() - t1 > 80) return 0;
-    return t1 > t0 ? (x1 - x0) / (t1 - t0) : 0;
-  }
-
   function endSwipe(cancelled) {
     const s = swipe;
     swipe = null;
     if (!s || s.phase !== "drag") return;
     if (frame) cancelAnimationFrame(frame), (frame = 0);
-    clickGuardUntil = now() + CLICK_GUARD_MS;
+    guard.arm();
     if (s.pointer) {
       try {
         s.li.releasePointerCapture(s.id);
@@ -539,7 +614,7 @@ function install() {
     const speed = velocity(s.samples);
     if (!cancelled && s.armed) {
       removeRow(s.li, s.list, s.content, s.dx);
-    } else if (!cancelled && ((s.dx > s.reveal * 0.5 && speed > -0.3) || (speed > FLICK_PX_PER_MS && s.dx > 24))) {
+    } else if (!cancelled && ((s.dx > s.reveal * 0.5 && speed > -0.3) || (speed > SWIPE_FLICK_PX_PER_MS && s.dx > 24))) {
       settle(s.li, s.content, s.reveal, () => {});
       open = { li: s.li, content: s.content, list: s.list, dx: s.reveal };
     } else {
@@ -624,29 +699,140 @@ function install() {
     }, slide + 10);
   }
 
+  // Remove animates out and goes to the list's owner. Play Next and Add to…
+  // are handled by the row itself (its button's onclick), so their click
+  // carries on to Rust; the row just closes behind it.
   function onAction(e, button) {
-    const li = rowOf(button);
+    const li = button.closest("li[data-rowg-swipe]");
     const list = listOf(li);
     if (!li || !list) return;
-    e.preventDefault();
-    e.stopPropagation();
     const content = li.querySelector(":scope > .rs-trow");
-    const kind = button.dataset.rowgAction;
-    if (kind === "remove") {
+    if (button.dataset.rowgAction === "remove" && rowOf(button)) {
+      e.preventDefault();
+      e.stopPropagation();
       removeRow(li, list, content, open && open.li === li ? open.dx : 0);
       return;
     }
-    post(list, { kind, index: indexOf(li), key: li.dataset.key || "" });
     if (open && open.li === li) open = null;
     closeRow(li, content);
   }
 
-  // ---- event wiring --------------------------------------------------------
+  // ---- carry ---------------------------------------------------------------
 
-  function touchById(list, id) {
-    for (let i = 0; i < list.length; i++) if (list[i].identifier === id) return list[i];
-    return null;
+  function carrySource(target) {
+    const el = asElement(target);
+    if (!el || el.closest(PRESS_SKIP)) return null;
+    const li = el.closest("li[data-carry][data-key]");
+    return li && li.querySelector(":scope > .rs-trow") ? li : null;
   }
+
+  function beginCarry(c) {
+    if (!document.querySelector(DROP_TARGET)) {
+      carry = null;
+      return;
+    }
+    c.phase = "carry";
+    cancelPress();
+    if (open) closeOpen(false);
+    const row = c.li.querySelector(":scope > .rs-trow");
+    // Tells the row (TrackRow's ondragstart) that its song is the one carried.
+    let start;
+    try {
+      start = new DragEvent("dragstart", { bubbles: true, cancelable: true, clientX: c.x0, clientY: c.y0, dataTransfer: new DataTransfer() });
+    } catch (_) {
+      start = new MouseEvent("dragstart", { bubbles: true, cancelable: true, clientX: c.x0, clientY: c.y0 });
+    }
+    row.dispatchEvent(start);
+    try {
+      c.li.setPointerCapture(c.id);
+    } catch (_) {}
+    const selection = window.getSelection && window.getSelection();
+    if (selection) selection.removeAllRanges();
+    c.ghost = makeCarryGhost(c.li);
+    c.li.classList.add("rs-carry-source");
+    document.documentElement.classList.add("rs-carrying");
+    schedule();
+  }
+
+  // A small lifted copy: the row's artwork and title.
+  function makeCarryGhost(li) {
+    const ghost = document.createElement("div");
+    ghost.className = "rs-carry";
+    ghost.setAttribute("aria-hidden", "true");
+    const art = li.querySelector(".rs-trow__main .rs-art");
+    if (art) ghost.appendChild(inertCopy(art));
+    const title = document.createElement("span");
+    title.className = "rs-carry__title";
+    title.textContent = titleOf(li);
+    ghost.appendChild(title);
+    (document.querySelector(".rs-app") || document.body).appendChild(ghost);
+    return ghost;
+  }
+
+  function moveCarry(e) {
+    const c = carry;
+    c.x = e.clientX;
+    c.y = e.clientY;
+    if (c.phase === "pending") {
+      if (Math.hypot(c.x - c.x0, c.y - c.y0) < GESTURE_LOCK_PX) return;
+      // A swipe row claims a rightward drag first (moveSwipe ran already).
+      if (swipe) return;
+      beginCarry(c);
+      if (!carry) return;
+    }
+    if (e.cancelable) e.preventDefault();
+    const hit = document.elementFromPoint(c.x, c.y);
+    const target = hit && hit.closest(DROP_TARGET);
+    if (target !== c.target) {
+      if (c.target) c.target.classList.remove("rs-drop-over");
+      if (target) target.classList.add("rs-drop-over");
+      c.target = target;
+    }
+    schedule();
+  }
+
+  function paintCarry(c) {
+    c.ghost.style.transform = `translate3d(${(c.x + 14).toFixed(1)}px,${(c.y + 10).toFixed(1)}px,0)`;
+    c.ghost.classList.toggle("rs-carry--over", !!c.target);
+  }
+
+  function endCarry(cancelled) {
+    const c = carry;
+    carry = null;
+    if (!c || c.phase !== "carry") return;
+    if (frame) cancelAnimationFrame(frame), (frame = 0);
+    try {
+      c.li.releasePointerCapture(c.id);
+    } catch (_) {}
+    pressGuard.arm();
+    document.documentElement.classList.remove("rs-carrying");
+    c.li.classList.remove("rs-carry-source");
+    const target = cancelled ? null : c.target;
+    if (c.target) c.target.classList.remove("rs-drop-over");
+    const ghost = c.ghost;
+    ghost.style.transition = `transform ${ms(SETTLE_MS)}ms cubic-bezier(.2,.75,.25,1), opacity ${ms(SETTLE_MS)}ms linear`;
+    if (target) {
+      // Into the target, shrinking.
+      const r = target.getBoundingClientRect();
+      ghost.style.transform = `translate3d(${(r.left + r.width / 2).toFixed(1)}px,${(r.top + r.height / 2).toFixed(1)}px,0) scale(.3)`;
+      const playlist = target.getAttribute("data-drop-playlist");
+      hostSend({
+        kind: "drop",
+        key: c.li.dataset.key || "",
+        queue: target.hasAttribute("data-drop-queue"),
+        playlist: playlist || null,
+        server: target.getAttribute("data-drop-server") || null,
+      });
+    } else {
+      // Back to the row it came from.
+      const r = c.li.getBoundingClientRect();
+      ghost.style.transform = `translate3d(${(r.left + 12).toFixed(1)}px,${(r.top + 8).toFixed(1)}px,0)`;
+    }
+    ghost.style.opacity = "0";
+    setTimeout(() => ghost.remove(), ms(SETTLE_MS) + 20);
+  }
+
+  // ---- event wiring --------------------------------------------------------
 
   function onTouchStart(e) {
     swallowTap = false;
@@ -668,7 +854,7 @@ function install() {
     }
     if (!target || busy) return;
     const t = e.touches[0];
-    if (t.clientX <= EDGE_PX || t.clientX >= window.innerWidth - EDGE_PX) return;
+    if (t.clientX <= GESTURE_EDGE_PX || t.clientX >= window.innerWidth - GESTURE_EDGE_PX) return;
     startSwipe(target, t.identifier, t.clientX, t.clientY, false);
   }
 
@@ -717,6 +903,7 @@ function install() {
   }
 
   function onPointerDown(e) {
+    pressDown(e);
     const el = asElement(e.target);
     const handle = el && el.closest("[data-row-handle]");
     if (handle) {
@@ -725,7 +912,7 @@ function install() {
     }
     if (e.pointerType !== "mouse") return;
     swallowTap = false;
-    if (e.button !== 0 || drag) return;
+    if (e.button !== 0 || drag || carry) return;
     const target = swipeTarget(e.target);
     if (open && !(el && open.li.contains(el) && el.closest("[data-rowg-action]"))) {
       if (!target || target.li !== open.li) {
@@ -734,11 +921,14 @@ function install() {
         return;
       }
     }
-    if (!target || busy) return;
-    startSwipe(target, e.pointerId, e.clientX, e.clientY, true);
+    if (busy) return;
+    if (target) startSwipe(target, e.pointerId, e.clientX, e.clientY, true);
+    const source = carrySource(e.target);
+    if (source) carry = { li: source, id: e.pointerId, x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, phase: "pending", target: null, ghost: null };
   }
 
   function onPointerMove(e) {
+    pressMove(e);
     if (drag && drag.mode === "pointer" && e.pointerId === drag.pointerId) {
       drag.y = e.clientY;
       if (e.cancelable) e.preventDefault();
@@ -754,13 +944,23 @@ function install() {
         } catch (_) {}
       }
     }
+    if (carry && e.pointerId === carry.id) moveCarry(e);
   }
 
   function onPointerUp(e) {
+    pressUp(e);
     if (drag && drag.mode === "pointer" && e.pointerId === drag.pointerId) {
       if (e.type === "pointercancel") cancelDrag(false);
       else drop();
       return;
+    }
+    if (carry && e.pointerId === carry.id) {
+      if (carry.phase === "carry") {
+        endCarry(e.type === "pointercancel");
+        swipe = null;
+        return;
+      }
+      carry = null;
     }
     if (swipe && swipe.pointer && e.pointerId === swipe.id) {
       if (swipe.phase === "pending") {
@@ -783,9 +983,8 @@ function install() {
       onAction(e, action);
       return;
     }
-    if (swallowTap || (now() < clickGuardUntil && el && listOf(el))) {
+    if (swallowTap) {
       swallowTap = false;
-      clickGuardUntil = 0;
       e.preventDefault();
       e.stopPropagation();
     }
@@ -794,6 +993,12 @@ function install() {
   // Window capture: ahead of the app's Space-to-play shortcut, which skips
   // events that are already handled.
   function onKeyDown(e) {
+    if (carry && carry.phase === "carry" && e.key === "Escape") {
+      e.preventDefault();
+      e.stopPropagation();
+      endCarry(true);
+      return;
+    }
     if (drag && drag.mode === "keys") {
       switch (e.key) {
         case "ArrowUp":
@@ -852,20 +1057,25 @@ function install() {
   }
 
   function onScroll(e) {
+    cancelPress();
     if (!open || swipe) return;
     const target = e.target;
     if (target === document || (target instanceof Node && target.contains(open.li))) closeOpen(true);
   }
 
-  // Images inside rows would start a native drag under the mouse.
+  // Images inside rows would start a native drag under the mouse; the carry
+  // replaces it. (The carry's own synthetic dragstart passes.)
   function onDragStart(e) {
+    if (!e.isTrusted) return;
     const el = asElement(e.target);
-    if (el && listOf(el) && rowOf(el)) e.preventDefault();
+    if (el && (el.closest("li[data-carry]") || (listOf(el) && rowOf(el)))) e.preventDefault();
   }
 
   function onBlur() {
+    cancelPress();
     if (drag && drag.mode === "pointer") cancelDrag(false);
     if (swipe) endSwipe(true);
+    if (carry) endCarry(true);
   }
 
   window.addEventListener("touchstart", onTouchStart, { capture: true, passive: true });
@@ -877,6 +1087,7 @@ function install() {
   window.addEventListener("pointerup", onPointerUp, true);
   window.addEventListener("pointercancel", onPointerUp, true);
   window.addEventListener("click", onClick, true);
+  window.addEventListener("contextmenu", onContextMenu, true);
   window.addEventListener("keydown", onKeyDown, true);
   window.addEventListener("dragstart", onDragStart, true);
   window.addEventListener("blur", onBlur);
@@ -890,9 +1101,14 @@ function install() {
       const entry = senders.get(list);
       if (entry && entry.token === token) senders.delete(list);
     },
+    setHost(send) {
+      hostSend = typeof send === "function" ? send : () => {};
+    },
     state() {
       if (drag) return drag.mode === "keys" ? "keys" : "drag";
+      if (carry && carry.phase === "carry") return "carry";
       if (swipe) return swipe.phase === "drag" ? "swipe" : "pending";
+      if (press) return press.fired ? "pressed" : "press";
       if (busy) return "busy";
       return open ? "open" : "idle";
     },

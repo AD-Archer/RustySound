@@ -30,7 +30,7 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "disc" => (Stroke, r#"<circle cx="12" cy="12" r="9.3"/><circle cx="12" cy="12" r="2.6"/>"#),
         "music" => (Stroke, r#"<path d="M9 18V5.5l11-2.2V16"/><circle cx="6.5" cy="18" r="2.6"/><circle cx="17.5" cy="16" r="2.6"/>"#),
         "radio" => (Stroke, r#"<circle cx="12" cy="12" r="1.9" fill="currentColor"/><path d="M8.3 8.3a5.2 5.2 0 0 0 0 7.4M15.7 8.3a5.2 5.2 0 0 1 0 7.4M5.3 5.3a9.5 9.5 0 0 0 0 13.4M18.7 5.3a9.5 9.5 0 0 1 0 13.4"/>"#),
-        "stats" | "bars" => (Stroke, r#"<path d="M5 20.5V13M10 20.5V6.5M15 20.5V10M20 20.5V3.5"/>"#),
+        "stats" => (Stroke, r#"<path d="M5 20.5V13M10 20.5V6.5M15 20.5V10M20 20.5V3.5"/>"#),
         "settings" => (Stroke, r#"<path d="M9.87 5.02 L9.89 2.84 L14.11 2.84 L14.13 5.02 L15.43 5.55 L16.98 4.03 L19.97 7.02 L18.45 8.57 L18.98 9.87 L21.16 9.89 L21.16 14.11 L18.98 14.13 L18.45 15.43 L19.97 16.98 L16.98 19.97 L15.43 18.45 L14.13 18.98 L14.11 21.16 L9.89 21.16 L9.87 18.98 L8.57 18.45 L7.02 19.97 L4.03 16.98 L5.55 15.43 L5.02 14.13 L2.84 14.11 L2.84 9.89 L5.02 9.87 L5.55 8.57 L4.03 7.02 L7.02 4.03 L8.57 5.55Z"/><circle cx="12" cy="12" r="3"/>"#),
         "bookmark" => (Stroke, r#"<path d="M6.5 3.5h11v17L12 16.5l-5.5 4Z"/>"#),
         "queue" | "list" => (Stroke, r#"<path d="M8.5 6h12M8.5 12h12M8.5 18h12"/><circle cx="4.2" cy="6" r=".9" fill="currentColor"/><circle cx="4.2" cy="12" r=".9" fill="currentColor"/><circle cx="4.2" cy="18" r=".9" fill="currentColor"/>"#),
@@ -76,17 +76,13 @@ fn icon_body(name: &str) -> (Paint, &'static str) {
         "trash" => (Stroke, r#"<path d="M4.5 6.5h15"/><path d="M9.5 6.5V4.8c0-.7.5-1.3 1.2-1.3h2.6c.7 0 1.2.6 1.2 1.3v1.7"/><path d="m6.5 6.5.9 12.6c.1 1 .9 1.9 2 1.9h5.2c1.1 0 1.9-.9 2-1.9l.9-12.6"/><path d="M10 10.5v6M14 10.5v6"/>"#),
         "external" => (Stroke, r#"<path d="M14 4.5h5.5V10"/><path d="M19.5 4.5 11 13"/><path d="M17.5 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2h4"/>"#),
 
-        // ---- Chevrons and arrows ---------------------------------------
+        // ---- Chevrons --------------------------------------------------
         "chevron-left" | "back" => (Stroke, r#"<path d="m15 5-7 7 7 7"/>"#),
         "chevron-right" => (Stroke, r#"<path d="m9 5 7 7-7 7"/>"#),
         "chevron-up" => (Stroke, r#"<path d="m5 15 7-7 7 7"/>"#),
         "chevron-down" => (Stroke, r#"<path d="m5 9 7 7 7-7"/>"#),
-        "arrow-left" => (Stroke, r#"<path d="M20 12H5M11 5l-7 7 7 7"/>"#),
-        "arrow-right" => (Stroke, r#"<path d="M4 12h15M13 5l7 7-7 7"/>"#),
-        "arrow-down" => (Stroke, r#"<path d="M12 4v15M5 13l7 7 7-7"/>"#),
 
         // ---- Misc ------------------------------------------------------
-        "loader" => (Stroke, r#"<path d="M12 3a9 9 0 1 0 9 9"/>"#),
         "clock" => (Stroke, r#"<circle cx="12" cy="12" r="9.3"/><path d="M12 7v5.2l3.4 2"/>"#),
         // Sleep timer.
         "moon" => (Stroke, r#"<path d="M19.8 14.6A8.3 8.3 0 1 1 9.4 4.2a6.6 6.6 0 0 0 10.4 10.4Z"/>"#),

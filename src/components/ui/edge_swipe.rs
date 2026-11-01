@@ -15,7 +15,7 @@
 use crate::components::{AppView, Navigation};
 use dioxus::prelude::*;
 
-const EDGE_SWIPE_JS: &str = include_str!("edge_swipe.js");
+const EDGE_SWIPE_JS: &str = concat!(include_str!("gesture_core.js"), include_str!("edge_swipe.js"));
 
 /// Mount once in the app shell, inside the router. Renders nothing.
 #[component]

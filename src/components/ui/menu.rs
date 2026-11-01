@@ -9,6 +9,8 @@
 //!   own handlers. A `MenuItem` does not close the menu by itself.
 
 use crate::components::ui::env::use_layout;
+use crate::components::ui::MenuSheet;
+
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -55,16 +57,15 @@ impl MenuAction {
     }
 
     /// Makes the row a radio choice; `checked` shows the check mark.
+    // Only the Downloads sort menus use it so far, and the web has no Downloads.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn checked(mut self, checked: bool) -> Self {
+
         self.checked = Some(checked);
         self
     }
-
-    pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
-        self
-    }
 }
+
 
 /// Menu card with a scrim. The parent decides whether it is mounted (usually
 /// `if let Some(anchor) = open_menu()`).
@@ -159,22 +160,7 @@ pub fn Menu(
 
     if layout.is_compact() {
         return rsx! {
-            div {
-                class: "rs-scrim",
-                aria_hidden: "true",
-                onclick: move |_| on_close.call(()),
-            }
-            div { class: "rs-sheet rs-sheet--menu", role: "dialog", aria_label: "{aria}",
-                {card(None, false)}
-                div { class: "rs-menu",
-                    button {
-                        r#type: "button",
-                        class: "rs-menu__item rs-menu__cancel",
-                        onclick: move |_| on_close.call(()),
-                        "Cancel"
-                    }
-                }
-            }
+            MenuSheet { label: aria.clone(), on_close, {card(None, false)} }
         };
     }
 

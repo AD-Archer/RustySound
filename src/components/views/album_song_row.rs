@@ -2,7 +2,8 @@
 //! "Disc N" headers when the album has more than one disc.
 
 use crate::api::Song;
-use crate::components::ui::{InsetList, ListInset, SectionHeader, TrackRow};
+use crate::components::ui::{InsetList, ListInset, RowGestureList, RowSwipe, SectionHeader, TrackRow};
+
 use crate::components::views::library::shared::{song_key, use_downloaded_keys, use_now_playing};
 use dioxus::prelude::*;
 
@@ -48,6 +49,8 @@ pub fn AlbumTracks(songs: Signal<Vec<Song>>, on_play: EventHandler<usize>) -> El
             if multi_disc {
                 SectionHeader { title: format!("Disc {}", disc + 1) }
             }
+            // Swipe a track for Play Next / Add to… (the row acts on its song).
+            RowGestureList { id: "album-tracks", swipe: RowSwipe::Browse,
             InsetList {
                 inset: ListInset::Track,
                 label: if multi_disc { format!("Disc {}", disc + 1) } else { "Tracks".to_string() },
@@ -72,6 +75,7 @@ pub fn AlbumTracks(songs: Signal<Vec<Song>>, on_play: EventHandler<usize>) -> El
                         }
                     }
                 }
+            }
             }
             }
         }

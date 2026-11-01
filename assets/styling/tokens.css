@@ -25,13 +25,17 @@
   --fs-large: 34px;   --lh-large: 41px;   /* large title (phone)          */
   --fs-title1: 28px;  --lh-title1: 34px;
   --fs-title2: 22px;  --lh-title2: 27px;  /* album header                 */
+  --fs-lyric-lg: 21px;                    /* compact lyric line           */
   --fs-title3: 20px;  --lh-title3: 25px;  /* now playing song title       */
+  --fs-lyric: 19px;                       /* wide shelf title, lyrics     */
   --fs-title: 17px;   --lh-title: 22px;   /* section titles, nav          */
+  --fs-headline: 16px;                    /* buttons, stage captions      */
   --fs-body: 15px;    --lh-body: 1.4;     /* body (14 on Mac, see base)   */
   --fs-callout: 14px;
   --fs-sub: 13px;     --lh-sub: 1.35;     /* secondary                    */
   --fs-foot: 12px;
   --fs-cap: 11px;
+  --fs-badge: 10.5px;                     /* player format badge          */
   --fs-tab: 10px;
   --fw-regular: 400;
   --fw-medium: 500;
@@ -125,8 +129,15 @@
   --stage-vol-track: #3a3c41;
   --stage-vol-fill: #c9cbd0;
   --stage-cover-blank: #222;
+  --stage-glass: rgba(255, 255, 255, .14);         /* glass buttons, scrub track */
+  --stage-glass-strong: rgba(255, 255, 255, .24);  /* glass hover                */
+  --stage-surface: rgba(255, 255, 255, .05);       /* Now Playing panels' --surface */
+  --stage-skeleton: #17181a;                       /* stage shimmer, low stop    */
+  --stage-skeleton-hi: #24252a;                    /* stage shimmer, high stop   */
   --stage-shadow: 0 10px 30px rgba(0, 0, 0, .45);
   --stage-shadow-wide: 0 10px 30px rgba(0, 0, 0, .25);
+  /* The Cover Flow reflection (-webkit-box-reflect): one recipe app-wide. */
+  --reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
 
   /* ---- Status ---------------------------------------------------------- */
   --ok: #34c759;
@@ -141,6 +152,18 @@
   --scrim-blur: 2.5px;
   --menu-shadow: 0 16px 44px rgba(0, 0, 0, .5), 0 2px 6px rgba(0, 0, 0, .3);
   --seg-shadow: 0 1px 2px rgba(0, 0, 0, .24), 0 0 0 .5px rgba(0, 0, 0, .08);
+  --art-overlay: rgba(0, 0, 0, .58);         /* play button over artwork  */
+  --art-overlay-strong: rgba(0, 0, 0, .78);  /* its hover                 */
+  --art-badge: rgba(0, 0, 0, .62);           /* small badge on artwork    */
+
+  /* ---- Shadows (artwork and cards) ------------------------------------ */
+  --tile-shadow: 0 1px 2px rgba(0, 0, 0, .12), 0 6px 18px -8px rgba(0, 0, 0, .35);
+  --cover-shadow: 0 18px 40px rgba(0, 0, 0, .5);   /* Now Playing cover    */
+  --hero-shadow: 0 30px 80px rgba(0, 0, 0, .55);   /* wide Now Playing window */
+  /* The sign-in card: a sheet rising from the bottom on compact, a centred
+     card on wide. */
+  --card-shadow: 0 -10px 30px rgba(0, 0, 0, .35);
+  --card-shadow-wide: 0 24px 60px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .3), inset 0 0 0 1px rgba(255, 255, 255, .06);
 }
 
 /* ==========================================================================

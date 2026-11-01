@@ -1,8 +1,15 @@
-//! Touch long-press bookkeeping for rows and tiles that open a menu.
+//! Legacy touch long-press bookkeeping in Rust, for the rows and tiles not
+//! yet on the JavaScript long-press (downloads, radio stations, Home shelf
+//! cards). Every pointer move crosses the webview bridge here.
 //!
-//! Same rules as `TrackRow`: 450 ms, cancelled by moving more than 10px,
-//! mouse pointers ignored (they use right-click), and the click that ends a
-//! long-press is swallowed.
+//! New code marks the element `data-long-press` and handles its
+//! `contextmenu` instead (`row_gestures.js` raises it at the press point and
+//! swallows the click that ends the press; see `ListRow { on_menu }` and the
+//! kit tiles). Chunk D moves the last users over and deletes this file.
+//!
+//! Same rules: 450 ms, cancelled by moving more than 10px, mouse pointers
+//! ignored (they use right-click), and the click that ends a long-press is
+//! swallowed.
 
 use crate::components::ui::env::sleep_ms;
 use dioxus::prelude::*;

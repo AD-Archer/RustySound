@@ -138,6 +138,59 @@ impl TrackMenuController {
     }
 }
 
+/// The queue signals the kit's queue actions write: the track menu's Play
+/// Next / Add to Queue, a row's swipe Play Next and a carry onto the queue.
+/// Chunk B's `PlayerCtx::enqueue` is meant to replace it.
+#[derive(Clone, Copy)]
+pub struct KitQueue {
+    queue: Signal<Vec<Song>>,
+    queue_index: Signal<usize>,
+    now_playing: Signal<Option<Song>>,
+    is_playing: Signal<bool>,
+}
+
+impl KitQueue {
+    /// From the shell's contexts; call in a component or its handlers.
+    pub fn from_context() -> Self {
+        Self {
+            queue: consume_context(),
+            queue_index: consume_context(),
+            now_playing: consume_context(),
+            is_playing: consume_context::<IsPlayingSignal>().0,
+        }
+    }
+
+    /// Puts `songs` after the current song (`next`) or at the end. With
+    /// nothing playing and an empty queue they become the queue and play.
+    pub fn enqueue(self, songs: Vec<Song>, next: bool) {
+        let songs = normalize_manual_queue_songs(songs);
+        let Self {
+            mut queue,
+            mut queue_index,
+            mut now_playing,
+            mut is_playing,
+        } = self;
+        if now_playing.peek().is_none() && queue.peek().is_empty() {
+            let first = songs.first().cloned();
+            queue.set(songs);
+            queue_index.set(0);
+            now_playing.set(first);
+            is_playing.set(true);
+        } else {
+            let at = (*queue_index.peek() + 1).min(queue.peek().len());
+            queue.with_mut(|items| {
+                if next {
+                    let tail = items.split_off(at);
+                    items.extend(songs);
+                    items.extend(tail);
+                } else {
+                    items.extend(songs);
+                }
+            });
+        }
+    }
+}
+
 fn update_song_everywhere(
     mut queue: Signal<Vec<Song>>,
     mut now_playing: Signal<Option<Song>>,
@@ -241,31 +294,18 @@ pub fn TrackMenu(
     // ---- Queue actions --------------------------------------------------
     let enqueue = {
         let song = song.clone();
+        let kit_queue = KitQueue {
+            queue,
+            queue_index,
+            now_playing,
+            is_playing,
+        };
         move |next: bool| {
-            let songs = normalize_manual_queue_songs(vec![song.clone()]);
-            let (mut queue, mut queue_index, mut now_playing, mut is_playing) =
-                (queue, queue_index, now_playing, is_playing);
-            if now_playing.peek().is_none() && queue.peek().is_empty() {
-                let first = songs.first().cloned();
-                queue.set(songs);
-                queue_index.set(0);
-                now_playing.set(first);
-                is_playing.set(true);
-            } else {
-                let at = (*queue_index.peek() + 1).min(queue.peek().len());
-                queue.with_mut(|items| {
-                    if next {
-                        let tail = items.split_off(at);
-                        items.extend(songs);
-                        items.extend(tail);
-                    } else {
-                        items.extend(songs);
-                    }
-                });
-            }
+            kit_queue.enqueue(vec![song.clone()], next);
             controller.close();
         }
     };
+
     let play_next = {
         let mut enqueue = enqueue.clone();
         move |_| enqueue(true)

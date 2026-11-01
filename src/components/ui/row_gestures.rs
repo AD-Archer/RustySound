@@ -1,29 +1,49 @@
-//! Drag-to-reorder and swipe actions for editable song lists (the queue page,
-//! Up Next, the user's own playlists).
+//! Row gestures: long-press menus, swipe actions, drag-to-reorder and the
+//! desktop "lift and carry" drag, for song lists and the kit's rows.
 //!
+//! * A touch long-press on any `[data-long-press]` element (a `TrackRow`, a
+//!   `ListRow` or a tile with `on_menu`) raises that element's
+//!   `contextmenu` at the press point, so the handler right-click uses opens
+//!   the menu. The click that ends the press is swallowed.
 //! * Every row of a reorderable list shows a grip handle at its trailing
 //!   edge (`TrackRow { handle: true }`). Pressing it lifts the row at once;
 //!   no Edit mode, no long-press. Keyboard: Space picks up, arrows move,
 //!   Space drops, Escape cancels.
-//! * Swiping a row from left to right reveals its actions
-//!   (`TrackRow { swipe }`): Remove and Add to… in editable lists, Play Next
-//!   and Add to… elsewhere. A full swipe removes the song directly.
+//! * Swiping a row from left to right reveals its actions: Remove and Add
+//!   to… in editable lists (`RowSwipe::Edit`), Play Next and Add to…
+//!   elsewhere (`RowSwipe::Browse`). A full swipe removes the song directly.
+//!   Play Next and Add to… are the row's own buttons; only removes go to the
+//!   list's owner.
+//! * With the mouse a song row can be carried onto a drop target (see
+//!   `song_drop.rs`).
 //!
-//! The tracking is JavaScript (`row_gestures.js`), like the edge swipe and
-//! the Now Playing gestures, so it runs in the iOS WKWebView too and does no
-//! Rust work per move. Rust gets one message per finished gesture, as a
-//! [`RowGesture`], carrying the row's index and song key so a list can refuse
-//! a stale one. The track menu's "Remove from …" item arrives the same way.
+//! The tracking is JavaScript (`row_gestures.js`, after `gesture_core.js`),
+//! like the edge swipe and the Now Playing gestures, so it runs in the iOS
+//! WKWebView too and does no Rust work per move. `TrackMenuHost` installs it
+//! for the whole app (`song_drop::use_song_drop_host`). Lists that reorder or
+//! remove get one message per finished gesture, as a [`RowGesture`], carrying
+//! the row's index and song key so a list can refuse a stale one. The track
+//! menu's "Remove from …" item arrives the same way.
 //!
-//! Use: call [`use_row_gestures`] once in the list's owner, and wrap each
-//! list of rows in a [`RowGestureList`] with the same id.
+//! Use:
+//! * Browse swipe on any song list: wrap its rows in
+//!   `RowGestureList { id: "album-tracks", swipe: RowSwipe::Browse, … }`.
+//!   That's all: no hook, no `index` needed.
+//! * Reorder and remove: call [`use_row_gestures`] once in the list's owner,
+//!   wrap each list of rows in a [`RowGestureList`] with the same id, and pass
+//!   each `TrackRow` its `index` (plus `handle` / `swipe: RowSwipe::Edit`).
 
 use crate::components::ui::TrackMenuController;
 use dioxus::prelude::*;
 use serde::Deserialize;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-const ROW_GESTURES_JS: &str = include_str!("row_gestures.js");
+const ROW_GESTURES_JS: &str = concat!(include_str!("gesture_core.js"), "\n", include_str!("row_gestures.js"));
+
+/// The script, connected either to one list's owner or to the app host.
+pub(crate) fn row_gestures_script(connect: &str) -> String {
+    ROW_GESTURES_JS.replace("__CONNECT__", connect)
+}
 
 /// A finished gesture on row `index` (whose song key is `key`).
 #[derive(Clone, Debug, PartialEq)]
@@ -33,10 +53,6 @@ pub enum RowGesture {
     /// Remove the song from the list (swipe action, full swipe or the track
     /// menu). The list shows the Undo toast.
     Remove { index: usize, key: String },
-    /// Open the add-to sheet for the song.
-    AddTo { index: usize, key: String },
-    /// Play the song next.
-    PlayNext { index: usize, key: String },
 }
 
 /// Which actions sit behind a row.
@@ -45,16 +61,20 @@ pub enum RowSwipe {
     /// No swipe.
     #[default]
     None,
-    /// Remove (red, the full-swipe action) and Add to….
+    /// Remove (red, the full-swipe action) and Add to…. Needs the list's
+    /// `use_row_gestures` and each row's `index`.
     Edit,
     /// Play Next and Add to… (lists the user can't edit).
     Browse,
 }
 
-/// The id of the enclosing [`RowGestureList`], for rows (handle help text,
-/// track-menu removes).
+/// The enclosing [`RowGestureList`], for its rows: its id (handle help text,
+/// track-menu removes) and the swipe its rows get by default.
 #[derive(Clone, Copy, PartialEq, Debug)]
-pub struct RowGestureListId(pub &'static str);
+pub struct RowGestureListId {
+    pub id: &'static str,
+    pub swipe: RowSwipe,
+}
 
 /// A "Remove from …" picked in the track menu, waiting for its list.
 #[derive(Clone, PartialEq, Debug)]
@@ -89,8 +109,6 @@ impl Message {
         Some(match kind.as_str() {
             "move" => RowGesture::Move { from, to, key },
             "remove" => RowGesture::Remove { index, key },
-            "add" => RowGesture::AddTo { index, key },
-            "next" => RowGesture::PlayNext { index, key },
             _ => return None,
         })
     }
@@ -98,15 +116,16 @@ impl Message {
 
 static NEXT_TOKEN: AtomicU64 = AtomicU64::new(1);
 
-/// Installs the gesture script (once per page) and routes list `id`'s
-/// gestures, and its track-menu removes, to `on_gesture`. Call once per list
-/// id, in the component that owns the list's data.
+/// Installs the gesture script (once per page; usually `TrackMenuHost` did
+/// already) and routes list `id`'s reorders and removes, and its track-menu
+/// removes, to `on_gesture`. Call once per list id, in the component that
+/// owns the list's data.
 pub fn use_row_gestures(id: &'static str, on_gesture: Callback<RowGesture>) {
     let token = use_hook(|| NEXT_TOKEN.fetch_add(1, Ordering::Relaxed));
     use_hook(move || {
-        let script = ROW_GESTURES_JS
-            .replace("__LIST__", &format!("{id:?}"))
-            .replace("__TOKEN__", &token.to_string());
+        let script = row_gestures_script(&format!(
+            "rowGestures.register({id:?}, {token}, (message) => dioxus.send(message));"
+        ));
         let mut channel = document::eval(&script);
         spawn(async move {
             while let Ok(message) = channel.recv::<Message>().await {
@@ -142,17 +161,22 @@ pub fn use_row_gestures(id: &'static str, on_gesture: Callback<RowGesture>) {
 
 /// Wraps one list of rows (an `InsetList` or a `VirtualList`) for the
 /// gesture script. Layout-neutral (`display: contents`).
-/// * `id`: the list id given to [`use_row_gestures`]. Several wrappers may
-///   share one id (Up Next's Played and Up Next sections).
+/// * `id`: the list id (given to [`use_row_gestures`] when the list takes
+///   reorders and removes). Several wrappers may share one id (Up Next's
+///   Played and Up Next sections).
 /// * `reorder`: the inclusive range of row indexes the handle may move rows
 ///   within. None: no reordering (rows show no handle).
+/// * `swipe`: the swipe every `TrackRow` inside gets unless it sets its own
+///   (read when the wrapper mounts). `RowSwipe::Browse` needs nothing else.
 #[component]
 pub fn RowGestureList(
     id: &'static str,
     #[props(default)] reorder: Option<(usize, usize)>,
+    #[props(default)] swipe: RowSwipe,
     children: Element,
 ) -> Element {
-    use_context_provider(|| RowGestureListId(id));
+    use_context_provider(|| RowGestureListId { id, swipe });
+
     let (min, max) = match reorder {
         Some((min, max)) => (Some(min.to_string()), Some(max.to_string())),
         None => (None, None),
