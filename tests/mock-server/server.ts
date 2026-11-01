@@ -18,6 +18,8 @@ const HOST = process.env.MOCK_HOST ?? "127.0.0.1";
 const USER = process.env.MOCK_USER ?? "demo";
 const PASS = process.env.MOCK_PASSWORD ?? "demo";
 const LATENCY_MS = Number(process.env.MOCK_LATENCY_MS ?? "0") || 0;
+// Reported on /__mock/health so the test setup can refuse a server older than its source.
+const STARTED_AT = Date.now();
 const QUIET = process.env.MOCK_QUIET === "1";
 /** MOCK_ART=1 serves the abstract SVG covers in ./art instead of generated PNGs. */
 const ART: string[] =
@@ -975,6 +977,7 @@ async function handle(req: Request): Promise<Response> {
     return json({
       ok: true,
       name: "rustysound-mock-subsonic",
+      startedAt: STARTED_AT,
       user: USER,
       counts: { artists: S.lib.artists.length, albums: S.lib.albums.length, songs: S.lib.songs.length, playlists: S.lib.playlists.length },
       streamCapSeconds: STREAM_CAP_SECONDS,

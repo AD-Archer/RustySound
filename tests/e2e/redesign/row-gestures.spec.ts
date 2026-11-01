@@ -419,7 +419,9 @@ test.describe("row gestures", () => {
     await expect(list.locator('[data-testid="row-swipe-remove"]')).toHaveCount(0);
     await page.keyboard.press("Escape");
     await idle(page);
-    // A full swipe doesn't remove anything here; the row just stays open.
+    // A full swipe doesn't remove anything here; the row just stays open. (Bring the row into
+    // view first: scrolling changes which rows the windowed list has mounted.)
+    await centre(rowAt(list, 2));
     const before = await titles(list);
     await swipeRow(page, browserName, list, 2, 0.75);
     await page.waitForTimeout(400);
