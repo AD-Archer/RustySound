@@ -1,26 +1,20 @@
 // Main add menu component split into setup, actions, and rendering chunks.
 #[component]
 pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let queue = use_context::<Signal<Vec<Song>>>();
-    let queue_index = use_context::<Signal<usize>>();
-    let now_playing = use_context::<Signal<Option<Song>>>();
-    let is_playing = use_context::<crate::components::IsPlayingSignal>().0;
-    let playback_position = use_context::<PlaybackPositionSignal>().0;
-    let seek_request = use_context::<SeekRequestSignal>().0;
-    let preview_playback = use_context::<PreviewPlaybackSignal>().0;
+    let servers = use_servers();
+    let player = use_player();
+    let preview = use_context::<Preview>();
+    let toast = use_context::<StatusToast>();
+    let offline = use_setting(|s| s.offline_mode);
 
     let show_playlist_picker = use_signal(|| false);
     let mut playlist_filter = use_signal(String::new);
     let mut new_playlist_name = use_signal(String::new);
     let is_processing = use_signal(|| false);
     let processing_label = use_signal(|| None::<String>);
-    let message = use_signal(|| None::<(bool, String)>);
     let suggestion_destination = use_signal(|| None::<SuggestionDestination>);
     let suggestion_candidates = use_signal(Vec::<Song>::new);
     let suggestions_loading = use_signal(|| false);
-    let preview_session = use_signal(|| 0u64);
-    let preview_song_key = use_signal(|| None::<String>);
     let was_open = use_signal(|| false);
 
     let playlists = {
@@ -69,14 +63,11 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     {
         let mut show_playlist_picker = show_playlist_picker.clone();
         let mut new_playlist_name = new_playlist_name.clone();
-        let mut message = message.clone();
         let mut is_processing = is_processing.clone();
         let mut processing_label = processing_label.clone();
         let mut suggestion_destination = suggestion_destination.clone();
         let mut suggestion_candidates = suggestion_candidates.clone();
         let mut suggestions_loading = suggestions_loading.clone();
-        let mut preview_session = preview_session.clone();
-        let mut preview_song_key = preview_song_key.clone();
         let mut was_open = was_open.clone();
         let controller = controller.clone();
         use_effect(move || {
@@ -85,14 +76,11 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             if is_open && !previously_open {
                 show_playlist_picker.set(false);
                 new_playlist_name.set(String::new());
-                message.set(None);
                 is_processing.set(false);
                 processing_label.set(None);
                 suggestion_destination.set(None);
                 suggestion_candidates.set(Vec::new());
                 suggestions_loading.set(false);
-                preview_session.with_mut(|session| *session = session.saturating_add(1));
-                preview_song_key.set(None);
             }
             if previously_open != is_open {
                 was_open.set(is_open);
@@ -217,67 +205,15 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
     };
 
 
-    let on_preview_song = Rc::new({
-        let queue_index = queue_index.clone();
-        let now_playing = now_playing.clone();
-        let is_playing = is_playing.clone();
-        let playback_position = playback_position.clone();
-        let seek_request = seek_request.clone();
-        let preview_playback = preview_playback.clone();
-        let preview_session = preview_session.clone();
-        let preview_song_key = preview_song_key.clone();
-        move |song: Song| {
-            let queue_index = queue_index.clone();
-            let mut now_playing = now_playing.clone();
-            let mut is_playing = is_playing.clone();
-            let mut playback_position = playback_position.clone();
-            let mut seek_request = seek_request.clone();
-            let mut preview_playback = preview_playback.clone();
-            let mut preview_session = preview_session.clone();
-            let mut preview_song_key = preview_song_key.clone();
-            let saved_queue_index = queue_index();
-            let saved_now_playing = now_playing();
-            let saved_is_playing = is_playing();
-            let saved_playback_position = playback_position();
-            let saved_seek_request = seek_request();
-            let saved_seek = saved_seek_request.or_else(|| {
-                saved_now_playing
-                    .as_ref()
-                    .map(|current| (current.id.clone(), saved_playback_position.max(0.0)))
-            });
-
-            preview_session.with_mut(|session| *session = session.saturating_add(1));
-            let session = preview_session();
-            preview_song_key.set(Some(song_key(&song)));
-            preview_playback.set(true);
-
-            playback_position.set(0.0);
-            seek_request.set(Some((song.id.clone(), 0.0)));
-            now_playing.set(Some(song));
-            is_playing.set(true);
-
-            let mut queue_index = queue_index.clone();
-            let mut now_playing = now_playing.clone();
-            let mut is_playing = is_playing.clone();
-            let mut playback_position = playback_position.clone();
-            let mut seek_request = seek_request.clone();
-            let preview_session = preview_session.clone();
-            let mut preview_song_key = preview_song_key.clone();
-            spawn(async move {
-                quick_preview_delay_ms(QUICK_PREVIEW_DURATION_MS).await;
-                if preview_session() != session {
-                    return;
-                }
-                queue_index.set(saved_queue_index);
-                now_playing.set(saved_now_playing);
-                is_playing.set(saved_is_playing);
-                playback_position.set(saved_playback_position.max(0.0));
-                seek_request.set(saved_seek);
-                preview_song_key.set(None);
-                preview_playback.set(false);
-            });
-        }
-    });
+    // Quick Listen: 30 seconds from the server, without touching the queue
+    // (the same preview the track menu plays).
+    let can_quick_listen = move |song: &Song| {
+        !offline() && Capabilities::for_source(&servers.read(), &song.server_id).quick_listen
+    };
+    let quick_listening = move |song: &Song| {
+        (preview.current)().as_deref() == Some(quick_listen_id(song).as_str())
+    };
+    let on_quick_listen = move |song: Song| preview.quick_listen(song, &servers.peek());
 
     let navigation = use_context::<Navigation>();
     let on_cover_click = {
@@ -300,31 +236,6 @@ pub fn AddToMenuOverlay(controller: AddMenuController) -> Element {
             }
         }
     };
-
-    // Same rules as the track menu's Play Next / Add to Queue: an empty,
-    // idle player starts playing the first added song.
-    let enqueue_items =
-        move |mut queue: Signal<Vec<Song>>, mut queue_index: Signal<usize>, items: Vec<Song>, mode: &str| {
-            let items = normalize_manual_queue_songs(items);
-            let (mut now_playing, mut is_playing) = (now_playing, is_playing);
-            if now_playing.peek().is_none() && queue.peek().is_empty() {
-                let first = items.first().cloned();
-                queue.set(items);
-                queue_index.set(0);
-                now_playing.set(first);
-                is_playing.set(true);
-                return;
-            }
-            queue.with_mut(|q| match mode {
-                "next" => {
-                    let insert_at = queue_index.peek().saturating_add(1).min(q.len());
-                    for (idx, song) in items.into_iter().enumerate() {
-                        q.insert(insert_at + idx, song);
-                    }
-                }
-                _ => q.extend(items),
-            });
-        };
 
     let (
         make_add_to_queue,

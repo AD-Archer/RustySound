@@ -1,10 +1,11 @@
 //! Wide player bar (Mac mock): now playing, transport + progress, extras.
+//! Shuffle, Repeat and the rating live in its playback menu ("…",
+//! `playback_menu.rs`), so the bar keeps to what you reach for often.
 
-use super::controls::{
-    AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton, RatingButton,
-    RepeatButton, ShuffleButton,
-};
-use crate::api::{MusicClient, ServerConfig, Song};
+use super::controls::{AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton};
+use super::playback_menu::PlaybackMenu;
+use crate::api::Song;
+use crate::components::song_details::actions::format_badge;
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{
     Artwork, IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, ProgressTrack,
@@ -12,7 +13,7 @@ use crate::components::ui::{
 };
 use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{
-    AppView, Navigation, SongDetailsController, SongDetailsTab, VolumeSignal,
+    use_player, AppView, Navigation, SongDetailsController, SongDetailsTab, VolumeSignal,
 };
 use dioxus::prelude::*;
 
@@ -37,18 +38,6 @@ fn radio_labels(song: &Song) -> (String, String) {
         (song.title.clone(), format!("{artist} · {station}"))
     } else {
         (song.title.clone(), station)
-    }
-}
-
-fn format_badge(song: &Song) -> Option<String> {
-    let suffix = song.suffix.as_deref()?.trim().to_ascii_uppercase();
-    if suffix.is_empty() {
-        return None;
-    }
-    let lossless = matches!(suffix.as_str(), "FLAC" | "ALAC" | "WAV" | "AIFF" | "APE" | "WV");
-    match song.bitrate {
-        Some(rate) if rate > 0 && !lossless => Some(format!("{suffix} {rate}")),
-        _ => Some(suffix),
     }
 }
 
@@ -153,11 +142,9 @@ pub(super) fn WidePlayer() -> Element {
             }
             div { class: "rs-bar__mid",
                 div { class: "rs-bar__transport",
-                    span { class: "rs-bar__optional", ShuffleButton {} }
                     PrevButton {}
                     PlayPauseButton { size: ControlSize::Bar }
                     NextButton { size: ControlSize::Bar }
-                    span { class: "rs-bar__optional", RepeatButton {} }
                 }
                 PlaybackTime { class: "rs-time--end".to_string() }
                 PlaybackProgress { class: "rs-bar__progress".to_string() }
@@ -167,7 +154,6 @@ pub(super) fn WidePlayer() -> Element {
                 if let Some(badge) = song.as_ref().and_then(format_badge) {
                     span { class: "rs-bar__fmt", "{badge}" }
                 }
-                span { class: "rs-bar__optional", RatingButton {} }
                 AddToMenuButton {}
                 IconButton {
                     icon: "lyrics".to_string(),
@@ -186,23 +172,23 @@ pub(super) fn WidePlayer() -> Element {
                     testid: "player-queue".to_string(),
                     onclick: move |_| navigation.navigate_to(AppView::QueueView {}),
                 }
+                PlaybackMenu {}
                 VolumeControl {}
             }
         }
     }
 }
 
-/// Star toggle for the current song (Subsonic "starred").
+/// Favourite toggle for the current song (`PlayerCtx::toggle_favorite`, so
+/// music on the device and every server kind work, and lists update).
 #[component]
 fn FavoriteButton() -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let now_playing = use_context::<Signal<Option<Song>>>();
-    let queue = use_context::<Signal<Vec<Song>>>();
-    let starred = now_playing
+    let player = use_player();
+    let starred = player
+        .now_playing
         .read()
         .as_ref()
-        .map(|song| song.starred.is_some())
-        .unwrap_or(false);
+        .is_some_and(|song| song.starred.is_some());
 
     rsx! {
         IconButton {
@@ -212,37 +198,9 @@ fn FavoriteButton() -> Element {
             size: IconButtonSize::Small,
             testid: "player-favorite".to_string(),
             onclick: move |_| {
-                let Some(song) = now_playing.peek().clone() else {
-                    return;
-                };
-                let Some(server) = servers.peek().iter().find(|s| s.id == song.server_id).cloned() else {
-                    return;
-                };
-                let should_star = song.starred.is_none();
-                let (mut now_playing, mut queue) = (now_playing, queue);
-                spawn(async move {
-                    let client = MusicClient::new(server);
-                    let result = if should_star {
-                        client.star(&song.id, "song").await
-                    } else {
-                        client.unstar(&song.id, "song").await
-                    };
-                    if result.is_ok() {
-                        let marker = should_star.then(|| "local".to_string());
-                        now_playing.with_mut(|current| {
-                            if let Some(current) = current.as_mut() {
-                                if current.id == song.id {
-                                    current.starred = marker.clone();
-                                }
-                            }
-                        });
-                        queue.with_mut(|items| {
-                            for item in items.iter_mut().filter(|s| s.id == song.id) {
-                                item.starred = marker.clone();
-                            }
-                        });
-                    }
-                });
+                if let Some(song) = player.now_playing.peek().clone() {
+                    player.toggle_favorite(song);
+                }
             },
         }
     }

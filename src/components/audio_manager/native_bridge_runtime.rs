@@ -117,43 +117,43 @@ async fn native_delay_ms(ms: u64) {
     tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
+/// What the lock screen, MediaSession and the Now Playing widgets show for a
+/// song: one builder for every platform. Radio shows the station as the
+/// artist and "LIVE" as the album; songs add their year to the album.
+struct TrackLabels {
+    title: String,
+    artist: String,
+    album: String,
+    /// Cover URL (512 px) from the song's server.
+    artwork: Option<String>,
+    /// Native lock screens show no scrubber for radio (MediaSession infers it).
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
+    is_live: bool,
+}
+
+// TODO(chunk A): `Song::is_radio()` replaces the `server_name` check.
+fn track_labels(song: &Song, servers: &[ServerConfig]) -> TrackLabels {
     let is_live = song.server_name == "Radio";
+    let named = |value: &Option<String>| value.clone().filter(|value| !value.trim().is_empty());
     let title = if is_live && song.title.trim().eq_ignore_ascii_case("unknown song") {
-        song.artist
-            .clone()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "Unknown Song".to_string())
+        named(&song.artist).unwrap_or_else(|| "Unknown Song".to_string())
+    } else if song.title.trim().is_empty() {
+        "Unknown Song".to_string()
     } else {
         song.title.clone()
     };
-    let artist = song
-        .artist
-        .clone()
-        .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| {
-            if is_live {
-                "Internet Radio".to_string()
-            } else {
-                "Unknown Artist".to_string()
-            }
-        });
-
-    let mut album = if is_live {
+    let artist = named(&song.artist).unwrap_or_else(|| {
+        if is_live { "Internet Radio" } else { "Unknown Artist" }.to_string()
+    });
+    let album = if is_live {
         "LIVE".to_string()
     } else {
-        song.album
-            .clone()
-            .filter(|value| !value.is_empty())
-            .unwrap_or_else(|| "Unknown Album".to_string())
-    };
-    if !is_live {
-        if let Some(year) = song.year {
-            album = format!("{album} ({year})");
+        let album = named(&song.album).unwrap_or_else(|| "Unknown Album".to_string());
+        match song.year {
+            Some(year) => format!("{album} ({year})"),
+            None => album,
         }
-    }
-
+    };
     let artwork = servers
         .iter()
         .find(|s| s.id == song.server_id)
@@ -162,14 +162,25 @@ fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
                 .as_ref()
                 .map(|cover| MusicClient::new(server.clone()).get_cover_art_url(cover, 512))
         });
-
-    NativeTrackMetadata {
+    TrackLabels {
         title,
         artist,
         album,
         artwork,
-        duration: song.duration as f64,
         is_live,
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn song_metadata(song: &Song, servers: &[ServerConfig]) -> NativeTrackMetadata {
+    let labels = track_labels(song, servers);
+    NativeTrackMetadata {
+        title: labels.title,
+        artist: labels.artist,
+        album: labels.album,
+        artwork: labels.artwork,
+        duration: song.duration as f64,
+        is_live: labels.is_live,
     }
 }
 

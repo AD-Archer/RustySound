@@ -52,6 +52,7 @@ fn take_finished() -> Option<(String, String)> {
     FINISHED.lock().ok().and_then(|mut finished| finished.take())
 }
 
+// TODO(chunk A): `src/time.rs` `now_ms` replaces this.
 fn now_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
 }

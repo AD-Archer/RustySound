@@ -10,6 +10,8 @@
 //! background and never touches playback. Offline Mode skips it.
 
 use crate::api::{NavidromeClient, ServerConfig, Song};
+// TODO(chunk A): `src/time.rs` (`now_ms`, `sleep_ms`) replaces these homes.
+use crate::components::now_ms;
 use crate::components::ui::env::sleep_ms;
 use crate::db::AppSettings;
 use crate::offline_audio::sync_downloaded_playlists;
@@ -54,20 +56,6 @@ impl PlaylistSync {
         let _ = (self.tick)();
         let age = (self.last_synced)().map(|at| now_ms() - at);
         updated_label(age, (self.busy)())
-    }
-}
-
-pub fn now_ms() -> f64 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        js_sys::Date::now()
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis() as f64)
-            .unwrap_or(0.0)
     }
 }
 

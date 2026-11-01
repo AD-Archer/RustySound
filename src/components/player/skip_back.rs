@@ -206,23 +206,6 @@ pub(crate) struct SkipBackSignals {
     pub current_time: Signal<f64>,
 }
 
-impl SkipBackSignals {
-    /// From context; call inside a component or hook.
-    pub(crate) fn from_context() -> Self {
-        let audio = consume_context::<Signal<crate::components::AudioState>>();
-        let current_time = audio.peek().current_time;
-        Self {
-            queue: consume_context(),
-            queue_index: consume_context(),
-            now_playing: consume_context(),
-            is_playing: consume_context::<crate::components::IsPlayingSignal>().0,
-            repeat: consume_context(),
-            position: consume_context::<crate::components::PlaybackPositionSignal>().0,
-            current_time,
-        }
-    }
-}
-
 /// One skip-back press: decides through the shared machine and applies it.
 /// `resume` starts playback after the change (remote commands); otherwise
 /// playing or paused stays as it was. Reads with `peek`, so it never
