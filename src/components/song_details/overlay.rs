@@ -7,18 +7,19 @@
 //! and the active-line memo in `lyrics/lines.rs`; queue readers are the art
 //! strip and Up Next.
 
-use super::actions::is_live_song;
+use super::actions::{is_live_song, song_key};
 use super::art::NowPlayingArt;
 use super::gestures::{sheet_mounted, use_now_playing_gestures};
+use super::lyrics::LyricsSource;
 use super::meta::{NowPlayingExtras, NowPlayingMeta};
-use super::panels::NowPlayingPanels;
+use super::panels::{use_now_playing_lyrics, NowPlayingPanels};
 use super::strip::NowPlayingStrip;
 use super::transport::{NowPlayingScrubber, NowPlayingTransport};
 use super::types::{NowPlayingFocus, SongDetailsController, SongDetailsTab};
 use crate::api::Song;
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{use_layout, IconButton};
-use crate::components::{AppView, Navigation};
+use crate::components::{AmbientMode, AppView, Navigation};
 use dioxus::prelude::*;
 
 /// Drag distance (px) past which releasing the sheet dismisses it.
@@ -84,6 +85,41 @@ fn dismiss(mut controller: SongDetailsController, mut closing: Signal<bool>) {
     });
 }
 
+/// The A key opens ambient mode (shown next to its menu row).
+fn is_ambient_key(evt: &KeyboardEvent) -> bool {
+    matches!(evt.key(), Key::Character(ref c) if c.eq_ignore_ascii_case("a"))
+        && !evt.modifiers().intersects(Modifiers::META | Modifiers::CONTROL | Modifiers::ALT)
+}
+
+/// Ambient mode over the sheet, with the sheet's synced lyrics. A sibling
+/// of the sheet, so its keys never reach the sheet's handlers.
+#[component]
+fn NowPlayingAmbient(song: Song, controller: SongDetailsController) -> Element {
+    let source = use_context::<LyricsSource>();
+    let (lyrics, _) = source.shown();
+    let lines = lyrics
+        .filter(|_| source.sync_enabled() && !is_live_song(&song))
+        .map(|found| found.synced_lines)
+        .unwrap_or_default();
+    let lyrics_key = format!(
+        "{}:{}:{}",
+        song_key(&song),
+        lines.len(),
+        lines.first().map(|line| line.timestamp_seconds).unwrap_or(0.0)
+    );
+    rsx! {
+        AmbientMode {
+            song,
+            lines,
+            lyrics_key,
+            on_close: move |_| {
+                let mut controller = controller;
+                controller.set_ambient(false);
+            },
+        }
+    }
+}
+
 /// Close chevron, context label, and a shortcut to the full queue page.
 #[component]
 fn SheetBar(label: String, controller: SongDetailsController, closing: Signal<bool>) -> Element {
@@ -127,6 +163,8 @@ fn CompactNowPlaying(
     let mut drag_start = use_signal(|| None::<(f64, f64)>);
     let mut drag_dy = use_signal(|| 0.0f64);
     let NowPlayingFocus(mut focus) = use_context::<NowPlayingFocus>();
+    use_now_playing_lyrics(song.clone());
+    let ambient = controller.ambient();
     let focused = focus();
     let dy = drag_dy();
     let style = if dy > 0.0 {
@@ -163,6 +201,9 @@ fn CompactNowPlaying(
                         } else {
                             dismiss(controller.clone(), closing);
                         }
+                    } else if is_ambient_key(&evt) {
+                        evt.prevent_default();
+                        controller.clone().set_ambient(true);
                     }
                 }
             },
@@ -222,6 +263,9 @@ fn CompactNowPlaying(
             NowPlayingStrip { song: song.clone(), focused }
             NowPlayingPanels { song: song.clone(), tab, wide: false }
         }
+        if ambient {
+            NowPlayingAmbient { song, controller }
+        }
     }
 }
 
@@ -233,6 +277,8 @@ fn WideNowPlaying(
     closing: Signal<bool>,
 ) -> Element {
     let label = context_label(&song);
+    use_now_playing_lyrics(song.clone());
+    let ambient = controller.ambient();
     rsx! {
         div {
             class: "rs-player-np-scrim",
@@ -260,6 +306,9 @@ fn WideNowPlaying(
                     if evt.key() == Key::Escape {
                         evt.prevent_default();
                         dismiss(controller.clone(), closing);
+                    } else if is_ambient_key(&evt) {
+                        evt.prevent_default();
+                        controller.clone().set_ambient(true);
                     }
                 }
             },
@@ -276,6 +325,9 @@ fn WideNowPlaying(
                     NowPlayingPanels { song: song.clone(), tab, wide: true }
                 }
             }
+        }
+        if ambient {
+            NowPlayingAmbient { song, controller }
         }
     }
 }

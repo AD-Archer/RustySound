@@ -1,8 +1,10 @@
 //! The components module contains all shared pieces of the UI.
 
 mod add_to_menu;
+mod ambient;
 mod app;
 mod app_view;
+mod art_palette;
 mod audio_manager;
 pub mod audio_output;
 mod icons;
@@ -38,6 +40,8 @@ pub struct IsPlayingSignal(pub Signal<bool>);
 pub struct ShuffleEnabledSignal(pub Signal<bool>);
 
 pub use add_to_menu::*;
+pub use ambient::AmbientMode;
+pub use art_palette::use_art_palette;
 pub use app::*;
 pub use app_view::AppView;
 pub use audio_manager::*;

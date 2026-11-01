@@ -69,6 +69,8 @@ pub struct SongDetailsState {
     /// True once a caller or the user picked a panel. While false the sheet
     /// picks: Lyrics when the song has lyrics, otherwise Up Next.
     pub tab_chosen: bool,
+    /// Ambient mode, shown over Now Playing (`components/ambient`).
+    pub ambient: bool,
 }
 
 impl Default for SongDetailsState {
@@ -78,6 +80,7 @@ impl Default for SongDetailsState {
             song: None,
             active_tab: SongDetailsTab::Lyrics,
             tab_chosen: false,
+            ambient: false,
         }
     }
 }
@@ -105,8 +108,25 @@ impl SongDetailsController {
 
     pub fn close(&mut self) {
         if self.state.peek().is_open {
-            self.state.with_mut(|state| state.is_open = false);
+            self.state.with_mut(|state| {
+                state.is_open = false;
+                state.ambient = false;
+            });
         }
+    }
+
+    /// Opens or closes ambient mode. It lives over Now Playing, so it only
+    /// opens while the sheet is open.
+    pub fn set_ambient(&mut self, on: bool) {
+        let on = on && self.state.peek().is_open;
+        if self.state.peek().ambient != on {
+            self.state.with_mut(|state| state.ambient = on);
+        }
+    }
+
+    /// Whether ambient mode is showing; subscribes the caller.
+    pub fn ambient(&self) -> bool {
+        self.state.read().ambient
     }
 
     pub fn set_tab(&mut self, tab: SongDetailsTab) {

@@ -223,9 +223,26 @@ pub struct AppSettings {
     /// (`audio_manager::autoplay`).
     #[serde(default = "default_autoplay_enabled")]
     pub autoplay_enabled: bool,
+    /// Settings › Appearance › Colour from album art: accents taken from
+    /// the playing song's cover (`components/art_palette`).
+    #[serde(default = "default_art_colors")]
+    pub art_colors: bool,
+    /// Ambient mode's clock and lyric line (`components/ambient`).
+    #[serde(default = "default_ambient_clock")]
+    pub ambient_clock: bool,
+    #[serde(default)]
+    pub ambient_lyrics: bool,
 }
 
 fn default_autoplay_enabled() -> bool {
+    true
+}
+
+fn default_art_colors() -> bool {
+    true
+}
+
+fn default_ambient_clock() -> bool {
     true
 }
 
@@ -425,6 +442,9 @@ impl Default for AppSettings {
             queue_sync_enabled: default_queue_sync_enabled(),
             equalizer: crate::equalizer::EqSettings::default(),
             autoplay_enabled: default_autoplay_enabled(),
+            art_colors: default_art_colors(),
+            ambient_clock: default_ambient_clock(),
+            ambient_lyrics: false,
         }
     }
 }
