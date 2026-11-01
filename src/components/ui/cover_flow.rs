@@ -33,6 +33,9 @@ const FADE_AFTER: usize = 7;
 /// * `cover_px`: cover edge (148 phone, 216 Mac). `wide`: Mac variant (deeper
 ///   perspective and the range scrubber under the caption).
 /// * `label`: aria-label of the carousel.
+/// * `focus`: an index the flow moves to whenever this value changes (the
+///   playing song on a playlist). Flipping away keeps the user's choice until
+///   the value changes again; it never calls `on_select`.
 ///
 /// Input: ←/→ keys when focused, horizontal or vertical wheel, pointer swipe
 /// (one cover per third of a cover width), tapping a side cover to centre it.
@@ -47,8 +50,9 @@ pub fn CoverFlow(
     #[props(default = 148)] cover_px: u32,
     #[props(default)] wide: bool,
     #[props(default = "Covers".to_string())] label: String,
+    #[props(default)] focus: Option<usize>,
 ) -> Element {
-    let mut selected = use_signal(|| initial);
+    let mut selected = use_signal(|| focus.unwrap_or(initial));
     let mut ready = use_signal(|| false);
     let mut pulse = use_signal(|| false);
     // Gesture state lives in signals nobody renders from, so writes are free.
@@ -67,6 +71,14 @@ pub fn CoverFlow(
     });
 
     let count = items.len();
+    // Render clamps `selected` to the item count, so no clamp here.
+    use_effect(use_reactive!(|focus| {
+        if let Some(index) = focus {
+            if index != *selected.peek() {
+                selected.set(index);
+            }
+        }
+    }));
     if count == 0 {
         return rsx! {};
     }

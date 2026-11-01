@@ -407,6 +407,80 @@
   height: 12px;
 }
 
+/* ---- Detail pages: Cover Flow of the songs (playlist and mix pages) ---
+   The band drops its single artwork: the title block on top, the flow of
+   song covers below it, the caption naming the centred song. */
+
+.rs-library-hero--flow {
+  padding-bottom: var(--sp-7);
+}
+
+.rs-app[data-layout="wide"] .rs-library-hero--flow {
+  padding-bottom: var(--sp-8);
+}
+
+.rs-library-hero__body--flow {
+  padding-top: var(--sp-2);
+}
+
+.rs-library-hero__body--flow .rs-library-hero__text {
+  padding-top: 0;
+}
+
+.rs-library-hero__body--flow .rs-library-hero__meta {
+  margin-top: var(--sp-2);
+}
+
+.rs-library-hero__body--flow .rs-library-hero__note {
+  margin-top: var(--sp-3);
+  -webkit-line-clamp: 2;
+}
+
+.rs-library-hero__flow {
+  /* The flow's own reflection needs a little room under the covers. */
+  margin-top: var(--sp-2);
+}
+
+.rs-songflow__skel {
+  --cover: 148px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 10px;
+  height: calc(var(--cover) + 32px + 54px);
+  margin-top: var(--sp-5);
+}
+
+.rs-songflow__skel--wide {
+  height: calc(var(--cover) + 40px + 54px + 26px);
+  margin-top: 18px;
+}
+
+.rs-songflow__skel-cover,
+.rs-songflow__skel-side {
+  border-radius: var(--r-cover);
+  background: linear-gradient(90deg, #17181a 0%, #24252a 50%, #17181a 100%);
+  background-size: 200% 100%;
+  animation: rs-shimmer 1.4s linear infinite;
+}
+
+.rs-songflow__skel-cover {
+  width: var(--cover);
+  height: var(--cover);
+}
+
+.rs-songflow__skel-side {
+  width: calc(var(--cover) * .28);
+  height: calc(var(--cover) * .86);
+  margin-top: calc(var(--cover) * .07);
+  opacity: .6;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-songflow__skel-cover,
+  .rs-songflow__skel-side { animation: none; }
+}
+
 /* Artist links (ArtistNameLinks' default classes, used app-wide). */
 .rs-library-names {
   display: inline-flex;

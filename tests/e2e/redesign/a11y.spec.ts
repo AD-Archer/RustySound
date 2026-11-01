@@ -37,6 +37,15 @@ async function startPlayback(page: Page, m: MockFixtures) {
 
 const SCREENS: Screen[] = [
   { name: "First run", path: () => "/", ready: "first-run", noServer: true },
+  {
+    name: "Sign in",
+    path: () => "/",
+    ready: "server-form",
+    noServer: true,
+    open: async (page) => {
+      await tid(page, "first-run-add").click();
+    },
+  },
   { name: "Home", path: () => "/", ready: "shelf-playlists" },
   { name: "Library", path: () => "/library", ready: "library" },
   {
