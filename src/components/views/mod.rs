@@ -18,6 +18,7 @@ mod search;
 mod settings;
 mod songs;
 mod stats;
+mod wrapped;
 
 pub use album_detail::AlbumDetailView;
 pub use albums::{Albums, AlbumsWithGenre};

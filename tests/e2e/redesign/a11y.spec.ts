@@ -67,6 +67,14 @@ const SCREENS: Screen[] = [
   { name: "Bookmarks", path: () => "/bookmarks", ready: "bookmark-row" },
   { name: "Stats", path: () => "/stats", ready: "stats-counts" },
   { name: "Settings", path: () => "/settings", ready: "settings" },
+  {
+    name: "Wrapped",
+    path: () => "/settings",
+    ready: "wrapped-card-minutes",
+    open: async (page) => {
+      await tid(page, "settings-wrapped").click();
+    },
+  },
   { name: "Album", path: (m) => `/album/${m.album.id}/${MOCK_SERVER_ID}`, ready: "track-row" },
   { name: "Artist", path: (m) => `/artist/${m.artist.id}/${MOCK_SERVER_ID}`, ready: "artist-detail" },
   { name: "Playlist", path: (m) => `/playlist/${m.playlist.id}/${MOCK_SERVER_ID}`, ready: "track-row" },
