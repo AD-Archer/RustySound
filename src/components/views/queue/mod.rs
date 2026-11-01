@@ -52,12 +52,15 @@ fn restore_snapshot(
     player.is_playing.set(false);
 }
 
-async fn prefetch_lyrics(songs: Vec<Song>) {
+/// The song's own server first (no third-party call when it has the lyrics),
+/// then LRCLIB.
+async fn prefetch_lyrics(songs: Vec<Song>, servers: Vec<ServerConfig>) {
     let started = PerfTimer::now();
-    let providers = vec!["lrclib".to_string()];
+    let providers = vec!["server".to_string(), "lrclib".to_string()];
     let mut count = 0usize;
     for song in songs.into_iter().filter(|s| !s.title.trim().is_empty()) {
-        let _ = fetch_lyrics_with_fallback(&LyricsQuery::from_song(&song), &providers, 4).await;
+        let query = LyricsQuery::from_song_on(&song, &servers);
+        let _ = fetch_lyrics_with_fallback(&query, &providers, 4).await;
         count += 1;
     }
     log_perf("queue.lyrics_prefetch", started, &format!("prefetched={count}"));
@@ -94,7 +97,7 @@ pub fn QueueView() -> Element {
         });
     });
 
-    // Warm LRCLIB for the first few songs whenever the head of the queue changes.
+    // Warm lyrics for the first few songs whenever the head of the queue changes.
     use_effect(move || {
         let head: Vec<Song> = player.queue.read().iter().take(LYRICS_PREFETCH).cloned().collect();
         let signature = head
@@ -106,7 +109,7 @@ pub fn QueueView() -> Element {
             return;
         }
         prefetch_signature.set(signature);
-        spawn(prefetch_lyrics(head));
+        spawn(prefetch_lyrics(head, player.servers.peek().clone()));
     });
 
     // Open on the playing song: once, when the page mounts, and only when it

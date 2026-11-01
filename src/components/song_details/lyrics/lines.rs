@@ -4,6 +4,11 @@
 //! Perf: the active line is a memo over the playback clock. The memo re-runs
 //! on each tick (a binary search), but the list re-renders only when the
 //! active line changes.
+//!
+//! Word-timed lines (karaoke) render each word as a span with its start and
+//! end. The fill as words are sung is `karaoke.js` writing a CSS variable on
+//! the active line's words each frame; Rust only hands it the clock on each
+//! tick, so no frame goes through the VDOM.
 
 use crate::api::LyricLine;
 use crate::components::song_details::actions::use_player;
@@ -14,6 +19,8 @@ use crate::components::song_details::types::NowPlayingFocus;
 use dioxus::prelude::*;
 use std::cell::Cell;
 use std::rc::Rc;
+
+const KARAOKE_JS: &str = include_str!("karaoke.js");
 
 /// After a manual scroll, auto-scroll waits this long.
 const MANUAL_HOLD_MS: f64 = 1800.0;
@@ -68,6 +75,43 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
     let clock = use_hook(move || audio.peek().current_time);
     let stamps: Rc<Vec<f64>> =
         use_hook(|| Rc::new(lines.iter().map(|line| line.timestamp_seconds).collect()));
+    // Each line's word `(start, end)`s, worked out once per result.
+    let word_bounds: Rc<Vec<Vec<(f64, f64)>>> = use_hook(|| {
+        Rc::new(
+            lines
+                .iter()
+                .enumerate()
+                .map(|(index, line)| {
+                    line.word_bounds(lines.get(index + 1).map(|next| next.timestamp_seconds))
+                })
+                .collect(),
+        )
+    });
+    let karaoke = word_bounds.iter().any(|bounds| !bounds.is_empty());
+    let is_playing = player.is_playing;
+    use_hook(move || {
+        if karaoke {
+            let _ = document::eval(KARAOKE_JS);
+        }
+    });
+    {
+        let dom_id = dom_id.clone();
+        use_effect(move || {
+            if !karaoke || live {
+                return;
+            }
+            let at = clock();
+            let playing = is_playing();
+            let offset = settings.read().lyrics_offset_ms as f64 / 1000.0;
+            if !at.is_finite() {
+                return;
+            }
+            let id = serde_json::to_string(&dom_id).unwrap_or_default();
+            let _ = document::eval(&format!(
+                "window.__rsKaraoke&&window.__rsKaraoke.clock({id},{at},{playing},{offset});"
+            ));
+        });
+    }
 
     let active = use_memo({
         let stamps = stamps.clone();
@@ -164,6 +208,7 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
                         r#type: "button",
                         id: "{dom_id}-line-{index}",
                         class: "rs-player-lyric",
+                        class: if !line.words.is_empty() { "rs-player-lyric--words" },
                         class: if Some(index) == current { "rs-player-lyric--now" },
                         class: if current.map(|c| index < c).unwrap_or(false) { "rs-player-lyric--past" },
                         aria_current: if Some(index) == current { Some("true") } else { None },
@@ -178,8 +223,17 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
                         },
                         if line.text.trim().is_empty() {
                             span { aria_label: "Instrumental", "\u{266A}" }
-                        } else {
+                        } else if line.words.is_empty() {
                             "{line.text}"
+                        } else {
+                            for (word, (start, end)) in line.words.iter().zip(word_bounds[index].iter().copied()) {
+                                span {
+                                    class: "rs-player-word",
+                                    "data-s": "{start:.3}",
+                                    "data-e": "{end:.3}",
+                                    "{word.text}"
+                                }
+                            }
                         }
                     }
                 }

@@ -85,11 +85,12 @@ pub(crate) fn LyricsPanel(song: Song) -> Element {
         Some(found) => {
             if sync && !found.synced_lines.is_empty() {
                 let key = format!(
-                    "{}:{}:{}:{}",
+                    "{}:{}:{}:{}:{}",
                     dom_id,
                     found.provider.label(),
                     found.synced_lines.len(),
-                    found.synced_lines.first().map(|l| l.timestamp_seconds).unwrap_or(0.0)
+                    found.synced_lines.first().map(|l| l.timestamp_seconds).unwrap_or(0.0),
+                    found.has_word_timing()
                 );
                 rsx! {
                     SyncedLyrics { key: "{key}", lines: found.synced_lines.clone(), live, dom_id: dom_id.clone() }

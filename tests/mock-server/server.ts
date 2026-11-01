@@ -355,6 +355,31 @@ function lyricLines(s: SongRec): { start: number; value: string }[] {
   return lines;
 }
 
+// Word-timed (karaoke) lyrics: songs with odd track numbers carry word cues
+// on getLyricsBySongId?enhanced=true (OpenSubsonic songLyrics v2). Each word
+// lasts WORD_MS from its line's start; cues give UTF-8 byte offsets into the
+// line, and skip the spaces between words, as Navidrome's do.
+const WORD_MS = 450;
+function wordTimed(s: SongRec) {
+  return !s.instrumental && s.track % 2 === 1;
+}
+function cueLines(lines: { start: number; value: string }[]) {
+  const utf8 = new TextEncoder();
+  return lines.map((l, index) => {
+    const cue: { start: number; end: number; value: string; byteStart: number; byteEnd: number }[] = [];
+    let offset = 0;
+    for (const word of l.value.split(" ")) {
+      const bytes = utf8.encode(word).length;
+      if (bytes > 0) {
+        const start = l.start + cue.length * WORD_MS;
+        cue.push({ start, end: start + WORD_MS, value: word, byteStart: offset, byteEnd: offset + bytes - 1 });
+      }
+      offset += bytes + 1;
+    }
+    return { index, start: l.start, end: l.start + cue.length * WORD_MS, value: l.value, cue };
+  });
+}
+
 function lrc(lines: { start: number; value: string }[]) {
   return lines
     .map((l) => {
@@ -417,7 +442,7 @@ const handlers: Record<string, Handler> = {
   getOpenSubsonicExtensions: () =>
     sub({
       openSubsonicExtensions: [
-        { name: "songLyrics", versions: [1] },
+        { name: "songLyrics", versions: [1, 2] },
         { name: "formPost", versions: [1] },
         { name: "transcodeOffset", versions: [1] },
       ],
@@ -735,11 +760,15 @@ const handlers: Record<string, Handler> = {
     const lines = lyricLines(s);
     const artist = S.lib.artistById.get(s.artistId)!.name;
     if (!lines.length) return sub({ lyricsList: { structuredLyrics: [] } });
+    // v2 (enhanced=true): `kind` on every entry, word cues on word-timed songs.
+    const enhanced = p.bool("enhanced");
+    const kind = enhanced ? { kind: "main" } : {};
+    const cues = enhanced && wordTimed(s) ? { cueLine: cueLines(lines) } : {};
     return sub({
       lyricsList: {
         structuredLyrics: [
-          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: true, line: lines },
-          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: false, line: lines.map((l) => ({ value: l.value })) },
+          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: true, ...kind, line: lines, ...cues },
+          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: false, ...kind, line: lines.map((l) => ({ value: l.value })) },
         ],
       },
     });
@@ -965,7 +994,10 @@ async function handle(req: Request): Promise<Response> {
       bigPlaylist: playlistJson(big),
       artist: artistJson(artist),
       album: albumJson(album),
-      albumSongs: album.songIds.map((id) => songJson(S.lib.songById.get(id)!)),
+      albumSongs: album.songIds.map((id) => {
+        const s = S.lib.songById.get(id)!;
+        return { ...songJson(s), wordTimed: wordTimed(s), hasLyrics: !s.instrumental };
+      }),
       playlist: playlistJson(S.lib.playlists[0]),
     });
   }

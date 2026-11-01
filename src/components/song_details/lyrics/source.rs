@@ -71,8 +71,10 @@ fn has_text(lyrics: &LyricsResult) -> bool {
     !lyrics.synced_lines.is_empty() || !lyrics.plain_lyrics.trim().is_empty()
 }
 
-/// Prefers the LRCLIB synced upgrade (or its cached copy) when synced
-/// lyrics are on, then the primary result.
+/// When synced lyrics are on, prefers a synced result: the primary one (the
+/// user's provider order, so the server's own lyrics win), else the LRCLIB
+/// upgrade or its cached copy; word timing beats line timing. Then the
+/// primary result as it is.
 fn pick_display_lyrics(
     sync_lyrics: bool,
     primary: Option<Result<LyricsResult, String>>,
@@ -80,13 +82,21 @@ fn pick_display_lyrics(
     cached_synced: Option<LyricsResult>,
 ) -> Option<Result<LyricsResult, String>> {
     if sync_lyrics {
-        if let Some(Ok(Some(up))) = upgrade.as_ref() {
-            if !up.synced_lines.is_empty() {
-                return Some(Ok(up.clone()));
+        let primary_synced = match primary.as_ref() {
+            Some(Ok(lyrics)) if !lyrics.synced_lines.is_empty() => Some(lyrics),
+            _ => None,
+        };
+        let upgrade_synced = match upgrade.as_ref() {
+            Some(Ok(Some(up))) if !up.synced_lines.is_empty() => Some(up.clone()),
+            _ => cached_synced.filter(|c| !c.synced_lines.is_empty()),
+        };
+        match (primary_synced, upgrade_synced) {
+            (Some(first), Some(up)) if up.has_word_timing() && !first.has_word_timing() => {
+                return Some(Ok(up));
             }
-        }
-        if let Some(cached) = cached_synced.filter(|c| !c.synced_lines.is_empty()) {
-            return Some(Ok(cached));
+            (Some(first), _) => return Some(Ok(first.clone())),
+            (None, Some(up)) => return Some(Ok(up)),
+            (None, None) => {}
         }
     }
     match primary {
@@ -137,13 +147,20 @@ pub(crate) fn use_lyrics_source(base: Memo<LyricsBase>) -> LyricsSource {
         }
     });
 
+    // The LRCLIB synced upgrade runs only once the primary result is in and
+    // has no line timing, so synced server lyrics cost no third-party call.
     let upgrade = use_resource(move || {
         let base = base();
         let config = config();
         let query_override = override_query();
         let _nonce = refresh_nonce();
+        let needed = match &*primary.read() {
+            Some(Ok(lyrics)) => lyrics.synced_lines.is_empty(),
+            Some(Err(_)) => true,
+            None => false,
+        };
         async move {
-            if config.unsynced {
+            if config.unsynced || !needed {
                 return Ok(None);
             }
             let Some((_, query)) = base else {
@@ -345,5 +362,65 @@ impl LyricsSource {
         self.override_query.set(None);
         self.search_term.set(None);
         self.candidate_nonce += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{LyricLine, LyricWord, LyricsProvider};
+
+    fn result(provider: LyricsProvider, synced: bool, words: bool) -> LyricsResult {
+        let line = LyricLine {
+            timestamp_seconds: 1.0,
+            text: "Hi".to_string(),
+            words: if words {
+                vec![LyricWord {
+                    start_seconds: 1.0,
+                    end_seconds: None,
+                    text: "Hi".to_string(),
+                }]
+            } else {
+                Vec::new()
+            },
+        };
+        LyricsResult {
+            provider,
+            plain_lyrics: "Hi".to_string(),
+            synced_lines: if synced { vec![line] } else { Vec::new() },
+        }
+    }
+
+    fn provider(picked: Option<Result<LyricsResult, String>>) -> LyricsProvider {
+        picked.unwrap().unwrap().provider
+    }
+
+    #[test]
+    fn synced_server_lyrics_beat_the_lrclib_upgrade() {
+        let server = result(LyricsProvider::Server, true, false);
+        let lrclib = result(LyricsProvider::Lrclib, true, false);
+        let picked = pick_display_lyrics(true, Some(Ok(server)), Some(Ok(Some(lrclib))), None);
+        assert_eq!(provider(picked), LyricsProvider::Server);
+    }
+
+    #[test]
+    fn word_timing_beats_line_timing() {
+        let server = result(LyricsProvider::Server, true, false);
+        let lrclib = result(LyricsProvider::Lrclib, true, true);
+        let picked = pick_display_lyrics(true, Some(Ok(server)), Some(Ok(Some(lrclib))), None);
+        assert_eq!(provider(picked), LyricsProvider::Lrclib);
+    }
+
+    #[test]
+    fn plain_primary_takes_the_synced_upgrade() {
+        let server = result(LyricsProvider::Server, false, false);
+        let lrclib = result(LyricsProvider::Lrclib, true, false);
+        let picked =
+            pick_display_lyrics(true, Some(Ok(server.clone())), Some(Ok(Some(lrclib))), None);
+        assert_eq!(provider(picked), LyricsProvider::Lrclib);
+        // Unsynced mode keeps the primary result.
+        let lrclib = result(LyricsProvider::Lrclib, true, false);
+        let picked = pick_display_lyrics(false, Some(Ok(server)), Some(Ok(Some(lrclib))), None);
+        assert_eq!(provider(picked), LyricsProvider::Server);
     }
 }
