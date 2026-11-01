@@ -2,7 +2,10 @@
 
 use crate::api::Song;
 use crate::components::ui::env::{format_clock, sleep_ms};
-use crate::components::ui::{Artwork, TrackMenuController};
+use crate::components::ui::row_gestures::help_id;
+use crate::components::ui::{
+    Artwork, RowGestureListId, RowRemoveRequest, RowSwipe, TrackMenuController, TrackMenuRemove,
+};
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -24,6 +27,11 @@ const LONG_PRESS_SLOP_PX: f64 = 10.0;
 /// * `downloaded`: show the downloaded mark (pass from a cached set, never
 ///   from a filesystem call in render).
 /// * `show_duration`: trailing duration. `index`: written as data-index.
+///
+/// Inside a `RowGestureList` (see `row_gestures.rs`, which needs `index`):
+/// * `handle`: a grip handle at the trailing edge; pressing it drags the row.
+/// * `swipe`: the actions a left-to-right swipe reveals.
+/// * `remove_label`: adds "Remove from …" with this label to the track menu.
 #[component]
 pub fn TrackRow(
     song: Song,
@@ -34,9 +42,37 @@ pub fn TrackRow(
     #[props(default)] downloaded: bool,
     #[props(default = true)] show_duration: bool,
     #[props(default)] index: Option<usize>,
+    #[props(default)] handle: bool,
+    #[props(default)] swipe: RowSwipe,
+    #[props(default)] remove_label: Option<String>,
     on_play: EventHandler<()>,
 ) -> Element {
     let menu = use_context::<TrackMenuController>();
+    let gesture_list = try_use_context::<RowGestureListId>();
+    let key = format!("{}::{}", song.server_id, song.id);
+    // The menu's "Remove from …" item, for rows of a list it applies to.
+    let menu_remove = match (gesture_list, index, remove_label.clone()) {
+        (Some(RowGestureListId(list)), Some(index), Some(label)) => Some(TrackMenuRemove {
+            label,
+            request: RowRemoveRequest {
+                list,
+                index,
+                key: key.clone(),
+            },
+        }),
+        _ => None,
+    };
+    let handle = handle && gesture_list.is_some() && index.is_some();
+    let swipe = if gesture_list.is_some() && index.is_some() {
+        swipe
+    } else {
+        RowSwipe::None
+    };
+    let swipe_kind = match swipe {
+        RowSwipe::None => None,
+        RowSwipe::Edit => Some("edit"),
+        RowSwipe::Browse => Some("browse"),
+    };
     // Gesture bookkeeping. None of these are read during render, so writing
     // them never re-renders the row.
     let mut press_generation = use_signal(|| 0u64);
@@ -47,7 +83,7 @@ pub fn TrackRow(
         let song = song.clone();
         move |anchor: Option<(f64, f64)>| {
             let mut menu = menu;
-            menu.open(song.clone(), anchor);
+            menu.open_with(song.clone(), anchor, menu_remove.clone());
         }
     };
 
@@ -64,7 +100,47 @@ pub fn TrackRow(
     };
 
     rsx! {
-        li { "data-index": index.map(|i| i.to_string()),
+        li {
+            "data-index": index.map(|i| i.to_string()),
+            "data-key": if gesture_list.is_some() { Some(key.clone()) } else { None },
+            "data-rowg-swipe": swipe_kind,
+            // What a left-to-right swipe reveals (row_gestures.js slides the
+            // row over it). Touch only and hidden until then; the same
+            // actions are in the track menu for every other input.
+            if swipe != RowSwipe::None {
+                div { class: "rs-rowg__actions", aria_hidden: "true",
+                    if swipe == RowSwipe::Edit {
+                        button {
+                            r#type: "button",
+                            class: "rs-rowg__action rs-rowg__action--remove",
+                            tabindex: "-1",
+                            "data-rowg-action": "remove",
+                            "data-testid": "row-swipe-remove",
+                            Icon { name: "trash".to_string(), class: "rs-ic".to_string() }
+                            span { "Remove" }
+                        }
+                    } else {
+                        button {
+                            r#type: "button",
+                            class: "rs-rowg__action rs-rowg__action--next",
+                            tabindex: "-1",
+                            "data-rowg-action": "next",
+                            "data-testid": "row-swipe-next",
+                            Icon { name: "play-next".to_string(), class: "rs-ic".to_string() }
+                            span { "Play Next" }
+                        }
+                    }
+                    button {
+                        r#type: "button",
+                        class: "rs-rowg__action rs-rowg__action--add",
+                        tabindex: "-1",
+                        "data-rowg-action": "add",
+                        "data-testid": "row-swipe-add",
+                        Icon { name: "playlist".to_string(), class: "rs-ic".to_string() }
+                        span { "Add to…" }
+                    }
+                }
+            }
             // The row is a plain container: the play button and the "…" button
             // sit side by side inside it (no interactive nesting). Pointer and
             // context-menu handlers live here so a long-press or right-click
@@ -205,6 +281,20 @@ pub fn TrackRow(
                         }
                     },
                     Icon { name: "more-horizontal".to_string(), class: "rs-ic rs-ic--md".to_string() }
+                }
+                if handle {
+                    // Pressing starts a drag at once (row_gestures.js), so it
+                    // stops the row's long-press here.
+                    button {
+                        r#type: "button",
+                        class: "rs-trow__handle",
+                        "data-row-handle": "true",
+                        "data-testid": "row-handle",
+                        aria_label: "Reorder {song.title}",
+                        aria_describedby: gesture_list.map(|RowGestureListId(list)| help_id(list)),
+                        onpointerdown: move |evt| evt.stop_propagation(),
+                        Icon { name: "grip".to_string(), class: "rs-ic rs-ic--md".to_string() }
+                    }
                 }
             }
         }

@@ -17,7 +17,7 @@
 use crate::api::{NavidromeClient, ServerConfig, Song};
 use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::ui::env::is_radio_song;
-use crate::components::ui::Artwork;
+use crate::components::ui::{Artwork, RowRemoveRequest};
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id_for_name};
 use crate::components::{
     AddIntent, AddMenuController, AppView, Icon, IsPlayingSignal, Navigation,
@@ -32,6 +32,18 @@ pub struct TrackMenuRequest {
     pub song: Song,
     /// Viewport point to anchor the popover at (wide layout). None centres it.
     pub anchor: Option<(f64, f64)>,
+    /// "Remove from Queue" / "Remove from Playlist", for rows of a list the
+    /// song can be removed from.
+    pub remove: Option<TrackMenuRemove>,
+}
+
+/// The menu's remove item: its label and the row it removes. Picking it hands
+/// the request to the list (`TrackMenuController::remove`), which removes the
+/// song the same way a swipe does, Undo toast included.
+#[derive(Clone, PartialEq, Debug)]
+pub struct TrackMenuRemove {
+    pub label: String,
+    pub request: RowRemoveRequest,
 }
 
 /// A change made from the menu that list views may want to reflect.
@@ -67,6 +79,9 @@ pub struct TrackMenuController {
     pub request: Signal<Option<TrackMenuRequest>>,
     /// Last favourite/rating/download change made from the menu.
     pub last_change: Signal<Option<SongChange>>,
+    /// A "Remove from …" picked in the menu, until its list takes it
+    /// (`use_row_gestures`).
+    pub remove: Signal<Option<RowRemoveRequest>>,
 }
 
 impl TrackMenuController {
@@ -77,12 +92,28 @@ impl TrackMenuController {
         Self {
             request,
             last_change,
+            // Created with the controller, in the shell's scope.
+            remove: Signal::new(None),
         }
     }
 
     /// Opens the menu for `song`, anchored at a viewport point if given.
     pub fn open(&mut self, song: Song, anchor: Option<(f64, f64)>) {
-        self.request.set(Some(TrackMenuRequest { song, anchor }));
+        self.open_with(song, anchor, None);
+    }
+
+    /// Opens the menu with a "Remove from …" item for the row it came from.
+    pub fn open_with(
+        &mut self,
+        song: Song,
+        anchor: Option<(f64, f64)>,
+        remove: Option<TrackMenuRemove>,
+    ) {
+        self.request.set(Some(TrackMenuRequest {
+            song,
+            anchor,
+            remove,
+        }));
     }
 
     pub fn close(&mut self) {
@@ -126,11 +157,13 @@ fn update_song_everywhere(
 /// * `song`: the target. `show_head`: show the song "lift" header (sheets).
 /// * `popover_style`: when set, the card is a fixed-position popover with
 ///   this inline style.
+/// * `remove`: adds the list's "Remove from …" item at the end.
 #[component]
 pub fn TrackMenu(
     song: Song,
     #[props(default)] show_head: bool,
     #[props(default)] popover_style: Option<String>,
+    #[props(default)] remove: Option<TrackMenuRemove>,
 ) -> Element {
     let mut controller = use_context::<TrackMenuController>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
@@ -618,6 +651,22 @@ pub fn TrackMenu(
                 onclick: show_info,
                 "Song Info"
                 Icon { name: "info".to_string(), class: "rs-ic".to_string() }
+            }
+            if let Some(remove) = remove.clone() {
+                div { class: "rs-menu__gap", aria_hidden: "true" }
+                button {
+                    r#type: "button",
+                    class: "rs-menu__item rs-menu__item--danger",
+                    role: "menuitem",
+                    "data-testid": "track-menu-remove",
+                    onclick: move |_| {
+                        controller.close();
+                        let mut pending = controller.remove;
+                        pending.set(Some(remove.request.clone()));
+                    },
+                    "{remove.label}"
+                    Icon { name: "trash".to_string(), class: "rs-ic".to_string() }
+                }
             }
         }
     }

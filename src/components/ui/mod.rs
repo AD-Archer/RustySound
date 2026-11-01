@@ -22,6 +22,7 @@ mod menu;
 mod page_transition;
 mod playback;
 mod progress_track;
+mod row_gestures;
 mod search_field;
 mod section_header;
 mod segmented;
@@ -34,6 +35,7 @@ mod tab_bar;
 mod track_menu;
 mod track_menu_host;
 mod track_row;
+mod undo_toast;
 mod virtual_list;
 mod window_drag;
 
@@ -54,6 +56,9 @@ pub use menu::{Menu, MenuAction, MenuGap, MenuItem};
 pub use page_transition::PageTransition;
 pub use playback::{MiniProgressLine, PlaybackProgress, PlaybackTime};
 pub use progress_track::{ProgressTrack, TrackVariant};
+pub use row_gestures::{
+    use_row_gestures, RowGesture, RowGestureList, RowGestureListId, RowRemoveRequest, RowSwipe,
+};
 pub use search_field::SearchField;
 pub use section_header::SectionHeader;
 pub use segmented::Segmented;
@@ -63,9 +68,12 @@ pub use skeleton::Skeleton;
 pub use stage::Stage;
 pub use switch::Switch;
 pub use tab_bar::TabBar;
-pub use track_menu::{SongChange, TrackMenu, TrackMenuController, TrackMenuRequest};
+pub use track_menu::{
+    SongChange, TrackMenu, TrackMenuController, TrackMenuRemove, TrackMenuRequest,
+};
 pub use track_menu_host::TrackMenuHost;
 pub use track_row::TrackRow;
+pub use undo_toast::{UndoToast, UNDO_TOAST_MS};
 pub use virtual_list::{use_main_scroll_provider, MainScroll, VirtualList};
 pub use window_drag::WindowDragRegion;
 

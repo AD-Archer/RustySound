@@ -25,7 +25,9 @@ const ROUTE_WAIT_MS = 700;   // give up waiting for the new page after this
 // Anything here (or inside it) keeps the gesture for itself.
 const OWN_GESTURE =
   "input, textarea, select, [contenteditable='true'], [role='slider'], " +
-  ".rs-coverflow, [data-testid='coverflow'], .rs-track, .rs-library-index, [data-no-edge-swipe]";
+  ".rs-coverflow, [data-testid='coverflow'], .rs-track, .rs-library-index, [data-no-edge-swipe], " +
+  // A row's reorder handle drags the row, even at the screen edge (row_gestures.js).
+  "[data-row-handle]";
 // Any of these open means a menu, sheet or Now Playing is up.
 const OPEN_LAYER = ".rs-scrim, [aria-modal='true'], [role='dialog'], [role='menu'], [data-testid='now-playing']";
 

@@ -252,6 +252,23 @@ impl PlayerCtx {
         }
     }
 
+    /// Puts `song` back at `index` (Undo after a remove). The playing entry
+    /// keeps playing; an emptied queue gets the song back, paused.
+    pub fn insert_entry(&mut self, index: usize, song: Song) {
+        let len = self.queue.peek().len();
+        let at = index.min(len);
+        self.queue.with_mut(|items| items.insert(at, song.clone()));
+        if len == 0 {
+            self.queue_index.set(0);
+            self.now_playing.set(Some(song));
+            return;
+        }
+        let current = *self.queue_index.peek();
+        if at <= current {
+            self.queue_index.set(current + 1);
+        }
+    }
+
     /// Clears the queue, keeping the playing song.
     pub fn clear_queue(&mut self) {
         let current = self.now_playing.peek().clone();

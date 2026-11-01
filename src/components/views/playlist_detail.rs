@@ -1,14 +1,20 @@
-//! Playlist page: stage band with the cover, Play / Shuffle (Download is in "…"), a
-//! windowed track list (playlists run to thousands of songs), and an edit
-//! mode with Move Up / Down, Remove, Rename, Delete and an Add Songs sheet.
+//! Playlist page: stage band with the cover, Play / Shuffle (Download is in "…"), and a
+//! windowed track list (playlists run to thousands of songs).
+//!
+//! On the user's own playlists (see `edits::playlist_editable`) rows always
+//! drag by their handle and swipe for Remove / Add to…, with Undo; there is
+//! no Edit mode. "Add Songs" sits above the list, and the "…" menu also
+//! holds Add Songs, Rename and Delete. Other playlists' rows swipe for
+//! Play Next / Add to….
 
 mod add_songs;
-mod edit_row;
+mod edits;
 
 use crate::api::*;
 use crate::components::ui::{
     use_layout, Menu, MenuAction, MenuGap, MenuItem, Artwork, EmptyState,
-    Button, ButtonVariant, TrackRow, VirtualList,
+    Button, ButtonVariant, RowGestureList, RowSwipe, SectionHeader, TrackRow, UndoToast,
+    VirtualList,
 };
 use crate::components::views::album_detail::download_with_progress;
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
@@ -21,14 +27,13 @@ use crate::components::views::library::shared::{
 use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
 use crate::db::AppSettings;
 use crate::offline_audio::{
-    is_playlist_auto_download_tracked, mark_collection_downloaded,
-    mark_playlist_auto_download_tracked, prefetch_song_audio_with_origin,
-    sync_downloaded_collection_members, DownloadOrigin,
+    mark_collection_downloaded, mark_playlist_auto_download_tracked,
+    sync_downloaded_collection_members,
 };
 use crate::components::views::discover::saved::is_saved_mix_copy;
 use add_songs::AddSongsSheet;
 use dioxus::prelude::*;
-use edit_row::EditRow;
+use edits::{playlist_editable, use_playlist_edits, PLAYLIST_LIST, REMOVE_FROM_PLAYLIST};
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sheet {
@@ -49,7 +54,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
     let mut songs = use_signal(Vec::<Song>::new);
     let mut meta_override = use_signal(|| None::<Playlist>);
     let mut status = use_signal(|| None::<String>);
-    let mut editing = use_signal(|| false);
     let mut sheet = use_signal(|| None::<Sheet>);
     let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
     let mut dl_busy = use_signal(|| false);
@@ -79,6 +83,9 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             meta_override.set(None);
         }
     });
+
+    let edits = use_playlist_edits(songs, data, meta_override, servers, status, retry, player);
+    let mut undo = edits.undo;
 
     let base = match &*data.read() {
         None => {
@@ -121,7 +128,8 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
 
     let server = servers.read().iter().find(|s| s.id == playlist.server_id).cloned();
     let auto_imported = is_auto_imported(&playlist);
-    let read_only = auto_imported;
+    let editable = playlist_editable(&playlist, server.as_ref());
+    let read_only = !editable;
     let count = songs.read().len();
     // Subsonic playlist durations are seconds (the old header divided by 1000).
     let total_secs: u64 = {
@@ -153,7 +161,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         format!("{}::{}", playlist.server_id, playlist.id),
     ));
     let can_download = !cfg!(target_arch = "wasm32");
-    let is_editing = editing() && !read_only;
     let row_h = 58.0;
     let _ = layout;
 
@@ -270,94 +277,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
         }
     };
 
-    // Moves a song locally, then saves the order; reloads on failure.
-    let move_song = {
-        let playlist = playlist.clone();
-        let server = server.clone();
-        move |from: usize, to: usize| {
-            let mut ids = Vec::new();
-            songs.with_mut(|list| {
-                if from >= list.len() || to >= list.len() || from == to {
-                    return;
-                }
-                let song = list.remove(from);
-                list.insert(to, song);
-                ids = list.iter().map(|s| s.id.clone()).collect();
-            });
-            if ids.is_empty() {
-                return;
-            }
-            let Some(server) = server.clone() else { return };
-            let id = playlist.id.clone();
-            spawn(async move {
-                let total = ids.len();
-                let client = NavidromeClient::new(server);
-                if let Err(err) = client.reorder_playlist(&id, &ids, total).await {
-                    status.set(Some(format!("Couldn't save the new order: {err}")));
-                    retry += 1;
-                } else {
-                    client.refresh_playlist_cache();
-                }
-            });
-        }
-    };
-
-    let remove_song = {
-        let playlist = playlist.clone();
-        let server = server.clone();
-        move |index: usize| {
-            let Some(server) = server.clone() else { return };
-            if index >= songs.peek().len() {
-                return;
-            }
-            let removed = songs.write().remove(index);
-            let id = playlist.id.clone();
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                match client.remove_songs_from_playlist(&id, &[index]).await {
-                    Ok(_) => client.refresh_playlist_cache(),
-                    Err(err) => {
-                        songs.with_mut(|list| list.insert(index.min(list.len()), removed));
-                        status.set(Some(format!("Couldn't remove the song: {err}")));
-                    }
-                }
-            });
-        }
-    };
-
-    let add_song = {
-        let playlist = playlist.clone();
-        let server = server.clone();
-        move |song: Song| {
-            let Some(server) = server.clone() else { return };
-            let playlist = playlist.clone();
-            let settings = app_settings.peek().clone();
-            let servers_now = servers.peek().clone();
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                if let Err(err) = client.add_songs_to_playlist(&playlist.id, &[song.id.clone()]).await {
-                    status.set(Some(format!("Couldn't add “{}”: {err}", song.title)));
-                    return;
-                }
-                client.refresh_playlist_cache();
-                songs.write().push(song.clone());
-                // Keep a downloaded playlist complete.
-                if is_playlist_auto_download_tracked(&playlist.server_id, &playlist.id) {
-                    let total = songs.peek().len();
-                    mark_collection_downloaded("playlist", &playlist.server_id, &playlist.id, &playlist.name, total);
-                    mark_playlist_auto_download_tracked(&playlist.server_id, &playlist.id, &playlist.name, total);
-                    if settings.downloads_enabled && settings.auto_downloads_enabled {
-                        let mut settings = settings.clone();
-                        settings.downloads_enabled = true;
-                        let _ = prefetch_song_audio_with_origin(&song, &servers_now, &settings, DownloadOrigin::Auto).await;
-                    }
-                    let list = songs.peek().clone();
-                    sync_downloaded_collection_members("playlist", &playlist.server_id, &playlist.id, &list);
-                }
-            });
-        }
-    };
-
     let dl_detail = dl_progress().map(|(done, total)| format!("{done} of {total}"));
     let playing_now = playing_key();
     let live_now = live();
@@ -392,26 +311,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
             }
 
             div { class: "rs-library-page",
-                if is_editing {
-                    div { class: "rs-library-actions",
-                        Button {
-                            label: "Add Songs".to_string(),
-                            icon: "plus".to_string(),
-                            variant: ButtonVariant::Tinted,
-                            block: true,
-                            testid: "playlist-add-songs".to_string(),
-                            onclick: move |_| sheet.set(Some(Sheet::AddSongs)),
-                        }
-                        Button {
-                            label: "Done".to_string(),
-                            icon: "check".to_string(),
-                            block: true,
-                            testid: "playlist-edit-done".to_string(),
-                            onclick: move |_| editing.set(false),
-                        }
-                    }
-                } else {
-                    div { class: "rs-library-actions",
+                div { class: "rs-library-actions",
                         Button {
                             label: "Play".to_string(),
                             icon: "play".to_string(),
@@ -432,7 +332,6 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             testid: "playlist-shuffle".to_string(),
                             onclick: shuffle_all,
                         }
-                    }
                 }
                 if let Some(detail) = dl_detail.clone() {
                     p { class: "rs-library-status", role: "status", "Downloading {detail}…" }
@@ -450,59 +349,55 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             Button {
                                 label: "Add Songs".to_string(),
                                 icon: "plus".to_string(),
-                                onclick: move |_| {
-                                    editing.set(true);
-                                    sheet.set(Some(Sheet::AddSongs));
-                                },
+                                testid: "playlist-add-songs".to_string(),
+                                onclick: move |_| sheet.set(Some(Sheet::AddSongs)),
                             }
                         }
                     }
                 } else {
-                    VirtualList {
-                        item_count: count,
-                        row_height: row_h,
-                        class: "rs-list rs-library-songlist".to_string(),
-                        testid: "playlist-tracks".to_string(),
-                        render_row: move |index: usize| {
-                            let Some(song) = songs.read().get(index).cloned() else {
-                                return rsx! { li {} };
-                            };
-                            let key = song_key(&song);
-                            if is_editing {
-                                let last = count.saturating_sub(1);
-                                return rsx! {
-                                    EditRow {
+                    if editable {
+                        // The one place to add songs without opening a menu:
+                        // a quiet text action above the list.
+                        SectionHeader {
+                            title: "Songs".to_string(),
+                            action: "Add Songs".to_string(),
+                            on_action: move |_| sheet.set(Some(Sheet::AddSongs)),
+                            testid: "playlist-add-songs".to_string(),
+                        }
+                    }
+                    RowGestureList {
+                        id: PLAYLIST_LIST,
+                        reorder: (editable && count > 1).then(|| (0, count - 1)),
+                        VirtualList {
+                            item_count: count,
+                            row_height: row_h,
+                            class: "rs-list rs-library-songlist".to_string(),
+                            testid: "playlist-tracks".to_string(),
+                            render_row: move |index: usize| {
+                                let Some(song) = songs.read().get(index).cloned() else {
+                                    return rsx! { li {} };
+                                };
+                                let key = song_key(&song);
+                                let playing = playing_now.as_deref() == Some(key.as_str());
+                                rsx! {
+                                    TrackRow {
                                         key: "{key}:{index}",
-                                        song,
+                                        playing,
+                                        live: playing && live_now,
+                                        downloaded: downloaded.read().contains(&key),
                                         index,
-                                        last,
-                                        on_move: {
-                                            let mut move_song = move_song.clone();
-                                            move |(from, to): (usize, usize)| move_song(from, to)
-                                        },
-                                        on_remove: {
-                                            let mut remove_song = remove_song.clone();
-                                            move |i: usize| remove_song(i)
+                                        song,
+                                        handle: editable && count > 1,
+                                        swipe: if editable { RowSwipe::Edit } else { RowSwipe::Browse },
+                                        remove_label: editable.then(|| REMOVE_FROM_PLAYLIST.to_string()),
+                                        on_play: {
+                                            let mut play_from = play_from.clone();
+                                            move |_| play_from(index)
                                         },
                                     }
-                                };
-                            }
-                            let playing = playing_now.as_deref() == Some(key.as_str());
-                            rsx! {
-                                TrackRow {
-                                    key: "{key}:{index}",
-                                    playing,
-                                    live: playing && live_now,
-                                    downloaded: downloaded.read().contains(&key),
-                                    index,
-                                    song,
-                                    on_play: {
-                                        let mut play_from = play_from.clone();
-                                        move |_| play_from(index)
-                                    },
                                 }
-                            }
-                        },
+                            },
+                        }
                     }
                     p { class: "rs-list-foot", "{songs_summary(count, total_secs)}" }
                 }
@@ -576,21 +471,26 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     MenuGap {}
                     if read_only {
                         div { class: "rs-menu__note",
-                            "Auto-imported playlists are read-only. Edit the playlist file on the server instead."
+                            if auto_imported {
+                                "Auto-imported playlists are read-only. Edit the playlist file on the server instead."
+                            } else {
+                                "This playlist belongs to someone else, so it's read-only here."
+                            }
                         }
                     } else {
                         MenuItem {
-                            label: if editing() { "Done Editing".to_string() } else { "Edit".to_string() },
-                            icon: "edit".to_string(),
-                            testid: "playlist-edit".to_string(),
+                            label: "Add Songs…".to_string(),
+                            icon: "plus".to_string(),
+                            testid: "playlist-menu-add-songs".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
-                                editing.toggle();
+                                sheet.set(Some(Sheet::AddSongs));
                             },
                         }
                         MenuItem {
                             label: "Rename…".to_string(),
                             icon: "edit".to_string(),
+                            testid: "playlist-menu-rename".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
                                 sheet.set(Some(Sheet::Rename));
@@ -600,12 +500,22 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                             label: "Delete Playlist…".to_string(),
                             icon: "trash".to_string(),
                             danger: true,
+                            testid: "playlist-menu-delete".to_string(),
                             onclick: move |_| {
                                 menu_at.set(None);
                                 sheet.set(Some(Sheet::Delete));
                             },
                         }
                     }
+                }
+            }
+
+            if let Some(entry) = undo() {
+                UndoToast {
+                    message: format!("Removed “{}” from the playlist", entry.song.title),
+                    generation: entry.generation,
+                    on_undo: move |_| edits.undo_remove(),
+                    on_close: move |_| undo.set(None),
                 }
             }
 
@@ -652,10 +562,7 @@ pub fn PlaylistDetailView(playlist_id: String, server_id: String) -> Element {
                     AddSongsSheet {
                         server: server.clone(),
                         songs,
-                        on_add: {
-                            let add_song = add_song.clone();
-                            move |song: Song| add_song(song)
-                        },
+                        on_add: move |song: Song| edits.add(song),
                         on_close: move |_| sheet.set(None),
                     }
                 },
