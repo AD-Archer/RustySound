@@ -1,0 +1,91 @@
+# .deb and .rpm for the Linux desktop app, built by the linux-bundles job in
+# .github/workflows/build.yml with nfpm (https://nfpm.goreleaser.com).
+#
+# Environment (nfpm expands ${...} below):
+#   VERSION   release version without the leading "v", e.g. 3.1.42
+#   PKG_ARCH  Go-style arch: amd64 or arm64 (nfpm maps it to x86_64/aarch64 for rpm)
+#   STAGE     the extracted tarball dir: rustysound, assets/, rustysound.desktop,
+#             rustysound.png, LICENSE (contents entries need `expand: true`
+#             for nfpm to expand it)
+#
+# The binary lives next to its assets/ in /usr/lib/rustysound. Dioxus finds
+# assets relative to std::env::current_exe(), which on Linux resolves the
+# /usr/bin/rustysound symlink to /usr/lib/rustysound/rustysound.
+name: rustysound
+arch: ${PKG_ARCH}
+platform: linux
+version: ${VERSION}
+release: "1"
+section: sound
+priority: optional
+maintainer: AD-Archer <antonioarcher.dev@gmail.com>
+vendor: AD-Archer
+homepage: https://github.com/AD-Archer/RustySound
+license: GPL-3.0-or-later
+description: |-
+  Music streaming client for Navidrome, Subsonic and Jellyfin servers.
+  RustySound is a cross-platform music player that streams from
+  Navidrome, Subsonic-compatible and Jellyfin servers.
+
+contents:
+  - src: ${STAGE}/rustysound
+    expand: true
+    dst: /usr/lib/rustysound/rustysound
+    file_info:
+      mode: 0755
+  - src: ${STAGE}/assets
+    expand: true
+    dst: /usr/lib/rustysound/assets
+    type: tree
+  - src: /usr/lib/rustysound/rustysound
+    dst: /usr/bin/rustysound
+    type: symlink
+  - src: ${STAGE}/rustysound.desktop
+    expand: true
+    dst: /usr/share/applications/rustysound.desktop
+    file_info:
+      mode: 0644
+  - src: ${STAGE}/rustysound.png
+    expand: true
+    dst: /usr/share/icons/hicolor/512x512/apps/rustysound.png
+    file_info:
+      mode: 0644
+  - src: packaging/linux/app.adarcher.rustysound.metainfo.xml
+    dst: /usr/share/metainfo/app.adarcher.rustysound.metainfo.xml
+    file_info:
+      mode: 0644
+  - src: ${STAGE}/LICENSE
+    expand: true
+    dst: /usr/share/doc/rustysound/copyright
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: ${STAGE}/LICENSE
+    expand: true
+    dst: /usr/share/licenses/rustysound/LICENSE
+    packager: rpm
+    type: license
+    file_info:
+      mode: 0644
+
+overrides:
+  deb:
+    depends:
+      - libwebkit2gtk-4.1-0
+      - libgtk-3-0
+      - libxdo3
+      - gstreamer1.0-plugins-base
+      - gstreamer1.0-plugins-good
+    recommends:
+      - gstreamer1.0-libav
+  rpm:
+    depends:
+      - webkit2gtk4.1
+      - gtk3
+      - libxdo
+      - gstreamer1-plugins-base
+      - gstreamer1-plugins-good
+
+rpm:
+  group: Applications/Multimedia
+  summary: Music streaming client for Navidrome, Subsonic and Jellyfin servers

@@ -92,3 +92,16 @@ icon = [
     "assets/web-app-manifest-512x512.png",
 ]
 
+
+# Smaller, faster Linux desktop release builds (the linux-bundles job in
+# .github/workflows/build.yml runs `dx build --profile dist`). A separate
+# profile so the web, Apple, Windows and Android builds, which dx gives its
+# own *-release profiles inheriting [profile.release], are unchanged.
+# strip is safe with dx: it builds with strip=false, reads the asset!() link
+# sections, then strips the binary itself. panic stays "unwind" so a panic in
+# a spawned task or an event handler doesn't take the whole app down.
+[profile.dist]
+inherits = "release"
+strip = true
+lto = "fat"
+codegen-units = 1
