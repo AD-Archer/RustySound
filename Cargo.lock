@@ -5010,7 +5010,7 @@ dependencies = [
  "notify",
  "objc",
  "once_cell",
- "png 0.17.16",
+ "png 0.18.1",
  "rand 0.8.8",
  "reqwest",
  "rfd",
