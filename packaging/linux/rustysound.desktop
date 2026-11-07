@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=RustySound
+GenericName=Music Player
+Comment=Stream music from Navidrome, Subsonic and Jellyfin servers
+Exec=rustysound
+Icon=rustysound
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+Keywords=music;player;navidrome;subsonic;jellyfin;stream;
+StartupNotify=true
+StartupWMClass=rustysound

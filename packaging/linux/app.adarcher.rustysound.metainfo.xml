@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>app.adarcher.rustysound</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>RustySound</name>
+  <summary>Music streaming client for Navidrome, Subsonic and Jellyfin</summary>
+  <developer id="app.adarcher">
+    <name>AD-Archer</name>
+  </developer>
+  <description>
+    <p>
+      RustySound is a cross-platform music streaming client that connects to
+      Navidrome, Subsonic-compatible and Jellyfin servers.
+    </p>
+  </description>
+  <launchable type="desktop-id">rustysound.desktop</launchable>
+  <icon type="stock">rustysound</icon>
+  <url type="homepage">https://github.com/AD-Archer/RustySound</url>
+  <url type="bugtracker">https://github.com/AD-Archer/RustySound/issues</url>
+  <categories>
+    <category>AudioVideo</category>
+    <category>Audio</category>
+    <category>Player</category>
+  </categories>
+  <provides>
+    <binary>rustysound</binary>
+  </provides>
+  <content_rating type="oars-1.1"/>
+</component>

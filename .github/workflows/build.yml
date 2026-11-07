@@ -442,8 +442,173 @@ jobs:
         name: android-apks
         path: artifacts/*
 
+  # Linux desktop: a portable tarball plus .deb and .rpm, so nobody has to
+  # compile the app. ubuntu-22.04 keeps the glibc requirement low (2.35).
+  #
+  # Built with `dx build` (dx must link the binary for asset!() to resolve),
+  # then packaged with nfpm from packaging/linux/nfpm.yaml. `dx bundle --linux`
+  # isn't used: its deb/rpm put the binary in /usr/bin and assets in
+  # /usr/lib/RustySound, and we want both together in /usr/lib/rustysound.
+  # Dioxus resolves assets/ next to std::env::current_exe(), which follows the
+  # /usr/bin/rustysound symlink.
+  #
+  # Release assets (VERSION has no leading "v"):
+  #   RustySound-VERSION-linux-{x86_64,aarch64}.tar.gz
+  #     RustySound-VERSION-linux-ARCH/{rustysound,assets/,rustysound.desktop,rustysound.png,LICENSE}
+  #   rustysound_VERSION_{amd64,arm64}.deb
+  #   rustysound-VERSION-1.{x86_64,aarch64}.rpm
+  linux-bundles:
+    needs: version
+    name: linux-bundles (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    # The ARM build is a bonus: if it fails, the x86_64 packages still ship.
+    continue-on-error: ${{ matrix.optional }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-22.04
+            deb_arch: amd64
+            rpm_arch: x86_64
+            nfpm_tarball: nfpm_2.41.1_Linux_x86_64.tar.gz
+            nfpm_sha256: b3cf95aa6dabed836d09ad7f0c190a13c74c5b1304db60846f0f702ee407f430
+            optional: false
+          - arch: aarch64
+            runner: ubuntu-22.04-arm
+            deb_arch: arm64
+            rpm_arch: aarch64
+            nfpm_tarball: nfpm_2.41.1_Linux_arm64.tar.gz
+            nfpm_sha256: 17350a838c8e2c422c6e573ed379b18424565d2de8a2b1cb1b20211976124eb5
+            optional: true
+    env:
+      VERSION: ${{ needs.version.outputs.semver }}
+      LINUX_ARCH: ${{ matrix.arch }}
+    steps:
+    - uses: actions/checkout@v4
+    - name: Sync Cargo.toml version to release version
+      run: |
+        awk -v v='${{ needs.version.outputs.semver }}' '
+          BEGIN { done=0 }
+          !done && $0 ~ /^version = ".*"/ { print "version = \"" v "\""; done=1; next }
+          { print }
+        ' Cargo.toml > Cargo.toml.tmp
+        mv Cargo.toml.tmp Cargo.toml
+    - name: Install Linux build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends \
+          build-essential pkg-config curl file rpm desktop-file-utils \
+          libwebkit2gtk-4.1-dev libgtk-3-dev libxdo-dev libssl-dev \
+          libsoup-3.0-dev libjavascriptcoregtk-4.1-dev
+    - uses: dtolnay/rust-toolchain@stable
+    - uses: Swatinem/rust-cache@v2
+      with:
+        key: linux-${{ matrix.arch }}
+    - name: Install Dioxus CLI
+      run: cargo install dioxus-cli --version 0.7.10 --locked
+    - name: Install nfpm
+      run: |
+        set -euo pipefail
+        curl -fsSL -o "$RUNNER_TEMP/nfpm.tar.gz" \
+          "https://github.com/goreleaser/nfpm/releases/download/v2.41.1/${{ matrix.nfpm_tarball }}"
+        echo "${{ matrix.nfpm_sha256 }}  $RUNNER_TEMP/nfpm.tar.gz" | sha256sum -c -
+        tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP" nfpm
+        sudo install -m 0755 "$RUNNER_TEMP/nfpm" /usr/local/bin/nfpm
+        nfpm --version
+    # [profile.dist] in Cargo.toml: release + fat LTO, one codegen unit, stripped.
+    - name: Build Linux desktop app
+      run: dx build --linux --release --profile dist --no-default-features --features desktop
+    - name: Stage tarball contents
+      run: |
+        set -euo pipefail
+        APP_DIR="target/dx/rustysound/release/linux/app"
+        if [[ ! -x "$APP_DIR/rustysound" ]]; then
+          echo "dx output not found at $APP_DIR; searching target/dx:" >&2
+          find target/dx -maxdepth 6 -type f -name rustysound >&2 || true
+          exit 1
+        fi
+
+        NAME="RustySound-${VERSION}-linux-${LINUX_ARCH}"
+        STAGE="dist/linux/${NAME}"
+        rm -rf dist/linux
+        mkdir -p "$STAGE/assets" dist/linux/out
+
+        install -m 0755 "$APP_DIR/rustysound" "$STAGE/rustysound"
+        # The desktop build links icons and the web manifest by their plain
+        # /assets/... paths (src/main.rs), so ship the source assets, then lay
+        # dx's processed asset!() output (hashed names) over them.
+        cp -R assets/. "$STAGE/assets/"
+        rm -f "$STAGE/assets/favicon.icns"
+        if [[ -d "$APP_DIR/assets" ]]; then
+          cp -R "$APP_DIR/assets/." "$STAGE/assets/"
+        fi
+        install -m 0644 packaging/linux/rustysound.desktop "$STAGE/rustysound.desktop"
+        install -m 0644 assets/web-app-manifest-512x512.png "$STAGE/rustysound.png"
+        install -m 0644 LICENSE "$STAGE/LICENSE"
+
+        echo "STAGE=$PWD/$STAGE" >> "$GITHUB_ENV"
+        echo "NAME=$NAME" >> "$GITHUB_ENV"
+
+        file "$STAGE/rustysound"
+        ls -lh "$STAGE/rustysound"
+        echo "Highest glibc symbol version required:"
+        objdump -T "$STAGE/rustysound" | grep -o 'GLIBC_[0-9.]*' | sort -uV | tail -n 1
+        if ldd "$STAGE/rustysound" | grep 'not found'; then
+          echo "Unresolved shared libraries." >&2
+          exit 1
+        fi
+        find "$STAGE" -type f | sort
+    - name: Build tarball, .deb and .rpm
+      env:
+        PKG_ARCH: ${{ matrix.deb_arch }}
+      run: |
+        set -euo pipefail
+        tar --owner=0 --group=0 --numeric-owner -C dist/linux \
+          -czf "dist/linux/out/${NAME}.tar.gz" "${NAME}"
+        nfpm package -f packaging/linux/nfpm.yaml -p deb \
+          -t "dist/linux/out/rustysound_${VERSION}_${{ matrix.deb_arch }}.deb"
+        nfpm package -f packaging/linux/nfpm.yaml -p rpm \
+          -t "dist/linux/out/rustysound-${VERSION}-1.${{ matrix.rpm_arch }}.rpm"
+        ls -lh dist/linux/out
+    - name: Check packages
+      run: |
+        set -euo pipefail
+        cd dist/linux/out
+        tar -tzf "${NAME}.tar.gz" | sort
+        dpkg-deb --info "rustysound_${VERSION}_${{ matrix.deb_arch }}.deb"
+        dpkg-deb --contents "rustysound_${VERSION}_${{ matrix.deb_arch }}.deb"
+        rpm -qip "rustysound-${VERSION}-1.${{ matrix.rpm_arch }}.rpm"
+        rpm -qRp "rustysound-${VERSION}-1.${{ matrix.rpm_arch }}.rpm"
+        rpm -qlp "rustysound-${VERSION}-1.${{ matrix.rpm_arch }}.rpm"
+
+        # Install the .deb on this runner: checks the dependency names resolve
+        # and the installed layout matches what Dioxus looks for.
+        sudo apt-get install -y "./rustysound_${VERSION}_${{ matrix.deb_arch }}.deb"
+        test -L /usr/bin/rustysound
+        test "$(readlink -f /usr/bin/rustysound)" = /usr/lib/rustysound/rustysound
+        test -x /usr/lib/rustysound/rustysound
+        test -f /usr/lib/rustysound/assets/favicon.svg
+        test -f /usr/share/applications/rustysound.desktop
+        test -f /usr/share/icons/hicolor/512x512/apps/rustysound.png
+        if ldd /usr/lib/rustysound/rustysound | grep 'not found'; then
+          echo "Unresolved shared libraries after install." >&2
+          exit 1
+        fi
+        desktop-file-validate /usr/share/applications/rustysound.desktop
+    - name: Upload Linux bundle artifacts
+      uses: actions/upload-artifact@v4
+      with:
+        name: linux-bundles-${{ matrix.arch }}
+        path: |
+          dist/linux/out/*.tar.gz
+          dist/linux/out/*.deb
+          dist/linux/out/*.rpm
+        if-no-files-found: error
+
   release:
-    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-apks]
+    needs: [version, web-docker, web-pages, apple-bundles, windows-bundles, android-apks, linux-bundles]
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/prod' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     steps:
@@ -466,6 +631,9 @@ jobs:
           artifacts/**/*.ipa
           artifacts/**/*.exe
           artifacts/**/*.apk
+          artifacts/**/*.tar.gz
+          artifacts/**/*.deb
+          artifacts/**/*.rpm
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
     - name: Dispatch package updates
