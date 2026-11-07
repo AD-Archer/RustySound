@@ -1,12 +1,9 @@
 // Build action handlers that enqueue songs, modify playlists, and quick-add suggestions.
+// Results and errors go to the app's status capsule (`StatusToast`).
 {
-    let make_add_to_queue = |mode: &'static str| {
-        let servers = servers.clone();
-        let queue = queue.clone();
-        let queue_index = queue_index.clone();
+    let make_add_to_queue = |at: QueuePosition| {
         let mut is_processing = is_processing.clone();
         let mut processing_label = processing_label.clone();
-        let mut message = message.clone();
         let mut suggestion_destination = suggestion_destination.clone();
         let mut suggestion_candidates = suggestion_candidates.clone();
         let mut suggestions_loading = suggestions_loading.clone();
@@ -20,38 +17,31 @@
             processing_label.set(Some("Adding to queue...".to_string()));
             let servers_snapshot = servers();
             let target = intent.target.clone();
-            let queue = queue.clone();
-            let queue_index = queue_index.clone();
             spawn(async move {
                 let songs_to_add = match resolve_target_songs(&servers_snapshot, &target).await {
                     Ok(songs) => songs,
                     Err(err) => {
-                        message.set(Some((false, err)));
+                        toast.show(err, true);
                         processing_label.set(None);
                         is_processing.set(false);
                         return;
                     }
                 };
 
-                if songs_to_add.is_empty() {
-                    message.set(Some((false, "No songs available to add.".to_string())));
+                let first_seed = songs_to_add.first().cloned();
+                let recent_seed = songs_to_add.last().cloned();
+                let added = player.enqueue(songs_to_add, at);
+                if added == 0 {
+                    toast.show("No songs available to add.", true);
                     processing_label.set(None);
                     is_processing.set(false);
                     return;
                 }
 
-                let songs_to_add = normalize_manual_queue_songs(songs_to_add);
-                let first_seed = songs_to_add.first().cloned();
-                let recent_seed = songs_to_add.last().cloned();
-                enqueue_items(queue.clone(), queue_index, songs_to_add.clone(), mode);
-
                 suggestion_destination.set(Some(SuggestionDestination::Queue));
                 suggestions_loading.set(true);
                 suggestion_candidates.set(Vec::new());
-                message.set(Some((
-                    true,
-                    format!("Added {} song(s) to queue.", songs_to_add.len()),
-                )));
+                toast.show(format!("Added {added} song(s) to queue."), false);
 
                 let suggestions =
                     build_dual_seed_suggestions(&servers_snapshot, first_seed, recent_seed).await;
@@ -65,22 +55,17 @@
     };
 
     let make_add_to_playlist = {
-        let servers = servers.clone();
         let is_processing = is_processing.clone();
-        let message = message.clone();
         let show_playlist_picker = show_playlist_picker.clone();
         let intent = intent_for_playlist.clone();
         let active_server = active_server_for_playlist.clone();
-        let controller = controller.clone();
         let suggestion_destination = suggestion_destination.clone();
         let suggestion_candidates = suggestion_candidates.clone();
         let suggestions_loading = suggestions_loading.clone();
         let processing_label = processing_label.clone();
 
         move |playlist_id: String| {
-            let servers = servers.clone();
             let mut is_processing = is_processing.clone();
-            let mut message = message.clone();
             let mut show_playlist_picker = show_playlist_picker.clone();
             let intent = intent.clone();
             let active_server = active_server.clone();
@@ -88,7 +73,6 @@
             let mut suggestion_candidates = suggestion_candidates.clone();
             let mut suggestions_loading = suggestions_loading.clone();
             let mut processing_label = processing_label.clone();
-            let _controller = controller.clone();
 
             move |_| {
                 if is_processing() {
@@ -96,12 +80,12 @@
                 }
 
                 if let Some(reason) = requires_single_server(&intent.target, &active_server) {
-                    message.set(Some((false, reason)));
+                    toast.show(reason, true);
                     return;
                 }
 
                 let Some(active) = servers().into_iter().find(|s| s.active) else {
-                    message.set(Some((false, "No active server found.".to_string())));
+                    toast.show("No active server found.", true);
                     return;
                 };
 
@@ -115,7 +99,7 @@
                     {
                         Ok(songs) => songs,
                         Err(err) => {
-                            message.set(Some((false, err)));
+                            toast.show(err, true);
                             show_playlist_picker.set(true);
                             processing_label.set(None);
                             is_processing.set(false);
@@ -124,7 +108,7 @@
                     };
 
                     if songs_to_add.is_empty() {
-                        message.set(Some((false, "No songs available to add.".to_string())));
+                        toast.show("No songs available to add.", true);
                         show_playlist_picker.set(true);
                         processing_label.set(None);
                         is_processing.set(false);
@@ -142,10 +126,7 @@
                     match result {
                         Ok(_) => {
                             show_playlist_picker.set(false);
-                            message.set(Some((
-                                true,
-                                format!("Added {} song(s) to playlist.", ids.len()),
-                            )));
+                            toast.show(format!("Added {} song(s) to playlist.", ids.len()), false);
                             suggestion_destination.set(Some(SuggestionDestination::Playlist {
                                 playlist_id: playlist_id_for_fetch.clone(),
                                 server_id: active.id.clone(),
@@ -172,7 +153,7 @@
                             suggestions_loading.set(false);
                         }
                         Err(err) => {
-                            message.set(Some((false, format!("Unable to add: {err}"))));
+                            toast.show(format!("Unable to add: {err}"), true);
                             show_playlist_picker.set(true);
                             suggestions_loading.set(false);
                         }
@@ -185,10 +166,7 @@
     };
 
     let create_playlist = {
-        let _controller = controller.clone();
-        let servers = servers.clone();
         let mut is_processing = is_processing.clone();
-        let mut message = message.clone();
         let new_playlist_name = new_playlist_name.clone();
         let intent = intent_for_create.clone();
         let active_server = active_server_for_create.clone();
@@ -201,23 +179,22 @@
 
             let name = new_playlist_name().trim().to_string();
             if name.is_empty() {
-                message.set(Some((false, "Please enter a playlist name.".to_string())));
+                toast.show("Please enter a playlist name.", true);
                 return;
             }
 
             if let Some(reason) = requires_single_server(&intent.target, &active_server) {
-                message.set(Some((false, reason)));
+                toast.show(reason, true);
                 return;
             }
 
             let Some(active) = servers().into_iter().find(|s| s.active) else {
-                message.set(Some((false, "No active server found.".to_string())));
+                toast.show("No active server found.", true);
                 return;
             };
 
             let target = intent.target.clone();
             is_processing.set(true);
-            let mut message = message.clone();
             let mut new_playlist_name = new_playlist_name.clone();
             let playlists = playlists.clone();
 
@@ -241,34 +218,33 @@
                 };
 
                 match song_ids {
-                    Err(err) => message.set(Some((false, err))),
+                    Err(err) => toast.show(err, true),
                     Ok(ids) => match client.create_playlist(&name, None, &[]).await {
                         Ok(created_id) => {
                             if !ids.is_empty() {
                                 let Some(pid) = created_id else {
-                                    message.set(Some((
-                                        false,
-                                        "Playlist was created but the server did not return an id, so songs could not be added."
-                                            .to_string(),
-                                    )));
+                                    toast.show(
+                                        "Playlist was created but the server did not return an id, so songs could not be added.",
+                                        true,
+                                    );
                                     is_processing.set(false);
                                     return;
                                 };
                                 if let Err(err) = client.add_songs_to_playlist(&pid, &ids).await {
-                                    message.set(Some((
-                                        false,
+                                    toast.show(
                                         format!("Playlist created but could not add songs: {err}"),
-                                    )));
+                                        true,
+                                    );
                                     is_processing.set(false);
                                     return;
                                 }
                             }
-                            message.set(Some((true, format!("Playlist \"{}\" created.", name))));
+                            toast.show(format!("Playlist \"{}\" created.", name), false);
                             new_playlist_name.set(String::new());
                             // Hint to reload playlist list next time
                             playlists.restart();
                         }
-                        Err(err) => message.set(Some((false, err))),
+                        Err(err) => toast.show(err, true),
                     },
                 }
                 is_processing.set(false);
@@ -278,14 +254,8 @@
 
     let on_create_similar = {
         let controller = controller.clone();
-        let servers = servers.clone();
-        let mut queue = queue.clone();
-        let mut queue_index = queue_index.clone();
-        let mut now_playing = now_playing.clone();
-        let mut is_playing = is_playing.clone();
         let mut is_processing = is_processing.clone();
         let mut processing_label = processing_label.clone();
-        let mut message = message.clone();
         let intent = intent_for_similar.clone();
 
         move |_| {
@@ -298,7 +268,7 @@
             };
 
             let Some(server) = servers().into_iter().find(|s| s.id == song.server_id) else {
-                message.set(Some((false, "Song server is not available.".to_string())));
+                toast.show("Song server is not available.", true);
                 return;
             };
 
@@ -306,7 +276,6 @@
             let seed_id = song.id.clone();
             let seed_genre = song.genre.clone();
             let seed_artist_id = song.artist_id.clone();
-            let mut message = message.clone();
             let mut controller = controller.clone();
             is_processing.set(true);
             processing_label.set(Some("Building similar mix...".to_string()));
@@ -358,14 +327,14 @@
                     similar = client.get_random_songs(50).await.unwrap_or_default();
                 }
 
-                let seed_key = format!("{}::{}", seed_song.server_id, seed_song.id);
+                let seed_key = song_key(&seed_song);
                 let mut seen = std::collections::HashSet::new();
                 let mut mix = Vec::new();
                 seen.insert(seed_key.clone());
                 mix.push(seed_song.clone());
 
                 for track in similar {
-                    let track_key = format!("{}::{}", track.server_id, track.id);
+                    let track_key = song_key(&track);
                     if track_key == seed_key {
                         continue;
                     }
@@ -378,16 +347,12 @@
                 }
 
                 if mix.len() <= 1 {
-                    message.set(Some((
-                        false,
-                        "Could not find enough similar songs for this track.".to_string(),
-                    )));
+                    toast.show("Could not find enough similar songs for this track.", true);
                 } else {
-                    queue.set(mix.clone());
-                    queue_index.set(0);
-                    now_playing.set(Some(mix[0].clone()));
-                    is_playing.set(true);
-                    controller.close();
+                    match player.play(mix, 0, None) {
+                        Ok(()) => controller.close(),
+                        Err(message) => toast.show(message, true),
+                    }
                 }
                 processing_label.set(None);
                 is_processing.set(false);
@@ -396,11 +361,8 @@
     };
 
     let on_quick_add_suggestion = {
-        let servers = servers.clone();
-        let mut queue = queue.clone();
         let mut is_processing = is_processing.clone();
         let mut processing_label = processing_label.clone();
-        let mut message = message.clone();
         let suggestion_destination = suggestion_destination.clone();
         let mut suggestion_candidates = suggestion_candidates.clone();
         let mut suggestions_loading = suggestions_loading.clone();
@@ -419,13 +381,7 @@
             spawn(async move {
                 let quick_add_result: Result<(), String> = match destination.clone() {
                     SuggestionDestination::Queue => {
-                        queue.with_mut(|items| {
-                            let normalized =
-                                normalize_manual_queue_songs(vec![song_to_add.clone()]);
-                            if let Some(song) = normalized.first().cloned() {
-                                items.push(song);
-                            }
-                        });
+                        player.enqueue(vec![song_to_add.clone()], QueuePosition::End);
                         Ok(())
                     }
                     SuggestionDestination::Playlist {
@@ -444,10 +400,7 @@
 
                 match quick_add_result {
                     Ok(_) => {
-                        message.set(Some((
-                            true,
-                            format!("Quick added \"{}\".", song_to_add.title),
-                        )));
+                        toast.show(format!("Quick added \"{}\".", song_to_add.title), false);
                         suggestions_loading.set(true);
                         let mut follow_up =
                             fetch_similar_songs_for_seed(&servers_snapshot, &song_to_add, 8).await;
@@ -458,7 +411,7 @@
                         suggestions_loading.set(false);
                     }
                     Err(err) => {
-                        message.set(Some((false, format!("Quick add failed: {err}"))));
+                        toast.show(format!("Quick add failed: {err}"), true);
                     }
                 }
                 processing_label.set(None);

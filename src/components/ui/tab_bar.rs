@@ -1,6 +1,6 @@
 //! Bottom tab bar for the compact layout.
 
-use crate::components::{AppView, Icon, Navigation, SongDetailsController};
+use crate::components::{AppView, Icon, Navigation, PageMotion, SongDetailsController};
 use dioxus::prelude::*;
 
 #[derive(Clone, Copy, PartialEq)]
@@ -45,9 +45,12 @@ pub fn TabBar() -> Element {
                     aria_current: if tab == active { Some("page") } else { None },
                     onclick: {
                         let mut song_details = song_details.clone();
+                        // Like iOS: another tab cross-fades; the current
+                        // tab's root from deeper in it pops back up.
+                        let motion = if tab == active { PageMotion::Back } else { PageMotion::Tab };
                         move |_| {
                             song_details.close();
-                            navigation.navigate_to(target.clone());
+                            navigation.navigate_with(target.clone(), motion);
                         }
                     },
                     Icon { name: icon.to_string(), class: "rs-tab__icon".to_string() }

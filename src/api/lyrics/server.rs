@@ -1,0 +1,470 @@
+//! The server provider: OpenSubsonic `getLyricsBySongId` on the song's own
+//! server (lyrics embedded in its files or in sidecars next to them). For
+//! music on the device, the lyrics the scanner found embedded in the file.
+//!
+//! Asks with `enhanced=true` when the server speaks `songLyrics` v2, and
+//! keeps the word cues of the main vocal layer. Translations and
+//! pronunciations are left out for now.
+
+use super::{tidy_words, LyricLine, LyricWord, LyricsProvider, LyricsQuery, LyricsResult};
+use crate::api::jellyfin::dto::{LyricDto, LyricLineCue, TICKS_PER_SECOND};
+use crate::api::{
+    server_lyrics_support, CueLinePayload, JellyfinClient, NavidromeClient, ServerLyricsSupport,
+    StructuredLyricsPayload,
+};
+
+pub(super) async fn fetch_from_server(
+    query: &LyricsQuery,
+    timeout_seconds: u32,
+) -> Result<Option<LyricsResult>, String> {
+    let Some(target) = query.server_song.as_ref() else {
+        return Ok(None);
+    };
+    if crate::local_music::is_local(&target.server.id) {
+        return Ok(crate::local_music::embedded_lyrics(&target.song_id)
+            .and_then(|text| lyrics_from_embedded(&text)));
+    }
+    if target.server.is_jellyfin() {
+        let client = JellyfinClient::new(target.server.clone());
+        return Ok(client.get_lyrics(&target.song_id).await?.and_then(|dto| lyrics_from_jellyfin(&dto)));
+    }
+    let client = NavidromeClient::new(target.server.clone());
+    let support = server_lyrics_support(&client.get_open_subsonic_extensions(timeout_seconds).await?);
+    if support == ServerLyricsSupport::None {
+        return Ok(None);
+    }
+    let entries = client
+        .get_lyrics_by_song_id(
+            &target.song_id,
+            support == ServerLyricsSupport::Enhanced,
+            timeout_seconds,
+        )
+        .await?;
+    Ok(lyrics_from_structured(&entries))
+}
+
+/// Lyrics from a file's tag: synced when the text is LRC, plain otherwise.
+pub(crate) fn lyrics_from_embedded(text: &str) -> Option<LyricsResult> {
+    let text = text.trim();
+    if text.is_empty() {
+        return None;
+    }
+    let synced_lines = super::parse_lrc_lines(text);
+    let plain_lyrics = if synced_lines.is_empty() {
+        text.to_string()
+    } else {
+        synced_lines
+            .iter()
+            .map(|line| line.text.trim())
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    Some(LyricsResult {
+        provider: LyricsProvider::Server,
+        plain_lyrics,
+        synced_lines,
+    })
+}
+
+fn is_main(entry: &StructuredLyricsPayload) -> bool {
+    entry
+        .kind
+        .as_deref()
+        .map(|kind| kind.trim().is_empty() || kind.eq_ignore_ascii_case("main"))
+        .unwrap_or(true)
+}
+
+fn has_text(entry: &StructuredLyricsPayload) -> bool {
+    entry.line.iter().any(|line| !line.value.trim().is_empty())
+}
+
+/// The lyrics from a `structuredLyrics` list: the main layer, synced when
+/// there is a synced entry (one with word cues first), else unsynced. Pure;
+/// used by tests.
+pub(crate) fn lyrics_from_structured(entries: &[StructuredLyricsPayload]) -> Option<LyricsResult> {
+    let main = entries
+        .iter()
+        .filter(|entry| is_main(entry) && has_text(entry))
+        .collect::<Vec<_>>();
+    let synced = main
+        .iter()
+        .filter(|entry| entry.synced)
+        .max_by_key(|entry| !entry.cue_line.is_empty())
+        .copied();
+    let unsynced = main.iter().find(|entry| !entry.synced).copied();
+
+    let synced_lines = synced.map(synced_lines_of).unwrap_or_default();
+    let plain_source = unsynced.or(synced)?;
+    let plain_lyrics = plain_source
+        .line
+        .iter()
+        .map(|line| line.value.trim())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    if plain_lyrics.is_empty() && synced_lines.is_empty() {
+        return None;
+    }
+    Some(LyricsResult {
+        provider: LyricsProvider::Server,
+        plain_lyrics,
+        synced_lines,
+    })
+}
+
+fn synced_lines_of(entry: &StructuredLyricsPayload) -> Vec<LyricLine> {
+    // A positive offset shows the lyrics sooner.
+    let offset = entry.offset.unwrap_or(0.0) / 1000.0;
+    let at = |ms: f64| (ms / 1000.0 - offset).max(0.0);
+    let main_agents = entry
+        .agents
+        .iter()
+        .filter(|agent| agent.role.eq_ignore_ascii_case("main"))
+        .map(|agent| agent.id.as_str())
+        .collect::<Vec<_>>();
+
+    let mut lines = entry
+        .line
+        .iter()
+        .enumerate()
+        .filter_map(|(index, line)| {
+            let text = line.value.trim();
+            if text.is_empty() {
+                return None;
+            }
+            // Several cue lines can share an index (one per vocal agent);
+            // the main agent's comes first, and is the one we light up.
+            let cue_line = entry.cue_line.iter().find(|cue_line| {
+                cue_line.index == index
+                    && (main_agents.is_empty()
+                        || cue_line
+                            .agent_id
+                            .as_deref()
+                            .map(|id| main_agents.contains(&id))
+                            .unwrap_or(false))
+            });
+            let words = cue_line
+                .map(|cue_line| words_of(cue_line, &at))
+                // Only when the cues spell out the whole line: a cue line for
+                // one agent of a shared line would drop the other's words.
+                .filter(|words| words.iter().map(|w| w.text.as_str()).collect::<String>() == text)
+                .unwrap_or_default();
+            Some(LyricLine {
+                timestamp_seconds: at(line.start.unwrap_or(0.0)),
+                text: text.to_string(),
+                words,
+            })
+        })
+        .collect::<Vec<_>>();
+    lines.sort_by(|left, right| {
+        left.timestamp_seconds
+            .partial_cmp(&right.timestamp_seconds)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    lines
+}
+
+/// Word segments of a cue line. Each runs from its cue's first byte to the
+/// next cue's, so the text between cues (spaces, untimed words) stays with
+/// the word before it and the segments join back into the line. Falls back
+/// to the cues' own text when the byte offsets don't fit the line.
+fn words_of(cue_line: &CueLinePayload, at: &impl Fn(f64) -> f64) -> Vec<LyricWord> {
+    let value = cue_line.value.as_str();
+    let starts = cue_line
+        .cue
+        .iter()
+        .map(|cue| cue.byte_start)
+        .collect::<Option<Vec<_>>>()
+        .filter(|starts| {
+            starts.windows(2).all(|pair| pair[0] <= pair[1])
+                && starts
+                    .iter()
+                    .all(|start| *start <= value.len() && value.is_char_boundary(*start))
+        });
+
+    let texts: Vec<String> = match starts {
+        Some(starts) => starts
+            .iter()
+            .enumerate()
+            .map(|(i, start)| {
+                let from = if i == 0 { 0 } else { *start };
+                let to = starts.get(i + 1).copied().unwrap_or(value.len());
+                value[from..to].to_string()
+            })
+            .collect(),
+        None => cue_line.cue.iter().map(|cue| cue.value.clone()).collect(),
+    };
+
+    tidy_words(
+        cue_line
+            .cue
+            .iter()
+            .zip(texts)
+            .map(|(cue, text)| LyricWord {
+                start_seconds: at(cue.start),
+                end_seconds: cue.end.map(|end| at(end)),
+                text,
+            })
+            .collect(),
+    )
+}
+
+/// Lyrics from Jellyfin's `/Audio/{id}/Lyrics`: synced when the lines have
+/// start times, with word timing from their cues. Pure; used by tests.
+pub(crate) fn lyrics_from_jellyfin(dto: &LyricDto) -> Option<LyricsResult> {
+    let lines = dto.lyrics.as_deref().unwrap_or_default();
+    let seconds = |ticks: i64| (ticks as f64 / TICKS_PER_SECOND as f64).max(0.0);
+    let plain_lyrics = lines
+        .iter()
+        .map(|line| line.text.as_deref().unwrap_or_default().trim())
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .to_string();
+    let synced = lines.iter().any(|line| line.start.is_some());
+    let mut synced_lines = if synced {
+        lines
+            .iter()
+            .filter_map(|line| {
+                let text = line.text.as_deref().unwrap_or_default().trim_end();
+                if text.trim().is_empty() {
+                    return None;
+                }
+                let words = jellyfin_words(text, line.cues.as_deref().unwrap_or_default(), &seconds);
+                Some(LyricLine {
+                    timestamp_seconds: seconds(line.start.unwrap_or(0)),
+                    text: text.trim().to_string(),
+                    words,
+                })
+            })
+            .collect::<Vec<_>>()
+    } else {
+        Vec::new()
+    };
+    synced_lines.sort_by(|left, right| {
+        left.timestamp_seconds
+            .partial_cmp(&right.timestamp_seconds)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    if plain_lyrics.is_empty() && synced_lines.is_empty() {
+        return None;
+    }
+    Some(LyricsResult {
+        provider: LyricsProvider::Server,
+        plain_lyrics,
+        synced_lines,
+    })
+}
+
+/// Word segments of a Jellyfin line. Cue positions are character indexes;
+/// each word runs from its cue's start to the next cue's, so the segments
+/// join back into the line, as with OpenSubsonic cues. Cues that don't fit
+/// the line give no words (the line still shows, untimed).
+fn jellyfin_words(text: &str, cues: &[LyricLineCue], seconds: &impl Fn(i64) -> f64) -> Vec<LyricWord> {
+    let trimmed = text.trim_start();
+    let lead = text.chars().count() - trimmed.chars().count();
+    let chars = trimmed.chars().count();
+    let starts = cues
+        .iter()
+        .map(|cue| usize::try_from(cue.position).ok().and_then(|p| p.checked_sub(lead)))
+        .collect::<Option<Vec<_>>>()
+        .filter(|starts| starts.windows(2).all(|pair| pair[0] <= pair[1]) && starts.iter().all(|s| *s <= chars));
+    let Some(starts) = starts.filter(|s| !s.is_empty()) else {
+        return Vec::new();
+    };
+    let byte_at = |char_index: usize| trimmed.char_indices().nth(char_index).map(|(b, _)| b).unwrap_or(trimmed.len());
+    let words = cues
+        .iter()
+        .enumerate()
+        .map(|(i, cue)| {
+            let from = if i == 0 { 0 } else { byte_at(starts[i]) };
+            let to = starts.get(i + 1).map(|s| byte_at(*s)).unwrap_or(trimmed.len());
+            LyricWord {
+                start_seconds: seconds(cue.start),
+                end_seconds: cue.end.map(|end| seconds(end)),
+                text: trimmed[from..to].to_string(),
+            }
+        })
+        .collect();
+    tidy_words(words)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::api::{OpenSubsonicExtension, SubsonicResponse};
+
+    fn parse(json: &str) -> Vec<StructuredLyricsPayload> {
+        let response: SubsonicResponse = serde_json::from_str(json).unwrap();
+        response.subsonic_response.lyrics_list.unwrap().structured_lyrics
+    }
+
+    #[test]
+    fn songlyrics_v2_means_enhanced() {
+        let ext = |name: &str, versions: Vec<u32>| OpenSubsonicExtension {
+            name: name.to_string(),
+            versions,
+        };
+        assert_eq!(server_lyrics_support(&[]), ServerLyricsSupport::None);
+        assert_eq!(
+            server_lyrics_support(&[ext("formPost", vec![1])]),
+            ServerLyricsSupport::None
+        );
+        assert_eq!(
+            server_lyrics_support(&[ext("songLyrics", vec![1])]),
+            ServerLyricsSupport::Lines
+        );
+        assert_eq!(
+            server_lyrics_support(&[ext("songLyrics", vec![1, 2])]),
+            ServerLyricsSupport::Enhanced
+        );
+    }
+
+    #[test]
+    fn v1_synced_lines_apply_offset_and_keep_plain() {
+        let entries = parse(
+            r#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+              {"lang":"eng","offset":-100,"synced":true,"line":[
+                {"start":0,"value":"It's bugging me"},{"start":2000,"value":"Grating me"}]},
+              {"lang":"und","synced":false,"line":[{"value":"It's bugging me"},{"value":"Grating me"}]}
+            ]}}}"#,
+        );
+        let lyrics = lyrics_from_structured(&entries).unwrap();
+        assert_eq!(lyrics.provider, LyricsProvider::Server);
+        assert_eq!(lyrics.plain_lyrics, "It's bugging me\nGrating me");
+        assert_eq!(lyrics.synced_lines.len(), 2);
+        // A negative offset shows lines later.
+        assert!((lyrics.synced_lines[0].timestamp_seconds - 0.1).abs() < 1e-9);
+        assert!((lyrics.synced_lines[1].timestamp_seconds - 2.1).abs() < 1e-9);
+        assert!(lyrics.synced_lines.iter().all(|line| line.words.is_empty()));
+    }
+
+    #[test]
+    fn v2_cues_become_words_by_byte_offset() {
+        let entries = parse(
+            r#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+              {"kind":"main","lang":"ko","synced":true,
+               "line":[{"start":2747,"value":"눈을 뜬 순간"}],
+               "cueLine":[{"index":0,"start":2747,"end":6214,"value":"눈을 뜬 순간","cue":[
+                 {"start":2747,"end":3018,"value":"눈","byteStart":0,"byteEnd":2},
+                 {"start":3018,"end":3179,"value":"을","byteStart":3,"byteEnd":5},
+                 {"start":3179,"end":3582,"value":" ","byteStart":6,"byteEnd":6},
+                 {"start":3582,"end":4100,"value":"뜬","byteStart":7,"byteEnd":9},
+                 {"start":4100,"end":4500,"value":" ","byteStart":10,"byteEnd":10},
+                 {"start":4500,"end":5200,"value":"순","byteStart":11,"byteEnd":13},
+                 {"start":5200,"end":6214,"value":"간","byteStart":14,"byteEnd":16}]}]},
+              {"kind":"translation","lang":"eng","synced":true,
+               "line":[{"start":2747,"value":"The moment I opened my eyes"}]}
+            ]}}}"#,
+        );
+        let lyrics = lyrics_from_structured(&entries).unwrap();
+        assert_eq!(lyrics.plain_lyrics, "눈을 뜬 순간");
+        let words = &lyrics.synced_lines[0].words;
+        let texts = words.iter().map(|w| w.text.as_str()).collect::<Vec<_>>();
+        // Space cues fold into the syllable before them.
+        assert_eq!(texts, ["눈", "을 ", "뜬 ", "순", "간"]);
+        assert!((words[0].start_seconds - 2.747).abs() < 1e-9);
+        assert_eq!(words[4].end_seconds, Some(6.214));
+    }
+
+    #[test]
+    fn untimed_text_between_cues_stays_with_the_word_before() {
+        let entries = parse(
+            r#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+              {"synced":true,"line":[{"start":0,"value":"Oh love love me tonight"}],
+               "cueLine":[{"index":0,"value":"Oh love love me tonight","cue":[
+                 {"start":0,"value":"Oh","byteStart":0,"byteEnd":1},
+                 {"start":900,"value":"love","byteStart":8,"byteEnd":11},
+                 {"start":1300,"value":"me","byteStart":13,"byteEnd":14},
+                 {"start":1600,"value":"tonight","byteStart":16,"byteEnd":22}]}]}
+            ]}}}"#,
+        );
+        let lyrics = lyrics_from_structured(&entries).unwrap();
+        let texts = lyrics.synced_lines[0]
+            .words
+            .iter()
+            .map(|w| w.text.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(texts, ["Oh love ", "love ", "me ", "tonight"]);
+    }
+
+    #[test]
+    fn agent_cue_lines_that_split_a_line_are_not_used() {
+        let entries = parse(
+            r#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+              {"synced":true,"line":[{"start":1000,"value":"Hello echo"}],
+               "agents":[{"id":"lead","role":"main"},{"id":"backing","role":"bg"}],
+               "cueLine":[
+                 {"index":0,"agentId":"lead","value":"Hello","cue":[
+                   {"start":1000,"end":1400,"value":"He","byteStart":0,"byteEnd":1},
+                   {"start":1400,"end":1800,"value":"llo","byteStart":2,"byteEnd":4}]},
+                 {"index":0,"agentId":"backing","value":"echo","cue":[
+                   {"start":2000,"end":2500,"value":"echo","byteStart":0,"byteEnd":3}]}]}
+            ]}}}"#,
+        );
+        let lyrics = lyrics_from_structured(&entries).unwrap();
+        assert_eq!(lyrics.synced_lines[0].text, "Hello echo");
+        assert!(lyrics.synced_lines[0].words.is_empty());
+    }
+
+    #[test]
+    fn empty_list_is_no_lyrics() {
+        let entries = parse(
+            r#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[]}}}"#,
+        );
+        assert!(lyrics_from_structured(&entries).is_none());
+        let blank = parse(
+            r#"{"subsonic-response":{"status":"ok","lyricsList":{"structuredLyrics":[
+              {"synced":false,"line":[{"value":"  "}]}]}}}"#,
+        );
+        assert!(lyrics_from_structured(&blank).is_none());
+    }
+
+    #[test]
+    fn embedded_lyrics_are_synced_when_lrc() {
+        let synced = lyrics_from_embedded("[00:01.00]Hello\n[00:02.50]World").unwrap();
+        assert_eq!(synced.synced_lines.len(), 2);
+        assert_eq!(synced.synced_lines[1].timestamp_seconds, 2.5);
+        assert_eq!(synced.plain_lyrics, "Hello\nWorld");
+        let plain = lyrics_from_embedded("Just words\nmore words").unwrap();
+        assert!(plain.synced_lines.is_empty());
+        assert_eq!(plain.plain_lyrics, "Just words\nmore words");
+        assert!(lyrics_from_embedded("  ").is_none());
+    }
+
+    #[test]
+    fn jellyfin_cues_become_word_timings() {
+        // "Café lights" with a cue per word (character positions, ticks).
+        let dto: LyricDto = serde_json::from_str(
+            r#"{ "Metadata": { "IsSynced": true },
+                 "Lyrics": [
+                   { "Text": "Café lights", "Start": 40000000,
+                     "Cues": [ { "Position": 0, "EndPosition": 4, "Start": 40000000, "End": 44500000 },
+                               { "Position": 5, "EndPosition": 11, "Start": 44500000, "End": 49000000 } ] },
+                   { "Text": "No cues here", "Start": 60000000, "Cues": [] },
+                   { "Text": "Bad cues", "Start": 70000000, "Cues": [ { "Position": 40, "EndPosition": 44, "Start": 70000000 } ] }
+                 ] }"#,
+        )
+        .unwrap();
+        let lyrics = lyrics_from_jellyfin(&dto).unwrap();
+        assert_eq!(lyrics.plain_lyrics, "Café lights\nNo cues here\nBad cues");
+        let first = &lyrics.synced_lines[0];
+        assert_eq!(first.timestamp_seconds, 4.0);
+        let words: Vec<_> = first.words.iter().map(|w| (w.text.as_str(), w.start_seconds, w.end_seconds)).collect();
+        assert_eq!(words, vec![("Café ", 4.0, Some(4.45)), ("lights", 4.45, Some(4.9))]);
+        assert!(lyrics.synced_lines[1].words.is_empty());
+        assert!(lyrics.synced_lines[2].words.is_empty());
+        assert!(lyrics.has_word_timing());
+    }
+
+    #[test]
+    fn unsynced_jellyfin_lyrics_are_plain() {
+        let dto: LyricDto =
+            serde_json::from_str(r#"{ "Lyrics": [ { "Text": "One" }, { "Text": "Two" } ] }"#).unwrap();
+        let lyrics = lyrics_from_jellyfin(&dto).unwrap();
+        assert!(lyrics.synced_lines.is_empty());
+        assert_eq!(lyrics.plain_lyrics, "One\nTwo");
+        assert!(lyrics_from_jellyfin(&LyricDto::default()).is_none());
+    }
+}

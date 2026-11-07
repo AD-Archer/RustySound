@@ -13,6 +13,8 @@ use dioxus::prelude::*;
 pub(super) fn CompactPlayer() -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let song_details = use_context::<SongDetailsController>();
+    // While a network speaker plays, the line under the title says where.
+    let playing_on = crate::components::cast::use_playing_on();
 
     let Some(song) = now_playing() else {
         return rsx! {};
@@ -53,7 +55,9 @@ pub(super) fn CompactPlayer() -> Element {
                 span { class: "rs-sr-only", "Open Now Playing: " }
                 span { class: "rs-mini__meta",
                     span { class: "rs-mini__title", style: "display:block", "{title}" }
-                    if !subtitle.is_empty() {
+                    if let Some(name) = playing_on {
+                        span { class: "rs-mini__sub rs-mini__sub--cast", style: "display:block", "Playing on {name}" }
+                    } else if !subtitle.is_empty() {
                         span { class: "rs-mini__sub", style: "display:block", "{subtitle}" }
                     }
                 }

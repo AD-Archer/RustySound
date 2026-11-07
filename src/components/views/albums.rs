@@ -3,16 +3,14 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    cover_art_src, use_layout, CoverFlow, CoverFlowItem, EmptyState, Menu, MenuGap, MenuItem,
-    SearchField, Stage,
+    cover_art_src, use_layout, CoverFlow, CoverFlowItem, EmptyState, ErrorState, GridSkeleton,
+    LoadMore, Menu, MenuGap, MenuItem, NoServers, PageFoot, SearchField, Stage,
 };
 use crate::components::views::library::shared::{
-    use_servers,
-    active_servers, use_debounced, use_pager, ErrorState, GridSkeleton, LoadMore, NoServers,
-    PageFoot,
+    active_servers, has_sources, use_debounced, use_pager,
 };
 use crate::components::views::library::tiles::AlbumGrid;
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::{use_servers, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const PAGE: u32 = 96;
@@ -54,7 +52,7 @@ pub fn AlbumsWithGenre(genre: String) -> Element {
     }
 }
 
-/// One page from every active server at `offset`.
+/// One page from every active server (and the device's music) at `offset`.
 async fn fetch_album_page(
     servers: Vec<ServerConfig>,
     sort: String,
@@ -66,8 +64,7 @@ async fn fetch_album_page(
     let mut more = false;
     let mut last_error = None;
     let mut any_ok = false;
-    for server in servers {
-        let client = NavidromeClient::new(server);
+    for client in MusicClient::sources(&servers) {
         let result = if query.is_empty() {
             client.get_album_page(&sort, genre.as_deref(), PAGE, offset).await
         } else {
@@ -96,6 +93,7 @@ async fn fetch_album_page(
             albums.retain(|a| a.genre.as_deref().map(|g| g.eq_ignore_ascii_case(genre)) == Some(true));
         }
     }
+    crate::local_music::dedupe_albums(&mut albums);
     Ok((albums, more))
 }
 
@@ -128,9 +126,9 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         });
     };
 
-    // A new sort, search or server set starts over from offset 0.
+    // A new sort, search, server set or local scan starts over from offset 0.
     use_effect(move || {
-        let _ = (sort(), query(), servers());
+        let _ = (sort(), query(), servers(), crate::local_music::generation());
         pager.reset();
         load_more();
     });
@@ -151,7 +149,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         }
     });
 
-    let has_servers = !servers.read().iter().all(|s| !s.active);
+    let has_servers = has_sources(&servers.read());
     let title = match genre.as_deref() {
         Some(g) => g.to_string(),
         None => "Albums".to_string(),
@@ -174,7 +172,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
         items
             .iter()
             .map(|album| CoverFlowItem {
-                key: format!("{}:{}", album.server_id, album.id),
+                key: album.key(),
                 title: album.name.clone(),
                 subtitle: album.artist.clone(),
                 reason: album.year.filter(|y| *y > 0).map(|y| y.to_string()).unwrap_or_default(),
@@ -202,7 +200,6 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
     } else {
         Vec::new()
     };
-    let grid_albums: Vec<Album> = if show_flow { Vec::new() } else { items.clone() };
     drop(items);
 
     rsx! {
@@ -294,7 +291,7 @@ pub fn AlbumsView(genre: Option<String>) -> Element {
                 }
             } else {
                 AlbumGrid {
-                    albums: grid_albums,
+                    albums: pager.items,
                     label: title.clone(),
                     ghosts: if !done && error.is_none() { GHOST_TILES } else { 0 },
                 }

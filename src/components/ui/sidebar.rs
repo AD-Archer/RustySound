@@ -1,13 +1,21 @@
 //! Sidebar for the wide layout.
 
-use crate::api::ServerConfig;
+use crate::api::{Capabilities, ServerConfig};
 use crate::components::ui::WindowDragRegion;
-use crate::components::{AppView, Icon, Navigation, SongDetailsController};
-use crate::db::AppSettings;
+use crate::components::views::SidebarPlaylists;
+use crate::components::{use_servers, use_setting, AppView, Icon, Navigation, PageMotion, SongDetailsController};
 use dioxus::prelude::*;
 
+/// Whether any active server keeps radio stations. With no server yet, Radio
+/// stays (most servers do). Also used by the Library page's Radio tile.
+pub fn radio_available(servers: &[ServerConfig]) -> bool {
+    let mut active = servers.iter().filter(|s| s.active).peekable();
+    active.peek().is_none() || active.any(|s| Capabilities::of(s).internet_radio)
+}
+
 /// Home, Search; Library (Playlists, Artists, Albums, Songs, Favorites,
-/// Downloads); Radio, Stats; Settings with the server status at the bottom.
+/// Downloads); Radio, Stats; the user's playlists (drop targets for carried
+/// songs, `SidebarPlaylists`); Settings with the server status at the bottom.
 /// The "Library" heading opens `/library` (Random, Bookmarks and Queue live
 /// there). Reads route, servers and settings itself; no props.
 /// Testids: `nav-<route>` (nav-discover for Home, nav-albums, …, nav-library,
@@ -15,8 +23,8 @@ use dioxus::prelude::*;
 #[component]
 pub fn Sidebar() -> Element {
     let view = use_route::<AppView>();
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let app_settings = use_context::<Signal<AppSettings>>();
+    let servers = use_servers();
+    let offline = use_setting(|s| s.offline_mode);
     let navigation = use_context::<Navigation>();
     let song_details = use_context::<SongDetailsController>();
 
@@ -24,7 +32,8 @@ pub fn Sidebar() -> Element {
         let mut song_details = song_details.clone();
         move |_| {
             song_details.close();
-            navigation.navigate_to(target.clone());
+            // Sidebar items are sections, not deeper pages: cross-fade.
+            navigation.navigate_with(target.clone(), PageMotion::Tab);
         }
     };
 
@@ -42,7 +51,7 @@ pub fn Sidebar() -> Element {
     let (status_text, led_class) = {
         let list = servers.read();
         let active: Vec<&ServerConfig> = list.iter().filter(|s| s.active).collect();
-        if app_settings.read().offline_mode {
+        if offline() {
             ("Offline mode".to_string(), "rs-led rs-led--warn")
         } else if let Some(first) = active.first() {
             let name = if first.name.trim().is_empty() {
@@ -67,7 +76,7 @@ pub fn Sidebar() -> Element {
         }
     };
 
-    let groups: [(Option<&str>, Vec<(&str, &str, &str, AppView)>); 3] = [
+    let mut groups: [(Option<&str>, Vec<(&str, &str, &str, AppView)>); 3] = [
         (
             None,
             vec![
@@ -94,6 +103,19 @@ pub fn Sidebar() -> Element {
             ],
         ),
     ];
+    // Radio stations live on Subsonic servers; with only Jellyfin ones there's nothing to show.
+    if !radio_available(&servers.read()) {
+        groups[2].1.retain(|item| item.2 != "nav-radio");
+    }
+    let current_playlist = match &view {
+        AppView::PlaylistDetailView { playlist_id, server_id } => Some((playlist_id.clone(), server_id.clone())),
+        _ => None,
+    };
+    let open_playlist = move |target: AppView| {
+        let mut song_details = song_details.clone();
+        song_details.close();
+        navigation.navigate_with(target, PageMotion::Tab);
+    };
 
     rsx! {
         aside { class: "rs-sidebar", aria_label: "Sidebar",
@@ -125,6 +147,7 @@ pub fn Sidebar() -> Element {
                         }
                     }
                 }
+                SidebarPlaylists { current: current_playlist, on_open: open_playlist }
             }
             div { class: "rs-side__foot",
                 button {
@@ -136,6 +159,8 @@ pub fn Sidebar() -> Element {
                     Icon { name: "settings".to_string(), class: "rs-nav__icon".to_string() }
                     span { "Settings" }
                 }
+                // Only there once a second profile exists.
+                crate::components::profiles::ProfileButton { sidebar: true }
                 div { class: "rs-side__server", "data-testid": "server-status",
                     span { class: "{led_class}", aria_hidden: "true" }
                     span { "{status_text}" }

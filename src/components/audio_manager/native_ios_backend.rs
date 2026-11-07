@@ -1,4 +1,5 @@
-// iOS AVPlayer backend core implementation.
+// iOS AVQueuePlayer backend core implementation (gapless: the next song waits
+// in the queue).
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[repr(C)]
 #[derive(Copy, Clone, Default)]
@@ -11,7 +12,9 @@ struct CMTime {
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[link(name = "AVFoundation", kind = "framework")]
-unsafe extern "C" {}
+unsafe extern "C" {
+    static AVAudioTimePitchAlgorithmSpectral: *mut Object;
+}
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[link(name = "CoreMedia", kind = "framework")]
@@ -59,6 +62,14 @@ struct IosAudioPlayer {
     last_time_guard_code: u8,
     last_progress_sample: Option<f64>,
     near_end_stall_ticks: u8,
+    /// Playback speed (the "rate" command); `play` alone resets AVPlayer to 1x.
+    playback_rate: f64,
+    /// Gapless: the next song's item, queued behind the current one
+    /// (retained here), and its plan entry.
+    next_item: *mut Object,
+    next_entry: Option<NativePlanItem>,
+    /// The user's volume, before levelling (each item has its own gain).
+    user_volume: f64,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -68,6 +79,7 @@ unsafe impl Send for IosAudioPlayer {}
 impl Drop for IosAudioPlayer {
     fn drop(&mut self) {
         self.clear_cached_artwork();
+        self.drop_next_item();
         unsafe {
             let _: () = msg_send![self.player, pause];
             let _: () = msg_send![self.player, release];
@@ -83,7 +95,8 @@ impl IosAudioPlayer {
     fn new() -> Option<Self> {
         configure_ios_audio_session();
         let player = unsafe {
-            let player_cls = class!(AVPlayer);
+            // A queue player, so the next song can wait behind the current one.
+            let player_cls = class!(AVQueuePlayer);
             let player_alloc: *mut Object = msg_send![player_cls, alloc];
             if player_alloc.is_null() {
                 return None;
@@ -114,7 +127,19 @@ impl IosAudioPlayer {
             last_time_guard_code: u8::MAX,
             last_progress_sample: None,
             near_end_stall_ticks: 0,
+            playback_rate: 1.0,
+            next_item: ptr::null_mut(),
+            next_entry: None,
+            user_volume: 1.0,
         })
+    }
+
+    /// Plays at the chosen speed.
+    unsafe fn play_at_rate(&self) {
+        let _: () = msg_send![self.player, play];
+        if (self.playback_rate - 1.0).abs() > f64::EPSILON {
+            let _: () = msg_send![self.player, setRate: self.playback_rate as f32];
+        }
     }
 
     fn apply(&mut self, cmd: serde_json::Value) {
@@ -136,9 +161,18 @@ impl IosAudioPlayer {
                     .and_then(|v| v.as_f64())
                     .unwrap_or(0.0)
                     .max(0.0);
+                if let Some(user) = cmd.get("user").and_then(|v| v.as_f64()) {
+                    self.user_volume = user.clamp(0.0, 1.0);
+                }
+                // Native transitions send the song's levelling gain instead.
                 let volume = cmd
                     .get("volume")
                     .and_then(|v| v.as_f64())
+                    .or_else(|| {
+                        cmd.get("gain")
+                            .and_then(|v| v.as_f64())
+                            .map(|gain| levelled_volume(self.user_volume, gain))
+                    })
                     .unwrap_or_else(|| unsafe {
                         let current_volume: f32 = msg_send![self.player, volume];
                         current_volume as f64
@@ -170,13 +204,21 @@ impl IosAudioPlayer {
 
                 unsafe {
                     if let Some(item) = make_player_item(src) {
-                        let _: () = msg_send![self.player, replaceCurrentItemWithPlayerItem: item];
+                        // Empty the queue (and any waiting next song), then
+                        // make this the only item.
+                        self.drop_next_item();
+                        let _: () = msg_send![self.player, removeAllItems];
+                        let _: () = msg_send![
+                            self.player,
+                            insertItem: item
+                            afterItem: ptr::null_mut::<Object>()
+                        ];
                         observe_ios_item_end(item);
                         let _: () =
                             msg_send![self.player, setVolume: volume.clamp(0.0, 1.0) as f32];
                         self.seek(position);
                         if should_play {
-                            let _: () = msg_send![self.player, play];
+                            self.play_at_rate();
                         } else {
                             let _: () = msg_send![self.player, pause];
                         }
@@ -202,14 +244,15 @@ impl IosAudioPlayer {
                 self.last_progress_sample = Some(position.max(0.0));
                 self.near_end_stall_ticks = 0;
                 set_ios_remote_transport_state(should_play);
-                self.update_now_playing_info_cached(if should_play { 1.0 } else { 0.0 });
+                self.update_now_playing_info_cached(if should_play { self.playback_rate } else { 0.0 });
                 self.log_player_diagnostics("after-load", Some(position), None);
+                self.sync_next_item();
             }
             "play" => unsafe {
-                let _: () = msg_send![self.player, play];
+                self.play_at_rate();
                 self.near_end_stall_ticks = 0;
                 set_ios_remote_transport_state(true);
-                self.update_now_playing_info_cached(1.0);
+                self.update_now_playing_info_cached(self.playback_rate);
                 ios_diag_log("player.transport", "play");
                 self.log_player_diagnostics("after-play", None, None);
             },
@@ -236,11 +279,14 @@ impl IosAudioPlayer {
                 self.last_progress_sample = Some(target.max(0.0));
                 self.near_end_stall_ticks = 0;
                 let rate: f32 = unsafe { msg_send![self.player, rate] };
-                self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+                self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
                 self.log_player_diagnostics("after-seek", Some(target), None);
             }
             "volume" => {
                 let volume = cmd.get("value").and_then(|v| v.as_f64()).unwrap_or(1.0);
+                if let Some(user) = cmd.get("user").and_then(|v| v.as_f64()) {
+                    self.user_volume = user.clamp(0.0, 1.0);
+                }
                 unsafe {
                     let _: () = msg_send![self.player, setVolume: volume.clamp(0.0, 1.0) as f32];
                 }
@@ -249,6 +295,8 @@ impl IosAudioPlayer {
                     &format!("volume={:.3}", volume.clamp(0.0, 1.0)),
                 );
             }
+            // The setting itself is in `equalizer::live` already.
+            "eq" => self.ensure_eq_taps(),
             "metadata" => {
                 self.metadata = cmd
                     .get("meta")
@@ -262,7 +310,7 @@ impl IosAudioPlayer {
                     .unwrap_or(self.last_known_duration)
                     .max(0.0);
                 let rate: f32 = unsafe { msg_send![self.player, rate] };
-                self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+                self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
                 ios_diag_log(
                     "player.metadata",
                     &format!(
@@ -276,10 +324,10 @@ impl IosAudioPlayer {
                 );
             }
             "clear" => {
+                self.drop_next_item();
                 unsafe {
                     let _: () = msg_send![self.player, pause];
-                    let nil_item: *mut Object = ptr::null_mut();
-                    let _: () = msg_send![self.player, replaceCurrentItemWithPlayerItem: nil_item];
+                    let _: () = msg_send![self.player, removeAllItems];
                 }
                 self.current_song_id = None;
                 ios_plan_sync_current_song(None);
@@ -298,6 +346,22 @@ impl IosAudioPlayer {
                 ios_diag_log("player.transport", "clear");
                 self.log_player_diagnostics("after-clear", Some(0.0), Some(0.0));
             }
+            "rate" => {
+                let rate = cmd
+                    .get("value")
+                    .and_then(|v| v.as_f64())
+                    .filter(|v| v.is_finite() && *v > 0.0)
+                    .unwrap_or(1.0);
+                self.playback_rate = rate;
+                let current: f32 = unsafe { msg_send![self.player, rate] };
+                if current > 0.0 {
+                    unsafe {
+                        let _: () = msg_send![self.player, setRate: rate as f32];
+                    }
+                }
+                self.update_now_playing_info_cached(if current > 0.0 { rate } else { 0.0 });
+                ios_diag_log("player.transport", &format!("rate={rate:.2}"));
+            }
             "loop" => {}
             _ => {}
         }
@@ -308,6 +372,126 @@ impl IosAudioPlayer {
             let time = CMTimeMakeWithSeconds(position.max(0.0), 1000);
             let _: () = msg_send![self.player, seekToTime: time];
         }
+    }
+
+    /// Gapless: keeps the plan's next song (`ios_plan_peek_next`) queued
+    /// behind the current item, so AVQueuePlayer starts it with no gap, even
+    /// while the web view is suspended. AVQueuePlayer only buffers it near
+    /// the end. With nothing queued the player pauses at the end of the item,
+    /// as a plain AVPlayer does. Called after every load, plan change and
+    /// "End of Track" change.
+    fn sync_next_item(&mut self) {
+        let wanted = if IOS_STOP_AFTER_CURRENT.load(std::sync::atomic::Ordering::SeqCst) {
+            None
+        } else {
+            ios_plan_peek_next()
+        };
+        // Only when the plan and the player agree on the current song.
+        let plan_current = IOS_PLAYBACK_PLAN
+            .lock()
+            .ok()
+            .and_then(|plan| plan.items.get(plan.index).map(|item| item.song_id.clone()));
+        let wanted =
+            wanted.filter(|_| plan_current.is_some() && plan_current == self.current_song_id);
+        let same = match (&wanted, &self.next_entry) {
+            (Some(a), Some(b)) => a.song_id == b.song_id && a.src == b.src,
+            (None, None) => true,
+            _ => false,
+        };
+        if same {
+            if let (Some(a), Some(b)) = (&wanted, self.next_entry.as_mut()) {
+                b.gain = a.gain;
+                b.meta = a.meta.clone();
+            }
+            return;
+        }
+        self.drop_next_item();
+        unsafe {
+            let current: *mut Object = msg_send![self.player, currentItem];
+            if let Some(entry) = wanted.filter(|_| !current.is_null()) {
+                let item = entry.src.as_deref().and_then(make_player_item);
+                if let Some(item) = item {
+                    let can_insert: BOOL =
+                        msg_send![self.player, canInsertItem: item afterItem: current];
+                    if can_insert == YES {
+                        let _: () = msg_send![self.player, insertItem: item afterItem: current];
+                        let _: *mut Object = msg_send![item, retain];
+                        self.next_item = item;
+                        ios_diag_log(
+                            "player.gapless",
+                            &format!("queued song_id={}", entry.song_id),
+                        );
+                        self.next_entry = Some(entry);
+                        // AVPlayerActionAtItemEndAdvance
+                        let _: () = msg_send![self.player, setActionAtItemEnd: 0isize];
+                        return;
+                    }
+                }
+            }
+            // AVPlayerActionAtItemEndPause
+            let _: () = msg_send![self.player, setActionAtItemEnd: 1isize];
+        }
+    }
+
+    /// Takes the queued next item out of the queue and releases it.
+    fn drop_next_item(&mut self) {
+        self.next_entry = None;
+        if self.next_item.is_null() {
+            return;
+        }
+        unsafe {
+            let current: *mut Object = msg_send![self.player, currentItem];
+            if current != self.next_item {
+                let _: () = msg_send![self.player, removeItem: self.next_item];
+            }
+            let _: () = msg_send![self.next_item, release];
+        }
+        self.next_item = ptr::null_mut();
+    }
+
+    /// Called when an item ends. If AVQueuePlayer has moved on to the queued
+    /// next song, takes it on as the current song (state, levelling,
+    /// lock-screen info, end observer), queues the one after, and returns
+    /// `(finished id, next id)` for the app.
+    fn finish_gapless_advance(&mut self) -> Option<(String, String)> {
+        if self.next_item.is_null() {
+            return None;
+        }
+        let current: *mut Object = unsafe { msg_send![self.player, currentItem] };
+        if current != self.next_item {
+            return None;
+        }
+        let entry = self.next_entry.take()?;
+        unsafe {
+            let _: () = msg_send![self.next_item, release];
+        }
+        self.next_item = ptr::null_mut();
+        let finished = self.current_song_id.clone().unwrap_or_default();
+        let entry = ios_plan_advance_to(&entry.song_id).unwrap_or(entry);
+        ios_diag_log(
+            "player.gapless",
+            &format!("advanced from={finished} to={}", entry.song_id),
+        );
+
+        unsafe {
+            let volume = levelled_volume(self.user_volume, entry.gain);
+            let _: () = msg_send![self.player, setVolume: volume as f32];
+        }
+        observe_ios_item_end(current);
+        self.current_song_id = Some(entry.song_id.clone());
+        self.metadata = Some(entry.meta.clone());
+        self.refresh_cached_artwork();
+        self.ended_sent_for_song = None;
+        self.last_known_elapsed = 0.0;
+        self.last_known_duration = entry.meta.duration.max(0.0);
+        self.pending_seek_target = None;
+        self.pending_seek_ticks = 0;
+        self.last_progress_sample = Some(0.0);
+        self.near_end_stall_ticks = 0;
+        let rate: f32 = unsafe { msg_send![self.player, rate] };
+        self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
+        self.sync_next_item();
+        Some((finished, entry.song_id))
     }
 
     fn time_control_status_name(status: i64) -> &'static str {
@@ -410,6 +594,7 @@ impl IosAudioPlayer {
     }
 
     fn snapshot(&mut self) -> NativeAudioSnapshot {
+        self.ensure_eq_taps();
         let (current_time, duration) = self.current_time_and_duration();
 
         let paused = unsafe {
@@ -706,6 +891,7 @@ impl IosAudioPlayer {
             rate.max(0.0),
             self.now_playing_artwork,
         );
+        self.publish_widget(&meta, elapsed, duration, rate);
     }
 
     fn update_now_playing_info_from_snapshot(
@@ -730,13 +916,30 @@ impl IosAudioPlayer {
         }
         self.last_known_elapsed = bounded_elapsed;
 
-        set_ios_now_playing_info(
-            &meta,
-            bounded_elapsed,
-            bounded_duration,
-            if paused { 0.0 } else { 1.0 },
-            self.now_playing_artwork,
-        );
+        let rate = if paused { 0.0 } else { self.playback_rate };
+        set_ios_now_playing_info(&meta, bounded_elapsed, bounded_duration, rate, self.now_playing_artwork);
+        self.publish_widget(&meta, bounded_elapsed, bounded_duration, rate);
+    }
+
+    /// Mirrors the lock-screen info into the Now Playing widget's snapshot.
+    /// Called on every poll tick; `now_playing_widget::publish` writes only
+    /// when the song, play state or cover changes, or on a seek.
+    fn publish_widget(&self, meta: &NativeTrackMetadata, elapsed: f64, duration: f64, rate: f64) {
+        if !crate::now_playing_widget::available() {
+            return;
+        }
+        let mut track = widget_track(meta, self.now_playing_artwork_url.as_deref());
+        // The server's whole-second duration is steady; AVPlayer's only
+        // fills in when the server has none.
+        if !(track.duration > 0.0) && duration.is_finite() && duration > 0.0 {
+            track.duration = duration.round();
+        }
+        crate::now_playing_widget::publish(Some(crate::now_playing_widget::WidgetPlayback {
+            track,
+            position: elapsed,
+            playing: rate > 0.0,
+            rate,
+        }));
     }
 
     fn clear_cached_artwork(&mut self) {
@@ -804,7 +1007,7 @@ impl IosAudioPlayer {
         }
         self.now_playing_artwork = artwork;
         let rate: f32 = unsafe { msg_send![self.player, rate] };
-        self.update_now_playing_info_cached(if rate > 0.0 { 1.0 } else { 0.0 });
+        self.update_now_playing_info_cached(if rate > 0.0 { self.playback_rate } else { 0.0 });
         ios_diag_log("player.artwork", "cached now-playing artwork");
         true
     }
@@ -812,7 +1015,7 @@ impl IosAudioPlayer {
 
 /// `url` without the per-request Subsonic auth params (`t`, `s`, `p`), which
 /// change on every call for the same cover.
-#[cfg(any(test, all(not(target_arch = "wasm32"), target_os = "ios")))]
+#[cfg(any(test, target_os = "ios", all(feature = "desktop", target_os = "macos")))]
 fn artwork_cache_key(url: &str) -> String {
     let Some((base, query)) = url.split_once('?') else {
         return url.to_string();

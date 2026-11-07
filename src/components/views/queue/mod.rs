@@ -1,25 +1,29 @@
 //! The queue page (`/queue`): the whole queue, windowed (queues can run past
 //! 1,200 songs). Add Songs is the one visible action; the "…" menu holds
-//! Edit, Quick Create, Save as Playlist, Restore Previous Queue and Clear.
-
-mod add_songs;
+//! Quick Create, Save as Playlist, Restore Previous Queue and Clear. Rows
+//! reorder by their handle and swipe for Remove / Add to… at any time
+//! (`song_details::queue_rows`), so there is no Edit mode.
 
 use crate::api::*;
-use crate::components::song_details::actions::{use_player, PlayerCtx};
-use crate::components::song_details::up_next::{
-    save_queue_as_playlist, spawn_quick_create, QueueEditRow,
+use crate::components::song_details::queue_rows::{
+    use_queue_gestures, QueueUndoToast, REMOVE_FROM_QUEUE,
 };
+use crate::components::song_details::up_next::{save_queue_as_playlist, spawn_quick_create};
 use crate::components::ui::{
     use_layout, Button, ButtonSize, EmptyState, IconButton, Menu, MenuGap, MenuItem,
-    SectionHeader, TrackRow, VirtualList,
+    RowGestureList, RowSwipe, SectionHeader, TrackRow, VirtualList,
 };
-use crate::components::{AddMenuController, AppView, Navigation, PreviewPlaybackSignal, SeekRequestSignal};
+use crate::components::views::library::add_songs::{AddSongsSheet, AddTarget};
+use crate::components::{
+    use_player, AddMenuController, AppView, Navigation, PageMotion, PlayerCtx,
+    PreviewPlaybackSignal, SeekRequestSignal,
+};
 use crate::db::{load_temporary_queue_snapshots, TemporaryQueueSnapshot};
 use crate::diagnostics::{log_perf, PerfTimer};
-use add_songs::AddSongsSheet;
+use crate::format::total;
 use dioxus::prelude::*;
 
-/// TrackRow with art and QueueEditRow are both exactly this tall.
+/// A TrackRow with art is exactly this tall.
 const ROW_HEIGHT: f64 = 58.0;
 /// Songs at the head of the queue whose LRCLIB lyrics are warmed up.
 const LYRICS_PREFETCH: usize = 6;
@@ -49,24 +53,18 @@ fn restore_snapshot(
     player.is_playing.set(false);
 }
 
-async fn prefetch_lyrics(songs: Vec<Song>) {
+/// The song's own server first (no third-party call when it has the lyrics),
+/// then LRCLIB.
+async fn prefetch_lyrics(songs: Vec<Song>, servers: Vec<ServerConfig>) {
     let started = PerfTimer::now();
-    let providers = vec!["lrclib".to_string()];
+    let providers = vec!["server".to_string(), "lrclib".to_string()];
     let mut count = 0usize;
     for song in songs.into_iter().filter(|s| !s.title.trim().is_empty()) {
-        let _ = fetch_lyrics_with_fallback(&LyricsQuery::from_song(&song), &providers, 4).await;
+        let query = LyricsQuery::from_song_on(&song, &servers);
+        let _ = fetch_lyrics_with_fallback(&query, &providers, 4).await;
         count += 1;
     }
     log_perf("queue.lyrics_prefetch", started, &format!("prefetched={count}"));
-}
-
-fn total_duration(seconds: u64) -> String {
-    let (h, m) = (seconds / 3600, (seconds % 3600) / 60);
-    if h > 0 {
-        format!("{h} hr {m} min")
-    } else {
-        format!("{m} min")
-    }
 }
 
 #[component]
@@ -77,7 +75,7 @@ pub fn QueueView() -> Element {
     let seek_request = use_context::<SeekRequestSignal>().0;
     let preview = use_context::<PreviewPlaybackSignal>().0;
     let layout = use_layout();
-    let mut editing = use_signal(|| false);
+    let undo = use_queue_gestures("queue");
     let mut adding = use_signal(|| false);
     let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
     let mut confirm_clear = use_signal(|| false);
@@ -91,19 +89,19 @@ pub fn QueueView() -> Element {
         });
     });
 
-    // Warm LRCLIB for the first few songs whenever the head of the queue changes.
+    // Warm lyrics for the first few songs whenever the head of the queue changes.
     use_effect(move || {
         let head: Vec<Song> = player.queue.read().iter().take(LYRICS_PREFETCH).cloned().collect();
         let signature = head
             .iter()
-            .map(|s| format!("{}::{}", s.server_id, s.id))
+            .map(Song::key)
             .collect::<Vec<_>>()
             .join("|");
         if signature.is_empty() || *prefetch_signature.peek() == signature {
             return;
         }
         prefetch_signature.set(signature);
-        spawn(prefetch_lyrics(head));
+        spawn(prefetch_lyrics(head, player.servers.peek().clone()));
     });
 
     // Open on the playing song: once, when the page mounts, and only when it
@@ -128,7 +126,6 @@ pub fn QueueView() -> Element {
         (queue.len(), queue.iter().map(|s| s.duration as u64).sum::<u64>())
     };
     let current = (player.queue_index)();
-    let editing_now = editing() && count > 0;
     let latest_snapshot = snapshots().and_then(|list| list.into_iter().next());
     let seed = player
         .now_playing
@@ -143,27 +140,17 @@ pub fn QueueView() -> Element {
             return rsx! {};
         };
         let current = (player.queue_index)();
-        if editing() {
-            let len = player.queue.read().len();
-            rsx! {
-                QueueEditRow {
-                    song,
-                    index,
-                    can_up: index > 0,
-                    can_down: index + 1 < len,
-                    playing: index == current,
-                }
-            }
-        } else {
-            let playing = index == current;
-            rsx! {
-                TrackRow {
-                    song,
-                    index,
-                    playing,
-                    live: playing && (player.is_playing)(),
-                    on_play: move |_| player.play_index(index),
-                }
+        let playing = index == current;
+        rsx! {
+            TrackRow {
+                song,
+                index,
+                playing,
+                live: playing && (player.is_playing)(),
+                handle: true,
+                swipe: RowSwipe::Edit,
+                remove_label: REMOVE_FROM_QUEUE.to_string(),
+                on_play: move |_| player.play_index(index),
             }
         }
     });
@@ -192,7 +179,7 @@ pub fn QueueView() -> Element {
                                 if navigation.can_go_back() {
                                     navigation.go_back();
                                 } else {
-                                    navigation.navigate_to(AppView::HomeView {});
+                                    navigation.navigate_with(AppView::HomeView {}, PageMotion::Back);
                                 }
                             },
                         }
@@ -202,7 +189,7 @@ pub fn QueueView() -> Element {
                         p { class: "rs-player-queue__sub",
                             if count == 1 { "1 song" } else { "{count} songs" }
                             if seconds > 0 {
-                                " · {total_duration(seconds)}"
+                                " · {total(seconds)}"
                             }
                             if busy() {
                                 " · adding similar songs…"
@@ -211,23 +198,14 @@ pub fn QueueView() -> Element {
                     }
                 }
                 div { class: "rs-player-queue__tools",
-                    // One visible action: Add Songs, or Done while reordering.
-                    if editing_now {
-                        Button {
-                            label: "Done".to_string(),
-                            icon: "check".to_string(),
-                            size: ButtonSize::Small,
-                            testid: "queue-edit".to_string(),
-                            onclick: move |_| editing.set(false),
-                        }
-                    } else {
-                        Button {
-                            label: "Add Songs".to_string(),
-                            icon: "plus".to_string(),
-                            size: ButtonSize::Small,
-                            testid: "queue-add".to_string(),
-                            onclick: move |_| adding.set(true),
-                        }
+                    // One visible action; reordering and removing happen on
+                    // the rows.
+                    Button {
+                        label: "Add Songs".to_string(),
+                        icon: "plus".to_string(),
+                        size: ButtonSize::Small,
+                        testid: "queue-add".to_string(),
+                        onclick: move |_| adding.set(true),
                     }
                     IconButton {
                         icon: "more-horizontal".to_string(),
@@ -248,36 +226,34 @@ pub fn QueueView() -> Element {
                     testid: "queue-list".to_string(),
                 }
             } else {
-                SectionHeader { title: if editing_now { "Reorder".to_string() } else { "Playing Order".to_string() } }
-                VirtualList {
-                    item_count: count,
-                    row_height: ROW_HEIGHT,
-                    render_row,
-                    class: "rs-list".to_string(),
-                    testid: "queue-list".to_string(),
+                SectionHeader { title: "Playing Order".to_string() }
+                RowGestureList {
+                    id: "queue",
+                    reorder: (count > 1).then(|| (0, count - 1)),
+                    VirtualList {
+                        item_count: count,
+                        row_height: ROW_HEIGHT,
+                        render_row,
+                        class: "rs-list".to_string(),
+                        testid: "queue-list".to_string(),
+                    }
                 }
             }
         }
         if adding() {
-            AddSongsSheet { on_close: move |_| adding.set(false) }
+            AddSongsSheet {
+                target: AddTarget::Queue,
+                songs: player.queue,
+                on_close: move |_| adding.set(false),
+            }
         }
+        QueueUndoToast { undo }
         if let Some(anchor) = menu_at() {
             Menu {
                 label: "Queue options".to_string(),
                 anchor,
                 testid: "queue-menu".to_string(),
                 on_close: move |_| menu_at.set(None),
-                if count > 0 {
-                    MenuItem {
-                        label: if editing_now { "Done Editing".to_string() } else { "Edit".to_string() },
-                        icon: "edit".to_string(),
-                        testid: "queue-menu-edit".to_string(),
-                        onclick: move |_| {
-                            menu_at.set(None);
-                            editing.toggle();
-                        },
-                    }
-                }
                 MenuItem {
                     label: "Quick Create".to_string(),
                     icon: "plus".to_string(),
@@ -304,7 +280,6 @@ pub fn QueueView() -> Element {
                         testid: "queue-restore".to_string(),
                         onclick: move |_| {
                             menu_at.set(None);
-                            editing.set(false);
                             restore_snapshot(player, seek_request, preview, snapshot.clone());
                         },
                     }
@@ -336,7 +311,6 @@ pub fn QueueView() -> Element {
                     testid: "queue-clear".to_string(),
                     onclick: move |_| {
                         confirm_clear.set(false);
-                        editing.set(false);
                         player.clear_queue();
                     },
                 }

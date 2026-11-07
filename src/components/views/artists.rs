@@ -3,12 +3,11 @@
 
 use crate::api::*;
 use crate::cache_service::{get_json as cache_get_json, put_json as cache_put_json};
-use crate::components::ui::{use_layout, Artwork, EmptyState, SearchField, VirtualList};
-use crate::components::views::library::shared::{
-    use_servers,
-    active_servers, use_debounced, ErrorState, ListSkeleton, NoServers,
+use crate::components::ui::{
+    use_layout, Artwork, EmptyState, ErrorState, NoServers, SearchField, Skeleton, VirtualList,
 };
-use crate::components::{AppView, Icon, Navigation};
+use crate::components::views::library::shared::{active_servers, has_sources, use_debounced};
+use crate::components::{use_servers, AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 const ROW_H: f64 = 56.0;
@@ -51,15 +50,20 @@ async fn load_artists(servers: Vec<ServerConfig>) -> Result<Vec<Artist>, String>
     let mut ids: Vec<String> = servers.iter().map(|s| s.id.clone()).collect();
     ids.sort();
     let cache_key = format!("view:artists:v2:{}", ids.join("|"));
-    if let Some(cached) = cache_get_json::<Vec<Artist>>(&cache_key) {
-        if !cached.is_empty() {
-            return Ok(cached);
+    // The merged list is cached for servers only; the device's artists come
+    // from the index (each server's own list stays cached by the client).
+    let with_local = crate::local_music::has_music_now();
+    if !with_local {
+        if let Some(cached) = cache_get_json::<Vec<Artist>>(&cache_key) {
+            if !cached.is_empty() {
+                return Ok(cached);
+            }
         }
     }
     let mut artists = Vec::new();
     let mut last_error = None;
-    for server in servers {
-        match NavidromeClient::new(server).get_artists().await {
+    for client in MusicClient::sources(&servers) {
+        match client.get_artists().await {
             Ok(list) => artists.extend(list),
             Err(err) => last_error = Some(err),
         }
@@ -69,8 +73,11 @@ async fn load_artists(servers: Vec<ServerConfig>) -> Result<Vec<Artist>, String>
             return Err(err);
         }
     }
+    crate::local_music::dedupe_artists(&mut artists);
     artists.sort_by_cached_key(|a| sort_key(&a.name));
-    let _ = cache_put_json(cache_key, &artists, Some(6));
+    if !with_local {
+        let _ = cache_put_json(cache_key, &artists, Some(6));
+    }
     Ok(artists)
 }
 
@@ -84,7 +91,7 @@ pub fn ArtistsView() -> Element {
     let mut retry = use_signal(|| 0u32);
 
     let artists = use_resource(move || {
-        let _ = retry();
+        let _ = (retry(), crate::local_music::generation());
         let servers = active_servers(&servers());
         async move { load_artists(servers).await }
     });
@@ -122,7 +129,7 @@ pub fn ArtistsView() -> Element {
             .collect::<Vec<(char, usize)>>()
     });
 
-    let has_servers = servers.read().iter().any(|s| s.active);
+    let has_servers = has_sources(&servers.read());
     let compact = layout.is_compact();
 
     let scroll_to_row = move |row: usize| {
@@ -135,7 +142,7 @@ if(m&&l){{m.scrollTop+=l.getBoundingClientRect().top-m.getBoundingClientRect().t
 
     let body = match &*artists.read() {
         _ if !has_servers => rsx! { NoServers {} },
-        None => rsx! { ListSkeleton { rows: 10, round: true } },
+        None => rsx! { Skeleton { rows: 10, round: true } },
         Some(Err(err)) => {
             let err = err.clone();
             rsx! {

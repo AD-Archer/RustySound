@@ -36,6 +36,9 @@ pub enum AppView {
     RandomView {},
     #[route("/settings")]
     SettingsView {},
+    /// Settings › Playback › Equalizer (also opened from Now Playing).
+    #[route("/settings/equalizer")]
+    EqualizerView {},
     #[route("/stats")]
     StatsView {},
     #[route("/queue")]
@@ -74,6 +77,7 @@ pub fn view_label(view: &AppView) -> &'static str {
         AppView::DownloadsView {} => "Downloads",
         AppView::RandomView {} => "Random",
         AppView::SettingsView {} => "Settings",
+        AppView::EqualizerView {} => "Equalizer",
         AppView::StatsView {} => "Stats",
         AppView::QueueView {} => "Queue",
         AppView::AlbumDetailView { .. } => "Album",

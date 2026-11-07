@@ -1,18 +1,20 @@
 //! Wide player bar (Mac mock): now playing, transport + progress, extras.
+//! Shuffle, Repeat and the rating live in its playback menu ("…",
+//! `playback_menu.rs`), so the bar keeps to what you reach for often.
 
-use super::controls::{
-    AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton, RatingButton,
-    RepeatButton, ShuffleButton,
-};
-use crate::api::{NavidromeClient, ServerConfig, Song};
+use super::controls::{AddToMenuButton, ControlSize, NextButton, PlayPauseButton, PrevButton};
+use super::playback_menu::PlaybackMenu;
+use crate::api::Song;
+use crate::components::ui::{PlayerMenu, PlayerOptions};
+use crate::components::song_details::actions::format_badge;
 use crate::components::ui::env::is_radio_song;
 use crate::components::ui::{
-    Artwork, IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, ProgressTrack,
+    Artwork, IconButton, IconButtonSize, Menu, PlaybackProgress, PlaybackTime, ProgressTrack,
     TrackVariant,
 };
 use crate::components::views::artist_links::ArtistNameLinks;
 use crate::components::{
-    AppView, Navigation, SongDetailsController, SongDetailsTab, VolumeSignal,
+    use_player, AppView, Navigation, SongDetailsController, SongDetailsTab, VolumeSignal,
 };
 use dioxus::prelude::*;
 
@@ -40,18 +42,6 @@ fn radio_labels(song: &Song) -> (String, String) {
     }
 }
 
-fn format_badge(song: &Song) -> Option<String> {
-    let suffix = song.suffix.as_deref()?.trim().to_ascii_uppercase();
-    if suffix.is_empty() {
-        return None;
-    }
-    let lossless = matches!(suffix.as_str(), "FLAC" | "ALAC" | "WAV" | "AIFF" | "APE" | "WV");
-    match song.bitrate {
-        Some(rate) if rate > 0 && !lossless => Some(format!("{suffix} {rate}")),
-        _ => Some(suffix),
-    }
-}
-
 /// The full-width player bar for wide layouts. No props.
 #[component]
 pub(super) fn WidePlayer() -> Element {
@@ -59,8 +49,13 @@ pub(super) fn WidePlayer() -> Element {
     let song_details = use_context::<SongDetailsController>();
     let navigation = use_context::<Navigation>();
     let view = use_route::<AppView>();
+    // The Output menu, opened at the button: this device, other RustySound
+    // devices on the sync server, and network speakers.
+    let mut output_at = use_signal(|| None::<(f64, f64)>);
 
     let song = now_playing();
+    // While a network speaker plays, its name sits by the format badge.
+    let playing_on = crate::components::cast::use_playing_on();
     let on_queue = matches!(view, AppView::QueueView {});
 
     let open_details = move |tab: Option<SongDetailsTab>| {
@@ -132,7 +127,17 @@ pub(super) fn WidePlayer() -> Element {
                                         }
                                         if let Some(album) = song.album.clone().filter(|a| !a.trim().is_empty()) {
                                             span { class: "rs-bar__sep rs-bar__album-sep", aria_hidden: "true", "·" }
-                                            span { class: "rs-truncate rs-bar__album", title: "{album}", "{album}" }
+                                            if let Some(target) = album_target.clone() {
+                                                button {
+                                                    r#type: "button",
+                                                    class: "rs-bar__album rs-bar__album-btn",
+                                                    title: "{album}",
+                                                    onclick: move |_| navigation.navigate_to(target.clone()),
+                                                    "{album}"
+                                                }
+                                            } else {
+                                                span { class: "rs-truncate rs-bar__album", title: "{album}", "{album}" }
+                                            }
                                         }
                                     }
                                 }
@@ -153,21 +158,35 @@ pub(super) fn WidePlayer() -> Element {
             }
             div { class: "rs-bar__mid",
                 div { class: "rs-bar__transport",
-                    span { class: "rs-bar__optional", ShuffleButton {} }
                     PrevButton {}
                     PlayPauseButton { size: ControlSize::Bar }
                     NextButton { size: ControlSize::Bar }
-                    span { class: "rs-bar__optional", RepeatButton {} }
                 }
                 PlaybackTime { class: "rs-time--end".to_string() }
                 PlaybackProgress { class: "rs-bar__progress".to_string() }
                 PlaybackTime { remaining: true, class: "rs-time--start".to_string() }
             }
             div { class: "rs-bar__rt",
+                if let Some(name) = playing_on {
+                    span { class: "rs-bar__cast", title: "Playing on {name}", "data-testid": "player-cast",
+                        crate::components::Icon { name: "speaker".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                        span { class: "rs-truncate", "{name}" }
+                    }
+                }
                 if let Some(badge) = song.as_ref().and_then(format_badge) {
                     span { class: "rs-bar__fmt", "{badge}" }
                 }
-                span { class: "rs-bar__optional", RatingButton {} }
+                IconButton {
+                    icon: "airplay".to_string(),
+                    label: "Output".to_string(),
+                    size: IconButtonSize::Small,
+                    class: "rs-bar__wide-only".to_string(),
+                    testid: "player-output".to_string(),
+                    onclick: move |evt: MouseEvent| {
+                        let p = evt.client_coordinates();
+                        output_at.set(Some((p.x, p.y)));
+                    },
+                }
                 AddToMenuButton {}
                 IconButton {
                     icon: "lyrics".to_string(),
@@ -186,23 +205,37 @@ pub(super) fn WidePlayer() -> Element {
                     testid: "player-queue".to_string(),
                     onclick: move |_| navigation.navigate_to(AppView::QueueView {}),
                 }
+                PlaybackMenu {}
                 VolumeControl {}
+            }
+            if let Some(anchor) = output_at() {
+                Menu {
+                    label: "Output".to_string(),
+                    anchor,
+                    on_close: move |_| output_at.set(None),
+                    testid: "player-output-menu".to_string(),
+                    PlayerOptions {
+                        open: PlayerMenu::Output,
+                        radio: song.as_ref().is_some_and(is_radio_song),
+                        output_only: true,
+                        on_done: move |_| output_at.set(None),
+                    }
+                }
             }
         }
     }
 }
 
-/// Star toggle for the current song (Subsonic "starred").
+/// Favourite toggle for the current song (`PlayerCtx::toggle_favorite`, so
+/// music on the device and every server kind work, and lists update).
 #[component]
 fn FavoriteButton() -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let now_playing = use_context::<Signal<Option<Song>>>();
-    let queue = use_context::<Signal<Vec<Song>>>();
-    let starred = now_playing
+    let player = use_player();
+    let starred = player
+        .now_playing
         .read()
         .as_ref()
-        .map(|song| song.starred.is_some())
-        .unwrap_or(false);
+        .is_some_and(|song| song.starred.is_some());
 
     rsx! {
         IconButton {
@@ -212,37 +245,9 @@ fn FavoriteButton() -> Element {
             size: IconButtonSize::Small,
             testid: "player-favorite".to_string(),
             onclick: move |_| {
-                let Some(song) = now_playing.peek().clone() else {
-                    return;
-                };
-                let Some(server) = servers.peek().iter().find(|s| s.id == song.server_id).cloned() else {
-                    return;
-                };
-                let should_star = song.starred.is_none();
-                let (mut now_playing, mut queue) = (now_playing, queue);
-                spawn(async move {
-                    let client = NavidromeClient::new(server);
-                    let result = if should_star {
-                        client.star(&song.id, "song").await
-                    } else {
-                        client.unstar(&song.id, "song").await
-                    };
-                    if result.is_ok() {
-                        let marker = should_star.then(|| "local".to_string());
-                        now_playing.with_mut(|current| {
-                            if let Some(current) = current.as_mut() {
-                                if current.id == song.id {
-                                    current.starred = marker.clone();
-                                }
-                            }
-                        });
-                        queue.with_mut(|items| {
-                            for item in items.iter_mut().filter(|s| s.id == song.id) {
-                                item.starred = marker.clone();
-                            }
-                        });
-                    }
-                });
+                if let Some(song) = player.now_playing.peek().clone() {
+                    player.toggle_favorite(song);
+                }
             },
         }
     }

@@ -1,5 +1,6 @@
-//! Settings → Advanced: Quick Scan per server (tap a row), and the iOS audio
-//! log tools (iOS builds only).
+//! Settings → Advanced: Quick Scan per server (tap a row), the keyboard
+//! shortcut sheet (wide layouts), the iOS audio log tools (iOS builds
+//! only), and the profiles on this device.
 
 use super::shared::{ActionRow, Footnote, GroupTitle};
 use crate::api::{NavidromeClient, ScanStatus, ServerConfig};
@@ -68,6 +69,8 @@ pub(super) fn AdvancedSection() -> Element {
     };
 
     let list = servers();
+    let palette = use_context::<crate::components::CommandPalette>();
+    let keyboard = !crate::components::ui::use_layout().is_compact();
 
     rsx! {
         GroupTitle { title: "Quick Scan".to_string() }
@@ -113,9 +116,24 @@ pub(super) fn AdvancedSection() -> Element {
             Footnote { "Tap a server to ask it to pick up new and changed files. Big libraries can take a few minutes; tap again to see progress." }
         }
 
+        if keyboard {
+            GroupTitle { title: "Keyboard".to_string() }
+            ul { class: "rs-list rs-list--text", aria_label: "Keyboard",
+                ActionRow {
+                    label: "Keyboard Shortcuts".to_string(),
+                    icon: "zap".to_string(),
+                    testid: "settings-shortcuts".to_string(),
+                    onclick: move |_| palette.show_shortcuts(),
+                }
+            }
+            Footnote { "Press ? anywhere to see them, or ⌘K (Ctrl+K) for the command palette." }
+        }
+
         if cfg!(target_os = "ios") {
             IosAudioLogs {}
         }
+
+        crate::components::profiles::ProfilesGroup {}
     }
 }
 

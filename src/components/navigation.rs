@@ -8,6 +8,41 @@ use wasm_bindgen::JsCast;
 #[cfg(target_arch = "wasm32")]
 use web_sys::{window, HtmlElement};
 
+/// How a route change should move on screen (see `ui/page_transition.js`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PageMotion {
+    /// Deeper into the app: an iOS push on compact, a short fade on wide.
+    Push,
+    /// Back up a level: the reverse of `Push`.
+    Back,
+    /// Forward again through history; plays like `Push`.
+    Forward,
+    /// Switching tabs (tab bar, sidebar): a quick cross-fade, no push.
+    Tab,
+}
+
+impl PageMotion {
+    fn as_str(self) -> &'static str {
+        match self {
+            PageMotion::Push => "push",
+            PageMotion::Back => "back",
+            PageMotion::Forward => "forward",
+            PageMotion::Tab => "tab",
+        }
+    }
+}
+
+/// Tell the page transition script a route change is coming, so it can keep
+/// a copy of the page on screen to animate from. Must run before the router
+/// changes route (and before any scroll reset). On the web `eval` runs
+/// synchronously; native webviews run it ahead of the render's DOM edits.
+fn announce_page_motion(motion: PageMotion) {
+    let _ = document::eval(&format!(
+        "window.__rsPageTx&&window.__rsPageTx.prepare('{}');",
+        motion.as_str()
+    ));
+}
+
 #[derive(Clone, Copy)]
 pub struct Navigation(
     pub Navigator,
@@ -107,7 +142,17 @@ impl Navigation {
     }
 
     pub fn navigate_to(&self, target: AppView) {
+        self.navigate_with(target, PageMotion::Push);
+    }
+
+    /// `navigate_to` with an explicit transition: `Tab` for the tab bar and
+    /// sidebar, `Back` for a "‹ Back" button with no history to go back
+    /// through (a deep link), which pushes the parent page instead.
+    pub fn navigate_with(&self, target: AppView, motion: PageMotion) {
         let current_view = self.1();
+        if current_view != target {
+            announce_page_motion(motion);
+        }
         if should_refresh_detail_route(&current_view, &target) {
             let mut current_view_signal = self.1;
             let mut pending_target = self.2;
@@ -126,6 +171,12 @@ impl Navigation {
         let mut current_view_signal = self.1;
         current_view_signal.set(target);
         reset_main_scroll_position();
+    }
+
+    /// True while `navigate_to` is detouring through Home to remount a
+    /// detail page (see `should_refresh_detail_route`). Doesn't subscribe.
+    pub fn is_detouring(&self) -> bool {
+        self.2.peek().is_some()
     }
 
     pub fn resume_pending_navigation(&self) {
@@ -166,6 +217,7 @@ impl Navigation {
     }
 
     pub fn go_back(&self) -> Option<AppView> {
+        announce_page_motion(PageMotion::Back);
         self.0.go_back();
         reset_main_scroll_position();
         None // Router handles the navigation, we don't need to return the view
@@ -183,6 +235,7 @@ impl Navigation {
     }
 
     pub fn go_forward(&self) -> Option<AppView> {
+        announce_page_motion(PageMotion::Forward);
         self.0.go_forward();
         reset_main_scroll_position();
         None // Router handles the navigation, we don't need to return the view

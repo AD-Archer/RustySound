@@ -18,6 +18,7 @@ mod search;
 mod settings;
 mod songs;
 mod stats;
+mod wrapped;
 
 pub use album_detail::AlbumDetailView;
 pub use albums::{Albums, AlbumsWithGenre};
@@ -28,12 +29,18 @@ pub use downloads::DownloadsView;
 pub use favorites::FavoritesView;
 pub use discover::{HomeView, MixDetailView};
 pub use library::LibraryView;
+pub(super) use library::sidebar_playlists::SidebarPlaylists;
 pub use playlist_detail::PlaylistDetailView;
 pub use playlists::PlaylistsView;
 pub use queue::QueueView;
 pub use radio::RadioView;
 pub use random::RandomView;
 pub use search::SearchView;
-pub use settings::{FirstRun, SettingsView};
+// The command palette reuses Search's query path and Settings' Wrapped story.
+pub(crate) use search::{search_servers, tokenize};
+pub(crate) use wrapped::WrappedStory;
+pub use settings::{EqualizerView, FirstRun, SettingsView};
 pub use songs::SongsView;
 pub use stats::StatsView;
+mod tv_home;
+pub use tv_home::TvNavBar;

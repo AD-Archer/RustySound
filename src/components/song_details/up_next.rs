@@ -1,12 +1,16 @@
-//! Up Next on the stage, plus the queue-row pieces the queue page reuses.
+//! Up Next on the stage, plus the queue actions the queue page reuses.
+//!
+//! Upcoming rows drag by their handle and swipe for Remove / Add to…
+//! (`queue_rows.rs`); played rows swipe but don't reorder (they're history).
 
 use super::actions::{is_live_song, same_song, use_player, PlayerCtx};
+use super::queue_rows::{use_queue_gestures, QueueUndoToast, REMOVE_FROM_QUEUE};
 use super::types::SongDetailsController;
 use crate::api::Song;
-use crate::components::audio_manager::generate_queue_extension_from_seed;
+use crate::components::audio_manager::{generate_queue_extension_from_seed, is_autoplay_song};
 use crate::components::ui::{
-    Artwork, Button, ButtonVariant, EmptyState, IconButton, IconButtonSize, InsetList, Menu,
-    MenuGap, MenuItem, TrackRow,
+    Button, ButtonVariant, EmptyState, IconButton, IconButtonSize, InsetList, Menu, MenuGap,
+    MenuItem, RowGestureList, RowSwipe, TrackRow,
 };
 use crate::components::{AddIntent, AddMenuController, AppView, Navigation};
 use dioxus::prelude::*;
@@ -55,66 +59,13 @@ pub(crate) fn save_queue_as_playlist(player: PlayerCtx, mut add_menu: AddMenuCon
     add_menu.open(AddIntent::from_songs(label, songs));
 }
 
-/// A queue row in edit mode: move up, move down, remove. Same height as a
-/// `TrackRow` with art, so it can share a `VirtualList` row height.
-#[component]
-pub(crate) fn QueueEditRow(
-    song: Song,
-    index: usize,
-    can_up: bool,
-    can_down: bool,
-    #[props(default)] playing: bool,
-) -> Element {
-    let mut player = use_player();
-    let subtitle = song.artist.clone().unwrap_or_default();
-    rsx! {
-        li { "data-index": "{index}",
-            div {
-                class: "rs-trow rs-trow--art rs-player-qrow",
-                class: if playing { "rs-trow--playing" },
-                "data-testid": "queue-edit-row",
-                Artwork { cover_art: song.cover_art.clone(), server_id: song.server_id.clone(), size_px: 44 }
-                div { class: "rs-trow__meta",
-                    div { class: "rs-trow__title", "{song.title}" }
-                    if !subtitle.is_empty() {
-                        div { class: "rs-trow__sub", "{subtitle}" }
-                    }
-                }
-                IconButton {
-                    icon: "chevron-up".to_string(),
-                    label: "Move {song.title} up".to_string(),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    disabled: !can_up,
-                    onclick: move |_| player.move_entry(index, index - 1),
-                }
-                IconButton {
-                    icon: "chevron-down".to_string(),
-                    label: "Move {song.title} down".to_string(),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    disabled: !can_down,
-                    onclick: move |_| player.move_entry(index, index + 1),
-                }
-                IconButton {
-                    icon: "x".to_string(),
-                    label: "Remove {song.title} from queue".to_string(),
-                    quiet: true,
-                    size: IconButtonSize::Small,
-                    onclick: move |_| player.remove_entry(index),
-                }
-            }
-        }
-    }
-}
-
 #[component]
 pub(super) fn UpNextPanel(song: Song) -> Element {
     let mut player = use_player();
     let add_menu = use_context::<AddMenuController>();
     let navigation = use_context::<Navigation>();
     let mut controller = use_context::<SongDetailsController>();
-    let mut editing = use_signal(|| false);
+    let undo = use_queue_gestures("upnext");
     let busy = use_signal(|| false);
     let mut menu_at = use_signal(|| None::<Option<(f64, f64)>>);
     let mut confirm_clear = use_signal(|| false);
@@ -153,7 +104,18 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
         (played, now, upcoming, queue.len())
     };
     let remaining = total.saturating_sub(current + 1);
-    let editing_now = editing() && !upcoming.is_empty();
+    // Songs Autoplay added sit under their own quiet header after the
+    // user's own (they're always at the end of the queue).
+    let own = upcoming.iter().take_while(|(_, s)| !is_autoplay_song(s)).count();
+    let (upcoming, autoplay) = {
+        let mut upcoming = upcoming;
+        let autoplay = upcoming.split_off(own);
+        (upcoming, autoplay)
+    };
+    // The handle moves rows within the user's own songs still to come (as
+    // many as shown).
+    let reorder = (upcoming.len() > 1).then(|| (current + 1, current + upcoming.len()));
+    let shown = upcoming.len() + autoplay.len();
 
     use_effect(move || {
         let _ = (player.queue_index)();
@@ -180,65 +142,56 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                         " · adding similar songs…"
                     }
                 }
-                // Reordering keeps a visible way out; otherwise everything
-                // lives in the "…" menu.
-                if editing_now {
-                    Button {
-                        label: "Done".to_string(),
-                        variant: ButtonVariant::Plain,
-                        testid: "up-next-done".to_string(),
-                        onclick: move |_| editing.set(false),
-                    }
-                } else {
-                    IconButton {
-                        icon: "more-horizontal".to_string(),
-                        label: "Up Next options".to_string(),
-                        quiet: true,
-                        size: IconButtonSize::Small,
-                        testid: "up-next-more".to_string(),
-                        onclick: move |evt: MouseEvent| {
-                            let p = evt.client_coordinates();
-                            menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
-                        },
-                    }
+                // Reordering and removing are on the rows themselves (handle,
+                // swipe, track menu); the rest lives in the "…" menu.
+                IconButton {
+                    icon: "more-horizontal".to_string(),
+                    label: "Up Next options".to_string(),
+                    quiet: true,
+                    size: IconButtonSize::Small,
+                    testid: "up-next-more".to_string(),
+                    onclick: move |evt: MouseEvent| {
+                        let p = evt.client_coordinates();
+                        menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
+                    },
                 }
             }
-            // History and the current song: hidden while reordering, which
-            // only applies to what's still to come.
-            if !editing_now {
-                if !played.is_empty() {
-                    p { class: "rs-player-upnext__label", "Played" }
-                    div { class: "rs-player-upnext__history",
+            if !played.is_empty() {
+                p { class: "rs-player-upnext__label", "Played" }
+                div { class: "rs-player-upnext__history",
+                    RowGestureList { id: "upnext",
                         InsetList { label: "Played".to_string(),
                             for (index, entry) in played.iter().cloned() {
                                 TrackRow {
                                     key: "{index}:{entry.server_id}:{entry.id}",
                                     song: entry.clone(),
                                     index,
+                                    swipe: RowSwipe::Edit,
+                                    remove_label: REMOVE_FROM_QUEUE.to_string(),
                                     on_play: move |_| player.play_index(index),
                                 }
                             }
                         }
                     }
                 }
-                if let Some(entry) = now.clone() {
-                    p { class: "rs-player-upnext__label", "data-upnext-now": "true", "Now Playing" }
-                    InsetList { label: "Now Playing".to_string(),
-                        TrackRow {
-                            key: "{current}:{entry.server_id}:{entry.id}",
-                            song: entry.clone(),
-                            index: current,
-                            playing: true,
-                            live,
-                            on_play: move |_| player.play_index(current),
-                        }
+            }
+            if let Some(entry) = now.clone() {
+                p { class: "rs-player-upnext__label", "data-upnext-now": "true", "Now Playing" }
+                InsetList { label: "Now Playing".to_string(),
+                    TrackRow {
+                        key: "{current}:{entry.server_id}:{entry.id}",
+                        song: entry.clone(),
+                        index: current,
+                        playing: true,
+                        live,
+                        on_play: move |_| player.play_index(current),
                     }
                 }
-                if !upcoming.is_empty() {
-                    p { class: "rs-player-upnext__label", "Up Next" }
-                }
             }
-            if upcoming.is_empty() {
+            if !upcoming.is_empty() {
+                p { class: "rs-player-upnext__label", "Up Next" }
+            }
+            if upcoming.is_empty() && autoplay.is_empty() {
                 EmptyState {
                     icon: "queue".to_string(),
                     title: "Nothing up next".to_string(),
@@ -250,29 +203,45 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                     }
                 }
             } else {
-                InsetList { label: "Up Next".to_string(),
-                    for (index, entry) in upcoming.iter().cloned() {
-                        if editing_now {
-                            QueueEditRow {
-                                key: "{index}:{entry.server_id}:{entry.id}",
-                                song: entry.clone(),
-                                index,
-                                can_up: index > current + 1,
-                                can_down: index + 1 < total,
+                RowGestureList { id: "upnext", reorder,
+                    if !upcoming.is_empty() {
+                        InsetList { label: "Up Next".to_string(),
+                            for (index, entry) in upcoming.iter().cloned() {
+                                TrackRow {
+                                    key: "{index}:{entry.server_id}:{entry.id}",
+                                    song: entry.clone(),
+                                    index,
+                                    handle: reorder.is_some(),
+                                    swipe: RowSwipe::Edit,
+                                    remove_label: REMOVE_FROM_QUEUE.to_string(),
+                                    on_play: move |_| player.play_index(index),
+                                }
                             }
-                        } else {
-                            TrackRow {
-                                key: "{index}:{entry.server_id}:{entry.id}",
-                                song: entry.clone(),
-                                index,
-                                on_play: move |_| player.play_index(index),
+                        }
+                    }
+                    if !autoplay.is_empty() {
+                        p { class: "rs-player-upnext__label rs-player-upnext__label--autoplay",
+                            "data-testid": "upnext-autoplay",
+                            "Autoplay"
+                            span { class: "rs-player-upnext__hint", " · Similar songs, added so the music keeps going" }
+                        }
+                        InsetList { label: "Autoplay".to_string(),
+                            for (index, entry) in autoplay.iter().cloned() {
+                                TrackRow {
+                                    key: "{index}:{entry.server_id}:{entry.id}",
+                                    song: entry.clone(),
+                                    index,
+                                    swipe: RowSwipe::Edit,
+                                    remove_label: REMOVE_FROM_QUEUE.to_string(),
+                                    on_play: move |_| player.play_index(index),
+                                }
                             }
                         }
                     }
                 }
-                if remaining > upcoming.len() {
+                if remaining > shown {
                     div { class: "rs-player-upnext__foot",
-                        span { "Showing the next {upcoming.len()} of {remaining}." }
+                        span { "Showing the next {shown} of {remaining}." }
                         Button {
                             label: "See All".to_string(),
                             variant: ButtonVariant::Plain,
@@ -284,23 +253,13 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
         }
         // Modals opened from the panel: their Escape must not also close Now Playing.
         div { class: "rs-player-modals", onkeydown: move |evt| evt.stop_propagation(),
+            QueueUndoToast { undo }
             if let Some(anchor) = menu_at() {
                 Menu {
                     label: "Up Next options".to_string(),
                     anchor,
                     testid: "up-next-menu".to_string(),
                     on_close: move |_| menu_at.set(None),
-                    if !upcoming.is_empty() {
-                        MenuItem {
-                            label: "Edit".to_string(),
-                            icon: "edit".to_string(),
-                            testid: "up-next-edit".to_string(),
-                            onclick: move |_| {
-                                menu_at.set(None);
-                                editing.set(true);
-                            },
-                        }
-                    }
                     MenuItem {
                         label: "Quick Create".to_string(),
                         icon: "plus".to_string(),
@@ -359,7 +318,6 @@ pub(super) fn UpNextPanel(song: Song) -> Element {
                         testid: "up-next-clear".to_string(),
                         onclick: move |_| {
                             confirm_clear.set(false);
-                            editing.set(false);
                             player.clear_queue();
                         },
                     }

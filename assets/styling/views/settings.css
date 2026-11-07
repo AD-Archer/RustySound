@@ -26,7 +26,10 @@
   color: var(--muted-strong);
 }
 
-.rs-settings-sr {
+/* Screen-reader-only text: base.css's .rs-sr-only, for markup that carries
+   only its view class (Search's too). */
+.rs-settings-sr,
+.rs-search-sr {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -46,9 +49,9 @@
 .rs-settings-back__btn {
   display: inline-flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--sp-1);
   min-height: var(--touch);
-  padding: 0 8px 0 2px;
+  padding: 0 var(--sp-4) 0 var(--sp-1);
   color: var(--accent-text);
   font-size: var(--fs-title);
 }
@@ -68,10 +71,12 @@
 .rs-settings-split__nav {
   position: sticky;
   top: 0;
+  /* Above the detail pane, so the profile menu opened here isn't under it. */
+  z-index: 2;
 }
 
 .rs-settings-split__title {
-  margin: var(--sp-2) 4px var(--sp-6);
+  margin: var(--sp-2) var(--sp-2) var(--sp-6);
 }
 
 .rs-settings-split__detail {
@@ -80,7 +85,7 @@
 }
 
 .rs-settings--wide .rs-settings-detail-title {
-  margin: var(--sp-2) 4px var(--sp-6);
+  margin: var(--sp-2) var(--sp-2) var(--sp-6);
 }
 
 /* The section list. */
@@ -104,7 +109,7 @@
 
 /* Group headings and footnotes. */
 .rs-settings-group {
-  margin: var(--sp-8) 16px var(--sp-3);
+  margin: var(--sp-8) var(--sp-6) var(--sp-3);
   font-size: var(--fs-sub);
   font-weight: var(--fw-regular);
   letter-spacing: .02em;
@@ -118,7 +123,7 @@
 }
 
 .rs-settings-foot {
-  margin: var(--sp-3) 16px 0;
+  margin: var(--sp-3) var(--sp-6) 0;
   max-width: 62ch;
   line-height: var(--lh-sub);
 }
@@ -139,7 +144,7 @@
 
 .rs-settings-row {
   gap: var(--sp-5);
-  padding-left: 16px;
+  padding-left: var(--sp-6);
 }
 
 .rs-settings-row__title {
@@ -159,7 +164,7 @@
 .rs-settings-num {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
   flex: none;
   color: var(--muted);
   font-size: var(--fs-sub);
@@ -168,7 +173,7 @@
 .rs-settings-num input {
   width: 86px;
   height: 32px;
-  padding: 0 8px;
+  padding: 0 var(--sp-4);
   border: 0;
   border-radius: var(--r-btn);
   background: var(--seg-trough);
@@ -235,7 +240,7 @@
 /* Button rows. */
 .rs-settings-action {
   gap: var(--sp-4);
-  padding-left: 16px;
+  padding-left: var(--sp-6);
   color: var(--accent-text);
 }
 
@@ -247,10 +252,6 @@
 .rs-settings-action--danger {
   color: var(--danger);
 }
-
-.rs-settings-action { color: var(--accent-text); }
-.rs-settings-action--danger { color: var(--danger); }
-.rs-settings-back__btn { color: var(--accent-text); }
 
 .rs-settings-action:disabled {
   opacity: .5;
@@ -282,7 +283,7 @@
 /* Usage rows line up with the other rows and the meter spans the row. */
 .rs-settings-usage {
   gap: var(--sp-5);
-  padding-left: 16px;
+  padding-left: var(--sp-6);
 }
 
 .rs-settings-usage .rs-row__meta {
@@ -297,7 +298,7 @@
 /* Volume row. */
 .rs-settings-volume {
   gap: var(--sp-5);
-  padding-left: 16px;
+  padding-left: var(--sp-6);
 }
 
 .rs-settings-volume__icon {
@@ -335,7 +336,7 @@
 
 .rs-settings-server {
   gap: var(--sp-3);
-  padding-left: 16px;
+  padding-left: var(--sp-6);
 }
 
 .rs-settings-server__dot {
@@ -344,11 +345,11 @@
   display: grid;
   place-items: center;
   align-self: flex-start;
-  padding-top: 8px;
+  padding-top: var(--sp-4);
 }
 
 .rs-settings-server .rs-row__meta {
-  margin-left: 4px;
+  margin-left: var(--sp-2);
 }
 
 .rs-settings-server__status {
@@ -389,6 +390,26 @@
   .rs-settings-server__open:hover .rs-row__title { color: var(--accent); }
 }
 
+/* On This Device: folder rows (name, path, Remove) and the scan line. */
+.rs-settings-folder {
+  gap: var(--sp-3);
+}
+
+.rs-settings-folder .rs-row__sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-settings-folder__remove {
+  flex: none;
+  color: var(--danger);
+}
+
+.rs-settings-scan {
+  font-variant-numeric: tabular-nums;
+}
+
 /* "Delete Server…" under the edit form, set apart from Save. */
 .rs-settings-form__delete {
   display: flex;
@@ -416,7 +437,7 @@
   align-items: center;
   gap: var(--sp-5);
   min-height: var(--touch);
-  padding: 0 8px 0 16px;
+  padding: 0 var(--sp-4) 0 var(--sp-6);
 }
 
 .rs-settings-field > label,
@@ -443,16 +464,8 @@
   box-shadow: inset 2px 0 0 var(--accent);
 }
 
-.rs-settings-field--switch {
-  justify-content: space-between;
-}
-
-.rs-settings-field--switch > span:first-child {
-  width: auto;
-}
-
 .rs-settings-field--test {
-  padding-right: 8px;
+  padding-right: var(--sp-4);
 }
 
 .rs-settings-field__test {
@@ -469,7 +482,7 @@
   align-items: flex-start;
   gap: var(--sp-4);
   min-height: 22px;
-  margin: var(--sp-5) 16px 0;
+  margin: var(--sp-5) var(--sp-6) 0;
   font-size: var(--fs-sub);
   line-height: var(--lh-sub);
   color: var(--muted);
@@ -488,7 +501,7 @@
 .rs-settings-test__err {
   display: inline-flex;
   align-items: flex-start;
-  gap: 6px;
+  gap: var(--sp-3);
   font-weight: var(--fw-medium);
 }
 
@@ -516,7 +529,7 @@
 
 .rs-settings-form__actions--start {
   justify-content: flex-start;
-  margin: var(--sp-5) 16px 0;
+  margin: var(--sp-5) var(--sp-6) 0;
 }
 
 .rs-app[data-layout="compact"] .rs-settings-form .rs-settings-form__actions > * {
@@ -602,7 +615,7 @@
 }
 
 .rs-settings-swatch__page {
-  padding: 6px;
+  padding: var(--sp-3);
   background: var(--page);
 }
 
@@ -610,7 +623,7 @@
   display: flex;
   align-items: center;
   gap: 5px;
-  padding: 4px;
+  padding: var(--sp-2);
   border: 1px solid var(--line);
   border-radius: 5px;
   background: var(--surface);
@@ -674,13 +687,13 @@
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: 0 2px;
+  padding: 0 var(--sp-1);
 }
 
 .rs-settings-swatch__name {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--sp-3);
   font-weight: var(--fw-semibold);
 }
 
@@ -765,7 +778,7 @@
 }
 
 /* ==========================================================================
-   First run: the welcome stage
+   First run: the welcome stage and signing in
    ========================================================================== */
 
 .rs-firstrun {
@@ -778,19 +791,22 @@
    so no strip of page colour shows between the stage and the bar. */
 .rs-app[data-layout="compact"] .rs-firstrun {
   min-height: 100dvh;
-  margin-bottom: calc(-1 * (var(--tabbar-h) + var(--safe-bottom) + 16px));
-}
-
-.rs-app[data-layout="compact"] .rs-firstrun__stage {
-  padding-bottom: calc(48px + var(--tabbar-h) + var(--safe-bottom));
+  margin-bottom: calc(-1 * (var(--tabbar-h) + var(--safe-bottom) + var(--sp-6)));
 }
 
 .rs-firstrun__stage {
   flex: 1;
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   min-height: 100%;
-  padding: calc(var(--safe-top) + 32px) var(--gutter) 48px;
+  overflow: hidden;
+  padding: calc(var(--safe-top) + 24px) var(--gutter) 48px;
+}
+
+.rs-app[data-layout="compact"] .rs-firstrun__stage {
+  padding-bottom: calc(48px + var(--tabbar-h) + var(--safe-bottom));
 }
 
 .rs-firstrun__inner {
@@ -803,16 +819,11 @@
   animation: rs-settings-rise .6s var(--ease-out) both;
 }
 
-.rs-firstrun__mark {
-  width: 72px;
-  height: 72px;
-  border-radius: 16px;
-  box-shadow: var(--stage-shadow);
-  -webkit-box-reflect: below 4px linear-gradient(transparent 60%, rgba(255, 255, 255, .18));
-}
-
 .rs-firstrun__title {
-  margin-top: var(--sp-6);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-5);
+  margin: 0;
   font-family: var(--font-display);
   font-size: var(--fs-large);
   line-height: var(--lh-large);
@@ -820,8 +831,16 @@
   letter-spacing: var(--track-tight);
 }
 
+.rs-firstrun__mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 9px;
+  box-shadow: var(--stage-shadow);
+}
+
 .rs-firstrun__line {
   max-width: 32ch;
+  margin: 0;
   color: var(--stage-muted);
   font-size: var(--fs-title);
   line-height: 1.4;
@@ -829,13 +848,32 @@
 }
 
 .rs-firstrun__actions {
-  margin-top: var(--sp-7);
+  margin-top: var(--sp-6);
+}
+
+/* The quiet second way in: music already on this device. */
+.rs-firstrun__actions .rs-btn--plain {
+  display: flex;
+  margin: var(--sp-2) auto 0;
+  font-size: var(--fs-body);
+}
+
+.rs-firstrun__actions .rs-btn {
+  min-width: 240px;
+  min-height: 50px;
+  font-size: var(--fs-title);
+}
+
+.rs-app[data-layout="wide"] .rs-firstrun__actions .rs-btn {
+  min-height: 44px;
+  font-size: var(--fs-body);
 }
 
 .rs-firstrun__note {
-  margin-top: var(--sp-2);
-  color: var(--stage-faint);
+  margin: var(--sp-2) 0 0;
+  color: var(--stage-muted);
   font-size: var(--fs-sub);
+  text-wrap: balance;
 }
 
 @keyframes rs-settings-rise {
@@ -843,10 +881,472 @@
   to { opacity: 1; transform: none; }
 }
 
+/* ---- The welcome Cover Flow ---------------------------------------------
+   Nine abstract covers in nine slots (far right, hidden … centre … far left,
+   hidden). One keyframe track walks a cover through every slot: it rests
+   for 2.25s, then glides one place left in 0.75s with the kit Cover
+   Flow's geometry. Each cover starts 3s further along, so together they
+   step left in unison. The wrap from far left to far right happens at
+   opacity 0. Under reduced motion each cover rests in its slot. */
+
+.rs-welcome-flow {
+  --c: 132px;
+  position: relative;
+  flex: none;
+  width: 100%;
+  height: calc(var(--c) * 1.5);
+  margin-bottom: var(--sp-4);
+  perspective: 900px;
+  pointer-events: none;
+  transform-origin: 50% 0;
+  transition: transform .5s var(--ease-sheet), margin .5s var(--ease-sheet), opacity .5s var(--ease-sheet);
+}
+
+.rs-app[data-layout="wide"] .rs-welcome-flow {
+  --c: 188px;
+  perspective: 1200px;
+  margin-bottom: var(--sp-7);
+}
+
+@media (max-height: 640px) {
+  .rs-welcome-flow { --c: 100px; }
+}
+
+.rs-welcome-flow__cover {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  width: var(--c);
+  height: var(--c);
+  margin-left: calc(var(--c) / -2);
+  border-radius: var(--r-cover);
+  opacity: 0;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .06);
+  /* The kit Cover Flow's reflection (.rs-cover); one recipe app-wide. */
+  -webkit-box-reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
+  animation: rs-welcome-flow 27s var(--ease-out) infinite both;
+  will-change: transform, opacity;
+}
+
+.rs-welcome-flow__cover--0 { background: radial-gradient(circle at 68% 34%, #ffd166 0 21%, transparent 21.5%), linear-gradient(160deg, #ef476f, #7a1f4f); animation-delay: -0s; }
+.rs-welcome-flow__cover--1 { background: linear-gradient(180deg, transparent 57%, #f4f1de 57% 61%, transparent 61%), linear-gradient(135deg, #3d5a80, #98c1d9); animation-delay: -3s; }
+.rs-welcome-flow__cover--2 { background: radial-gradient(circle, #141414 0 11%, #e07a5f 11.5% 30%, #141414 30.5% 32%, #e07a5f 32.5% 46%, transparent 46.5%), #f2cc8f; animation-delay: -6s; }
+.rs-welcome-flow__cover--3 { background: conic-gradient(from 210deg at 30% 70%, #06d6a0, #118ab2, #073b4c, #06d6a0); animation-delay: -9s; }
+.rs-welcome-flow__cover--4 { background: linear-gradient(90deg, #ffbe0b 0 33.3%, #fb5607 33.3% 66.6%, #ff006e 66.6%); animation-delay: -12s; }
+.rs-welcome-flow__cover--5 { background: radial-gradient(120% 90% at 0% 100%, #8338ec 0 42%, transparent 42.5%), #3a86ff; animation-delay: -15s; }
+.rs-welcome-flow__cover--6 { background: repeating-radial-gradient(circle at 100% 0%, #264653 0 12px, #2a9d8f 12px 24px); animation-delay: -18s; }
+.rs-welcome-flow__cover--7 { background: linear-gradient(200deg, #f6bd60, #f28482 55%, #84a59d); animation-delay: -21s; }
+.rs-welcome-flow__cover--8 { background: radial-gradient(circle at 36% 40%, #fefae0 0 15%, transparent 15.5%), radial-gradient(circle at 62% 60%, #bc6c25 0 22%, transparent 22.5%), #283618; animation-delay: -24s; }
+
+@keyframes rs-welcome-flow {
+  0.000%, 8.333% { transform: translateX(calc(var(--c) * 1.40)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0; z-index: 6; }
+  11.111%, 19.444% { transform: translateX(calc(var(--c) * 1.14)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0.5; z-index: 7; }
+  22.222%, 30.556% { transform: translateX(calc(var(--c) * 0.88)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0.74; z-index: 8; }
+  33.333%, 41.667% { transform: translateX(calc(var(--c) * 0.62)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0.92; z-index: 9; }
+  44.444%, 52.778% { transform: translateX(0) translateZ(calc(var(--c) * .4)) rotateY(0deg); opacity: 1; z-index: 10; }
+  55.556%, 63.889% { transform: translateX(calc(var(--c) * -0.62)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0.92; z-index: 9; }
+  66.667%, 75.000% { transform: translateX(calc(var(--c) * -0.88)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0.74; z-index: 8; }
+  77.778%, 86.111% { transform: translateX(calc(var(--c) * -1.14)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0.5; z-index: 7; }
+  88.889%, 97.222% { transform: translateX(calc(var(--c) * -1.40)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0; z-index: 6; }
+  100% { transform: translateX(calc(var(--c) * 1.40)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0; z-index: 6; }
+}
+
+/* Signing in: the flow shrinks into a band above the form. */
+.rs-firstrun--signin .rs-welcome-flow {
+  transform: scale(.6);
+  margin-bottom: calc(var(--c) * -.6 + var(--sp-4));
+  opacity: .8;
+}
+
+.rs-app[data-layout="wide"] .rs-firstrun--signin .rs-welcome-flow {
+  transform: scale(.5);
+  /* Keep the covers above the card; the card overlaps their reflection. */
+  margin-bottom: calc(var(--c) * -.95);
+  opacity: .7;
+}
+
+.rs-app[data-layout="wide"] .rs-firstrun__stage {
+  padding-bottom: calc(var(--bar-h) + 40px);
+}
+
+.rs-firstrun--signin .rs-firstrun__stage {
+  justify-content: flex-start;
+}
+
+.rs-app[data-layout="compact"] .rs-firstrun--signin .rs-firstrun__stage {
+  padding-bottom: 0;
+}
+
+.rs-app[data-layout="wide"] .rs-firstrun--signin .rs-firstrun__stage {
+  justify-content: center;
+}
+
+/* ---- The sign-in panel ---------------------------------------------------
+   Page material on the stage: a panel rising under the flow on a phone (it
+   scrolls with the page, so the iOS keyboard can bring each field into
+   view), a centred card on a wide window. */
+
+.rs-signin {
+  position: relative;
+  z-index: 20;
+  align-self: stretch;
+  flex: 1;
+  margin: 0 calc(-1 * var(--gutter));
+  padding: var(--sp-4) var(--gutter) calc(var(--sp-9) + var(--tabbar-h) + var(--safe-bottom));
+  border-radius: var(--r-sheet) var(--r-sheet) 0 0;
+  background: var(--page);
+  color: var(--ink);
+  box-shadow: 0 -10px 30px rgba(0, 0, 0, .35);
+  animation: rs-signin-rise .45s var(--ease-sheet) both;
+}
+
+.rs-app[data-layout="wide"] .rs-signin {
+  align-self: center;
+  flex: none;
+  width: min(440px, 100%);
+  margin: 0;
+  padding: var(--sp-6) var(--sp-9) var(--sp-9);
+  border-radius: var(--r-sheet);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, .5), 0 2px 8px rgba(0, 0, 0, .3), inset 0 0 0 1px rgba(255, 255, 255, .06);
+}
+
+.rs-signin :focus-visible {
+  outline-color: var(--accent);
+}
+
+/* The panel is page material inside the stage: undo the stage's light
+   button colours. */
+.rs-signin .rs-btn--plain { color: var(--btn-ink); }
+.rs-signin .rs-btn--tinted { background: var(--btn-fill); color: var(--btn-ink); }
+
+.rs-signin__head {
+  display: flex;
+  align-items: center;
+  min-height: var(--touch);
+  margin-left: -6px;
+}
+
+.rs-app[data-layout="wide"] .rs-signin__head {
+  margin-left: -10px;
+}
+
+.rs-signin__title {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-title1);
+  line-height: var(--lh-title1);
+  font-weight: var(--fw-bold);
+  letter-spacing: var(--track-tight);
+  text-wrap: balance;
+}
+
+.rs-signin__lede {
+  margin: var(--sp-3) 0 var(--sp-7);
+  max-width: 42ch;
+  color: var(--muted);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  text-wrap: pretty;
+}
+
+@keyframes rs-signin-rise {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ---- The form (first run and the Settings sheet) ------------------------ */
+
+.rs-signin-group {
+  border: 1px solid var(--line);
+  border-radius: var(--r-list);
+  background: var(--surface);
+}
+
+/* In the sheet the surface is the background, so groups sit on the page. */
+.rs-sheet .rs-signin-group {
+  background: var(--page);
+}
+
+.rs-signin-hint + .rs-signin-group,
+.rs-signin-group + .rs-signin-group {
+  margin-top: var(--sp-7);
+}
+
+.rs-signin-field {
+  position: relative;
+  padding: 9px 16px 7px;
+}
+
+.rs-signin-field:first-child {
+  border-top-left-radius: calc(var(--r-list) - 1px);
+  border-top-right-radius: calc(var(--r-list) - 1px);
+}
+
+.rs-signin-field:last-child {
+  border-bottom-left-radius: calc(var(--r-list) - 1px);
+  border-bottom-right-radius: calc(var(--r-list) - 1px);
+}
+
+.rs-signin-field + .rs-signin-field::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 16px;
+  right: 0;
+  border-top: 1px solid var(--line);
+}
+
+/* The focus ring replaces the separator on either side of the field. */
+.rs-signin-field:focus-within::before,
+.rs-signin-field--error::before,
+.rs-signin-field:focus-within + .rs-signin-field::before,
+.rs-signin-field--error + .rs-signin-field::before {
+  display: none;
+}
+
+.rs-signin-field > label {
+  display: block;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  line-height: 18px;
+}
+
+.rs-signin-field__optional {
+  font-weight: var(--fw-regular);
+}
+
+.rs-signin-field input {
+  display: block;
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  margin-top: 1px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  caret-color: var(--accent);
+  font: inherit;
+  /* 17px: the iPhone body size, and at least 16px so iOS doesn't zoom. */
+  font-size: var(--fs-title);
+  outline: none;
+}
+
+.rs-app[data-layout="wide"] .rs-signin-field input {
+  font-size: var(--fs-body);
+}
+
+.rs-signin-field input::placeholder {
+  color: var(--muted);
+  opacity: 1;
+}
+
+.rs-signin-field input[readonly] {
+  color: var(--muted);
+}
+
+.rs-signin-field:focus-within {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.rs-signin-field:focus-within > label {
+  color: var(--accent-text);
+}
+
+.rs-signin-field--error > label,
+.rs-signin-field--error:focus-within > label {
+  color: var(--danger);
+}
+
+.rs-signin-field--error {
+  box-shadow: inset 0 0 0 1px var(--danger);
+}
+
+.rs-signin-field--error:focus-within {
+  box-shadow: inset 0 0 0 2px var(--danger);
+}
+
+.rs-signin-field__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.rs-signin-reveal {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: var(--touch);
+  height: var(--touch);
+  margin: -10px -12px -8px 0;
+  border-radius: var(--r-btn);
+  color: var(--muted);
+  cursor: pointer;
+}
+
+@media (hover: hover) {
+  .rs-signin-reveal:hover { color: var(--ink); }
+}
+
+.rs-signin-reveal:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
+}
+
+.rs-signin-hint {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin: var(--sp-4) var(--sp-6) 0;
+  color: var(--muted);
+  font-size: var(--fs-sub);
+  line-height: var(--lh-sub);
+}
+
+.rs-signin-hint svg {
+  flex: none;
+  margin-top: var(--sp-1);
+}
+
+.rs-signin-hint--error {
+  color: var(--danger);
+  font-weight: var(--fw-medium);
+}
+
+.rs-signin-hint__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-signin-hint__url {
+  color: var(--ink);
+  font-weight: var(--fw-medium);
+  overflow-wrap: anywhere;
+}
+
+/* "Use HTTP" / "Use HTTPS": a plain text action with a full-height hit area. */
+.rs-signin-hint__switch {
+  flex: none;
+  margin: -12px -8px -12px 0;
+  padding: var(--sp-5) var(--sp-4);
+  color: var(--accent-text);
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.rs-signin-hint__switch:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
+@media (hover: hover) {
+  .rs-signin-hint__switch:hover:not(:disabled) { text-decoration: underline; text-underline-offset: .18em; }
+}
+
+.rs-signin-status {
+  margin-top: var(--sp-6);
+  font-size: var(--fs-callout);
+  line-height: var(--lh-sub);
+}
+
+.rs-signin-status:empty {
+  margin: 0;
+}
+
+.rs-signin-status__line {
+  display: block;
+  padding: 0 var(--sp-6);
+  color: var(--muted);
+}
+
+.rs-signin-status__ok {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: 0 var(--sp-6);
+  color: color-mix(in srgb, var(--ok) 60%, var(--ink));
+  font-weight: var(--fw-medium);
+}
+
+.rs-signin-status__err {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-4);
+  padding: var(--sp-5) 14px;
+  border-radius: var(--r-button);
+  background: var(--danger-tint);
+  color: var(--ink);
+}
+
+.rs-signin-status__err svg {
+  flex: none;
+  margin-top: 1px;
+  color: var(--danger);
+}
+
+.rs-signin-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-4);
+  margin-top: var(--sp-7);
+}
+
+.rs-signin-form--welcome .rs-signin-primary {
+  min-height: 50px;
+  font-size: var(--fs-title);
+}
+
+.rs-app[data-layout="wide"] .rs-signin-form--welcome .rs-signin-primary {
+  min-height: 44px;
+  font-size: var(--fs-body);
+}
+
+/* Settings sheet: actions sit at the end on a wide window. */
+.rs-app[data-layout="wide"] .rs-signin-form:not(.rs-signin-form--welcome) .rs-signin-actions {
+  flex-direction: row-reverse;
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.rs-signin-primary {
+  gap: var(--sp-4);
+}
+
+.rs-signin-primary--busy {
+  cursor: progress;
+}
+
+.rs-signin-spinner {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, .35);
+  border-top-color: var(--accent-ink);
+  animation: rs-spin .8s linear infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   .rs-firstrun__inner,
+  .rs-signin,
   .rs-settings-toast { animation: none; }
   .rs-settings-meter__fill { transition: none; }
+  .rs-welcome-flow { transition: none; }
+  .rs-welcome-flow__cover { animation: none; }
+  .rs-welcome-flow__cover--0 { transform: translateX(calc(var(--c) * 1.40)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0; z-index: 6; }
+  .rs-welcome-flow__cover--1 { transform: translateX(calc(var(--c) * 1.14)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0.5; z-index: 7; }
+  .rs-welcome-flow__cover--2 { transform: translateX(calc(var(--c) * 0.88)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0.74; z-index: 8; }
+  .rs-welcome-flow__cover--3 { transform: translateX(calc(var(--c) * 0.62)) translateZ(calc(var(--c) * -.35)) rotateY(-62deg); opacity: 0.92; z-index: 9; }
+  .rs-welcome-flow__cover--4 { transform: translateX(0) translateZ(calc(var(--c) * .4)) rotateY(0deg); opacity: 1; z-index: 10; }
+  .rs-welcome-flow__cover--5 { transform: translateX(calc(var(--c) * -0.62)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0.92; z-index: 9; }
+  .rs-welcome-flow__cover--6 { transform: translateX(calc(var(--c) * -0.88)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0.74; z-index: 8; }
+  .rs-welcome-flow__cover--7 { transform: translateX(calc(var(--c) * -1.14)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0.5; z-index: 7; }
+  .rs-welcome-flow__cover--8 { transform: translateX(calc(var(--c) * -1.40)) translateZ(calc(var(--c) * -.35)) rotateY(62deg); opacity: 0; z-index: 6; }
+  /* A spinner that can't spin: a steady ring; the label says it's busy. */
+  .rs-signin-spinner { animation: none; border-top-color: rgba(255, 255, 255, .35); }
 }
 
 /* A whole-row action (Quick Scan): trailing accent label instead of a button. */
@@ -872,4 +1372,668 @@
 
 .rs-settings-row--tap:disabled .rs-settings-row__action {
   color: var(--muted);
+}
+
+/* ==========================================================================
+   Link rows and the Equalizer page
+   ========================================================================== */
+
+.rs-settings-link {
+  width: 100%;
+  text-align: left;
+  color: inherit;
+}
+
+.rs-settings-link .rs-row__meta { flex: 1; min-width: 0; }
+
+.rs-equalizer__note {
+  margin: var(--sp-3) 16px 0;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-equalizer__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.rs-equalizer__preset {
+  min-height: 32px;
+  padding: 0 14px;
+  border-radius: 16px;
+  background: var(--seg-trough);
+  color: var(--muted-strong);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-medium);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.rs-equalizer__preset[aria-checked="true"] {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.rs-equalizer__preset:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.rs-equalizer__panel {
+  margin-top: var(--sp-6);
+  padding: var(--sp-5) var(--sp-4) var(--sp-4);
+  border-radius: var(--r-list);
+  background: var(--surface);
+  transition: opacity var(--dur-med);
+}
+
+.rs-equalizer__panel--off { opacity: .55; }
+
+.rs-equalizer__bands {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-5);
+}
+
+.rs-equalizer__band {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+
+.rs-equalizer__gain,
+.rs-equalizer__freq {
+  font-size: var(--fs-cap);
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+
+.rs-equalizer__preamp-input {
+  flex: 1;
+  min-width: 80px;
+  accent-color: var(--accent);
+}
+
+.rs-equalizer__preamp-value { min-width: 4.5em; text-align: right; }
+
+@media (max-width: 420px) {
+  .rs-equalizer .rs-vslider { width: 30px; }
+  .rs-equalizer__panel { padding-left: var(--sp-2); padding-right: var(--sp-2); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-equalizer__panel, .rs-equalizer__preset { transition: none; }
+}
+
+/* ==========================================================================
+   WRAPPED (views/wrapped): the Settings entry and the story's cards, on the
+   kit's .rs-story / .rs-story-card.
+   ========================================================================== */
+
+/* ---- The entry: a calm row of its own near the top ------------------------ */
+
+.rs-settings-wrapped__lead {
+  width: 32px;
+  height: 32px;
+  border-radius: var(--r-btn);
+  background: var(--stage-bg);
+  color: var(--stage-ink);
+}
+
+/* ---- Year picker in the story header -------------------------------------- */
+
+.rs-wrapped-year {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  max-width: 100%;
+  color: var(--stage-ink);
+}
+
+.rs-wrapped-year select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: var(--touch);
+  padding: 0 var(--sp-6) 0 var(--sp-1);
+  margin-right: calc(var(--sp-6) * -1);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.rs-wrapped-year select option {
+  color: var(--ink);
+  background: var(--surface);
+}
+
+.rs-wrapped-year .rs-ic {
+  pointer-events: none;
+  opacity: .8;
+}
+
+/* ---- Type on the cards ------------------------------------------------------ */
+
+.rs-wrapped-big {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(64px, 19vw, 104px);
+  font-weight: var(--fw-bold);
+  line-height: .95;
+  letter-spacing: -.035em;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-wrapped-name {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: clamp(32px, 9vw, 44px);
+  font-weight: var(--fw-bold);
+  line-height: 1.05;
+  letter-spacing: -.02em;
+  overflow-wrap: anywhere;
+}
+
+.rs-wrapped-title {
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-title1);
+  font-weight: var(--fw-bold);
+  line-height: var(--lh-title1);
+  letter-spacing: -.01em;
+}
+
+.rs-wrapped-lead {
+  margin: 0;
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-semibold);
+  line-height: var(--lh-title2);
+}
+
+.rs-wrapped-lead--soft {
+  font-weight: var(--fw-regular);
+  color: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-line {
+  margin: 0;
+  font-size: var(--fs-title);
+  line-height: var(--lh-title);
+  color: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-line--soft {
+  font-size: var(--fs-callout);
+  color: rgba(255, 255, 255, .74);
+}
+
+.rs-wrapped-note {
+  margin: auto 0 0;
+  padding-top: var(--sp-6);
+  font-size: var(--fs-foot);
+  line-height: var(--lh-sub);
+  color: rgba(255, 255, 255, .7);
+}
+
+/* ---- Hero artwork ------------------------------------------------------------ */
+
+.rs-wrapped-hero {
+  width: min(70%, 280px);
+  aspect-ratio: 1;
+  margin-bottom: var(--sp-5);
+}
+
+.rs-wrapped-hero__art {
+  border-radius: var(--r-art);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, .5);
+  overflow: hidden;
+}
+
+/* ---- Top lists ---------------------------------------------------------------- */
+
+.rs-wrapped-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rs-wrapped-list__row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+
+.rs-wrapped-list__rank {
+  width: 1.4em;
+  flex: none;
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-bold);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-list__art {
+  flex: none;
+  border-radius: var(--r-thumb);
+  overflow: hidden;
+}
+
+.rs-wrapped-list__meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.rs-wrapped-list__name,
+.rs-wrapped-list__sub {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rs-wrapped-list__name {
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+}
+
+.rs-wrapped-list__sub {
+  font-size: var(--fs-sub);
+  color: rgba(255, 255, 255, .74);
+}
+
+.rs-wrapped-list__bar {
+  display: block;
+  height: 6px;
+  margin-top: var(--sp-2);
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .14);
+  overflow: hidden;
+}
+
+.rs-wrapped-list__bar > span {
+  display: block;
+  height: 100%;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-list__detail {
+  flex: none;
+  font-size: var(--fs-sub);
+  font-variant-numeric: tabular-nums;
+  color: rgba(255, 255, 255, .78);
+}
+
+/* ---- Listening clock: one thin bar per hour --------------------------------- */
+
+.rs-wrapped-clock {
+  margin: var(--sp-6) 0 var(--sp-4);
+}
+
+.rs-wrapped-clock__bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 120px;
+  border-bottom: 1px solid rgba(255, 255, 255, .24);
+}
+
+.rs-wrapped-clock__bar {
+  flex: 1;
+  min-height: 2px;
+  border-radius: 4px 4px 0 0;
+  background: rgba(255, 255, 255, .86);
+}
+
+.rs-wrapped-clock__axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--sp-3);
+  font-size: var(--fs-cap);
+  color: rgba(255, 255, 255, .7);
+}
+
+.rs-wrapped-clock__axis span {
+  width: 25%;
+}
+
+/* ---- Personality facts ------------------------------------------------------ */
+
+.rs-wrapped-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6) var(--sp-8);
+  margin: var(--sp-6) 0 0;
+}
+
+.rs-wrapped-facts dt {
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-facts dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-title2);
+  font-weight: var(--fw-semibold);
+}
+
+/* ---- Buttons on the cards (Quick Listen, Share) ----------------------------- */
+
+.rs-wrapped-preview {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-4);
+  min-height: var(--touch);
+  margin-top: var(--sp-5);
+  padding: 0 var(--sp-6) 0 var(--sp-3);
+  border: 0;
+  border-radius: var(--r-button);
+  background: rgba(255, 255, 255, .14);
+  color: var(--stage-ink);
+  font: inherit;
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.rs-wrapped-preview:hover {
+  background: rgba(255, 255, 255, .24);
+}
+
+.rs-wrapped-preview:disabled {
+  cursor: default;
+  opacity: .7;
+}
+
+.rs-wrapped-preview__icon {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+}
+
+/* ---- Loading ------------------------------------------------------------------ */
+
+.rs-wrapped-skel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+}
+
+/* ---- The shareable summary ------------------------------------------------------
+   Captured to an image (the Lyrics Shot path), so: plain colours, no
+   color-mix, no tokens that depend on the page theme. */
+
+.rs-wrapped-summary {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  width: 100%;
+  max-width: 400px;
+  aspect-ratio: 4 / 5;
+  max-height: 100%;
+  align-self: center;
+  border-radius: 12px;
+  background: #101114;
+  color: #fff;
+}
+
+.rs-wrapped-summary__wash {
+  position: absolute;
+  inset: -25%;
+  z-index: -2;
+  width: 150%;
+  height: 150%;
+  object-fit: cover;
+  filter: blur(48px) saturate(1.5);
+  -webkit-filter: blur(48px) saturate(1.5);
+  opacity: .7;
+}
+
+.rs-wrapped-summary__veil {
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(0, 0, 0, .2) 0%, rgba(0, 0, 0, .55) 60%, rgba(0, 0, 0, .8) 100%);
+}
+
+.rs-wrapped-summary__body {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  height: 100%;
+  padding: 22px;
+  box-sizing: border-box;
+}
+
+.rs-wrapped-summary__brand {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .82);
+}
+
+.rs-wrapped-summary__hero {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.rs-wrapped-summary__art {
+  width: 76px;
+  height: 76px;
+  flex: none;
+  border-radius: 4px;
+  object-fit: cover;
+  box-shadow: 0 10px 24px rgba(0, 0, 0, .45);
+}
+
+.rs-wrapped-summary__label {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-summary__name {
+  margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.rs-wrapped-summary__cols {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.rs-wrapped-summary__cols ol {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  line-height: 1.55;
+}
+
+.rs-wrapped-summary__cols li {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.rs-wrapped-summary__stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+  margin-top: auto;
+}
+
+.rs-wrapped-summary__value {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-wrapped-summary__foot {
+  margin: 0;
+  font-size: 12px;
+  color: rgba(255, 255, 255, .72);
+}
+
+.rs-wrapped-share {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  justify-content: center;
+}
+
+.rs-wrapped-share .rs-wrapped-preview {
+  align-self: center;
+}
+
+.rs-wrapped-share__note {
+  margin: var(--sp-5) 0 0;
+  font-size: var(--fs-sub);
+  color: rgba(255, 255, 255, .8);
+}
+
+/* The summary card: the captured card is the content, so less padding. */
+.rs-story-card:has(.rs-wrapped-summary) {
+  padding: var(--sp-7) var(--sp-6) var(--sp-6);
+}
+
+.rs-story-card:has(.rs-wrapped-summary) .rs-story-card__body {
+  justify-content: flex-start;
+  padding-top: var(--sp-5);
+}
+
+/* ---- Offline changes waiting to sync (Settings › Servers) ------------- */
+
+.rs-sync-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  margin: 0 4px var(--sp-5);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-sync-line__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-sync-line__btn {
+  flex: none;
+}
+
+/* ---- Backup & Restore ------------------------------------------------- */
+
+.rs-backup-warn {
+  display: flex;
+  gap: var(--sp-3);
+  align-items: flex-start;
+  color: var(--danger);
+}
+
+.rs-backup-warn .rs-ic {
+  flex: none;
+  margin-top: 2px;
+}
+
+.rs-backup-changes {
+  display: grid;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-6);
+  padding-left: 1.2em;
+  font-size: var(--fs-body);
+  color: var(--ink);
+  list-style: disc;
+}
+
+.rs-backup-changes__note {
+  color: var(--muted);
+  font-size: var(--fs-sub);
+}
+
+/* ---- Profiles ---------------------------------------------------------- */
+
+.rs-settings-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+}
+
+.rs-library-form__hint {
+  margin: 0;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-avatar {
+  --avatar-hue: 210;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: hsl(var(--avatar-hue) 55% 45%);
+  color: #fff;
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-semibold);
+  line-height: 1;
+}
+
+.rs-profile-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: var(--touch);
+  min-height: var(--touch);
+  justify-content: center;
+  border-radius: 999px;
+  color: var(--ink);
+}
+
+.rs-profile-btn--side {
+  justify-content: flex-start;
+  width: 100%;
+  min-height: 30px;
+  padding: 0 10px;
+  font-size: var(--fs-sub);
+  border-radius: var(--r-nav);
+}
+
+.rs-profile-btn--side .rs-avatar {
+  width: 20px;
+  height: 20px;
+  font-size: var(--fs-foot);
+}
+
+.rs-profile-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }

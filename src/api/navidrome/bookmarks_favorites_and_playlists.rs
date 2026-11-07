@@ -2,20 +2,7 @@
 impl NavidromeClient {
     pub async fn get_bookmarks(&self) -> Result<Vec<Bookmark>, String> {
         let url = self.build_url("getBookmarks", &[]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        let json = self.subsonic_get(&url).await?;
 
         let mut bookmarks = json
             .subsonic_response
@@ -46,20 +33,7 @@ impl NavidromeClient {
             _ => "id",
         };
         let url = self.build_url("star", &[(param, id)]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         self.invalidate_after_star(id, item_type);
         Ok(())
@@ -75,24 +49,7 @@ impl NavidromeClient {
             let params: Vec<(String, String)> =
                 chunk.iter().map(|id| ("id".to_string(), id.clone())).collect();
             let url = self.build_url_owned(endpoint, params);
-            let result: Result<(), String> = async {
-                let response = HTTP_CLIENT
-                    .get(&url)
-                    .send()
-                    .await
-                    .map_err(|e| e.to_string())?;
-                let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-                if json.subsonic_response.status != "ok" {
-                    return Err(json
-                        .subsonic_response
-                        .error
-                        .map(|e| e.message)
-                        .unwrap_or("Unknown error".to_string()));
-                }
-                Ok(())
-            }
-            .await;
-            if let Err(err) = result {
+            if let Err(err) = self.subsonic_get(&url).await {
                 if done > 0 {
                     self.invalidate_after_star("", "song");
                 }
@@ -132,20 +89,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url("createBookmark", &params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         if let Some(limit) = max_bookmarks.filter(|value| *value > 0) {
             self.prune_oldest_bookmarks(limit).await;
@@ -177,20 +121,7 @@ impl NavidromeClient {
 
     pub async fn delete_bookmark(&self, song_id: &str) -> Result<(), String> {
         let url = self.build_url("deleteBookmark", &[("id", song_id)]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         Ok(())
     }
@@ -202,20 +133,7 @@ impl NavidromeClient {
             _ => "id",
         };
         let url = self.build_url("unstar", &[(param, id)]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         self.invalidate_after_star(id, item_type);
         Ok(())
@@ -223,20 +141,7 @@ impl NavidromeClient {
 
     pub async fn set_rating(&self, id: &str, rating: u32) -> Result<(), String> {
         let url = self.build_url("setRating", &[("id", id), ("rating", &rating.to_string())]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         Ok(())
     }
@@ -248,20 +153,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url("getPlaylists", &[]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        let json = self.subsonic_get(&url).await?;
 
         let mut playlists = json
             .subsonic_response
@@ -285,20 +177,7 @@ impl NavidromeClient {
         }
 
         let url = self.build_url("getPlaylist", &[("id", playlist_id)]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        let json = self.subsonic_get(&url).await?;
 
         let mut playlist_with_entries = json
             .subsonic_response

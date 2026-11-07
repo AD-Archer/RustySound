@@ -58,7 +58,7 @@
                             spawn(async move {
                                 last_bookmark.set(Some((song_id.clone(), position_ms)));
                                 if let Some(server) =
-                                    servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                                    servers_snapshot.iter().find(|s| s.id == server_id && Capabilities::of(s).bookmarks).cloned()
                                 {
                                     let client = NavidromeClient::new(server);
                                     let _ = client
@@ -83,12 +83,7 @@
             }
 
             let Some(song) = song else {
-                if let Some(audio) = get_or_create_audio_element() {
-                    let _ = audio.pause();
-                    audio.set_src("");
-                    let _ = audio.remove_attribute("src");
-                    audio.load();
-                }
+                let _ = web_deck_call("clear", &[]);
                 let servers_snapshot = servers.peek().clone();
                 web_sync_media_session_metadata(None, &servers_snapshot);
                 last_src.set(None);
@@ -110,9 +105,8 @@
                     };
                     set_transport_loading(audio_state.clone(), true, Some(loading_label));
                     audio_state.write().playback_error.set(None);
-                    if let Some(audio) = get_or_create_audio_element() {
-                        audio.set_src(&url);
-                        audio.set_volume(volume.peek().clamp(0.0, 1.0));
+                    if let Some(audio) = web_deck_load(&url) {
+                        set_output_volume(*volume.peek());
 
                         if let Some((target_id, target_pos)) = seek_request.peek().clone() {
                             if target_id == song.id {
@@ -141,9 +135,9 @@
                 if !*preview_playback.peek() {
                     scrobble_song(&servers_snapshot, &song, false);
                 }
-            } else if let Some(audio) = get_or_create_audio_element() {
+            } else if get_or_create_audio_element().is_some() {
                 web_sync_media_session_metadata(None, &servers_snapshot);
-                audio.set_src("");
+                let _ = web_deck_call("clear", &[]);
                 last_src.set(None);
                 is_playing.set(false);
                 set_transport_loading(audio_state.clone(), false, None);
@@ -208,10 +202,7 @@
     {
         let volume = volume.clone();
         use_effect(move || {
-            let vol = volume().clamp(0.0, 1.0);
-            if let Some(audio) = get_or_create_audio_element() {
-                audio.set_volume(vol);
-            }
+            set_output_volume(volume());
         });
     }
 
@@ -266,7 +257,7 @@
                 spawn(async move {
                     last_bookmark.set(Some((song_id.clone(), position_ms)));
                     if let Some(server) =
-                        servers_snapshot.iter().find(|s| s.id == server_id).cloned()
+                        servers_snapshot.iter().find(|s| s.id == server_id && Capabilities::of(s).bookmarks).cloned()
                     {
                         let client = NavidromeClient::new(server);
                         let _ = client

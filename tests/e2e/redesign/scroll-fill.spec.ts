@@ -89,7 +89,7 @@ test.describe("fast scrolling keeps lists filled", () => {
     await slowPages(page, 400);
     await gotoReady(page, "/albums");
     await expect(tid(page, "album-tile").first()).toBeVisible();
-    const r = await measure(page, { list: ".rs-library-covers", item: ".rs-library-covers__cell", gapPx: 32 }, HARD, "albums-grid-slow");
+    const r = await measure(page, { list: '[data-testid="album-grid"]', item: ".rs-library-covers__cell", gapPx: 32 }, HARD, "albums-grid-slow");
     expectFilled(r, "Albums grid on a slow server");
   });
 
@@ -110,7 +110,7 @@ test.describe("fast scrolling keeps lists filled", () => {
   test("Albums grid", async ({ connected: page }) => {
     await gotoReady(page, "/albums");
     await expect(tid(page, "album-tile").first()).toBeVisible();
-    const r = await measure(page, { list: ".rs-library-covers", item: ".rs-library-covers__cell", gapPx: 32 }, HARD, "albums-grid");
+    const r = await measure(page, { list: '[data-testid="album-grid"]', item: ".rs-library-covers__cell", gapPx: 32 }, HARD, "albums-grid");
     expectFilled(r, "Albums grid");
   });
 

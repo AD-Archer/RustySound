@@ -1,11 +1,21 @@
 //! Recent searches, kept on this device only: localStorage on the web, a small
-//! JSON file in the app data folder on native builds.
+//! JSON file in the app data folder on native builds. Each profile keeps its own.
 
 const MAX_RECENT: usize = 10;
 #[cfg(target_arch = "wasm32")]
-const STORAGE_KEY: &str = "rustysound.recent_searches";
+const STORAGE_KEY: &str = "recent_searches";
 #[cfg(not(target_arch = "wasm32"))]
 const FILE_NAME: &str = "recent_searches.json";
+
+/// The active profile's localStorage key or file name for `name`.
+fn scoped(name: &str) -> String {
+    let key = crate::db::profiles::active_key(name);
+    if cfg!(target_arch = "wasm32") {
+        format!("rustysound.{key}")
+    } else {
+        key
+    }
+}
 
 /// Puts `query` first, without duplicates (case-insensitive), capped at 10.
 pub(super) fn remember(list: &[String], query: &str) -> Vec<String> {
@@ -36,7 +46,7 @@ fn parse(raw: &str) -> Vec<String> {
 pub(super) fn load() -> Vec<String> {
     web_sys::window()
         .and_then(|w| w.local_storage().ok().flatten())
-        .and_then(|s| s.get_item(STORAGE_KEY).ok().flatten())
+        .and_then(|s| s.get_item(&scoped(STORAGE_KEY)).ok().flatten())
         .map(|raw| parse(&raw))
         .unwrap_or_default()
 }
@@ -47,14 +57,14 @@ pub(super) fn save(list: &[String]) {
         web_sys::window().and_then(|w| w.local_storage().ok().flatten()),
         serde_json::to_string(list),
     ) {
-        let _ = storage.set_item(STORAGE_KEY, &raw);
+        let _ = storage.set_item(&scoped(STORAGE_KEY), &raw);
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn load() -> Vec<String> {
     crate::storage::app_data_dir()
-        .and_then(|dir| std::fs::read_to_string(dir.join(FILE_NAME)).ok())
+        .and_then(|dir| std::fs::read_to_string(dir.join(scoped(FILE_NAME))).ok())
         .map(|raw| parse(&raw))
         .unwrap_or_default()
 }
@@ -62,7 +72,7 @@ pub(super) fn load() -> Vec<String> {
 #[cfg(not(target_arch = "wasm32"))]
 pub(super) fn save(list: &[String]) {
     if let (Some(dir), Ok(raw)) = (crate::storage::app_data_dir(), serde_json::to_string(list)) {
-        let _ = std::fs::write(dir.join(FILE_NAME), raw);
+        let _ = std::fs::write(dir.join(scoped(FILE_NAME)), raw);
     }
 }
 

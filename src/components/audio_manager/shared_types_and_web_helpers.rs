@@ -127,24 +127,84 @@ fn set_transport_loading(audio_state: Signal<AudioState>, loading: bool, message
     }
 }
 
-/// Initialize the global audio element once.
+/// The page's audio deck (`audio_deck.js`): two `<audio>` elements, for
+/// gapless starts and crossfades. Installed on first use.
+#[cfg(target_arch = "wasm32")]
+fn web_audio_deck() -> Option<wasm_bindgen::JsValue> {
+    let win = window()?;
+    let mut factory = js_sys::Reflect::get(&win, &"__rsAudioDeck".into()).ok()?;
+    if !factory.is_object() {
+        let _ = js_sys::eval(include_str!("audio_deck.js"));
+        factory = js_sys::Reflect::get(&win, &"__rsAudioDeck".into()).ok()?;
+    }
+    let install = js_sys::Reflect::get(&factory, &"install".into())
+        .ok()?
+        .dyn_into::<js_sys::Function>()
+        .ok()?;
+    install.call1(&factory, &"rustysound-audio".into()).ok()
+}
+
+/// Calls `deck.<method>(...args)`.
+#[cfg(target_arch = "wasm32")]
+fn web_deck_call(method: &str, args: &[wasm_bindgen::JsValue]) -> Option<wasm_bindgen::JsValue> {
+    let deck = web_audio_deck()?;
+    let function = js_sys::Reflect::get(&deck, &method.into())
+        .ok()?
+        .dyn_into::<js_sys::Function>()
+        .ok()?;
+    let list = args.iter().cloned().collect::<js_sys::Array>();
+    function.apply(&deck, &list).ok()
+}
+
+/// The current audio element (the deck swaps which one that is on a gapless
+/// handover, and moves the `rustysound-audio` id with it).
 #[cfg(target_arch = "wasm32")]
 pub fn get_or_create_audio_element() -> Option<HtmlAudioElement> {
     let document = window()?.document()?;
-
     if let Some(existing) = document.get_element_by_id("rustysound-audio") {
         return existing.dyn_into::<HtmlAudioElement>().ok();
     }
+    web_audio_deck()?;
+    document
+        .get_element_by_id("rustysound-audio")?
+        .dyn_into::<HtmlAudioElement>()
+        .ok()
+}
 
-    let audio: HtmlAudioElement = document.create_element("audio").ok()?.dyn_into().ok()?;
-    audio.set_id("rustysound-audio");
-    audio.set_attribute("preload", "metadata").ok()?;
-    let _ = audio.set_attribute("playsinline", "true");
-    let _ = audio.set_attribute("webkit-playsinline", "true");
-    let _ = audio.set_attribute("x-webkit-airplay", "allow");
-    document.body()?.append_child(&audio).ok()?;
+/// Plays `src` on the current element (or switches to the standby one when
+/// it already holds `src`) and returns the element now current.
+#[cfg(target_arch = "wasm32")]
+fn web_deck_load(src: &str) -> Option<HtmlAudioElement> {
+    web_deck_call("load", &[src.into()])?
+        .dyn_into::<HtmlAudioElement>()
+        .ok()
+}
 
-    Some(audio)
+/// Arms the standby element with the next song, or disarms it (`None`).
+#[cfg(target_arch = "wasm32")]
+fn web_deck_arm(arm: Option<&DeckArm>) {
+    let Some(arm) = arm else {
+        let _ = web_deck_call("disarm", &[]);
+        return;
+    };
+    let payload = serde_json::json!({
+        "src": arm.src,
+        "from": arm.from_id,
+        "to": arm.song_id,
+        "volume": arm.volume,
+        "fadeMs": arm.fade_ms,
+    });
+    if let Ok(value) = js_sys::JSON::parse(&payload.to_string()) {
+        let _ = web_deck_call("arm", &[value]);
+    }
+}
+
+/// The oldest gapless handover the deck hasn't reported yet, as
+/// `(finished song id, next song id)`.
+#[cfg(target_arch = "wasm32")]
+fn web_deck_take_handover() -> Option<(String, String)> {
+    let raw = web_deck_call("takeHandover", &[])?.as_string()?;
+    parse_handover(&raw)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -209,28 +269,12 @@ fn web_try_play(audio: &HtmlAudioElement) {
 /// Called once, from a capture-phase listener inside the first user gesture.
 /// WebKit lifts an element's "user gesture required" restriction the first
 /// time `play()` runs on it during a gesture, even without a source, so later
-/// programmatic `play()` calls (after the track URL resolves) are allowed.
-/// Only touches an element that has no source yet, so nothing audible starts.
+/// programmatic `play()` calls (after the track URL resolves, or on a gapless
+/// handover) are allowed. The deck does this for both of its elements, and
+/// only touches one that has no source yet, so nothing audible starts.
 #[cfg(target_arch = "wasm32")]
 fn web_unlock_audio_element() {
-    let Some(audio) = get_or_create_audio_element() else {
-        return;
-    };
-    let has_src = audio
-        .get_attribute("src")
-        .map(|src| !src.is_empty())
-        .unwrap_or(false);
-    if has_src || !audio.paused() {
-        return;
-    }
-    if let Ok(promise) = audio.play() {
-        // Rejects with AbortError once paused below; that is expected. Runs
-        // outside the Dioxus runtime (raw DOM listener), so no `spawn`.
-        wasm_bindgen_futures::spawn_local(async move {
-            let _ = wasm_bindgen_futures::JsFuture::from(promise).await;
-        });
-    }
-    let _ = audio.pause();
+    let _ = web_deck_call("unlock", &[]);
 }
 
 /// Sticky user activation as the browser sees it (`navigator.userActivation`),
@@ -297,7 +341,6 @@ fn shortcut_action_from_key(event: &KeyboardEvent) -> Option<&'static str> {
     let key = event.key();
     let code = event.code();
     let key_code = event.key_code();
-    let meta_or_ctrl = event.meta_key() || event.ctrl_key();
 
     if key == "MediaTrackNext"
         || key == "MediaNextTrack"
@@ -331,23 +374,8 @@ fn shortcut_action_from_key(event: &KeyboardEvent) -> Option<&'static str> {
         return Some("toggle_play");
     }
 
-    if meta_or_ctrl && !event.alt_key() && !event.shift_key() {
-        if key == "ArrowRight" {
-            return Some("next");
-        }
-        if key == "ArrowLeft" {
-            return Some("previous");
-        }
-    }
-
-    if !event.meta_key()
-        && !event.ctrl_key()
-        && !event.alt_key()
-        && (key == " " || key == "Spacebar" || code == "Space")
-    {
-        return Some("toggle_play");
-    }
-
+    // Space, the arrows and the rest are the shortcut registry's
+    // (command_palette/shortcuts.rs); only hardware media keys stay here.
     None
 }
 
@@ -558,21 +586,26 @@ pub fn ios_audio_log_export_txt(_contents: &str) -> Result<String, String> {
     Err("iOS log export is only available in iOS builds.".to_string())
 }
 
-#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-#[derive(Clone, Debug)]
-struct IosPlaybackPlanItem {
+/// One queue entry as the native player (iOS, Android) sees it.
+#[cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "android")))]
+#[derive(Clone, Debug, Serialize)]
+struct NativePlanItem {
     song_id: String,
     src: Option<String>,
     meta: NativeTrackMetadata,
+    /// Levelling multiplier, applied when the native player moves on by itself.
+    gain: f64,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 #[derive(Clone, Debug)]
 struct IosPlaybackPlan {
-    items: Vec<IosPlaybackPlanItem>,
+    items: Vec<NativePlanItem>,
     index: usize,
     repeat_mode: RepeatMode,
     shuffle: bool,
+    /// Queue the next song's item behind the current one (gapless).
+    gapless: bool,
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -583,6 +616,7 @@ impl Default for IosPlaybackPlan {
             index: 0,
             repeat_mode: RepeatMode::Off,
             shuffle: false,
+            gapless: true,
         }
     }
 }
@@ -591,19 +625,95 @@ impl Default for IosPlaybackPlan {
 static IOS_PLAYBACK_PLAN: Lazy<Mutex<IosPlaybackPlan>> =
     Lazy::new(|| Mutex::new(IosPlaybackPlan::default()));
 
+/// The queue (the `range` part of it) as the native player sees it: sources,
+/// lock-screen metadata and levelling per song, so it can move on while the
+/// web view is suspended.
+#[cfg(all(not(target_arch = "wasm32"), any(target_os = "ios", target_os = "android")))]
+fn native_plan_items(
+    queue: &[Song],
+    range: impl std::ops::RangeBounds<usize>,
+    servers: &[ServerConfig],
+    settings: &AppSettings,
+) -> Vec<NativePlanItem> {
+    let start = match range.start_bound() {
+        std::ops::Bound::Included(&i) => i,
+        std::ops::Bound::Excluded(&i) => i + 1,
+        std::ops::Bound::Unbounded => 0,
+    };
+    let end = match range.end_bound() {
+        std::ops::Bound::Included(&i) => i + 1,
+        std::ops::Bound::Excluded(&i) => i,
+        std::ops::Bound::Unbounded => queue.len(),
+    }
+    .min(queue.len());
+    queue
+        .iter()
+        .enumerate()
+        .take(end)
+        .skip(start)
+        .map(|(index, entry)| NativePlanItem {
+            song_id: entry.id.clone(),
+            src: resolve_stream_url(entry, servers, settings.offline_mode),
+            meta: song_metadata(entry, servers),
+            gain: levelling_gain(
+                settings,
+                index.checked_sub(1).and_then(|i| queue.get(i)),
+                entry,
+                queue.get(index + 1),
+            ),
+        })
+        .collect()
+}
+
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
 fn ios_update_playback_plan(
-    items: Vec<IosPlaybackPlanItem>,
+    items: Vec<NativePlanItem>,
     index: usize,
     repeat_mode: RepeatMode,
     shuffle: bool,
+    gapless: bool,
 ) {
     if let Ok(mut plan) = IOS_PLAYBACK_PLAN.lock() {
         plan.items = items;
         plan.index = index.min(plan.items.len().saturating_sub(1));
         plan.repeat_mode = repeat_mode;
         plan.shuffle = shuffle;
+        plan.gapless = gapless;
     }
+    // Re-queue the next song's item to match the new plan.
+    let _ = with_ios_player(|player| player.sync_next_item());
+}
+
+/// The song AVQueuePlayer should start when the current one ends, if
+/// gapless applies (`gapless.rs`: not for repeat-one or radio).
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_plan_peek_next() -> Option<NativePlanItem> {
+    let plan = IOS_PLAYBACK_PLAN.lock().ok()?;
+    if !plan.gapless {
+        return None;
+    }
+    let len = plan.items.len();
+    let current = plan.index.min(len.saturating_sub(1));
+    let target = next_index(len, current, plan.repeat_mode)?;
+    let item = plan.items.get(target)?;
+    if plan.items.get(current)?.meta.is_live || item.meta.is_live || item.src.is_none() {
+        return None;
+    }
+    Some(item.clone())
+}
+
+/// Moves the plan on to `song_id` after a gapless advance (the next entry,
+/// else the first with that id) and returns its item.
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+fn ios_plan_advance_to(song_id: &str) -> Option<NativePlanItem> {
+    let mut plan = IOS_PLAYBACK_PLAN.lock().ok()?;
+    let len = plan.items.len();
+    let current = plan.index.min(len.saturating_sub(1));
+    let target = next_index(len, current, plan.repeat_mode)
+        .filter(|&i| plan.items[i].song_id == song_id)
+        .or_else(|| plan.items.iter().position(|item| item.song_id == song_id))?;
+    plan.index = target;
+    plan.items.get(target).cloned()
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
@@ -619,7 +729,7 @@ fn ios_plan_sync_current_song(song_id: Option<&str>) {
 }
 
 #[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
-fn ios_plan_take_transition(action: &str) -> Option<IosPlaybackPlanItem> {
+fn ios_plan_take_transition(action: &str) -> Option<NativePlanItem> {
     let mut plan = IOS_PLAYBACK_PLAN.lock().ok()?;
     let len = plan.items.len();
     if len == 0 {
@@ -675,57 +785,14 @@ pub fn ios_diag_log(_tag: &str, _message: &str) {}
 
 #[cfg(target_arch = "wasm32")]
 fn web_sync_media_session_metadata(song: Option<&Song>, servers: &[ServerConfig]) {
-    let payload = if let Some(song) = song {
-        let is_live = song.server_name == "Radio";
-        let title = if is_live && song.title.trim().eq_ignore_ascii_case("unknown song") {
-            song.artist
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "Unknown Song".to_string())
-        } else if song.title.trim().is_empty() {
-            "Unknown Song".to_string()
-        } else {
-            song.title.clone()
-        };
-
-        let artist = song
-            .artist
-            .clone()
-            .filter(|value| !value.trim().is_empty())
-            .unwrap_or_else(|| {
-                if is_live {
-                    "Internet Radio".to_string()
-                } else {
-                    "Unknown Artist".to_string()
-                }
-            });
-
-        let album = if is_live {
-            "LIVE".to_string()
-        } else {
-            song.album
-                .clone()
-                .filter(|value| !value.trim().is_empty())
-                .unwrap_or_else(|| "Unknown Album".to_string())
-        };
-
-        let artwork = servers
-            .iter()
-            .find(|server| server.id == song.server_id)
-            .and_then(|server| {
-                song.cover_art
-                    .as_ref()
-                    .map(|cover| NavidromeClient::new(server.clone()).get_cover_art_url(cover, 512))
-            });
-
-        serde_json::json!({
-            "title": title,
-            "artist": artist,
-            "album": album,
-            "artwork": artwork,
-        })
-    } else {
-        serde_json::Value::Null
+    let payload = match song.map(|song| track_labels(song, servers)) {
+        Some(labels) => serde_json::json!({
+            "title": labels.title,
+            "artist": labels.artist,
+            "album": labels.album,
+            "artwork": labels.artwork,
+        }),
+        None => serde_json::Value::Null,
     };
 
     let payload = serde_json::to_string(&payload).unwrap_or_else(|_| "null".to_string());
@@ -769,10 +836,13 @@ fn ensure_web_media_session_shortcuts() {
     return true;
   }
 
-  const audio = document.getElementById("rustysound-audio");
-  if (!audio) {
+  // The deck's current element changes on gapless handovers.
+  const factory = window.__rsAudioDeck;
+  if (!factory) {
     return false;
   }
+  const deck = factory.install("rustysound-audio");
+  const audio = () => deck.current();
 
   if (!("mediaSession" in navigator)) {
     window.__rustysoundWebMediaSessionInit = true;
@@ -790,27 +860,27 @@ fn ensure_web_media_session_shortcuts() {
 
   const updatePlaybackState = () => {
     try {
-      navigator.mediaSession.playbackState = audio.paused ? "paused" : "playing";
+      navigator.mediaSession.playbackState = audio().paused ? "paused" : "playing";
     } catch (_err) {}
   };
 
   const updatePositionState = () => {
     if (!navigator.mediaSession.setPositionState) return;
-    if (!Number.isFinite(audio.duration) || audio.duration <= 0) return;
+    if (!Number.isFinite(audio().duration) || audio().duration <= 0) return;
     try {
       navigator.mediaSession.setPositionState({
-        duration: audio.duration,
-        playbackRate: audio.playbackRate || 1,
-        position: Math.max(0, Math.min(audio.currentTime || 0, audio.duration)),
+        duration: audio().duration,
+        playbackRate: audio().playbackRate || 1,
+        position: Math.max(0, Math.min(audio().currentTime || 0, audio().duration)),
       });
     } catch (_err) {}
   };
 
   try {
     navigator.mediaSession.setActionHandler("play", () => {
-      if (audio.paused) {
+      if (audio().paused) {
         if (!clickById("play-pause-btn")) {
-          audio.play().catch(() => {});
+          audio().play().catch(() => {});
         }
       }
       updatePlaybackState();
@@ -818,9 +888,9 @@ fn ensure_web_media_session_shortcuts() {
   } catch (_err) {}
   try {
     navigator.mediaSession.setActionHandler("pause", () => {
-      if (!audio.paused) {
+      if (!audio().paused) {
         if (!clickById("play-pause-btn")) {
-          audio.pause();
+          audio().pause();
         }
       }
       updatePlaybackState();
@@ -836,18 +906,18 @@ fn ensure_web_media_session_shortcuts() {
     navigator.mediaSession.setActionHandler("seekto", (details) => {
       if (details && typeof details.seekTime === "number") {
         try {
-          audio.currentTime = Math.max(0, details.seekTime);
+          audio().currentTime = Math.max(0, details.seekTime);
         } catch (_err) {}
         updatePositionState();
       }
     });
   } catch (_err) {}
 
-  audio.addEventListener("play", updatePlaybackState);
-  audio.addEventListener("pause", updatePlaybackState);
-  audio.addEventListener("timeupdate", updatePositionState);
-  audio.addEventListener("durationchange", updatePositionState);
-  audio.addEventListener("ratechange", updatePositionState);
+  deck.on("play", updatePlaybackState);
+  deck.on("pause", updatePlaybackState);
+  deck.on("timeupdate", updatePositionState);
+  deck.on("durationchange", updatePositionState);
+  deck.on("ratechange", updatePositionState);
   updatePlaybackState();
   updatePositionState();
 

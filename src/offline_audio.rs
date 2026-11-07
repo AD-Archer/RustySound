@@ -1,6 +1,6 @@
 #[cfg(not(target_arch = "wasm32"))]
 use crate::api::{
-    fetch_lyrics_with_fallback, normalize_lyrics_provider_order, LyricsQuery, NavidromeClient,
+    fetch_lyrics_with_fallback, normalize_lyrics_provider_order, LyricsQuery, MusicClient,
 };
 use crate::api::{ServerConfig, Song};
 use crate::db::AppSettings;
@@ -24,6 +24,8 @@ use std::path::Path;
 
 #[cfg(any(test, all(feature = "desktop", any(target_os = "macos", target_os = "linux"))))]
 pub(crate) mod protocol;
+mod playlist_sync;
+pub use playlist_sync::sync_downloaded_playlists;
 #[cfg(not(target_arch = "wasm32"))]
 use std::path::PathBuf;
 
@@ -181,16 +183,6 @@ static ACTIVE_DOWNLOADS: Lazy<std::sync::Mutex<Vec<ActiveDownloadEntry>>> =
     Lazy::new(|| std::sync::Mutex::new(Vec::new()));
 
 #[cfg(not(target_arch = "wasm32"))]
-fn now_timestamp_millis() -> u64 {
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|duration| duration.as_millis() as u64)
-        .unwrap_or(0)
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn sanitize_file_component(raw: &str) -> String {
     let cleaned: String = raw
         .chars()
@@ -330,20 +322,68 @@ fn remove_audio_cache_files_by_ids(server_id: &str, song_id: &str) -> usize {
     removed
 }
 
+// The audio files are shared by every profile; each profile keeps its own
+// lists of what it downloaded (`db::profiles`).
+
+#[cfg(not(target_arch = "wasm32"))]
+fn profile_index_path(profile_id: &str, file_name: &str) -> Option<PathBuf> {
+    Some(audio_cache_dir()?.join(crate::db::profiles::scoped_file_name(profile_id, file_name)))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn index_file_path() -> Option<PathBuf> {
-    Some(audio_cache_dir()?.join(DOWNLOAD_INDEX_FILE))
+    profile_index_path(&crate::db::profiles::active_profile_id(), DOWNLOAD_INDEX_FILE)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn collection_index_file_path() -> Option<PathBuf> {
-    Some(audio_cache_dir()?.join(COLLECTION_INDEX_FILE))
+    profile_index_path(&crate::db::profiles::active_profile_id(), COLLECTION_INDEX_FILE)
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn collection_membership_index_file_path() -> Option<PathBuf> {
-    Some(audio_cache_dir()?.join(COLLECTION_MEMBERSHIP_INDEX_FILE))
+    profile_index_path(&crate::db::profiles::active_profile_id(), COLLECTION_MEMBERSHIP_INDEX_FILE)
 }
+
+/// Whether a profile other than the active one (or `except`) lists this
+/// song as downloaded, so removing it here must keep the file.
+#[cfg(not(target_arch = "wasm32"))]
+fn kept_by_other_profiles(server_id: &str, song_id: &str, except: &str) -> bool {
+    crate::db::profiles::load_profiles()
+        .profiles
+        .iter()
+        .filter(|profile| profile.id != except)
+        .filter_map(|profile| profile_index_path(&profile.id, DOWNLOAD_INDEX_FILE))
+        .filter_map(|path| fs::read_to_string(path).ok())
+        .filter_map(|json| serde_json::from_str::<Vec<DownloadIndexEntry>>(&json).ok())
+        .any(|index| index.iter().any(|e| e.server_id == server_id && e.song_id == song_id))
+}
+
+/// Forgets a deleted profile's downloads: its lists go, and so do the files
+/// no other profile lists.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn remove_profile_downloads(profile_id: &str) {
+    let Some(path) = profile_index_path(profile_id, DOWNLOAD_INDEX_FILE) else {
+        return;
+    };
+    let index: Vec<DownloadIndexEntry> = fs::read_to_string(&path)
+        .ok()
+        .and_then(|json| serde_json::from_str(&json).ok())
+        .unwrap_or_default();
+    for entry in &index {
+        if !kept_by_other_profiles(&entry.server_id, &entry.song_id, profile_id) {
+            let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+        }
+    }
+    for file in [DOWNLOAD_INDEX_FILE, COLLECTION_INDEX_FILE, COLLECTION_MEMBERSHIP_INDEX_FILE] {
+        if let Some(path) = profile_index_path(profile_id, file) {
+            let _ = fs::remove_file(path);
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn remove_profile_downloads(_profile_id: &str) {}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn load_download_index() -> Vec<DownloadIndexEntry> {
@@ -436,7 +476,7 @@ fn upsert_download_index(song: &Song, size_bytes: u64, origin: DownloadOrigin) {
         entry.cover_art_id = song.cover_art.clone();
         entry.origin = merged_download_origin(entry.origin, origin);
         entry.size_bytes = size_bytes;
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadIndexEntry {
             server_id: song.server_id.clone(),
@@ -453,7 +493,7 @@ fn upsert_download_index(song: &Song, size_bytes: u64, origin: DownloadOrigin) {
             cover_art_id: song.cover_art.clone(),
             origin,
             size_bytes,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_download_index(&index);
@@ -500,7 +540,8 @@ fn prune_audio_cache(max_size_mb: u32) {
         if path
             .file_name()
             .and_then(|name| name.to_str())
-            .is_some_and(|name| name == DOWNLOAD_INDEX_FILE || name == COLLECTION_INDEX_FILE)
+            // Every profile's download lists.
+            .is_some_and(|name| name.ends_with(".json"))
         {
             continue;
         }
@@ -595,7 +636,7 @@ pub fn downloaded_song_keys(songs: &[(String, String)]) -> HashSet<String> {
                 sanitize_file_component(song_id)
             ))
         })
-        .map(|(server_id, song_id)| format!("{server_id}::{song_id}"))
+        .map(|(server_id, song_id)| crate::api::item_key(server_id, song_id))
         .collect()
 }
 
@@ -657,7 +698,7 @@ pub fn mark_collection_downloaded(
         entry.song_count = song_count;
         entry.total_song_count = song_count;
         entry.downloaded_song_count = entry.downloaded_song_count.min(song_count);
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadCollectionEntry {
             kind: kind.to_string(),
@@ -668,7 +709,7 @@ pub fn mark_collection_downloaded(
             song_count,
             total_song_count: song_count,
             downloaded_song_count: 0,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_collection_index(&index);
@@ -712,7 +753,7 @@ pub fn mark_playlist_auto_download_tracked(
             entry.total_song_count = song_count;
             entry.downloaded_song_count = entry.downloaded_song_count.min(song_count);
         }
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadCollectionEntry {
             kind: "playlist".to_string(),
@@ -727,7 +768,7 @@ pub fn mark_playlist_auto_download_tracked(
             song_count,
             total_song_count: song_count,
             downloaded_song_count: 0,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_collection_index(&index);
@@ -805,14 +846,14 @@ pub fn sync_downloaded_collection_members(
         entry.kind == kind && entry.server_id == server_id && entry.collection_id == collection_id
     }) {
         entry.song_ids = song_ids;
-        entry.updated_at_ms = now_timestamp_millis();
+        entry.updated_at_ms = crate::time::now_ms() as u64;
     } else {
         index.push(DownloadCollectionMembershipEntry {
             kind: kind.to_string(),
             server_id: server_id.to_string(),
             collection_id: collection_id.to_string(),
             song_ids,
-            updated_at_ms: now_timestamp_millis(),
+            updated_at_ms: crate::time::now_ms() as u64,
         });
     }
     save_collection_membership_index(&index);
@@ -897,7 +938,7 @@ pub async fn sync_downloaded_collection_metadata(servers: &[ServerConfig]) -> us
 
     let mut synced = 0usize;
     for (server_id, server) in active_servers {
-        let client = NavidromeClient::new(server.clone());
+        let client = MusicClient::new(server.clone());
 
         if let Some(album_ids) = album_ids_by_server.get(&server_id) {
             for album_id in album_ids {
@@ -982,7 +1023,7 @@ fn push_active_download(song: &Song) {
         title: song.title.clone(),
         artist: song.artist.clone(),
         album: song.album.clone(),
-        started_at_ms: now_timestamp_millis(),
+        started_at_ms: crate::time::now_ms() as u64,
     });
 }
 
@@ -1223,8 +1264,11 @@ fn remove_download_index_keys(keys: &HashSet<(String, String)>) -> usize {
         return 0;
     }
 
+    let active = crate::db::profiles::active_profile_id();
     for entry in &removed_entries {
-        let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+        if !kept_by_other_profiles(&entry.server_id, &entry.song_id, &active) {
+            let _ = remove_audio_cache_files_by_ids(&entry.server_id, &entry.song_id);
+        }
     }
 
     save_download_index(&index);
@@ -1350,6 +1394,19 @@ pub fn clear_downloads() -> usize {
     let Some(dir) = audio_cache_dir() else {
         return 0;
     };
+
+    // With other profiles, clear only this profile's downloads and keep the
+    // files the others list.
+    if crate::db::profiles::load_profiles().is_shared() {
+        let keys = load_download_index()
+            .into_iter()
+            .map(|entry| (entry.server_id, entry.song_id))
+            .collect::<HashSet<_>>();
+        let removed = remove_download_index_keys(&keys);
+        save_collection_index(&[]);
+        save_collection_membership_index(&[]);
+        return removed;
+    }
 
     let mut removed = 0usize;
     let Ok(read_dir) = fs::read_dir(&dir) else {
@@ -1494,66 +1551,20 @@ fn push_unique_song(target: &mut Vec<Song>, seen: &mut HashSet<String>, song: So
     if song.id.trim().is_empty() || song.server_id.trim().is_empty() {
         return;
     }
-    let key = format!("{}::{}", song.server_id, song.id);
-    if seen.insert(key) {
+    if seen.insert(song.key()) {
         target.push(song);
     }
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-fn is_id3_cover_art_id(cover_art_id: &str) -> bool {
-    cover_art_id.trim().to_ascii_lowercase().starts_with("mf-")
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn include_cover_for_preference(cover_art_id: &str, preference: ArtworkDownloadPreference) -> bool {
-    match preference {
-        ArtworkDownloadPreference::ServerOnly => !is_id3_cover_art_id(cover_art_id),
-        ArtworkDownloadPreference::Id3Only => is_id3_cover_art_id(cover_art_id),
-        ArtworkDownloadPreference::PreferServer | ArtworkDownloadPreference::PreferId3 => true,
-    }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn song_cover_art_candidates(song: &Song, preference: ArtworkDownloadPreference) -> Vec<String> {
-    let mut output = Vec::<String>::new();
-
-    if let Some(primary) = song
-        .cover_art
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        if include_cover_for_preference(primary, preference) {
-            output.push(primary.to_string());
-        }
-    }
-
-    if let Some(album_id) = song
-        .album_id
-        .as_ref()
-        .map(|value| value.trim())
-        .filter(|value| !value.is_empty())
-    {
-        if include_cover_for_preference(album_id, preference)
-            && !output.iter().any(|entry| entry == album_id)
-        {
-            output.push(album_id.to_string());
-        }
-    }
-
-    output
-}
-
-#[cfg(not(target_arch = "wasm32"))]
 fn warm_song_cover_art(
-    client: &NavidromeClient,
+    client: &MusicClient,
     song: &Song,
     preference: ArtworkDownloadPreference,
     seen_requests: &mut HashSet<String>,
 ) -> usize {
     let mut warmed = 0usize;
-    for cover_art_id in song_cover_art_candidates(song, preference) {
+    for cover_art_id in preference.song_covers(song) {
         for size in DOWNLOAD_ARTWORK_SIZES {
             let request_key = format!("{}:{cover_art_id}:{size}", song.server_id);
             if !seen_requests.insert(request_key) {
@@ -1569,8 +1580,12 @@ fn warm_song_cover_art(
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-async fn warm_song_lyrics(song: &Song, settings: &AppSettings) -> Option<bool> {
-    let query = LyricsQuery::from_song(song);
+async fn warm_song_lyrics(
+    song: &Song,
+    server: &ServerConfig,
+    settings: &AppSettings,
+) -> Option<bool> {
+    let query = LyricsQuery::from_song_on(song, std::slice::from_ref(server));
     if query.title.trim().is_empty() {
         return None;
     }
@@ -1630,7 +1645,7 @@ pub async fn run_auto_download_pass(
     );
 
     for server in active_servers.iter().cloned() {
-        let client = NavidromeClient::new(server.clone());
+        let client = MusicClient::new(server.clone());
 
         if let Ok((starred_artists, starred_albums, mut starred_songs)) = client.get_starred().await
         {
@@ -1735,7 +1750,7 @@ pub async fn run_auto_download_pass(
             Err(_) => report.failed += 1,
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+        crate::time::sleep_ms(80).await;
     }
 
     report.purged = prune_download_cache(settings.download_limit_count, settings.download_limit_mb);
@@ -1770,8 +1785,7 @@ pub async fn download_songs_batch(
         if song.id.trim().is_empty() || song.server_id.trim().is_empty() {
             continue;
         }
-        let key = format!("{}::{}", song.server_id, song.id);
-        if seen.insert(key) {
+        if seen.insert(song.key()) {
             ordered.push(song.clone());
         }
     }
@@ -1796,7 +1810,7 @@ pub async fn download_songs_batch(
             Err(_) => report.failed += 1,
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(70)).await;
+        crate::time::sleep_ms(70).await;
     }
 
     report.purged = prune_download_cache(
@@ -1862,7 +1876,7 @@ pub async fn refresh_downloaded_cache(
             ..Song::default()
         };
 
-        let client = NavidromeClient::new(server);
+        let client = MusicClient::new(server.clone());
         report.artwork_refreshed += warm_song_cover_art(
             &client,
             &song,
@@ -1870,14 +1884,14 @@ pub async fn refresh_downloaded_cache(
             &mut seen_cover_requests,
         );
 
-        if let Some(warmed) = warm_song_lyrics(&song, settings).await {
+        if let Some(warmed) = warm_song_lyrics(&song, &server, settings).await {
             report.lyrics_attempted += 1;
             if warmed {
                 report.lyrics_warmed += 1;
             }
         }
 
-        tokio::time::sleep(std::time::Duration::from_millis(35)).await;
+        crate::time::sleep_ms(35).await;
     }
 
     let _ = sync_downloaded_collection_metadata(servers).await;
@@ -1903,7 +1917,7 @@ pub async fn prefetch_song_audio_with_origin(
     if !settings.cache_enabled && !settings.downloads_enabled {
         return Ok(());
     }
-    if song.server_name == "Radio" || song.id.trim().is_empty() {
+    if song.is_radio() || song.id.trim().is_empty() {
         return Ok(());
     }
 
@@ -1922,15 +1936,11 @@ pub async fn prefetch_song_audio_with_origin(
         return Ok(());
     }
 
-    let Some(server) = servers
-        .iter()
-        .find(|server| server.id == song.server_id)
-        .cloned()
-    else {
+    let Some(server) = ServerConfig::find(servers, &song.server_id) else {
         return Ok(());
     };
 
-    let client = NavidromeClient::new(server);
+    let client = MusicClient::new(server.clone());
     let _active_download_guard = ActiveDownloadGuard::new(song);
     let stream_url = client.get_stream_url(&song.id);
     let response = AUDIO_HTTP_CLIENT
@@ -1972,7 +1982,7 @@ pub async fn prefetch_song_audio_with_origin(
     );
 
     // Warm lyrics alongside audio download so offline playback has text available.
-    let _ = warm_song_lyrics(song, settings).await;
+    let _ = warm_song_lyrics(song, &server, settings).await;
 
     let size_budget_mb = if settings.downloads_enabled {
         settings.download_limit_mb

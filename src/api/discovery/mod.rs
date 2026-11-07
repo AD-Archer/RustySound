@@ -11,10 +11,10 @@
 //! - [`load_discover_off_server`]: the bottom "outside your server" shelf.
 //!
 //! # Entry points
-//! - [`load_discover`]: everything at once (stage → mixes → off-server).
-//! - Progressive: [`load_discover_stage`], then [`load_discover_mixes`], then
-//!   [`load_discover_off_server`]. Call them in that order; they share one
-//!   library snapshot in memory, so later calls reuse the first one's requests.
+//! - [`load_discover_mixes`], then [`load_discover_off_server`]. They share
+//!   one library snapshot in memory with the Home loaders, so later calls
+//!   reuse the first one's requests.
+//! - [`load_mix`]: one generated mix by id, for the mix page.
 //! - [`load_discover_rewind`]: the Rewind segment for a chosen window (3, 6 or
 //!   12 months). Reuses the snapshot, so switching windows costs no requests.
 //! - [`refresh_discover`]: user-initiated "new picks" (new seed for today and
@@ -27,9 +27,6 @@
 //! - Results are stable for a local calendar day (seeded by date and cached
 //!   per day) until [`refresh_discover`] is called.
 //! - Only `active` servers are used. Items carry their `server_id`.
-
-// Some helpers (e.g. `load_discover`) are kept for tests and future callers.
-#![allow(dead_code)]
 
 mod cache;
 mod home;
@@ -50,16 +47,19 @@ pub use home::{
 pub use mixes::{mix_id_from_slug, mix_slug};
 pub use rewind::DEFAULT_REWIND_MONTHS;
 pub use types::*;
+// Shared with the listening aggregation (`api::listening`).
+pub(crate) use cache::servers_signature;
+pub(crate) use http::server_call;
+pub(crate) use util::{normalize_name, parse_timestamp};
 
 use crate::api::models::{ServerConfig, Song};
 use crate::api::navidrome::NavidromeClient;
 use crate::db::AppSettings;
 use futures_util::future::join_all;
-use http::server_call;
-use library::{pick_similar_seeds, recent_artists, top_artists, ArtistSeed, LibrarySnapshot};
+use library::{recent_artists, top_artists, ArtistSeed, LibrarySnapshot};
 use mixes::MixContext;
 use std::collections::{HashMap, HashSet};
-use util::{day_seed, normalize_name, SeededRng};
+use util::{day_seed, SeededRng};
 
 /// Per-load context shared by the section loaders.
 struct LoadContext {
@@ -118,31 +118,9 @@ impl LoadContext {
         }
     }
 
-    fn server(&self, id: &str) -> Option<ServerConfig> {
-        self.servers.iter().find(|s| s.id == id).cloned()
-    }
-}
-
-/// Load the whole Discover feed: stage, then mixes, then off-server.
-///
-/// `servers` may include inactive servers; only active ones are used.
-/// `refresh = true` first calls [`refresh_discover`] (new picks for today).
-/// Never fails; with no active servers every section is empty.
-///
-/// Cost on a cold day (no cache), per load: ~4 + up to 12 server requests per
-/// active server, plus at most 6 Last.fm, 1 ListenBrainz and 8 iTunes requests.
-/// A second load on the same day is served from cache (0 requests).
-pub async fn load_discover(servers: &[ServerConfig], settings: &AppSettings, refresh: bool) -> DiscoverFeed {
-    if refresh {
-        refresh_discover(servers);
-    }
-    let stage = load_discover_stage(servers, settings).await;
-    let mixes = load_discover_mixes(servers, settings).await;
-    let off_server = load_discover_off_server(servers, settings).await;
-    DiscoverFeed {
-        stage,
-        mixes,
-        off_server,
+    /// A client for the active server with this id.
+    fn client(&self, id: &str) -> Option<NavidromeClient> {
+        NavidromeClient::for_id(&self.servers, id)
     }
 }
 
@@ -157,85 +135,6 @@ pub fn refresh_discover(servers: &[ServerConfig]) {
     for server in &active {
         let _ = crate::cache_service::remove_by_prefix(&format!("api:getPlaylists:v1:{}", server.id));
     }
-}
-
-/// Cover Flow items plus the "New in your library" album shelf.
-///
-/// Server requests (cold): 3 album lists + 1 song list per server, plus ≤ 2
-/// `getArtistInfo2` and ≤ 2 `getArtist` for "Because you play …". No external
-/// requests. Sections are empty when the server lacks the data (e.g. Rewind
-/// needs Navidrome's `played` dates).
-pub async fn load_discover_stage(servers: &[ServerConfig], settings: &AppSettings) -> StageSection {
-    let Some(ctx) = LoadContext::new(servers, settings) else {
-        return StageSection {
-            generated_on: util::today_key(),
-            ..Default::default()
-        };
-    };
-    let key = ctx.section_key("stage");
-    if let Some(cached) = cache::get::<StageSection>(&key) {
-        return cached;
-    }
-
-    let snapshot = ctx.snapshot().await;
-    // Cover Flow always uses the default window, so changing the Rewind
-    // segment's window never reshuffles the stage.
-    let rewind_albums = rewind::select_rewind_albums(
-        &snapshot.frequent,
-        ctx.now,
-        rewind::cutoff_days_for_months(DEFAULT_REWIND_MONTHS),
-        ctx.seed("rewind-albums"),
-        3,
-    );
-    let new_albums = stage::new_in_library(&snapshot.newest, ctx.now, 20);
-    let because = because_you_play(&ctx, &snapshot).await;
-
-    let section = StageSection {
-        stage: stage::compose_stage(
-            &rewind_albums,
-            &new_albums[..new_albums.len().min(6)],
-            &because,
-        ),
-        new_in_library: new_albums,
-        generated_on: ctx.date.clone(),
-    };
-    if snapshot.servers_ok > 0 {
-        cache::put(&key, &section);
-    }
-    section
-}
-
-/// "Because you play X": for each similar-artist seed, the first in-library
-/// similar artist that isn't already a favourite, and their least-played album.
-async fn because_you_play(ctx: &LoadContext, snapshot: &LibrarySnapshot) -> Vec<DiscoverAlbum> {
-    let favourites: HashSet<String> = top_artists(snapshot)
-        .iter()
-        .take(10)
-        .map(|a| normalize_name(&a.name))
-        .collect();
-    let seeds = pick_similar_seeds(snapshot, ctx.seed("similar"));
-    let picks = join_all(seeds.into_iter().map(|seed| {
-        let server = ctx.server(&seed.server_id);
-        let favourites = &favourites;
-        async move {
-            let client = NavidromeClient::new(server?);
-            let info = server_call(client.get_artist_info2(
-                &seed.artist_id,
-                offserver::SIMILAR_COUNT,
-                true,
-            ))
-            .await
-            .ok()?;
-            let similar = info
-                .similar
-                .iter()
-                .find(|a| a.in_library() && !favourites.contains(&normalize_name(&a.name)))?;
-            let (_, albums) = server_call(client.get_artist(similar.id.as_deref()?)).await.ok()?;
-            stage::pick_because_album(&albums, &seed.name)
-        }
-    }))
-    .await;
-    picks.into_iter().flatten().collect()
 }
 
 /// Generated mixes, plus "Songs you might like" from the same requests.
@@ -279,14 +178,12 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
     let deep_albums = SeededRng::new(ctx.seed("deep-cuts")).pick_ordered(&snapshot.frequent, 10, 3);
 
     let similar = |seed: ArtistSeed, count: u32| {
-        let server = ctx.server(&seed.server_id);
+        let client = ctx.client(&seed.server_id);
         async move {
-            match server {
-                Some(server) => server_call(
-                    NavidromeClient::new(server).get_similar_songs2(&seed.artist_id, count),
-                )
-                .await
-                .unwrap_or_default(),
+            match client {
+                Some(client) => server_call(client.get_similar_songs2(&seed.artist_id, count))
+                    .await
+                    .unwrap_or_default(),
                 None => Vec::new(),
             }
         }
@@ -294,11 +191,8 @@ pub async fn load_discover_mixes(servers: &[ServerConfig], settings: &AppSetting
     let discovery_future = join_all(discovery_seeds.iter().cloned().map(|s| similar(s, 30)));
     let radio_future = join_all(radio_seeds.iter().cloned().map(|s| similar(s, 40)));
     let deep_future = join_all(deep_albums.iter().cloned().map(|album| {
-        let server = ctx.server(&album.server_id);
-        async move {
-            let server = server?;
-            server_call(NavidromeClient::new(server).get_album(&album.id)).await.ok()
-        }
+        let client = ctx.client(&album.server_id);
+        async move { server_call(client?.get_album(&album.id)).await.ok() }
     }));
     let (discovery_lists, radio_lists, deep_results) =
         futures_util::join!(discovery_future, radio_future, deep_future);
@@ -367,10 +261,9 @@ pub async fn load_mix(servers: &[ServerConfig], settings: &AppSettings, id: &str
     if let Some(mix) = cache::get::<Mix>(&key) {
         return MixLookup::Found(mix);
     }
-    let Some(server) = ctx.server(server_id) else {
+    let Some(client) = ctx.client(server_id) else {
         return MixLookup::Missing;
     };
-    let client = NavidromeClient::new(server);
     let (artist, similar) = futures_util::join!(
         server_call(client.get_artist(artist_id)),
         server_call(client.get_similar_songs2(artist_id, 40)),
@@ -398,7 +291,7 @@ pub async fn load_mix(servers: &[ServerConfig], settings: &AppSettings, id: &str
 ///
 /// A fresh random pick in random order on every call, so Home shows something
 /// different each visit. Uses only the shared library snapshot, so after
-/// [`load_discover_stage`] it makes no requests. Empty when nothing qualifies,
+/// any Home loader it makes no requests. Empty when nothing qualifies,
 /// including servers without `played` dates (plain Subsonic).
 pub async fn load_discover_rewind(servers: &[ServerConfig], settings: &AppSettings) -> RewindSection {
     let months = DEFAULT_REWIND_MONTHS;
@@ -546,17 +439,14 @@ pub async fn save_mix_as_playlist(
     match target {
         SaveMixTarget::New { name } => {
             let (server_id, ids, skipped) = plan_mix_save(mix, servers)?;
-            let server = servers
-                .iter()
-                .find(|s| s.id == server_id)
-                .cloned()
+            let client = NavidromeClient::for_id(servers, &server_id)
                 .ok_or_else(|| "Server not found.".to_string())?;
             let name = name
                 .map(|n| n.trim().to_string())
                 .filter(|n| !n.is_empty())
                 .unwrap_or_else(|| default_playlist_name(mix));
             let comment = format!("{} · made by RustySound Discover on {}", mix.blurb, mix.generated_on);
-            let playlist_id = NavidromeClient::new(server)
+            let playlist_id = client
                 .create_playlist(&name, Some(&comment), &ids)
                 .await?;
             Ok(SavedMix {
@@ -567,16 +457,15 @@ pub async fn save_mix_as_playlist(
             })
         }
         SaveMixTarget::Replace { server_id, playlist_id } => {
-            let server = servers
-                .iter()
-                .find(|s| s.id == server_id && s.active)
+            let client = ServerConfig::find(servers, &server_id)
+                .filter(|s| s.active)
                 .cloned()
+                .map(NavidromeClient::new)
                 .ok_or_else(|| "That playlist's server isn't active.".to_string())?;
             let ids = song_ids_on(&mix.songs, &server_id);
             if ids.is_empty() {
                 return Err("None of this mix's songs are on that server.".to_string());
             }
-            let client = NavidromeClient::new(server);
             client.refresh_playlist_cache();
             let (_, existing) = client.get_playlist(&playlist_id).await?;
             client
@@ -604,6 +493,7 @@ mod tests {
             username: "u".into(),
             password: "p".into(),
             active,
+            ..Default::default()
         }
     }
 
@@ -653,21 +543,19 @@ mod tests {
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
         let settings = AppSettings::default();
         let servers = vec![server("off", false)];
-        let feed = runtime.block_on(async {
-            DiscoverFeed {
-                stage: load_discover_stage(&servers, &settings).await,
-                mixes: load_discover_mixes(&servers, &settings).await,
-                off_server: load_discover_off_server(&servers, &settings).await,
-            }
+        let (mixes, off_server) = runtime.block_on(async {
+            (
+                load_discover_mixes(&servers, &settings).await,
+                load_discover_off_server(&servers, &settings).await,
+            )
         });
-        assert!(feed.stage.stage.is_empty());
-        assert!(feed.mixes.mixes.is_empty());
-        assert!(feed.off_server.items.is_empty());
-        assert_eq!(feed.off_server.status.external_requests, 0);
+        assert!(mixes.mixes.is_empty());
+        assert!(off_server.items.is_empty());
+        assert_eq!(off_server.status.external_requests, 0);
         let rewind = runtime.block_on(load_discover_rewind(&servers, &settings));
         assert_eq!(rewind.months, DEFAULT_REWIND_MONTHS);
         assert!(rewind.albums.is_empty() && rewind.songs.is_empty());
-        assert_eq!(feed.stage.generated_on.len(), 10);
+        assert_eq!(mixes.generated_on.len(), 10);
     }
 
     #[test]

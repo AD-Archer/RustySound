@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Self-hosted servers: plain HTTP on the home network, and certificates
+     from a private CA the user installed. Used by the app manifest
+     (android/AndroidManifest.xml) for the web view and the player alike. -->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+            <certificates src="user" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

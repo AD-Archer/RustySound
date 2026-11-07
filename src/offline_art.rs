@@ -49,6 +49,13 @@ fn cover_art_cache_dir() -> Option<PathBuf> {
     Some(base)
 }
 
+/// The cover cache folder, where the local-music scanner writes embedded art.
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+#[cfg_attr(not(any(feature = "desktop", feature = "mobile")), allow(dead_code))]
+pub(crate) fn cover_art_dir() -> Option<PathBuf> {
+    cover_art_cache_dir()
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn cover_art_file_path(server_id: &str, cover_art_id: &str, size: u32) -> Option<PathBuf> {
     let dir = cover_art_cache_dir()?;
@@ -110,6 +117,25 @@ pub fn maybe_prefetch_cover_art(
     });
 }
 
+/// The bytes of a cover URL as `song_metadata` builds it: a data URL (a
+/// cached or local cover) or the server's cover URL (one download; nothing
+/// in offline mode). For the Mac Now Playing widget.
+#[cfg(all(feature = "desktop", target_os = "macos"))]
+pub(crate) async fn cover_bytes(url: &str) -> Option<Vec<u8>> {
+    if let Some(data) = url.strip_prefix("data:") {
+        let (_, encoded) = data.split_once(";base64,")?;
+        return general_purpose::STANDARD.decode(encoded).ok().filter(|bytes| !bytes.is_empty());
+    }
+    if crate::cache_service::is_offline_mode() || !(url.starts_with("http://") || url.starts_with("https://")) {
+        return None;
+    }
+    let response = ART_HTTP_CLIENT.get(url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.bytes().await.ok().map(|bytes| bytes.to_vec()).filter(|bytes| !bytes.is_empty())
+}
+
 // ---- Cover art for the webview ---------------------------------------------
 //
 // Lists render covers through `Artwork`, which used to call
@@ -141,6 +167,27 @@ pub fn cover_art_display_url(
     format!(
         "/{COVER_ROUTE}/{sid}__{aid}__{size}.img?src={}",
         urlencoding::encode(remote_url)
+    )
+}
+
+/// Like [`cover_art_display_url`] for a cover from the sync server's media
+/// cache (`art_url`, WebP): cached under its own name (`…__<size>w.img`,
+/// so the JPEG-labelled data URLs never pick up a WebP), with the music
+/// server's URL as `alt`, fetched when the sync server fails.
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+pub fn cover_art_display_url_via_sync(
+    server_id: &str,
+    cover_art_id: &str,
+    size: u32,
+    art_url: &str,
+    fallback_url: &str,
+) -> String {
+    let sid = sanitize_file_component(server_id);
+    let aid = sanitize_file_component(cover_art_id);
+    format!(
+        "/{COVER_ROUTE}/{sid}__{aid}__{size}w.img?src={}&alt={}",
+        urlencoding::encode(art_url),
+        urlencoding::encode(fallback_url)
     )
 }
 
@@ -215,29 +262,49 @@ async fn serve_cover(
             }
         }
     }
+    // A local cover whose cache file was cleared: read it from the song again.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    if let Some(path) = path.clone().filter(|_| name.starts_with("local__")) {
+        let name = name.to_string();
+        let rebuilt = tokio::task::spawn_blocking(move || crate::local_music::rebuild_cover(&name, &path))
+            .await
+            .ok()
+            .flatten();
+        return match rebuilt {
+            Some(bytes) => ok(bytes),
+            None => status(StatusCode::NOT_FOUND),
+        };
+    }
     if crate::cache_service::is_offline_mode() {
         return status(StatusCode::NOT_FOUND);
     }
-    let remote = uri
-        .query()
-        .unwrap_or_default()
-        .split('&')
-        .find_map(|pair| pair.strip_prefix("src="))
-        .and_then(|value| urlencoding::decode(value).ok())
-        .map(|value| value.into_owned())
-        .filter(|value| value.starts_with("http://") || value.starts_with("https://"));
-    let Some(remote) = remote else {
+    let param = |key: &str| {
+        uri.query()
+            .unwrap_or_default()
+            .split('&')
+            .find_map(|pair| pair.strip_prefix(key))
+            .and_then(|value| urlencoding::decode(value).ok())
+            .map(|value| value.into_owned())
+            .filter(|value| value.starts_with("http://") || value.starts_with("https://"))
+    };
+    let Some(remote) = param("src=") else {
         return status(StatusCode::NOT_FOUND);
     };
-    let Ok(response) = ART_HTTP_CLIENT.get(&remote).send().await else {
-        return status(StatusCode::BAD_GATEWAY);
-    };
-    if !response.status().is_success() {
-        return status(StatusCode::BAD_GATEWAY);
-    }
-    let bytes = match response.bytes().await {
-        Ok(bytes) if !bytes.is_empty() => bytes.to_vec(),
-        _ => return status(StatusCode::BAD_GATEWAY),
+    let bytes = match download(&remote).await {
+        Some(bytes) => bytes,
+        // The sync server failed: the music server's own cover instead.
+        None => match param("alt=") {
+            Some(fallback) => {
+                if let Some((server_id, _)) = name.split_once("__") {
+                    crate::components::remote_sync::media::note_art_failure(server_id);
+                }
+                match download(&fallback).await {
+                    Some(bytes) => bytes,
+                    None => return status(StatusCode::BAD_GATEWAY),
+                }
+            }
+            None => return status(StatusCode::BAD_GATEWAY),
+        },
     };
     if cache_enabled(true) {
         if let Some(path) = path {
@@ -245,6 +312,16 @@ async fn serve_cover(
         }
     }
     ok(bytes)
+}
+
+/// One cover download; `None` on any failure or an empty body.
+#[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
+async fn download(url: &str) -> Option<Vec<u8>> {
+    let response = ART_HTTP_CLIENT.get(url).send().await.ok()?;
+    if !response.status().is_success() {
+        return None;
+    }
+    response.bytes().await.ok().map(|bytes| bytes.to_vec()).filter(|bytes| !bytes.is_empty())
 }
 
 /// Accepts only the names `cover_art_file_path` writes: `<server>__<cover>__<size>.img`.
@@ -284,6 +361,7 @@ mod tests {
     #[test]
     fn cover_file_names() {
         assert!(is_cover_file_name("srv-1__al-abc_123__400.img"));
+        assert!(is_cover_file_name("srv-1__al-abc_123__400w.img"), "a sync-server cover");
         assert!(!is_cover_file_name("../rustysound.db"));
         assert!(!is_cover_file_name("a/b__c__4.img"));
         assert!(!is_cover_file_name(".img"));

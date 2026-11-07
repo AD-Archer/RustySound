@@ -49,7 +49,8 @@ pub(crate) async fn generate_queue_extension_from_seed(
         return Vec::new();
     }
 
-    let mut excluded = std::collections::HashSet::<String>::new();
+    // Nothing already queued, nor anything played lately (Autoplay's history).
+    let mut excluded = recently_played_keys();
     for song in &existing_queue {
         excluded.insert(queue_extension_song_key(song));
     }
@@ -71,13 +72,20 @@ pub(crate) async fn generate_queue_extension_from_seed(
                 extend_unique_queue_candidates(similar, &mut excluded, &mut additions, limit);
             }
         }
+        // Then the same genre.
+        let genre = seed_song.genre.as_deref().map(str::trim).unwrap_or_default();
+        if additions.len() < limit && !genre.is_empty() {
+            if let Ok(same_genre) = client.get_random_songs_in_genre(genre, lookup_count).await {
+                extend_unique_queue_candidates(same_genre, &mut excluded, &mut additions, limit);
+            }
+        }
     }
 
     if additions.len() < limit {
         let random_batch = ((limit as u32).saturating_mul(2)).clamp(30, 120);
         for _pass in 0..2 {
             for server in active_servers.iter().cloned() {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(random_songs) = client.get_random_songs(random_batch).await {
                     extend_unique_queue_candidates(
                         random_songs,
@@ -294,6 +302,7 @@ fn queue_source_kind_tag(source_kind: &QueueSourceKind) -> &'static str {
         QueueSourceKind::Favorites => "favorites",
         QueueSourceKind::RandomMix => "random_mix",
         QueueSourceKind::Artist => "artist",
+        QueueSourceKind::Autoplay => "autoplay",
     }
 }
 
@@ -340,7 +349,7 @@ pub(crate) fn spawn_shuffle_queue(
                 .find(|s| s.id == seed.server_id)
                 .cloned()
             {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
                     songs.extend(similar);
                 }
@@ -349,7 +358,7 @@ pub(crate) fn spawn_shuffle_queue(
 
         if songs.is_empty() {
             for server in active_servers.iter().cloned() {
-                let client = NavidromeClient::new(server.clone());
+                let client = MusicClient::new(server.clone());
                 if let Ok(server_songs) = client.get_random_songs(25).await {
                     songs.extend(server_songs);
                 }
@@ -408,7 +417,7 @@ pub(crate) fn spawn_shuffle_queue(
                 .find(|s| s.id == seed.server_id)
                 .cloned()
             {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(similar) = client.get_similar_songs(&seed.id, 50).await {
                     songs.extend(similar);
                 }
@@ -417,7 +426,7 @@ pub(crate) fn spawn_shuffle_queue(
 
         if songs.is_empty() {
             for server in active_servers.iter().cloned() {
-                let client = NavidromeClient::new(server);
+                let client = MusicClient::new(server);
                 if let Ok(server_songs) = client.get_random_songs(25).await {
                     songs.extend(server_songs);
                 }
@@ -449,6 +458,54 @@ pub(crate) fn spawn_shuffle_queue(
     });
 }
 
+/// A gapless (or crossfaded) start of the next song by the audio backend
+/// (`gapless.rs`): scrobbles the finished song, then moves the queue on to
+/// `next_id` without loading anything. `last_src` is set first, so the
+/// controller's source effect sees the song as loaded already. Nothing moves
+/// when the controller has followed the player already (iOS syncs the song
+/// id) or the user picked another song meanwhile (that load replaces it).
+#[allow(clippy::too_many_arguments)]
+fn apply_gapless_handover(
+    finished_id: &str,
+    next_id: &str,
+    queue: Signal<Vec<Song>>,
+    mut queue_index: Signal<usize>,
+    mut now_playing: Signal<Option<Song>>,
+    mut last_src: Signal<Option<String>>,
+    preview: bool,
+    servers: &[ServerConfig],
+    resolve: impl Fn(&Song) -> Option<String>,
+) {
+    let (finished, target) = {
+        let queue_list = queue.peek();
+        let finished = queue_list
+            .iter()
+            .find(|song| song.id == finished_id)
+            .cloned()
+            .or_else(|| now_playing.peek().clone().filter(|song| song.id == finished_id));
+        let idx = *queue_index.peek();
+        let target = Some(idx + 1)
+            .filter(|&i| queue_list.get(i).is_some_and(|song| song.id == next_id))
+            .or_else(|| queue_list.iter().position(|song| song.id == next_id))
+            .map(|i| (i, queue_list[i].clone()));
+        (finished, target)
+    };
+    if !preview {
+        if let Some(song) = finished.as_ref() {
+            scrobble_song(servers, song, true);
+        }
+    }
+    let current_id = now_playing.peek().as_ref().map(|song| song.id.clone());
+    if current_id.as_deref() != Some(finished_id) {
+        return;
+    }
+    if let Some((index, song)) = target {
+        last_src.set(resolve(&song));
+        queue_index.set(index);
+        now_playing.set(Some(song));
+    }
+}
+
 #[cfg(target_arch = "wasm32")]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
     if song.server_name == "Radio" {
@@ -467,13 +524,17 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig]) -> Option<String> {
         .iter()
         .find(|s| s.id == song.server_id)
         .map(|server| {
-            let client = NavidromeClient::new(server.clone());
+            let client = MusicClient::new(server.clone());
             client.get_stream_url(song_id)
         })
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 fn resolve_stream_url(song: &Song, servers: &[ServerConfig], offline_mode: bool) -> Option<String> {
+    // Music on the device plays from its file, online or not.
+    if crate::local_music::is_local_song(song) {
+        return crate::local_music::stream_url(song);
+    }
     if let Some(cached_url) = cached_audio_url(song) {
         return Some(cached_url);
     }
@@ -498,34 +559,43 @@ fn resolve_stream_url(song: &Song, servers: &[ServerConfig], offline_mode: bool)
         .iter()
         .find(|s| s.id == song.server_id)
         .map(|server| {
-            let client = NavidromeClient::new(server.clone());
+            let client = MusicClient::new(server.clone());
             client.get_stream_url(song_id)
         })
 }
 
 fn can_save_server_bookmark(song: &Song) -> bool {
-    song.server_name != "Radio" && !song.id.trim().is_empty() && !song.server_id.trim().is_empty()
+    song.server_name != "Radio"
+        && !crate::local_music::is_local_song(song)
+        && !song.id.trim().is_empty()
+        && !song.server_id.trim().is_empty()
 }
 
-#[cfg(target_arch = "wasm32")]
+/// Reports a play the old way, with `scrobble`: `finished` false updates
+/// "Now Playing", true counts the play. Servers that take playback reports
+/// (the `playbackReport` extension, and Jellyfin) get them from playback
+/// sync instead (they count the play on `stopped`), so they're skipped here
+/// rather than counted twice. A finished song is also handed to playback
+/// sync for that `stopped`.
 fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
-    let server = servers.iter().find(|s| s.id == song.server_id).cloned();
-    if let Some(server) = server {
-        let song_id = song.id.clone();
-        spawn(async move {
-            let client = NavidromeClient::new(server);
-            let _ = client.scrobble(&song_id, finished).await;
-        });
+    // No server hears about local plays; they're counted in the local index.
+    if crate::local_music::is_local_song(song) {
+        if finished {
+            crate::local_music::record_play(song);
+        }
+        return;
     }
-}
-
-#[cfg(not(target_arch = "wasm32"))]
-fn scrobble_song(servers: &[ServerConfig], song: &Song, finished: bool) {
+    if finished {
+        crate::components::note_track_finished(song);
+    }
     let server = servers.iter().find(|s| s.id == song.server_id).cloned();
     if let Some(server) = server {
         let song_id = song.id.clone();
         spawn(async move {
-            let client = NavidromeClient::new(server);
+            let client = MusicClient::new(server);
+            if client.reports_playback().await {
+                return;
+            }
             let _ = client.scrobble(&song_id, finished).await;
         });
     }

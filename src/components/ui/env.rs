@@ -1,6 +1,6 @@
 //! Shared kit plumbing: layout, platform, theme mapping, timers, art URLs.
 
-use crate::api::{NavidromeClient, ServerConfig};
+use crate::api::{MusicClient, ServerConfig};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -36,10 +36,37 @@ pub struct LayoutSignal(pub Signal<Layout>);
 /// Current layout. Subscribes the caller, so it re-renders on a layout flip
 /// (rare) and never on ordinary resizes.
 pub fn use_layout() -> Layout {
+    if is_android_tv() {
+        return Layout::Wide;
+    }
     match try_use_context::<LayoutSignal>() {
         Some(signal) => (signal.0)(),
         None => default_layout(),
     }
+}
+
+/// Set once the Android shell reports a TV (leanback) device.
+pub(crate) static ANDROID_TV: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// Whether the page runs inside an Android shell: the native Android app,
+/// or the web build inside the Android TV wrapper (android/tv-wrapper),
+/// which provides the same `window.RustySoundAndroid` bridge.
+pub fn has_android_shell() -> bool {
+    #[cfg(target_arch = "wasm32")]
+    {
+        web_sys::window()
+            .and_then(|w| js_sys::Reflect::get(&w, &"RustySoundAndroid".into()).ok())
+            .is_some_and(|bridge| !bridge.is_undefined())
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        cfg!(target_os = "android")
+    }
+}
+
+/// True when running on Android TV (the shell's `isTv()`, see `android_shell.rs`).
+pub fn is_android_tv() -> bool {
+    ANDROID_TV.load(std::sync::atomic::Ordering::Relaxed)
 }
 
 /// The layout to assume before the first measurement arrives.
@@ -141,6 +168,17 @@ pub fn app_mark_src() -> &'static str {
     })
 }
 
+/// The themes Settings › Appearance offers (and the command palette's
+/// "Switch Theme…"): key, name, blurb.
+pub const STAGE_THEMES: [(&str, &str, &str); 3] = [
+    ("stage", "Stage", "Cool grey lists, blue accent."),
+    ("graphite", "Graphite", "Deeper neutrals, more contrast."),
+    ("tape", "Tape", "Warm paper, signal orange."),
+];
+
+/// The light/dark choices: `AppSettings::appearance` key, name.
+pub const APPEARANCES: [(&str, &str); 3] = [("system", "System"), ("light", "Light"), ("dark", "Dark")];
+
 /// Maps a stored theme name (including the 11 retired ones) to a Stage theme.
 pub fn stage_theme(raw: &str) -> &'static str {
     match raw.trim().to_ascii_lowercase().as_str() {
@@ -172,8 +210,11 @@ pub fn cover_art_url(
     size_px: u32,
 ) -> Option<String> {
     let cover_art = cover_art.filter(|value| !value.trim().is_empty())?;
+    if crate::local_music::is_local(server_id) {
+        return crate::local_music::cover_art_data_url(cover_art);
+    }
     let server = servers.iter().find(|server| server.id == server_id)?;
-    let url = NavidromeClient::new(server.clone()).get_cover_art_url(cover_art, size_px);
+    let url = MusicClient::new(server.clone()).get_cover_art_url(cover_art, size_px);
     if url.is_empty() {
         None
     } else {
@@ -184,7 +225,9 @@ pub fn cover_art_url(
 /// Like [`cover_art_url`], for an `<img src>` in a list, grid or Cover Flow.
 /// Safe to call while rendering: no file reads, no data URLs. Native builds
 /// get the local cover route, which serves the image cache off the main
-/// thread; the web build gets the server URL.
+/// thread; the web build gets the server URL. Either way, a sync server
+/// with a cover cache serves it when it can (`remote_sync::media`); the
+/// caller re-renders when that changes.
 pub fn cover_art_src(
     servers: &[ServerConfig],
     server_id: &str,
@@ -192,8 +235,13 @@ pub fn cover_art_src(
     size_px: u32,
 ) -> Option<String> {
     let cover_art = cover_art.filter(|value| !value.trim().is_empty())?;
+    crate::components::remote_sync::media::subscribe();
+    // Music on the device: the picture embedded in its files.
+    if crate::local_music::is_local(server_id) {
+        return crate::local_music::cover_art_src(cover_art);
+    }
     let server = servers.iter().find(|server| server.id == server_id)?;
-    let url = NavidromeClient::new(server.clone()).get_cover_art_display_url(cover_art, size_px);
+    let url = MusicClient::new(server.clone()).get_cover_art_display_url(cover_art, size_px);
     if url.is_empty() {
         None
     } else {

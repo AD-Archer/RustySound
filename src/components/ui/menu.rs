@@ -9,6 +9,8 @@
 //!   own handlers. A `MenuItem` does not close the menu by itself.
 
 use crate::components::ui::env::use_layout;
+use crate::components::ui::MenuSheet;
+
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -55,16 +57,15 @@ impl MenuAction {
     }
 
     /// Makes the row a radio choice; `checked` shows the check mark.
+    // Only the Downloads sort menus use it so far, and the web has no Downloads.
+    #[cfg_attr(target_arch = "wasm32", allow(dead_code))]
     pub fn checked(mut self, checked: bool) -> Self {
+
         self.checked = Some(checked);
         self
     }
-
-    pub fn detail(mut self, detail: impl Into<String>) -> Self {
-        self.detail = Some(detail.into());
-        self
-    }
 }
+
 
 /// Menu card with a scrim. The parent decides whether it is mounted (usually
 /// `if let Some(anchor) = open_menu()`).
@@ -77,6 +78,24 @@ impl MenuAction {
 ///   dimmed scrim (use None for confirmations).
 /// * `on_close`: scrim, Escape or Cancel.
 /// * `testid`: data-testid of the card; `actions` rows get `<testid>-<key>`.
+/// Fixed-position style for a popover opened at viewport point (`x`, `y`).
+/// It clamps against the popover's measured size (`--pop-w` / `--pop-h`,
+/// written by `popover_fit.js`), so it stays inside the window, and the
+/// popover scrolls when taller than the window (`.rs-menu--popover`).
+pub(crate) fn popover_style(x: f64, y: f64) -> String {
+    format!(
+        "left:clamp(8px, {x:.0}px, calc(100vw - 8px - var(--pop-w, 270px)));\
+         top:clamp(8px, {y:.0}px, calc(100dvh - 8px - var(--pop-h, 0px)))"
+    )
+}
+
+/// Installs `popover_fit.js` once for the app (from the track menu host).
+pub(crate) fn use_popover_fit() {
+    use_hook(|| {
+        let _ = document::eval(include_str!("popover_fit.js"));
+    });
+}
+
 #[component]
 pub fn Menu(
     on_close: EventHandler<()>,
@@ -126,8 +145,23 @@ pub fn Menu(
                                 div { class: "rs-menu__head-sub rs-menu__head-sub--wrap", "{message}" }
                             }
                         }
+                        button {
+                            r#type: "button",
+                            class: "rs-menu__head-close",
+                            aria_label: "Close",
+                            onclick: move |_| on_close.call(()),
+                            crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                        }
                     }
                     div { class: "rs-menu__gap", aria_hidden: "true" }
+                } else {
+                    button {
+                        r#type: "button",
+                        class: "rs-menu__head-close rs-menu__head-close--abs",
+                        aria_label: "Close",
+                        onclick: move |_| on_close.call(()),
+                        crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                    }
                 }
                 for action in actions.iter().cloned() {
                     MenuItem {
@@ -159,22 +193,7 @@ pub fn Menu(
 
     if layout.is_compact() {
         return rsx! {
-            div {
-                class: "rs-scrim",
-                aria_hidden: "true",
-                onclick: move |_| on_close.call(()),
-            }
-            div { class: "rs-sheet rs-sheet--menu", role: "dialog", aria_label: "{aria}",
-                {card(None, false)}
-                div { class: "rs-menu",
-                    button {
-                        r#type: "button",
-                        class: "rs-menu__item rs-menu__cancel",
-                        onclick: move |_| on_close.call(()),
-                        "Cancel"
-                    }
-                }
-            }
+            MenuSheet { label: aria.clone(), on_close, {card(None, false)} }
         };
     }
 
@@ -182,10 +201,8 @@ pub fn Menu(
     // on screen. Without an anchor it sits centred, a little above the middle
     // (no transform, so the pop-in animation can own it).
     let style = match anchor {
-        Some((x, y)) => format!(
-            "left:clamp(8px, {x:.0}px, calc(100vw - 278px));top:clamp(8px, {y:.0}px, calc(100dvh - 380px))"
-        ),
-        None => "left:calc(50% - 135px);top:28vh".to_string(),
+        Some((x, y)) => popover_style(x, y),
+        None => "left:calc(50% - 143px);top:28vh".to_string(),
     };
     rsx! {
         div {

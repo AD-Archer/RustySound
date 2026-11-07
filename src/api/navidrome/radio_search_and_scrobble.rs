@@ -2,20 +2,7 @@
 impl NavidromeClient {
     pub async fn get_internet_radio_stations(&self) -> Result<Vec<RadioStation>, String> {
         let url = self.build_url("getInternetRadioStations", &[]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        let json = self.subsonic_get(&url).await?;
 
         let mut stations = json
             .subsonic_response
@@ -41,20 +28,7 @@ impl NavidromeClient {
             params.push(("homePageUrl", url));
         }
         let url = self.build_url("createInternetRadioStation", &params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         Ok(())
     }
@@ -75,40 +49,14 @@ impl NavidromeClient {
             params.push(("homePageUrl", url));
         }
         let url = self.build_url("updateInternetRadioStation", &params);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         Ok(())
     }
 
     pub async fn delete_internet_radio_station(&self, station_id: &str) -> Result<(), String> {
         let url = self.build_url("deleteInternetRadioStation", &[("id", station_id)]);
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         Ok(())
     }
@@ -141,20 +89,7 @@ impl NavidromeClient {
                 ("songCount", &song_count.to_string()),
             ],
         );
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        let json = self.subsonic_get(&url).await?;
 
         let search = json.subsonic_response.search_result3.unwrap_or_default();
 
@@ -198,20 +133,7 @@ impl NavidromeClient {
                 ("submission", if submission { "true" } else { "false" }),
             ],
         );
-        let response = HTTP_CLIENT
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| e.to_string())?;
-        let json: SubsonicResponse = response.json().await.map_err(|e| e.to_string())?;
-
-        if json.subsonic_response.status != "ok" {
-            return Err(json
-                .subsonic_response
-                .error
-                .map(|e| e.message)
-                .unwrap_or("Unknown error".to_string()));
-        }
+        self.subsonic_get(&url).await?;
 
         Ok(())
     }

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Android TV launcher banner (160x90dp): the app icon on the stage's
+     near-black. Used by android/AndroidManifest.xml. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="160dp" android:height="90dp">
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="#0B0B0E" />
+        </shape>
+    </item>
+    <item android:width="64dp" android:height="64dp" android:gravity="center"
+        android:drawable="@drawable/rustysound_tv_icon" />
+</layer-list>

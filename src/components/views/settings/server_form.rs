@@ -1,10 +1,11 @@
-//! The Add / Edit server sheet (`data-testid="server-form"`), shared by
-//! Settings → Servers and the first-run welcome.
+//! Server address helpers (scheme, host, validation, friendly connection
+//! errors) and the Add / Edit server sheet (`data-testid="server-form"`) in
+//! Settings → Servers. The form itself is [`ServerForm`], which the first-run
+//! welcome shows too.
 
-use crate::api::{NavidromeClient, ServerConfig};
-use crate::components::ui::{Button, ButtonVariant, Sheet, Switch};
-use crate::components::Icon;
-use crate::db::save_servers_now;
+use super::server_fields::{FormPlace, ServerForm};
+use crate::api::ServerConfig;
+use crate::components::ui::Sheet;
 use dioxus::prelude::*;
 
 fn is_local_http_host(host: &str) -> bool {
@@ -29,7 +30,7 @@ fn is_local_http_host(host: &str) -> bool {
 }
 
 /// Host of a URL with or without a scheme ("https://a.b:4533/x" → "a.b").
-fn url_host(raw: &str) -> String {
+pub(super) fn url_host(raw: &str) -> String {
     let rest = raw
         .trim()
         .trim_start_matches("https://")
@@ -67,7 +68,7 @@ pub(super) fn final_server_url(raw: &str, use_https: bool) -> String {
 
 /// What the HTTPS switch should start at for a typed URL: the typed scheme
 /// wins; without one, remote hosts get HTTPS and home-network hosts HTTP.
-fn https_for_url(raw: &str) -> Option<bool> {
+pub(super) fn https_for_url(raw: &str) -> Option<bool> {
     let trimmed = raw.trim();
     if trimmed.starts_with("https://") {
         Some(true)
@@ -80,7 +81,45 @@ fn https_for_url(raw: &str) -> Option<bool> {
     }
 }
 
-fn resolve_server_name(name: &str, url: &str) -> String {
+/// Checks a typed server address before any request. `Err` says what to fix.
+pub(super) fn check_address(raw: &str) -> Result<(), String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err("Enter your server's address.".to_string());
+    }
+    if trimmed.chars().any(char::is_whitespace) {
+        return Err("An address can't contain spaces.".to_string());
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if let Some(at) = lower.find("://") {
+        if !matches!(&lower[..at], "http" | "https") {
+            return Err("Use an address that starts with http:// or https://, or leave the start off.".to_string());
+        }
+    }
+    let rest = trimmed
+        .strip_prefix("https://")
+        .or_else(|| trimmed.strip_prefix("http://"))
+        .or_else(|| trimmed.strip_prefix("HTTPS://"))
+        .or_else(|| trimmed.strip_prefix("HTTP://"))
+        .unwrap_or(trimmed);
+    let authority = rest.split('/').next().unwrap_or_default();
+    let authority = authority.rsplit('@').next().unwrap_or_default();
+    if authority.starts_with('[') {
+        // IPv6 literal: leave it to the request.
+        return Ok(());
+    }
+    if url_host(trimmed).is_empty() {
+        return Err("Add the server's name or IP address, like music.example.com.".to_string());
+    }
+    if let Some((_, port)) = authority.split_once(':') {
+        if port.parse::<u16>().map(|p| p == 0).unwrap_or(true) {
+            return Err("The port after the colon should be a number, like :4533.".to_string());
+        }
+    }
+    Ok(())
+}
+
+pub(super) fn resolve_server_name(name: &str, url: &str) -> String {
     let trimmed = name.trim();
     if trimmed.is_empty() {
         let host = url_host(url);
@@ -117,7 +156,7 @@ pub(super) fn format_connection_error(error: &str) -> String {
         return "That host name doesn't resolve. Check the spelling of the address.".to_string();
     }
     if has(&["certificate", "ssl", "tls", "x509", "self signed"]) {
-        return "The HTTPS certificate was rejected. Turn off Use HTTPS for a home-network server, or fix the certificate.".to_string();
+        return "The HTTPS certificate was rejected. For a home-network server, choose Use HTTP under the address, or fix the certificate.".to_string();
     }
     if has(&["timeout", "timed out"]) {
         return "The server took too long to answer. Check your network and the address.".to_string();
@@ -141,275 +180,41 @@ pub(super) fn format_connection_error(error: &str) -> String {
         return "No network connection. Check that you're online.".to_string();
     }
     if has(&["error sending request", "failed to fetch", "network error"]) {
-        return "Couldn't reach the server. Check the address, the port and Use HTTPS.".to_string();
+        return "Couldn't reach the server. Check the address, the port, and whether the server uses HTTP or HTTPS.".to_string();
     }
     format!("Couldn't connect ({error}). Check the address and your network.")
 }
 
-#[derive(Clone, PartialEq)]
-enum TestState {
-    Idle,
-    Testing,
-    Passed(String),
-    Failed(String),
-}
-
-/// Add/Edit server sheet.
+/// Add/Edit server sheet: the shared [`ServerForm`] in a sheet.
 /// * `editing`: the server to edit; `None` adds a new one.
 /// * `on_saved`: called with the saved server after it is persisted.
-/// * `title`: sheet title override (first run says "Add your server").
+/// * `title`: sheet title override.
+/// * `on_delete`: shows "Delete Server…" under the form (edit mode).
 #[component]
 pub(super) fn ServerSheet(
     #[props(default)] editing: Option<ServerConfig>,
     on_close: EventHandler<()>,
     on_saved: EventHandler<ServerConfig>,
     #[props(default)] title: Option<String>,
-    /// Shows "Delete Server…" under the form (edit mode).
     #[props(default)] on_delete: Option<EventHandler<()>>,
 ) -> Element {
-    let mut servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let is_edit = editing.is_some();
-    let initial = editing.clone();
-    let mut url = use_signal(|| initial.as_ref().map(|s| s.url.clone()).unwrap_or_default());
-    let mut name = use_signal(|| initial.as_ref().map(|s| s.name.clone()).unwrap_or_default());
-    let mut user = use_signal(|| initial.as_ref().map(|s| s.username.clone()).unwrap_or_default());
-    let mut pass = use_signal(|| initial.as_ref().map(|s| s.password.clone()).unwrap_or_default());
-    let mut use_https = use_signal(|| {
-        initial
-            .as_ref()
-            .map(|s| s.url.starts_with("https://"))
-            .unwrap_or(false)
-    });
-    // Once the user flips the switch, typing in the URL no longer moves it.
-    let mut https_touched = use_signal(|| is_edit);
-    let mut test = use_signal(|| TestState::Idle);
-
-    let complete = !url().trim().is_empty() && !user().trim().is_empty() && !pass().is_empty();
-    let passed = matches!(test(), TestState::Passed(_));
-    let testing = test() == TestState::Testing;
-    // Adding needs a passing test first; editing may save straight away.
-    let can_save = complete && !testing && (is_edit || passed);
-
-    let run_test = move |_| {
-        if testing || !complete {
-            return;
-        }
-        let address = final_server_url(&url(), use_https());
-        let username = user().trim().to_string();
-        let password = pass();
-        test.set(TestState::Testing);
-        spawn(async move {
-            let probe = ServerConfig::new("Test".to_string(), address, username.clone(), password);
-            let outcome = NavidromeClient::new(probe).ping().await;
-            test.set(match outcome {
-                Ok(_) => TestState::Passed(format!("Connected. Signed in as {username}.")),
-                Err(error) => TestState::Failed(format_connection_error(&error)),
-            });
-        });
-    };
-
-    let editing_for_save = editing.clone();
-    let save = move |_| {
-        if !can_save {
-            return;
-        }
-        let address = final_server_url(&url(), use_https());
-        let display = resolve_server_name(&name(), &address);
-        let username = user().trim().to_string();
-        let password = pass();
-        let saved = match editing_for_save.clone() {
-            Some(original) => {
-                let mut updated = original.clone();
-                updated.name = display;
-                updated.url = address;
-                updated.username = username;
-                updated.password = password;
-                servers.with_mut(|list| {
-                    if let Some(slot) = list.iter_mut().find(|s| s.id == original.id) {
-                        *slot = updated.clone();
-                    }
-                });
-                updated
-            }
-            None => {
-                let created = ServerConfig::new(display, address, username, password);
-                servers.with_mut(|list| list.push(created.clone()));
-                created
-            }
-        };
-        let _ = save_servers_now(&servers.peek());
-        on_saved.call(saved);
-    };
-
     let sheet_title = title.unwrap_or_else(|| {
-        if is_edit {
+        if editing.is_some() {
             "Edit Server".to_string()
         } else {
             "Add Server".to_string()
         }
     });
-
     rsx! {
         Sheet {
             title: sheet_title,
             testid: "server-form".to_string(),
             on_close: move |_| on_close.call(()),
-            div { class: "rs-settings-form",
-                ul { class: "rs-list rs-list--text rs-settings-fields",
-                    li {
-                        div { class: "rs-settings-field",
-                            label { r#for: "server-url", "URL" }
-                            input {
-                                id: "server-url",
-                                r#type: "url",
-                                inputmode: "url",
-                                autocomplete: "url",
-                                autocapitalize: "off",
-                                spellcheck: "false",
-                                placeholder: "https://navidrome.example.com",
-                                aria_describedby: "server-url-hint",
-                                value: "{url}",
-                                oninput: move |evt| {
-                                    let value = evt.value();
-                                    if !*https_touched.peek() {
-                                        if let Some(secure) = https_for_url(&value) {
-                                            use_https.set(secure);
-                                        }
-                                    }
-                                    url.set(value);
-                                    test.set(TestState::Idle);
-                                },
-                            }
-                        }
-                    }
-                    li {
-                        div { class: "rs-settings-field",
-                            label { r#for: "server-name", "Name" }
-                            input {
-                                id: "server-name",
-                                autocapitalize: "words",
-                                placeholder: "My Navidrome Server",
-                                value: "{name}",
-                                oninput: move |evt| name.set(evt.value()),
-                            }
-                        }
-                    }
-                    li {
-                        div { class: "rs-settings-field rs-settings-field--switch",
-                            span { id: "server-https-label", "Use HTTPS" }
-                            Switch {
-                                checked: use_https(),
-                                labelled_by: "server-https-label".to_string(),
-                                testid: "server-https".to_string(),
-                                on_toggle: move |on| {
-                                    https_touched.set(true);
-                                    use_https.set(on);
-                                    test.set(TestState::Idle);
-                                },
-                            }
-                        }
-                    }
-                }
-                p { class: "rs-list-foot rs-settings-foot", id: "server-url-hint",
-                    "Use HTTPS for servers outside your home network. Home-network addresses like 192.168.1.10:4533 usually use HTTP."
-                }
-
-                ul { class: "rs-list rs-list--text rs-settings-fields",
-                    li {
-                        div { class: "rs-settings-field",
-                            label { r#for: "server-user", "Username" }
-                            input {
-                                id: "server-user",
-                                autocomplete: "username",
-                                autocapitalize: "off",
-                                spellcheck: "false",
-                                placeholder: "admin",
-                                value: "{user}",
-                                oninput: move |evt| {
-                                    user.set(evt.value());
-                                    test.set(TestState::Idle);
-                                },
-                            }
-                        }
-                    }
-                    li {
-                        div { class: "rs-settings-field",
-                            label { r#for: "server-pass", "Password" }
-                            input {
-                                id: "server-pass",
-                                r#type: "password",
-                                autocomplete: "current-password",
-                                placeholder: "••••••••",
-                                value: "{pass}",
-                                oninput: move |evt| {
-                                    pass.set(evt.value());
-                                    test.set(TestState::Idle);
-                                },
-                            }
-                        }
-                    }
-                }
-
-                div { class: "rs-settings-test", role: "status", aria_live: "polite",
-                    match test() {
-                        TestState::Idle => rsx! {
-                            if !is_edit {
-                                span { class: "rs-settings-test__hint",
-                                    "Test the connection to enable Save."
-                                }
-                            }
-                        },
-                        TestState::Testing => rsx! {
-                            span { class: "rs-spinner rs-spinner--page", aria_hidden: "true" }
-                            span { "Testing connection…" }
-                        },
-                        TestState::Passed(message) => rsx! {
-                            span { class: "rs-settings-test__ok",
-                                Icon { name: "check".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                                "{message}"
-                            }
-                        },
-                        TestState::Failed(message) => rsx! {
-                            span { class: "rs-settings-test__err", "data-testid": "server-test-error",
-                                Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                                "{message}"
-                            }
-                        },
-                    }
-                }
-
-                div { class: "rs-settings-form__actions",
-                    Button {
-                        label: "Test Connection".to_string(),
-                        icon: "server".to_string(),
-                        variant: ButtonVariant::Tinted,
-                        // Not disabled while testing: disabling the focused button would drop
-                        // focus out of the sheet (Escape stops working). run_test ignores repeats.
-                        disabled: !complete,
-                        testid: "server-test".to_string(),
-                        onclick: run_test,
-                    }
-                    Button {
-                        label: "Save".to_string(),
-                        variant: ButtonVariant::Filled,
-                        disabled: !can_save,
-                        testid: "server-save".to_string(),
-                        onclick: save,
-                    }
-                }
-                // Editing an existing server: Delete lives here, not on the row.
-                if let Some(handler) = on_delete {
-                    div { class: "rs-settings-form__delete",
-                        Button {
-                            label: "Delete Server…".to_string(),
-                            icon: "trash".to_string(),
-                            variant: ButtonVariant::Plain,
-                            danger: true,
-                            testid: "server-delete".to_string(),
-                            onclick: move |_| handler.call(()),
-                        }
-                    }
-                }
+            ServerForm {
+                place: FormPlace::Sheet,
+                editing,
+                on_saved: move |server| on_saved.call(server),
+                on_delete,
             }
         }
     }
@@ -440,6 +245,22 @@ mod tests {
     fn name_falls_back_to_the_host() {
         assert_eq!(resolve_server_name("  ", "https://music.example.com:443"), "music.example.com");
         assert_eq!(resolve_server_name("Home", "https://x.y"), "Home");
+    }
+
+    #[test]
+    fn addresses_are_checked_before_any_request() {
+        assert!(check_address("music.example.com").is_ok());
+        assert!(check_address("https://music.example.com/").is_ok());
+        assert!(check_address("192.168.1.10:4533").is_ok());
+        assert!(check_address("http://user@nas.local:4533/app").is_ok());
+        assert!(check_address("nas").is_ok());
+        assert!(check_address("[::1]:4533").is_ok());
+        assert_eq!(check_address("  ").unwrap_err(), "Enter your server's address.");
+        assert!(check_address("music example.com").unwrap_err().contains("spaces"));
+        assert!(check_address("ftp://x.y").unwrap_err().contains("http://"));
+        assert!(check_address("https://").unwrap_err().contains("name or IP"));
+        assert!(check_address("x.y:port").unwrap_err().contains("port"));
+        assert!(check_address("x.y:99999").unwrap_err().contains("port"));
     }
 
     #[test]

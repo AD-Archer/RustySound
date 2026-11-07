@@ -152,7 +152,7 @@ test.describe("baseline smoke", () => {
     const input = tid(page, "search-input");
     await expect(input).toHaveAttribute("id", "global-search-input");
     await input.fill("Paper Comets");
-    const card = tid(page, "artist-card").filter({ hasText: mock.artist.name }).first();
+    const card = tid(page, "artist-tile").filter({ hasText: mock.artist.name }).first();
     await expect(card).toBeVisible();
     await card.click();
     await expect(page).toHaveURL(new RegExp(`/artist/${mock.artist.id}/`));

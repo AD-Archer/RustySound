@@ -8,9 +8,27 @@
 // - lrclib.net stand-in at /lrclib/api/{search,get} (tests route lrclib.net here).
 // - Permissive CORS, including OPTIONS preflight.
 // - In-memory state; restart to reset. POST /__mock/reset also resets it.
+// - Share links: createShare / getShares (MOCK_SHARING=0 answers them 501, like Navidrome
+//   with EnableSharing off). GET /__mock/shares lists what was created.
+// - Sync scopes: a server URL of <base>/t/<tag> gets its own play queue, playback
+//   reports and players (getPlayQueue, reportPlayback, getNowPlaying…), so parallel
+//   tests don't see each other's queues. A tag starting with "nocors" also serves streams
+//   without CORS headers (a server that refuses Web Audio). Everything else is shared. Test hooks:
+//     GET  [/t/<tag>]/__mock/sync         what was saved, reported and scrobbled, plus `actions`:
+//          the library changes made through the scope (star, unstar, setRating, playlists)
+//     POST [/t/<tag>]/__mock/down         take the scope "down": { mode: "unreachable" } answers
+//          /rest and the native API with no CORS headers (a browser sees a network error),
+//          { mode: "500" } with HTTP 500s, { mode: null } brings it back. Hooks keep working.
+//     POST [/t/<tag>]/__mock/play-queue   seed a queue "from another device":
+//          { ids?, count?, currentIndex?, position?, changedBy?, changedMsAgo? }
+//     POST [/t/<tag>]/__mock/now-playing  seed another player: { id?, playerName, state? }
+//   Playlist changes "made on another device" (shared state; use your own playlist):
+//     POST /__mock/playlist  { id?, name?, songIds?, add?, remove? }: without `id`, creates
+//          a playlist (owned by the demo user) from `songIds`; with it, appends `add` and drops
+//          `remove` (song ids). Answers the playlist with its song ids.
 import { createHash } from "node:crypto";
 import { readdirSync, readFileSync } from "node:fs";
-import { buildLibrary, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
+import { buildLibrary, hashString, KNOWN, type AlbumRec, type ArtistRec, type Library, type SongRec } from "./library";
 import { coverPng, STREAM_CAP_SECONDS, wavLength, wavSlice } from "./media";
 
 const PORT = Number(process.env.MOCK_PORT ?? 4533);
@@ -18,7 +36,10 @@ const HOST = process.env.MOCK_HOST ?? "127.0.0.1";
 const USER = process.env.MOCK_USER ?? "demo";
 const PASS = process.env.MOCK_PASSWORD ?? "demo";
 const LATENCY_MS = Number(process.env.MOCK_LATENCY_MS ?? "0") || 0;
+// Reported on /__mock/health so the test setup can refuse a server older than its source.
+const STARTED_AT = Date.now();
 const QUIET = process.env.MOCK_QUIET === "1";
+const SHARING = process.env.MOCK_SHARING !== "0";
 /** MOCK_ART=1 serves the abstract SVG covers in ./art instead of generated PNGs. */
 const ART: string[] =
   process.env.MOCK_ART === "1"
@@ -43,13 +64,20 @@ interface State {
   lib: Library;
   now: number;
   bookmarks: Map<string, { position: number; comment: string; created: number; changed: number }>;
-  playQueue: { ids: string[]; current: string | null; position: number; changed: number } | null;
   scanUntil: number;
   lastScan: number;
   nextPlaylist: number;
   nextRadio: number;
   nowPlaying: Map<string, number>;
   tokens: Set<string>;
+  shares: Share[];
+}
+
+interface Share {
+  id: string;
+  ids: string[];
+  description: string;
+  created: number;
 }
 
 function freshState(): State {
@@ -64,21 +92,90 @@ function freshState(): State {
     lib,
     now,
     bookmarks,
-    playQueue: null,
     scanUntil: 0,
     lastScan: now - 2 * DAY,
     nextPlaylist: 1,
     nextRadio: 100,
     nowPlaying: new Map(),
     tokens: new Set(),
+    shares: [],
   };
 }
 
 let S = freshState();
 
+// ---------------------------------------------------------------- sync scopes
+
+interface PlayQueue {
+  ids: string[];
+  currentIndex: number;
+  position: number;
+  changed: number;
+  changedBy: string;
+}
+interface Report {
+  at: number;
+  client: string;
+  mediaId: string;
+  state: string;
+  positionMs: number;
+  playbackRate: number;
+}
+interface Save {
+  at: number;
+  client: string;
+  method: string;
+  form: boolean;
+  ids: string[];
+  currentIndex: number;
+  position: number;
+}
+interface Session {
+  client: string;
+  mediaId: string;
+  state: string;
+  positionMs: number;
+  playbackRate: number;
+  at: number;
+  start: number;
+}
+interface SyncState {
+  playQueue: PlayQueue | null;
+  reports: Report[];
+  saves: Save[];
+  scrobbles: { at: number; client: string; id: string; submission: boolean }[];
+  sessions: Map<string, Session>;
+  actions: { at: number; method: string; ids: string[] }[];
+  down: "unreachable" | "500" | null;
+}
+
+/** Library changes recorded per scope (`actions` on /__mock/sync). */
+const RECORDED = new Set(["star", "unstar", "setRating", "createPlaylist", "updatePlaylist", "deletePlaylist"]);
+
+const SCOPES = new Map<string, SyncState>();
+function scoped(scope: string): SyncState {
+  let st = SCOPES.get(scope);
+  if (!st) {
+    st = { playQueue: null, reports: [], saves: [], scrobbles: [], sessions: new Map(), actions: [], down: null };
+    SCOPES.set(scope, st);
+  }
+  return st;
+}
+
 const iso = (daysAgo: number | null | undefined) =>
   daysAgo === null || daysAgo === undefined ? undefined : new Date(S.now - daysAgo * DAY).toISOString();
 const isoMs = (ms: number) => new Date(ms).toISOString();
+
+// Last plays happen at a time of day picked from the song id (deterministic), mostly in the
+// evening, always on the same UTC date as "N days ago" (now is 12:00 UTC), so Wrapped's
+// listening clock, busiest day and streak have something to show.
+const PLAY_HOURS = [7, 8, 9, 12, 13, 15, 17, 18, 19, 20, 20, 21, 21, 22, 22, 23, 1];
+function playedMs(s: SongRec): number {
+  if (s.playedDaysAgo === null) return -Infinity;
+  const hour = PLAY_HOURS[hashString(`${s.id}:hour`) % PLAY_HOURS.length];
+  return S.now - s.playedDaysAgo * DAY + (hour - 12) * 3_600_000;
+}
+const playedIso = (s: SongRec) => (s.playedDaysAgo === null ? undefined : isoMs(playedMs(s)));
 
 // ---------------------------------------------------------------- serializers
 
@@ -111,7 +208,7 @@ function songJson(s: SongRec) {
     isVideo: false,
     // OpenSubsonic / Navidrome extras
     playCount: s.playCount,
-    played: iso(s.playedDaysAgo),
+    played: playedIso(s),
     starred: iso(s.starredDaysAgo),
     userRating: s.userRating ?? undefined,
     bpm: s.bpm,
@@ -126,8 +223,26 @@ function songJson(s: SongRec) {
     channelCount: 1,
     samplingRate: 11025,
     bitDepth: 16,
-    replayGain: { trackGain: -6.2, albumGain: -6.0, trackPeak: 0.9, albumPeak: 0.95 },
+    replayGain: replayGainFor(s, album),
   });
+}
+
+/**
+ * OpenSubsonic `replayGain`, varied per song (from a hash, so the library itself doesn't change):
+ * track gains of -2 to -11 dB, one album gain per album, peaks of 0.6 to 0.99. About one song in
+ * seven is untagged (no `replayGain`), except on the known album, whose songs are all tagged.
+ */
+function replayGainFor(s: SongRec, album: AlbumRec) {
+  const h = hashString(`${s.id}:rg`);
+  if (h % 7 === 0 && album.name !== KNOWN.artistAlbum) return undefined;
+  const ha = hashString(`${album.id}:rg`);
+  const trackPeak = 0.6 + ((h >>> 8) % 40) / 100;
+  return {
+    trackGain: -(2 + (h % 90) / 10),
+    albumGain: -(3 + (ha % 60) / 10),
+    trackPeak,
+    albumPeak: Math.max(trackPeak, 0.8 + ((ha >>> 8) % 20) / 100),
+  };
 }
 
 function albumStats(a: AlbumRec) {
@@ -204,6 +319,31 @@ function playlistJson(p: Library["playlists"][number]) {
   });
 }
 
+/** Navidrome with sharing off: the share endpoints answer a bare 501. */
+function notImplemented(): Response {
+  return new Response("Not Implemented", { status: 501, headers: CORS });
+}
+
+function shareJson(sh: Share) {
+  const entry = sh.ids.flatMap((id) => {
+    const song = S.lib.songById.get(id);
+    if (song) return [songJson(song)];
+    const album = S.lib.albumById.get(id);
+    if (album) return album.songIds.map((sid) => songJson(S.lib.songById.get(sid)!));
+    const pl = S.lib.playlists.find((p) => p.id === id);
+    return pl ? pl.songIds.map((sid) => songJson(S.lib.songById.get(sid)!)) : [];
+  });
+  return {
+    id: sh.id,
+    url: `${BASE}/share/${sh.id}`,
+    description: sh.description,
+    username: USER,
+    created: new Date(sh.created).toISOString(),
+    visitCount: 0,
+    entry,
+  };
+}
+
 function clean<T extends Record<string, unknown>>(obj: T): T {
   for (const k of Object.keys(obj)) if (obj[k] === undefined) delete obj[k];
   return obj;
@@ -254,11 +394,17 @@ function subErr(code: number, message: string) {
 
 class ParamError extends Error {}
 
-function params(url: URL, form?: URLSearchParams) {
+function params(url: URL, form?: URLSearchParams, scope = "") {
   const all = new URLSearchParams(url.searchParams);
   if (form) for (const [k, v] of form) all.append(k, v);
   return {
     raw: all,
+    /** the sync scope (`/t/<tag>` prefix), "" when none */
+    scope,
+    /** form POST (formPost extension) */
+    form: !!form,
+    /** the client name (`c=`) */
+    client: all.get("c") ?? "",
     get: (k: string) => all.get(k) ?? undefined,
     req: (k: string) => {
       const v = all.get(k);
@@ -355,6 +501,31 @@ function lyricLines(s: SongRec): { start: number; value: string }[] {
   return lines;
 }
 
+// Word-timed (karaoke) lyrics: songs with odd track numbers carry word cues
+// on getLyricsBySongId?enhanced=true (OpenSubsonic songLyrics v2). Each word
+// lasts WORD_MS from its line's start; cues give UTF-8 byte offsets into the
+// line, and skip the spaces between words, as Navidrome's do.
+const WORD_MS = 450;
+function wordTimed(s: SongRec) {
+  return !s.instrumental && s.track % 2 === 1;
+}
+function cueLines(lines: { start: number; value: string }[]) {
+  const utf8 = new TextEncoder();
+  return lines.map((l, index) => {
+    const cue: { start: number; end: number; value: string; byteStart: number; byteEnd: number }[] = [];
+    let offset = 0;
+    for (const word of l.value.split(" ")) {
+      const bytes = utf8.encode(word).length;
+      if (bytes > 0) {
+        const start = l.start + cue.length * WORD_MS;
+        cue.push({ start, end: start + WORD_MS, value: word, byteStart: offset, byteEnd: offset + bytes - 1 });
+      }
+      offset += bytes + 1;
+    }
+    return { index, start: l.start, end: l.start + cue.length * WORD_MS, value: l.value, cue };
+  });
+}
+
 function lrc(lines: { start: number; value: string }[]) {
   return lines
     .map((l) => {
@@ -407,6 +578,15 @@ function albumList(p: P): AlbumRec[] {
   }
 }
 
+/** Stores a saved play queue (both save methods), with `changedBy` from `c`. */
+function savePlayQueue(p: P, method: string, ids: string[], currentIndex: number): Response {
+  const st = scoped(p.scope);
+  const position = p.int("position", 0);
+  st.saves.push({ at: Date.now(), client: p.client, method, form: p.form, ids, currentIndex, position });
+  st.playQueue = ids.length ? { ids, currentIndex, position, changed: Date.now(), changedBy: p.client } : null;
+  return sub();
+}
+
 // ---------------------------------------------------------------- REST handlers
 
 type Handler = (p: P, req: Request) => Response | Promise<Response>;
@@ -417,9 +597,11 @@ const handlers: Record<string, Handler> = {
   getOpenSubsonicExtensions: () =>
     sub({
       openSubsonicExtensions: [
-        { name: "songLyrics", versions: [1] },
+        { name: "songLyrics", versions: [1, 2] },
         { name: "formPost", versions: [1] },
         { name: "transcodeOffset", versions: [1] },
+        { name: "playbackReport", versions: [1] },
+        { name: "indexBasedQueue", versions: [1] },
       ],
     }),
   getUser: (p) =>
@@ -490,6 +672,21 @@ const handlers: Record<string, Handler> = {
     const size = Math.min(500, p.int("size", 10));
     const list = page(albumList(p), size, p.int("offset", 0)).map(albumJson);
     return sub({ albumList2: { album: list } });
+  },
+
+  getShares: () => (SHARING ? sub({ shares: { share: S.shares.map(shareJson) } }) : notImplemented()),
+  createShare: (p) => {
+    if (!SHARING) return notImplemented();
+    const ids = p.all("id").filter((id) => findAny(id) || S.lib.playlists.some((pl) => pl.id === id));
+    if (!ids.length) return subErr(70, "Data not found");
+    const share: Share = {
+      id: `sh${(S.shares.length + 1).toString(36)}${hashString(ids.join(",")).toString(36).slice(0, 5)}`,
+      ids,
+      description: p.get("description") ?? "",
+      created: Date.now(),
+    };
+    S.shares.push(share);
+    return sub({ shares: { share: [shareJson(share)] } });
   },
 
   getSong: (p) => {
@@ -579,6 +776,7 @@ const handlers: Record<string, Handler> = {
     const ids = p.all("id");
     if (!ids.length) throw new ParamError("Required parameter is missing: id");
     const submission = p.bool("submission", true);
+    for (const id of ids) scoped(p.scope).scrobbles.push({ at: Date.now(), client: p.client, id, submission });
     for (const id of ids) {
       const s = S.lib.songById.get(id);
       if (!s) continue;
@@ -591,11 +789,54 @@ const handlers: Record<string, Handler> = {
     }
     return sub();
   },
-  getNowPlaying: () => {
-    const entries = [...S.nowPlaying.entries()]
-      .filter(([, t]) => Date.now() - t < 20 * 60_000)
-      .map(([id, t]) => ({ ...songJson(S.lib.songById.get(id)!), username: USER, minutesAgo: Math.floor((Date.now() - t) / 60_000), playerId: 1 }));
-    return sub({ nowPlaying: { entry: entries } });
+  getNowPlaying: (p) => {
+    // reportPlayback sessions (Navidrome: one per client, with state and an
+    // extrapolated position), then legacy scrobble "now playing" entries.
+    const now = Date.now();
+    let playerId = 0;
+    const sessions = [...scoped(p.scope).sessions.values()]
+      .filter((x) => x.state !== "stopped" && S.lib.songById.has(x.mediaId))
+      .sort((a, b) => b.start - a.start)
+      .map((x) => ({
+        ...songJson(S.lib.songById.get(x.mediaId)!),
+        username: USER,
+        minutesAgo: Math.floor((now - x.start) / 60_000),
+        playerId: ++playerId,
+        playerName: x.client || undefined,
+        state: x.state,
+        positionMs: x.state === "playing" ? x.positionMs + Math.round((now - x.at) * x.playbackRate) : x.positionMs,
+        playbackRate: x.playbackRate,
+      }));
+    const legacy = p.scope
+      ? []
+      : [...S.nowPlaying.entries()]
+          .filter(([, t]) => now - t < 20 * 60_000)
+          .map(([id, t]) => ({ ...songJson(S.lib.songById.get(id)!), username: USER, minutesAgo: Math.floor((now - t) / 60_000), playerId: ++playerId }));
+    return sub({ nowPlaying: { entry: [...sessions, ...legacy] } });
+  },
+  reportPlayback: (p) => {
+    const mediaId = p.req("mediaId");
+    const state = p.req("state");
+    if (!["starting", "playing", "paused", "stopped"].includes(state)) throw new ParamError(`Invalid state: ${state}`);
+    const positionMs = Number(p.req("positionMs"));
+    if (!Number.isFinite(positionMs) || positionMs < 0) throw new ParamError("Invalid positionMs");
+    const playbackRate = Number(p.get("playbackRate") ?? "1");
+    if (!Number.isFinite(playbackRate) || playbackRate <= 0) throw new ParamError("Invalid playbackRate");
+    const st = scoped(p.scope);
+    const now = Date.now();
+    st.reports.push({ at: now, client: p.client, mediaId, state, positionMs, playbackRate });
+    const prev = st.sessions.get(p.client);
+    st.sessions.set(p.client, {
+      client: p.client, mediaId, state, positionMs, playbackRate, at: now,
+      start: prev && prev.mediaId === mediaId && state !== "starting" ? prev.start : now,
+    });
+    // Like Navidrome: a play counts on `stopped` after half the song or 4 minutes.
+    const s = S.lib.songById.get(mediaId);
+    if (state === "stopped" && s && !p.bool("ignoreScrobble") && positionMs >= Math.min(s.duration * 500, 240_000)) {
+      s.playCount += 1;
+      s.playedDaysAgo = 0;
+    }
+    return sub();
   },
 
   getPlaylists: () => sub({ playlists: { playlist: S.lib.playlists.map(playlistJson) } }),
@@ -652,27 +893,47 @@ const handlers: Record<string, Handler> = {
     return sub();
   },
 
-  getPlayQueue: () => {
-    if (!S.playQueue) return sub();
+  getPlayQueue: (p) => {
+    const q = scoped(p.scope).playQueue;
+    if (!q) return sub();
     return sub({
       playQueue: clean({
-        entry: S.playQueue.ids.map((id) => songJson(S.lib.songById.get(id)!)),
-        current: S.playQueue.current ?? undefined,
-        position: S.playQueue.position,
+        entry: q.ids.map((id) => songJson(S.lib.songById.get(id)!)),
+        current: q.ids[q.currentIndex],
+        position: q.position,
         username: USER,
-        changed: isoMs(S.playQueue.changed),
-        changedBy: "RustySound",
+        changed: isoMs(q.changed),
+        changedBy: q.changedBy,
+      }),
+    });
+  },
+  getPlayQueueByIndex: (p) => {
+    const q = scoped(p.scope).playQueue;
+    if (!q) return sub();
+    return sub({
+      playQueueByIndex: clean({
+        entry: q.ids.map((id) => songJson(S.lib.songById.get(id)!)),
+        currentIndex: q.currentIndex,
+        position: q.position,
+        username: USER,
+        changed: isoMs(q.changed),
+        changedBy: q.changedBy,
       }),
     });
   },
   savePlayQueue: (p) => {
     const ids = p.all("id").filter((id) => S.lib.songById.has(id));
-    if (!ids.length) {
-      S.playQueue = null;
-      return sub();
+    const current = p.get("current");
+    return savePlayQueue(p, "savePlayQueue", ids, Math.max(0, current ? ids.indexOf(current) : 0));
+  },
+  savePlayQueueByIndex: (p) => {
+    const ids = p.all("id").filter((id) => S.lib.songById.has(id));
+    if (!ids.length) return savePlayQueue(p, "savePlayQueueByIndex", ids, 0);
+    const currentIndex = p.int("currentIndex", NaN);
+    if (!Number.isInteger(currentIndex) || currentIndex < 0 || currentIndex >= ids.length) {
+      return subErr(10, "currentIndex out of range");
     }
-    S.playQueue = { ids, current: p.get("current") ?? ids[0], position: p.int("position", 0), changed: Date.now() };
-    return sub();
+    return savePlayQueue(p, "savePlayQueueByIndex", ids, currentIndex);
   },
 
   getBookmarks: () =>
@@ -735,11 +996,15 @@ const handlers: Record<string, Handler> = {
     const lines = lyricLines(s);
     const artist = S.lib.artistById.get(s.artistId)!.name;
     if (!lines.length) return sub({ lyricsList: { structuredLyrics: [] } });
+    // v2 (enhanced=true): `kind` on every entry, word cues on word-timed songs.
+    const enhanced = p.bool("enhanced");
+    const kind = enhanced ? { kind: "main" } : {};
+    const cues = enhanced && wordTimed(s) ? { cueLine: cueLines(lines) } : {};
     return sub({
       lyricsList: {
         structuredLyrics: [
-          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: true, line: lines },
-          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: false, line: lines.map((l) => ({ value: l.value })) },
+          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: true, ...kind, line: lines, ...cues },
+          { displayArtist: artist, displayTitle: s.title, lang: "eng", offset: 0, synced: false, ...kind, line: lines.map((l) => ({ value: l.value })) },
         ],
       },
     });
@@ -772,8 +1037,8 @@ const handlers: Record<string, Handler> = {
   getAvatar: (p) =>
     new Response(coverPng(`avatar-${p.get("username") ?? USER}`, 128), { headers: { "Content-Type": "image/png", ...CORS } }),
 
-  stream: (p, req) => streamSong(p.req("id"), req),
-  download: (p, req) => streamSong(p.req("id"), req),
+  stream: (p, req) => streamSong(p.req("id"), req, p.scope),
+  download: (p, req) => streamSong(p.req("id"), req, p.scope),
 };
 
 function similarSongs(p: P, key: "similarSongs" | "similarSongs2") {
@@ -810,9 +1075,9 @@ function scanStatus() {
   });
 }
 
-function rangeResponse(total: number, req: Request, contentType: string, slice: (start: number, end: number) => Uint8Array): Response {
+function rangeResponse(total: number, req: Request, contentType: string, slice: (start: number, end: number) => Uint8Array, cors = true): Response {
   const range = req.headers.get("range");
-  const base = { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "no-cache", ...CORS };
+  const base = { "Content-Type": contentType, "Accept-Ranges": "bytes", "Cache-Control": "no-cache", ...(cors ? CORS : {}) };
   if (req.method === "HEAD") return new Response(null, { headers: { ...base, "Content-Length": String(total) } });
   if (range) {
     const m = /bytes=(\d*)-(\d*)/.exec(range);
@@ -837,17 +1102,18 @@ function rangeResponse(total: number, req: Request, contentType: string, slice: 
   return new Response(slice(0, total - 1), { headers: { ...base, "Content-Length": String(total) } });
 }
 
-function streamSong(id: string, req: Request): Response {
+function streamSong(id: string, req: Request, scope = ""): Response {
   const s = S.lib.songById.get(id);
   if (!s) return subErr(70, "Song not found");
-  return rangeResponse(wavLength(s.duration), req, "audio/wav", (a, b) => wavSlice(s.id, s.duration, a, b));
+  // A sync scope named "nocors…" serves media without CORS, like a server that refuses it.
+  return rangeResponse(wavLength(s.duration), req, "audio/wav", (a, b) => wavSlice(s.id, s.duration, a, b), !scope.startsWith("nocors"));
 }
 
 // ---------------------------------------------------------------- native Navidrome API
 
 // Sort keys as numeric/string "values"; DESC puts the largest value first (as Navidrome does).
 const SORT_VALUE: Record<string, (s: SongRec) => number | string> = {
-  play_date: (s) => (s.playedDaysAgo === null ? -Infinity : -s.playedDaysAgo),
+  play_date: playedMs,
   play_count: (s) => s.playCount,
   title: (s) => s.title.toLowerCase(),
   rating: (s) => s.userRating ?? 0,
@@ -937,15 +1203,75 @@ function radio(req: Request, url: URL): Response | null {
 
 // ---------------------------------------------------------------- server
 
+async function syncHook(req: Request, url: URL, scope: string): Promise<Response | null> {
+  const st = scoped(scope);
+  if (url.pathname === "/__mock/sync" && req.method === "GET") {
+    return json({
+      playQueue: st.playQueue && { ...st.playQueue, changed: isoMs(st.playQueue.changed) },
+      reports: st.reports,
+      saves: st.saves,
+      scrobbles: st.scrobbles,
+      actions: st.actions,
+      down: st.down,
+    });
+  }
+  if (url.pathname === "/__mock/down" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { mode?: "unreachable" | "500" | null };
+    st.down = body.mode === "unreachable" || body.mode === "500" ? body.mode : null;
+    return json({ ok: true, down: st.down });
+  }
+  if (url.pathname === "/__mock/play-queue" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as {
+      ids?: string[]; count?: number; currentIndex?: number; position?: number; changedBy?: string; changedMsAgo?: number;
+    };
+    const ids = body.ids ?? S.lib.songs.slice(10, 10 + (body.count ?? 5)).map((s) => s.id);
+    st.playQueue = {
+      ids,
+      currentIndex: Math.min(body.currentIndex ?? 0, ids.length - 1),
+      position: body.position ?? 0,
+      changed: Date.now() - (body.changedMsAgo ?? 0),
+      changedBy: body.changedBy ?? "RustySound (iPhone)",
+    };
+    return json({ ok: true, playQueue: { ...st.playQueue, changed: isoMs(st.playQueue.changed) } });
+  }
+  if (url.pathname === "/__mock/now-playing" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as { id?: string; playerName?: string; state?: string };
+    const id = body.id ?? S.lib.songs[20].id;
+    const client = body.playerName ?? "RustySound (Mac)";
+    const now = Date.now();
+    st.sessions.set(client, { client, mediaId: id, state: body.state ?? "playing", positionMs: 30_000, playbackRate: 1, at: now, start: now });
+    return json({ ok: true, title: S.lib.songById.get(id)?.title });
+  }
+  return null;
+}
+
 async function handle(req: Request): Promise<Response> {
   const url = new URL(req.url);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: CORS });
   if (LATENCY_MS) await Bun.sleep(LATENCY_MS);
 
+  // A sync scope: /t/<tag>/... behaves like /..., with its own sync state.
+  let scope = "";
+  const scopeMatch = /^\/t\/([A-Za-z0-9_-]+)(\/.*)$/.exec(url.pathname);
+  if (scopeMatch) {
+    scope = scopeMatch[1];
+    url.pathname = scopeMatch[2];
+  }
+  const hook = await syncHook(req, url, scope);
+  if (hook) return hook;
+
+  // A scope taken down with /__mock/down: no CORS headers reads as a network error.
+  const down = scoped(scope).down;
+  if (down && !url.pathname.startsWith("/__mock/")) {
+    if (down === "500") return json({ error: "mock server down" }, 500);
+    return new Response("mock server unreachable", { status: 503 });
+  }
+
   if (url.pathname === "/" || url.pathname === "/__mock/health") {
     return json({
       ok: true,
       name: "rustysound-mock-subsonic",
+      startedAt: STARTED_AT,
       user: USER,
       counts: { artists: S.lib.artists.length, albums: S.lib.albums.length, songs: S.lib.songs.length, playlists: S.lib.playlists.length },
       streamCapSeconds: STREAM_CAP_SECONDS,
@@ -954,7 +1280,38 @@ async function handle(req: Request): Promise<Response> {
   }
   if (url.pathname === "/__mock/reset" && req.method === "POST") {
     S = freshState();
+    SCOPES.clear();
     return json({ ok: true });
+  }
+  if (url.pathname === "/__mock/playlist" && req.method === "POST") {
+    const body = (await req.json().catch(() => ({}))) as {
+      id?: string; name?: string; songIds?: string[]; add?: string[]; remove?: string[];
+    };
+    let pl = body.id ? S.lib.playlists.find((x) => x.id === body.id) : undefined;
+    if (body.id && !pl) return json({ error: "Playlist not found" }, 404);
+    if (!pl) {
+      pl = {
+        id: `pl-new-${S.nextPlaylist++}`,
+        name: body.name ?? "Mock Playlist",
+        comment: "",
+        owner: USER,
+        public: false,
+        songIds: (body.songIds ?? []).filter((id) => S.lib.songById.has(id)),
+        createdDaysAgo: 0,
+        changedDaysAgo: 0,
+      };
+      // At the end: other specs' fixtures use the first seeded playlist.
+      S.lib.playlists.push(pl);
+    }
+    const drop = new Set(body.remove ?? []);
+    pl.songIds = pl.songIds.filter((id) => !drop.has(id));
+    for (const id of body.add ?? []) if (S.lib.songById.has(id)) pl.songIds.push(id);
+    if (body.name && body.id) pl.name = body.name;
+    pl.changedDaysAgo = 0;
+    return json({ ok: true, playlist: { id: pl.id, name: pl.name, songIds: pl.songIds } });
+  }
+  if (url.pathname === "/__mock/shares") {
+    return json(S.shares.map((sh) => ({ ...sh, url: `${BASE}/share/${sh.id}` })));
   }
   if (url.pathname === "/__mock/fixtures") {
     // Handy for tests: ids for the known fixture entities.
@@ -965,7 +1322,10 @@ async function handle(req: Request): Promise<Response> {
       bigPlaylist: playlistJson(big),
       artist: artistJson(artist),
       album: albumJson(album),
-      albumSongs: album.songIds.map((id) => songJson(S.lib.songById.get(id)!)),
+      albumSongs: album.songIds.map((id) => {
+        const s = S.lib.songById.get(id)!;
+        return { ...songJson(s), wordTimed: wordTimed(s), hasLyrics: !s.instrumental };
+      }),
       playlist: playlistJson(S.lib.playlists[0]),
     });
   }
@@ -986,13 +1346,17 @@ async function handle(req: Request): Promise<Response> {
     const ct = req.headers.get("content-type") ?? "";
     if (ct.includes("application/x-www-form-urlencoded")) form = new URLSearchParams(await req.text());
   }
-  const p = params(url, form);
+  const p = params(url, form, scope);
 
   if (!p.get("u") && !p.get("apiKey")) return subErr(10, "Required parameter is missing: u");
   if (!checkAuth(p)) return subErr(40, "Wrong username or password");
 
   const h = handlers[method];
   if (!h) return subErr(0, `Unknown method: ${method}`);
+  if (RECORDED.has(method)) {
+    const ids = [...p.all("id"), ...p.all("albumId"), ...p.all("artistId"), ...p.all("playlistId"), ...p.all("songId"), ...p.all("songIdToAdd")];
+    scoped(scope).actions.push({ at: Date.now(), method, ids });
+  }
   try {
     return await h(p, req);
   } catch (e) {

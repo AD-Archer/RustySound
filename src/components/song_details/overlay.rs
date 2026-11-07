@@ -7,16 +7,19 @@
 //! and the active-line memo in `lyrics/lines.rs`; queue readers are the art
 //! strip and Up Next.
 
-use super::actions::is_live_song;
+use super::actions::{is_live_song, song_key};
 use super::art::NowPlayingArt;
+use super::gestures::{sheet_mounted, use_now_playing_gestures};
+use super::lyrics::LyricsSource;
 use super::meta::{NowPlayingExtras, NowPlayingMeta};
-use super::panels::NowPlayingPanels;
+use super::panels::{use_now_playing_lyrics, NowPlayingPanels};
+use super::strip::NowPlayingStrip;
 use super::transport::{NowPlayingScrubber, NowPlayingTransport};
-use super::types::{SongDetailsController, SongDetailsTab};
+use super::types::{NowPlayingFocus, SongDetailsController, SongDetailsTab};
 use crate::api::Song;
 use crate::components::ui::env::sleep_ms;
 use crate::components::ui::{use_layout, IconButton};
-use crate::components::{AppView, Navigation};
+use crate::components::{AmbientMode, AppView, Navigation};
 use dioxus::prelude::*;
 
 /// Drag distance (px) past which releasing the sheet dismisses it.
@@ -29,6 +32,15 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
     let now_playing = use_context::<Signal<Option<Song>>>();
     let layout = use_layout();
     let closing = use_signal(|| false);
+    // Compact focused panel view; every open starts in the full player.
+    let mut focused = use_signal(|| false);
+    let focus = use_context_provider(|| NowPlayingFocus(focused));
+    use_now_playing_gestures(focus);
+    use_effect(move || {
+        if !controller.current().is_open && *focused.peek() {
+            focused.set(false);
+        }
+    });
 
     let state = controller.current();
     if !state.is_open {
@@ -73,6 +85,41 @@ fn dismiss(mut controller: SongDetailsController, mut closing: Signal<bool>) {
     });
 }
 
+/// The A key opens ambient mode (shown next to its menu row). Its binding
+/// lives in the shortcut registry with the app's other keys.
+fn is_ambient_key(evt: &KeyboardEvent) -> bool {
+    crate::components::command_palette::event_runs(crate::components::command_palette::ActionId::Ambient, evt)
+}
+
+/// Ambient mode over the sheet, with the sheet's synced lyrics. A sibling
+/// of the sheet, so its keys never reach the sheet's handlers.
+#[component]
+fn NowPlayingAmbient(song: Song, controller: SongDetailsController) -> Element {
+    let source = use_context::<LyricsSource>();
+    let (lyrics, _) = source.shown();
+    let lines = lyrics
+        .filter(|_| source.sync_enabled() && !is_live_song(&song))
+        .map(|found| found.synced_lines)
+        .unwrap_or_default();
+    let lyrics_key = format!(
+        "{}:{}:{}",
+        song_key(&song),
+        lines.len(),
+        lines.first().map(|line| line.timestamp_seconds).unwrap_or(0.0)
+    );
+    rsx! {
+        AmbientMode {
+            song,
+            lines,
+            lyrics_key,
+            on_close: move |_| {
+                let mut controller = controller;
+                controller.set_ambient(false);
+            },
+        }
+    }
+}
+
 /// Close chevron, context label, and a shortcut to the full queue page.
 #[component]
 fn SheetBar(label: String, controller: SongDetailsController, closing: Signal<bool>) -> Element {
@@ -111,9 +158,14 @@ fn CompactNowPlaying(
     closing: Signal<bool>,
 ) -> Element {
     // Swipe-down to dismiss: (start y, start x) while a drag is armed, and
-    // the current downward offset. Only written while dragging.
+    // the current downward offset. Only written while dragging. Armed only
+    // from the grabber area, and only in the full player.
     let mut drag_start = use_signal(|| None::<(f64, f64)>);
     let mut drag_dy = use_signal(|| 0.0f64);
+    let NowPlayingFocus(mut focus) = use_context::<NowPlayingFocus>();
+    use_now_playing_lyrics(song.clone());
+    let ambient = controller.ambient();
+    let focused = focus();
     let dy = drag_dy();
     let style = if dy > 0.0 {
         format!("transform:translateY({dy:.0}px);transition:none")
@@ -125,6 +177,7 @@ fn CompactNowPlaying(
     rsx! {
         div {
             class: "rs-stage rs-player-np rs-player-np--compact",
+            class: if focused { "rs-player-np--focused" },
             class: if closing() { "rs-player-np--closing" },
             style: "{style}",
             role: "dialog",
@@ -132,7 +185,9 @@ fn CompactNowPlaying(
             aria_label: "Now Playing",
             tabindex: "-1",
             "data-testid": "now-playing",
+            "data-focused": if focused { "true" } else { "false" },
             onmounted: move |evt| async move {
+                sheet_mounted();
                 let _ = evt.set_focus(true).await;
             },
             onkeydown: {
@@ -140,7 +195,15 @@ fn CompactNowPlaying(
                 move |evt: KeyboardEvent| {
                     if evt.key() == Key::Escape {
                         evt.prevent_default();
-                        dismiss(controller.clone(), closing);
+                        // Back out one level: focused view, then the sheet.
+                        if *focus.peek() {
+                            focus.set(false);
+                        } else {
+                            dismiss(controller.clone(), closing);
+                        }
+                    } else if is_ambient_key(&evt) {
+                        evt.prevent_default();
+                        controller.clone().set_ambient(true);
                     }
                 }
             },
@@ -175,20 +238,33 @@ fn CompactNowPlaying(
                 drag_dy.set(0.0);
             },
 
+            // The full player. It never scrolls; in the focused view it fades
+            // out (the cover shrinks into the strip) and goes inert.
             div {
-                class: "rs-player-np__grip",
-                onpointerdown: move |evt| {
-                    let point = evt.client_coordinates();
-                    drag_start.set(Some((point.y, point.x)));
-                },
-                div { class: "rs-player-np__grab", aria_hidden: "true" }
-                SheetBar { label, controller: controller.clone(), closing }
-                NowPlayingArt { song: song.clone(), wide: false }
+                class: "rs-player-np__full",
+                inert: if focused { Some("true") } else { None },
+                div {
+                    class: "rs-player-np__grip",
+                    onpointerdown: move |evt| {
+                        if *focus.peek() {
+                            return;
+                        }
+                        let point = evt.client_coordinates();
+                        drag_start.set(Some((point.y, point.x)));
+                    },
+                    div { class: "rs-player-np__grab", aria_hidden: "true" }
+                    SheetBar { label, controller: controller.clone(), closing }
+                    NowPlayingArt { song: song.clone(), wide: false }
+                }
+                NowPlayingMeta { song: song.clone() }
+                NowPlayingScrubber { song: song.clone() }
+                NowPlayingTransport { song: song.clone() }
             }
-            NowPlayingMeta { song: song.clone() }
-            NowPlayingScrubber { song: song.clone() }
-            NowPlayingTransport { song: song.clone() }
+            NowPlayingStrip { song: song.clone(), focused }
             NowPlayingPanels { song: song.clone(), tab, wide: false }
+        }
+        if ambient {
+            NowPlayingAmbient { song, controller }
         }
     }
 }
@@ -201,6 +277,8 @@ fn WideNowPlaying(
     closing: Signal<bool>,
 ) -> Element {
     let label = context_label(&song);
+    use_now_playing_lyrics(song.clone());
+    let ambient = controller.ambient();
     rsx! {
         div {
             class: "rs-player-np-scrim",
@@ -228,6 +306,9 @@ fn WideNowPlaying(
                     if evt.key() == Key::Escape {
                         evt.prevent_default();
                         dismiss(controller.clone(), closing);
+                    } else if is_ambient_key(&evt) {
+                        evt.prevent_default();
+                        controller.clone().set_ambient(true);
                     }
                 }
             },
@@ -244,6 +325,9 @@ fn WideNowPlaying(
                     NowPlayingPanels { song: song.clone(), tab, wide: true }
                 }
             }
+        }
+        if ambient {
+            NowPlayingAmbient { song, controller }
         }
     }
 }

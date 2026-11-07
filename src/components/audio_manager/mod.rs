@@ -15,8 +15,14 @@ include!("native_windows_backend.rs");
 include!("native_ios_backend.rs");
 // iOS remote control and now-playing integration helpers.
 include!("native_ios_remote.rs");
+// iOS equalizer (an MTAudioProcessingTap per AVPlayerItem).
+include!("native_ios_eq.rs");
+// Android player backend (Media3 service, JNI bridge, native queue).
+include!("native_android_backend.rs");
 // Cross-platform native bridge command/snapshot runtime helpers.
 include!("native_bridge_runtime.rs");
+// Remote output (a network speaker) in place of the local backend.
+include!("remote_output.rs");
 // Native (non-wasm) audio controller component.
 include!("controller_native.rs");
 // Shared queue/shuffle/stream/scrobble helpers.
@@ -25,3 +31,20 @@ include!("queue_and_stream_helpers.rs");
 include!("controller_web.rs");
 // Public playback utility API.
 include!("playback_api.rs");
+
+// Playback extras: speed, sleep timer, 30-second previews, gapless and
+// crossfade decisions, volume levelling, the equalizer and autoplay.
+mod autoplay;
+mod eq_output;
+mod gapless;
+mod levelling;
+mod playback_speed;
+mod preview;
+mod sleep_timer;
+pub use autoplay::*;
+pub use eq_output::*;
+pub use gapless::*;
+pub use levelling::*;
+pub use playback_speed::*;
+pub use preview::*;
+pub use sleep_timer::*;

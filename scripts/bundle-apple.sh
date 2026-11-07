@@ -11,6 +11,8 @@ APP_VERSION="${APP_VERSION:-}"
 IOS_ICON_SOURCE="${IOS_ICON_SOURCE:-${ROOT_DIR}/assets/web-app-manifest-512x512.png}"
 DMG_INSTALL_FILE_NAME="${DMG_INSTALL_FILE_NAME:-INSTALL.txt}"
 CREATE_MACOS_DMG="${CREATE_MACOS_DMG:-1}"
+# Opt-in: embed the Now Playing widgets (apple/widgets, docs/WIDGETS.md).
+RS_WIDGETS="${RS_WIDGETS:-0}"
 
 # Prefer Rustup shims so dx/cargo/rustc all see the same installed Apple targets.
 # Homebrew Rust on PATH can otherwise cause false "Missing rust target" failures.
@@ -174,8 +176,19 @@ dx bundle \
     --release \
     --out-dir "${MACOS_OUT_DIR}"
 
+# Simulator builds with the widgets: the simulator reads the App Group
+# entitlement from a section linked into the binary, not from the signature.
+# (Target-scoped, and set only then, so Cargo config flags stay as they are.)
+IOS_ENV=()
+if [[ "${RS_WIDGETS}" == "1" && "${IOS_SDK}" == "iphonesimulator" ]]; then
+    SIM_ENTITLEMENTS="${ROOT_DIR}/target/apple-widgets/ios-sim/app.entitlements"
+    "${ROOT_DIR}/apple/widgets/sim-entitlements.sh" "${SIM_ENTITLEMENTS}"
+    IOS_ENV=("CARGO_TARGET_AARCH64_APPLE_IOS_SIM_RUSTFLAGS=-C link-arg=-Wl,-sectcreate,__TEXT,__entitlements,${SIM_ENTITLEMENTS}")
+fi
+
 echo "Bundling iOS app (.app) without signing..."
 env \
+    ${IOS_ENV[@]+"${IOS_ENV[@]}"} \
     -u CPATH \
     -u C_INCLUDE_PATH \
     -u CPLUS_INCLUDE_PATH \
@@ -241,9 +254,14 @@ set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsInWebContent bool true" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoadsForMedia bool true" "${IOS_PLIST_PATH}"
 
-# Local-network servers (Navidrome on LAN) may require this usage description on device.
-/usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}" >/dev/null 2>&1 \
-    || /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string RustySound needs local network access to stream from your media server." "${IOS_PLIST_PATH}"
+# Local-network servers (Navidrome on LAN) and network speakers (src/cast) need this usage
+# description on device; Chromecast discovery also needs its Bonjour type listed.
+LOCAL_NETWORK_USE="RustySound uses your local network to stream from your media server and to play on speakers."
+/usr/libexec/PlistBuddy -c "Set :NSLocalNetworkUsageDescription ${LOCAL_NETWORK_USE}" "${IOS_PLIST_PATH}" >/dev/null 2>&1 \
+    || /usr/libexec/PlistBuddy -c "Add :NSLocalNetworkUsageDescription string ${LOCAL_NETWORK_USE}" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Delete :NSBonjourServices" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
+/usr/libexec/PlistBuddy -c "Add :NSBonjourServices array" "${IOS_PLIST_PATH}"
+/usr/libexec/PlistBuddy -c "Add :NSBonjourServices:0 string _googlecast._tcp" "${IOS_PLIST_PATH}"
 
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIcons" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
 /usr/libexec/PlistBuddy -c "Delete :CFBundleIcons~ipad" "${IOS_PLIST_PATH}" >/dev/null 2>&1 || true
@@ -260,6 +278,16 @@ set_bundle_version "${IOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconFiles:0 string AppIcon76x76" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIcons~ipad:CFBundlePrimaryIcon:CFBundleIconFiles:1 string AppIcon83.5x83.5" "${IOS_PLIST_PATH}"
 /usr/libexec/PlistBuddy -c "Add :CFBundleIcons~ipad:CFBundlePrimaryIcon:UIPrerenderedIcon bool false" "${IOS_PLIST_PATH}"
+
+if [[ "${RS_WIDGETS}" == "1" ]]; then
+    if [[ "${IOS_SDK}" == "iphonesimulator" ]]; then
+        IOS_WIDGET_PLATFORM="ios-sim"
+    else
+        IOS_WIDGET_PLATFORM="ios"
+    fi
+    "${ROOT_DIR}/apple/widgets/build.sh" "${IOS_WIDGET_PLATFORM}"
+    "${ROOT_DIR}/apple/widgets/embed.sh" "${IOS_WIDGET_PLATFORM}" "${IOS_APP_PATH}"
+fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT
@@ -285,6 +313,11 @@ MACOS_DMG_PATH="${MACOS_OUT_DIR}/${MACOS_APP_NAME}.dmg"
 
 echo "Updating macOS Info.plist version metadata..."
 set_bundle_version "${MACOS_PLIST_PATH}" "${APPLE_BUNDLE_VERSION}"
+
+if [[ "${RS_WIDGETS}" == "1" ]]; then
+    "${ROOT_DIR}/apple/widgets/build.sh" macos
+    "${ROOT_DIR}/apple/widgets/embed.sh" macos "${MACOS_APP_PATH}"
+fi
 
 if [[ "${CREATE_MACOS_DMG}" == "1" ]]; then
     echo "Creating macOS installer (.dmg) with install instructions..."

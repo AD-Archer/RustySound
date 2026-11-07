@@ -222,17 +222,7 @@ pub(super) fn screenshot_share_status_message(status: &str, intent: ScreenshotSh
     }
 }
 
-#[cfg(not(target_arch = "wasm32"))]
-pub(super) async fn lyrics_share_delay_ms(ms: u64) {
-    tokio::time::sleep(std::time::Duration::from_millis(ms)).await;
-}
-
-#[cfg(target_arch = "wasm32")]
-pub(super) async fn lyrics_share_delay_ms(ms: u64) {
-    gloo_timers::future::TimeoutFuture::new(ms as u32).await;
-}
-
-pub(super) async fn share_screenshot_lyrics_image(
+pub(crate) async fn share_screenshot_lyrics_image(
     capture_element_id: String,
     file_name: String,
     share_intent: String,

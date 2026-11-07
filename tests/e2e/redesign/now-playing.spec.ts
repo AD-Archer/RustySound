@@ -51,15 +51,13 @@ test.describe("now playing", () => {
     const rows = list.locator('[data-testid="track-row"]:not(.rs-trow--playing)');
     await expect(rows.first()).toBeVisible();
     const before = await rows.count();
-    // Edit lives in the panel's "…" menu; while editing, Done is the one visible action.
-    await tid(list, "up-next-more").click();
-    await tid(page, "up-next-menu").locator('[data-testid="up-next-edit"]').click();
-    await expect(tid(page, "up-next-menu")).toHaveCount(0);
-    await expect(tid(list, "queue-edit-row").first()).toBeVisible();
-    await tid(list, "queue-edit-row").first().getByRole("button", { name: /^Remove / }).click();
-    await expect(tid(list, "queue-edit-row")).toHaveCount(before - 1);
-    await tid(list, "up-next-done").click();
-    await expect(tid(list, "queue-edit-row")).toHaveCount(0);
+    // No Edit mode: upcoming rows carry a reorder handle, and the track menu removes.
+    await expect(tid(list, "up-next-more")).toBeVisible();
+    await expect(rows.first().locator('[data-testid="row-handle"]')).toBeVisible();
+    await rows.first().getByRole("button", { name: /^More for / }).click();
+    await tid(page, "track-menu-remove").click();
+    await expect(rows).toHaveCount(before - 1);
+    await expect(tid(page, "undo-toast")).toBeVisible();
 
     await tid(now, "now-playing-panels").getByRole("button", { name: "Info" }).click();
     await expect(tid(now, "now-playing-info")).toContainText(mock.album.name);
@@ -133,6 +131,24 @@ test.describe("now playing", () => {
     await expect(playing).toBeInViewport();
     const background = await playing.evaluate((el) => getComputedStyle(el).backgroundColor);
     expect(background).not.toBe("rgba(0, 0, 0, 0)");
+  });
+
+  test("the title opens the album; playing a playlist, the cover opens the playlist", async ({ connected: page, mock }) => {
+    // From an album: the title opens that album.
+    await startPlayback(page, mock);
+    let now = await openNowPlaying(page);
+    await tid(now, "now-playing-title-link").click();
+    await expect(tid(page, "now-playing")).toHaveCount(0);
+    await expect(page).toHaveURL(new RegExp(`/album/${mock.album.id}/`));
+
+    // From a playlist: the cover opens the playlist, not the song's album.
+    await page.goto(`/playlist/${mock.playlist.id}/${MOCK_SERVER_ID}`);
+    await waitForAppReady(page);
+    await tid(page, "playlist-play").click();
+    await expect.poll(async () => (await audioState(page))?.currentTime ?? 0, { timeout: 20_000 }).toBeGreaterThan(0.3);
+    now = await openNowPlaying(page);
+    await tid(now, "now-playing-cover").click();
+    await expect(page).toHaveURL(new RegExp(`/playlist/${mock.playlist.id}/`));
   });
 
   test("lyrics options: menu, search sheet", async ({ connected: page, mock }) => {
@@ -211,7 +227,7 @@ test.describe("queue page", () => {
 
     await tid(page, "queue-more").click();
     const menu = tid(page, "queue-menu");
-    for (const id of ["queue-menu-edit", "queue-quick-create", "queue-save", "queue-menu-clear"]) {
+    for (const id of ["queue-quick-create", "queue-save", "queue-menu-clear"]) {
       await expect(tid(menu, id), id).toBeVisible();
     }
     await tid(menu, "queue-menu-clear").click();

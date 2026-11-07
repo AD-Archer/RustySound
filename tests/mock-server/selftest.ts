@@ -103,6 +103,18 @@ expect((await rest("getPlaylist", `&id=${pid}`)).error?.code === 70, "deletePlay
 await rest("savePlayQueue", `&id=${song.id}&id=${album.album.song[1].id}&current=${song.id}&position=1234`);
 const pq = await rest("getPlayQueue");
 expect(pq.playQueue.entry.length === 2 && pq.playQueue.position === 1234, "play queue round trip");
+expect(pq.playQueue.changedBy === "selftest", "play queue changedBy is the client (c=)");
+await rest("savePlayQueueByIndex", `&id=${song.id}&id=${song.id}&currentIndex=1&position=99`);
+const pqi = await rest("getPlayQueueByIndex");
+expect(pqi.playQueueByIndex.currentIndex === 1 && pqi.playQueueByIndex.entry.length === 2, "play queue by index round trip");
+expect((await rest("savePlayQueueByIndex", `&id=${song.id}&currentIndex=3`)).error?.code === 10, "currentIndex out of range");
+const plays = (await rest("getSong", `&id=${song.id}`)).song.playCount;
+await rest("reportPlayback", `&mediaId=${song.id}&mediaType=song&positionMs=0&state=starting`);
+await rest("reportPlayback", `&mediaId=${song.id}&mediaType=song&positionMs=1000&state=playing&playbackRate=1`);
+const np = (await rest("getNowPlaying")).nowPlaying.entry.find((e: any) => e.playerName === "selftest");
+expect(np && np.state === "playing" && np.id === song.id, "reportPlayback shows in getNowPlaying");
+await rest("reportPlayback", `&mediaId=${song.id}&mediaType=song&positionMs=${song.duration * 1000}&state=stopped`);
+expect((await rest("getSong", `&id=${song.id}`)).song.playCount === plays + 1, "reportPlayback stopped scrobbles");
 await rest("createBookmark", `&id=${song.id}&position=5000`);
 expect((await rest("getBookmarks")).bookmarks.bookmark.some((b: any) => b.entry.id === song.id), "createBookmark");
 await rest("deleteBookmark", `&id=${song.id}`);
@@ -143,6 +155,11 @@ const { token: nd } = (await login.json()) as { token: string };
 const native = await fetch(`${base}/api/song?_start=0&_end=5&_sort=play_date&_order=DESC`, { headers: { "x-nd-authorization": `Bearer ${nd}` } });
 const nsongs = (await native.json()) as any[];
 expect(nsongs.length === 5 && Date.parse(nsongs[0].playDate) >= Date.parse(nsongs[4].playDate), "native /api/song play_date DESC");
+// Wrapped pages the whole play history newest first; last plays vary by hour of day.
+const history = (await (await fetch(`${base}/api/song?_start=0&_end=400&_sort=play_date&_order=DESC`, { headers: { "x-nd-authorization": `Bearer ${nd}` } })).json()) as any[];
+const playedTimes = history.filter((s) => s.playDate).map((s) => Date.parse(s.playDate));
+expect(playedTimes.every((t, i) => i === 0 || playedTimes[i - 1] >= t), "play_date DESC is ordered by the full timestamp");
+expect(new Set(playedTimes.map((t) => new Date(t).getUTCHours())).size >= 6, "last plays spread over the day");
 const lrc = await (await fetch(`${base}/lrclib/api/search?track_name=${encodeURIComponent("Paper Lanterns")}&artist_name=${encodeURIComponent("The Paper Comets")}`)).json();
 expect(Array.isArray(lrc) && lrc[0]?.syncedLyrics?.startsWith("[00:04"), "lrclib stand-in");
 

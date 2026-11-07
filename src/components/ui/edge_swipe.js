@@ -15,8 +15,7 @@
 //   routed()             the route changed and the new page is in the DOM.
 //   state()              phase name, for tests.
 
-const EDGE_PX = 24;          // start zone at each screen edge
-const LOCK_PX = 8;           // travel before the direction is decided
+// GESTURE_EDGE_PX, GESTURE_LOCK_PX and the helpers come from gesture_core.js.
 const COMMIT_RATIO = 0.35;   // of the width
 const FLICK_PX_PER_MS = 0.5; // release speed that commits a shorter drag
 const FLICK_MIN_PX = 24;
@@ -25,7 +24,9 @@ const ROUTE_WAIT_MS = 700;   // give up waiting for the new page after this
 // Anything here (or inside it) keeps the gesture for itself.
 const OWN_GESTURE =
   "input, textarea, select, [contenteditable='true'], [role='slider'], " +
-  ".rs-coverflow, [data-testid='coverflow'], .rs-track, .rs-library-index, [data-no-edge-swipe]";
+  ".rs-coverflow, [data-testid='coverflow'], .rs-track, .rs-library-index, [data-no-edge-swipe], " +
+  // A row's reorder handle drags the row, even at the screen edge (row_gestures.js).
+  "[data-row-handle]";
 // Any of these open means a menu, sheet or Now Playing is up.
 const OPEN_LAYER = ".rs-scrim, [aria-modal='true'], [role='dialog'], [role='menu'], [data-testid='now-playing']";
 
@@ -41,7 +42,7 @@ function install() {
   let g = null; // the current gesture
   let frame = 0;
   let routeWait = null;
-  const reduceMotion = window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)") : { matches: false };
+  const reduceMotion = prefersReducedMotion();
 
   stampHistory();
 
@@ -50,7 +51,7 @@ function install() {
     if (typeof flag === "boolean") return flag;
     const nav = window.navigation;
     if (nav && typeof nav.canGoBack === "boolean") return dir > 0 ? nav.canGoBack : nav.canGoForward;
-    const index = historyIndex();
+    const index = historyIndex() ?? 0;
     if (dir > 0) return index > 0;
     try {
       return index < Number(sessionStorage.getItem("rs.history.max") || 0);
@@ -79,7 +80,7 @@ function install() {
     if (e.touches.length !== 1) return;
     const t = e.touches[0];
     const width = window.innerWidth;
-    const dir = t.clientX <= EDGE_PX ? 1 : t.clientX >= width - EDGE_PX ? -1 : 0;
+    const dir = t.clientX <= GESTURE_EDGE_PX ? 1 : t.clientX >= width - GESTURE_EDGE_PX ? -1 : 0;
     if (!dir || !canGo(dir) || blocked(e.target)) return;
     phase = "pending";
     g = { dir, id: t.identifier, x0: t.clientX, y0: t.clientY, dx: 0, width, samples: [], main: null, under: null };
@@ -92,7 +93,7 @@ function install() {
     const dx = t.clientX - g.x0;
     const dy = t.clientY - g.y0;
     if (phase === "pending") {
-      if (Math.max(Math.abs(dx), Math.abs(dy)) < LOCK_PX) return;
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < GESTURE_LOCK_PX) return;
       // Clearly sideways and away from the edge, or it is a scroll.
       if (dx * g.dir <= 0 || Math.abs(dx) < Math.abs(dy) * 1.2) {
         reset();
@@ -102,9 +103,7 @@ function install() {
     }
     if (e.cancelable) e.preventDefault();
     g.dx = g.dir > 0 ? Math.min(Math.max(dx, 0), g.width) : Math.max(Math.min(dx, 0), -g.width);
-    const now = performance.now();
-    g.samples.push([now, t.clientX]);
-    while (g.samples.length > 2 && now - g.samples[0][0] > 100) g.samples.shift();
+    pushSample(g.samples, nowMs(), t.clientX);
     if (!frame && !reduceMotion.matches) frame = requestAnimationFrame(paint);
   }
 
@@ -115,7 +114,7 @@ function install() {
     }
     if (phase !== "drag" || touchById(e.touches, g.id)) return;
     const travel = Math.abs(g.dx);
-    const speed = velocity() * g.dir; // px/ms toward the goal
+    const speed = velocity(g.samples) * g.dir; // px/ms toward the goal
     const commit =
       e.type === "touchend" &&
       !document.querySelector(OPEN_LAYER) &&
@@ -126,6 +125,10 @@ function install() {
 
   function begin() {
     phase = "drag";
+    // A page transition still playing (page_transition.js) would fight the
+    // drag for the page's transform: end it now. While this gesture is not
+    // idle, that script skips the navigation the swipe commits.
+    if (window.__rsPageTx) window.__rsPageTx.settle();
     if (reduceMotion.matches) return;
     const main = document.querySelector(".rs-main");
     g.main = main;
@@ -143,16 +146,6 @@ function install() {
     if (!g || !g.main) return;
     g.main.style.transform = `translate3d(${g.dx}px,0,0)`;
     g.under.style.opacity = String(1 - Math.abs(g.dx) / g.width);
-  }
-
-  function velocity() {
-    const s = g.samples;
-    if (s.length < 2) return 0;
-    const [t0, x0] = s[0];
-    const [t1, x1] = s[s.length - 1];
-    // A finger that stopped before lifting is not a flick.
-    if (performance.now() - t1 > 80) return 0;
-    return t1 > t0 ? (x1 - x0) / (t1 - t0) : 0;
   }
 
   function animate(to, ms, underOpacity, done) {
@@ -190,7 +183,7 @@ function install() {
   function finish(speed) {
     const message = g.dir > 0 ? "back" : "forward";
     if (!g.main) {
-      // Reduced motion: no slide, just go.
+      // Reduced motion: no slide, just go (page_transition.js fades).
       reset();
       send(message);
       return;
@@ -245,21 +238,12 @@ function install() {
     if (phase === "pending" || phase === "drag") reset();
   }
 
-  function touchById(list, id) {
-    for (let i = 0; i < list.length; i++) if (list[i].identifier === id) return list[i];
-    return null;
-  }
-
   // ---- Browser history index ---------------------------------------------
   // Dioxus' WebHistory stores [scrollX, scrollY] as the entry state. Add the
   // entry's position as a third item so "is there an app page behind this
   // one" has an answer where the Navigation API is missing (and for Rust's
   // can_go_back on the web). Other state shapes pass through untouched.
-  function historyIndex() {
-    const state = history.state;
-    return Array.isArray(state) && typeof state[2] === "number" ? state[2] : 0;
-  }
-
+  // historyIndex() (gesture_core.js) reads the stamp back.
   function stampHistory() {
     if (window.__rsHistoryStamped || typeof history === "undefined") return;
     window.__rsHistoryStamped = true;
@@ -268,13 +252,13 @@ function install() {
     const stamp = (state, index) =>
       Array.isArray(state) && state.length >= 2 ? [state[0], state[1], index] : state;
     history.pushState = (state, title, url) => {
-      const next = historyIndex() + 1;
+      const next = (historyIndex() ?? 0) + 1;
       try {
         sessionStorage.setItem("rs.history.max", String(next));
       } catch (_) {}
       return push(stamp(state, next), title, url);
     };
-    history.replaceState = (state, title, url) => replace(stamp(state, historyIndex()), title, url);
+    history.replaceState = (state, title, url) => replace(stamp(state, historyIndex() ?? 0), title, url);
     if (Array.isArray(history.state) && history.state.length === 2) {
       replace(stamp(history.state, 0), "");
     }

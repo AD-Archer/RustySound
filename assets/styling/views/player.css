@@ -3,6 +3,23 @@
    classes from components.css (ask the coordinator instead). Prefix view
    classes with rs-player- to keep them out of the kit namespace. */
 
+/* One line, ending in an ellipsis: base.css's .rs-truncate, for markup that
+   carries only its view class. */
+.rs-player-np__ctx,
+.rs-player-np__strip-title,
+.rs-player-np__strip-artist,
+.rs-player-meta__title,
+.rs-player-meta__title-link,
+.rs-player-meta__artist,
+.rs-player-shotcard__title,
+.rs-player-shotcard__artist,
+.rs-player-addhead__title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* ==========================================================================
    NOW PLAYING: the stage sheet
    ========================================================================== */
@@ -31,14 +48,31 @@
 .rs-player-np .rs-iconbtn--quiet { color: var(--stage-muted); }
 .rs-player-np .rs-iconbtn--quiet[aria-pressed="true"] { color: var(--accent-hi); }
 
-/* Compact: full screen, slides up from the mini player, swipes down. */
+/* Compact: full screen, slides up from the mini player, swipes down from the
+   grabber. The sheet itself never scrolls (only the panel content does, in
+   the focused view). Its two states share one progress variable, --np-p:
+   0 is the full player, 1 the focused panel view. The class sets it; while a
+   finger drags, gestures.js sets it inline and data-np-drag turns the
+   transitions off. Everything that moves reads it, through transform and
+   opacity only. --np-panel-top (the panel's top in the full player),
+   --np-shift (how far that is below its focused place) and --np-mini-x/y/s
+   (the big cover's move onto the strip's cover) are measured by gestures.js. */
 .rs-player-np--compact {
+  --np-p: 0;
+  --np-dur: .3s;
+  --np-strip: 72px;
   inset: 0;
   padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
-  overflow-y: auto;
-  overscroll-behavior: contain;
+  /* clip, not hidden: not even focus or scrollIntoView can scroll the sheet. */
+  overflow: clip;
+  overscroll-behavior: none;
+  touch-action: none;
   animation: rs-player-up .38s var(--ease-sheet);
   transition: transform var(--dur-med) var(--ease-out);
+}
+
+.rs-player-np--focused {
+  --np-p: 1;
 }
 
 .rs-player-np--closing {
@@ -63,7 +97,7 @@
 .rs-player-np__grab {
   width: 36px;
   height: 5px;
-  margin: 6px auto 0;
+  margin: var(--sp-3) auto 0;
   border-radius: 3px;
   background: var(--stage-thumb);
 }
@@ -74,21 +108,242 @@
   justify-content: space-between;
   gap: var(--sp-4);
   height: 44px;
-  padding: 0 6px;
+  padding: 0 var(--sp-3);
   flex: none;
 }
 
 .rs-player-np__ctx {
   flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   text-align: center;
   font-size: var(--fs-sub);
   font-weight: var(--fw-semibold);
   color: var(--stage-muted);
 }
+
+/* ---- Compact: full player and focused panel view ----------------------- */
+
+.rs-player-np__full {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+}
+
+/* The full player's pieces fade out in the first half of the move. */
+.rs-player-np--compact .rs-player-np__grab,
+.rs-player-np--compact .rs-player-np__bar {
+  opacity: calc(1 - var(--np-p) * 2);
+  transition: opacity var(--np-dur) var(--ease-out);
+}
+
+.rs-player-np--compact .rs-player-meta,
+.rs-player-np--compact .rs-player-scrub,
+.rs-player-np--compact .rs-player-transport {
+  opacity: calc(1 - var(--np-p) * 2);
+  transform: translateY(calc(var(--np-p) * -24px));
+  transition: opacity var(--np-dur) var(--ease-out), transform var(--np-dur) var(--ease-sheet);
+}
+
+.rs-player-np--focused .rs-player-np__full {
+  visibility: hidden;
+  transition: visibility 0s linear var(--np-dur);
+}
+
+/* The big cover shrinks onto the strip's cover, then hands over to it. */
+.rs-player-np--compact .rs-player-flow__cover {
+  transform:
+    translate(calc(var(--np-mini-x, -30vw) * var(--np-p)), calc(var(--np-mini-y, -20vh) * var(--np-p)))
+    scale(calc(1 + (var(--np-mini-s, .22) - 1) * var(--np-p)));
+  opacity: calc((1 - var(--np-p)) * 8);
+  transition: transform var(--np-dur) var(--ease-sheet), opacity .06s linear;
+}
+
+.rs-player-np--focused .rs-player-flow__cover {
+  transition: transform var(--np-dur) var(--ease-sheet), opacity .06s linear calc(var(--np-dur) - .04s);
+}
+
+/* Header strip of the focused view: small cover, title and artist,
+   play/pause. Tap or drag down to go back. */
+.rs-player-np__strip {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: calc(var(--safe-top) + var(--np-strip));
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--safe-top) calc(var(--safe-right) + 10px) 0 calc(var(--safe-left) + 16px);
+  touch-action: none;
+  opacity: calc(var(--np-p) * 2 - 1);
+  transform: translateY(calc((1 - var(--np-p)) * 10px));
+  visibility: hidden;
+  transition:
+    opacity var(--np-dur) var(--ease-out),
+    transform var(--np-dur) var(--ease-sheet),
+    visibility 0s linear var(--np-dur);
+}
+
+.rs-player-np--focused .rs-player-np__strip {
+  visibility: visible;
+  transition-delay: 0s;
+}
+
+.rs-app .rs-player-np__strip-main {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-5);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-player-np__strip-art {
+  flex: none;
+  width: 52px;
+  height: 52px;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, .45);
+  opacity: calc((var(--np-p) - .85) * 7);
+  transition: opacity .05s linear;
+}
+
+.rs-player-np--focused .rs-player-np__strip-art {
+  transition: opacity .06s linear calc(var(--np-dur) - .08s);
+}
+
+.rs-player-np__strip-art .rs-art {
+  border-radius: inherit;
+}
+
+.rs-player-np__strip-text {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.rs-player-np__strip-title {
+  font-size: var(--fs-body);
+  line-height: 20px;
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+}
+
+.rs-player-np__strip-artist {
+  font-size: var(--fs-sub);
+  line-height: 18px;
+  color: var(--stage-muted);
+}
+
+.rs-player-np__strip .rs-player-np__strip-play {
+  flex: none;
+  color: var(--stage-ink);
+}
+
+/* The panel: under the transport in the full player (--np-panel-top), under
+   the strip in the focused view. At rest it has no transform, because the
+   menus and sheets the panels open are position: fixed inside it, and a
+   transform would become their containing block. It moves by transform
+   only while it moves: following a finger (--np-at is where the class puts
+   it, --np-p where the finger is), and in a short animation that
+   gestures.js starts on each switch (data-np-anim), from where it was
+   (--np-from, the finger's last place after a drag). */
+.rs-player-np--compact {
+  --np-at: 0;
+}
+
+.rs-player-np--focused {
+  --np-at: 1;
+}
+
+.rs-player-np--compact .rs-player-panels {
+  position: absolute;
+  z-index: 1;
+  top: var(--np-panel-top, 52dvh);
+  left: 0;
+  right: 0;
+  bottom: 0;
+  min-height: 0;
+  padding: 14px calc(var(--safe-right) + 20px) calc(var(--safe-bottom) + 8px) calc(var(--safe-left) + 24px);
+  transition: transform var(--np-dur) var(--ease-sheet);
+}
+
+.rs-player-np--focused .rs-player-panels {
+  top: calc(var(--safe-top) + var(--np-strip));
+}
+
+/* Raised from its full-player place, the short panel would leave a gap at
+   the bottom; while it moves, it reaches below the screen instead. */
+.rs-player-np--compact:not(.rs-player-np--focused):is([data-np-drag], [data-np-anim]) .rs-player-panels {
+  bottom: calc(-1 * var(--np-shift, 0px));
+}
+
+.rs-player-np--compact[data-np-drag] .rs-player-panels {
+  transform: translateY(calc(var(--np-shift, 0px) * (var(--np-at) - var(--np-p))));
+}
+
+.rs-player-np--compact[data-np-anim="up"] .rs-player-panels {
+  animation: rs-np-panel-up var(--np-dur) var(--ease-sheet);
+}
+
+.rs-player-np--compact[data-np-anim="down"] .rs-player-panels {
+  animation: rs-np-panel-down var(--np-dur) var(--ease-sheet);
+}
+
+@keyframes rs-np-panel-up {
+  from { transform: translateY(calc(var(--np-shift, 0px) * (1 - var(--np-from, 0)))); }
+  to { transform: none; }
+}
+
+@keyframes rs-np-panel-down {
+  from { transform: translateY(calc(var(--np-shift, 0px) * -1 * var(--np-from, 1))); }
+  to { transform: none; }
+}
+
+/* The full player's panel is a peek: a swipe up there opens the focused view
+   instead of scrolling. In the focused view the content scrolls. */
+.rs-player-np--compact :is(.rs-player-lyrics__lines, .rs-player-upnext, .rs-player-info) {
+  touch-action: none;
+}
+
+.rs-player-np--focused :is(.rs-player-lyrics__lines, .rs-player-upnext, .rs-player-info) {
+  touch-action: pan-y;
+}
+
+/* While a finger drags, everything sits where it says. */
+.rs-player-np--compact[data-np-drag] :is(
+  .rs-player-np__grab, .rs-player-np__bar, .rs-player-meta, .rs-player-scrub,
+  .rs-player-transport, .rs-player-flow__cover, .rs-player-np__strip,
+  .rs-player-np__strip-art, .rs-player-panels
+) {
+  transition: none;
+}
+
+.rs-player-np--compact[data-np-drag] :is(.rs-player-np__full, .rs-player-np__strip) {
+  visibility: visible;
+}
+
+/* Lyrics | Up Next | Info, and the expand chevron (compact). */
+.rs-player-panels__head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.rs-player-panels__head .rs-seg {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-player-panels__expand {
+  flex: none;
+  margin-right: -6px;
+}
+
+.rs-player-panels__airplay { flex: none; }
 
 /* Wide: the same stage as a large overlay; cover left, panels right. */
 .rs-player-np-scrim {
@@ -128,7 +383,7 @@
 }
 
 .rs-player-np--wide .rs-player-np__bar {
-  padding: 8px 12px 0;
+  padding: var(--sp-4) var(--sp-5) 0;
 }
 
 .rs-player-np__cols {
@@ -160,7 +415,7 @@
   position: relative;
   flex: none;
   height: calc(var(--np-cover) * 1.18);
-  margin-top: 12px;
+  margin-top: var(--sp-5);
   perspective: 900px;
 }
 
@@ -184,7 +439,8 @@
   margin-left: calc(var(--np-cover) / -2);
   border-radius: var(--r-art);
   background: var(--stage-cover-blank);
-  -webkit-box-reflect: below 3px linear-gradient(transparent 66%, rgba(255, 255, 255, .2));
+  /* The kit Cover Flow's reflection (.rs-cover); one recipe app-wide. */
+  -webkit-box-reflect: below 3px linear-gradient(transparent 58%, rgba(255, 255, 255, .22));
 }
 
 .rs-player-flow__cover {
@@ -231,13 +487,110 @@
   border-radius: inherit;
 }
 
+/* Compact: the side covers fade with the rest of the full player. */
+.rs-app .rs-player-np--compact .rs-player-flow__side {
+  opacity: calc(1 - var(--np-p) * 2);
+  transition: transform var(--dur-flow) var(--ease-out), opacity var(--np-dur) var(--ease-out);
+}
+
+.rs-app .rs-player-np--compact[data-np-drag] .rs-player-flow__side {
+  transition: none;
+}
+
+/* ---- Cover swipe (compact) ---------------------------------------------
+   gestures.js sets data-swipe="next|prev" on the flow, and --sw (-1…1,
+   negative toward the next song) with --swa (its size). The big cover turns
+   away to the side, the near side cover turns in to the middle, and the
+   others move one place along, so the end of the turn looks exactly like
+   the next song's resting layout. data-swipe-phase: drag (follows the
+   finger), settle (springs back or finishes the turn), instant (the swap). */
+.rs-app .rs-player-flow[data-swipe] .rs-player-flow__cover {
+  transform:
+    translateX(calc(var(--np-cover) * .62 * var(--sw, 0)))
+    translateZ(calc(var(--np-cover) * -.35 * var(--swa, 0)))
+    rotateY(calc(-62deg * var(--sw, 0)));
+}
+
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side:not(.rs-player-flow__side--prev) {
+  transform:
+    translateX(calc(var(--np-cover) * (.62 + .26 * (var(--i) - var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(-62deg);
+}
+
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side--prev {
+  transform:
+    translateX(calc(var(--np-cover) * -1 * (.62 + .26 * (var(--i) + var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(62deg);
+}
+
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side--prev {
+  transform:
+    translateX(calc(var(--np-cover) * -1 * (.62 + .26 * (var(--i) - var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(62deg);
+}
+
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side:not(.rs-player-flow__side--prev) {
+  transform:
+    translateX(calc(var(--np-cover) * (.62 + .26 * (var(--i) + var(--swa, 0)))))
+    translateZ(calc(var(--np-cover) * -.35))
+    rotateY(-62deg);
+}
+
+/* The neighbour coming in: from its side place to the middle. */
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side--near:not(.rs-player-flow__side--prev) {
+  transform:
+    translateX(calc(var(--np-cover) * .62 * (1 - var(--swa, 0))))
+    translateZ(calc(var(--np-cover) * -.35 * (1 - var(--swa, 0))))
+    rotateY(calc(-62deg * (1 - var(--swa, 0))));
+}
+
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side--prev.rs-player-flow__side--near {
+  transform:
+    translateX(calc(var(--np-cover) * -.62 * (1 - var(--swa, 0))))
+    translateZ(calc(var(--np-cover) * -.35 * (1 - var(--swa, 0))))
+    rotateY(calc(62deg * (1 - var(--swa, 0))));
+}
+
+.rs-app .rs-player-flow[data-swipe="next"] .rs-player-flow__side--near:not(.rs-player-flow__side--prev)::after,
+.rs-app .rs-player-flow[data-swipe="prev"] .rs-player-flow__side--prev.rs-player-flow__side--near::after {
+  opacity: calc(.4 * (1 - var(--swa, 0)));
+}
+
+/* Past halfway the incoming cover paints over the outgoing one. */
+.rs-app .rs-player-flow[data-swipe="next"][data-swipe-over] .rs-player-flow__side--near:not(.rs-player-flow__side--prev),
+.rs-app .rs-player-flow[data-swipe="prev"][data-swipe-over] .rs-player-flow__side--prev.rs-player-flow__side--near {
+  z-index: 101;
+}
+
+.rs-app .rs-player-flow[data-swipe-phase="drag"] :is(.rs-player-flow__cover, .rs-player-flow__side),
+.rs-app .rs-player-flow[data-swipe-phase="drag"] .rs-player-flow__side::after,
+.rs-app .rs-player-flow[data-swipe-phase="instant"] :is(.rs-player-flow__cover, .rs-player-flow__side),
+.rs-app .rs-player-flow[data-swipe-phase="instant"] .rs-player-flow__side::after {
+  transition: none;
+}
+
+.rs-app .rs-player-flow[data-swipe-phase="settle"] :is(.rs-player-flow__cover, .rs-player-flow__side) {
+  transition: transform .24s var(--ease-out);
+}
+
+.rs-app .rs-player-flow[data-swipe-phase="settle"] .rs-player-flow__side::after {
+  transition: opacity .24s var(--ease-out);
+}
+
+.rs-player-np--compact .rs-player-flow:not([data-swipe-off]) .rs-player-flow__cover {
+  cursor: grab;
+}
+
 /* ---- Title, artist, star, more ---------------------------------------- */
 
 .rs-player-meta {
   display: flex;
   align-items: center;
   gap: var(--sp-2);
-  padding: 0 12px 0 24px;
+  padding: 0 var(--sp-5) 0 var(--sp-8);
   flex: none;
 }
 
@@ -253,20 +606,34 @@
 
 .rs-player-meta__title {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title3);
   line-height: var(--lh-title3);
   font-weight: var(--fw-semibold);
   letter-spacing: var(--track-tight);
 }
 
+/* The title opens the album, playlist or mix; it looks like the title, not a link. */
+.rs-player-meta__title-link {
+  display: block;
+  max-width: 100%;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.rs-player-flow__cover--link {
+  cursor: pointer;
+}
+
+.rs-player-flow__cover--link:focus-visible {
+  outline: 2px solid var(--accent-hi);
+  outline-offset: 3px;
+}
+
 .rs-player-meta__artist {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title);
   line-height: var(--lh-title);
   color: var(--stage-muted);
@@ -319,9 +686,65 @@
 }
 
 .rs-player-badge--live {
-  margin: 0 auto;
   color: var(--stage-ink);
 }
+
+/* Format badge and the sleep timer, between the times (or alone, centred,
+   for radio). */
+.rs-player-scrub__mid {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+}
+
+.rs-player-scrub__mid:only-child {
+  margin: 0 auto;
+}
+
+/* Sleep timer: quiet text in the badge's colour; a menu opener. */
+.rs-player-sleep {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-height: 20px;
+  padding: 0 var(--sp-2);
+  border-radius: 4px;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-medium);
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  animation: rs-fade-in var(--dur-med) var(--ease-out);
+}
+
+.rs-player-sleep:active { background: var(--stage-pressed); }
+
+@media (hover: hover) {
+  .rs-player-sleep:hover { color: var(--stage-ink); }
+}
+
+/* Playing on a network speaker: the sleep timer's look, a step brighter;
+   opens the menu on Speakers. */
+.rs-player-cast {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  max-width: 160px;
+  min-height: 20px;
+  padding: 0 var(--sp-2);
+  border-radius: 4px;
+  font-size: var(--fs-cap);
+  font-weight: var(--fw-medium);
+  color: var(--stage-ink);
+  white-space: nowrap;
+  animation: rs-fade-in var(--dur-med) var(--ease-out);
+}
+
+.rs-player-cast .rs-ic { flex: none; }
+
+.rs-player-cast:active { background: var(--stage-pressed); }
 
 /* ---- Transport -------------------------------------------------------- */
 
@@ -368,7 +791,7 @@
 .rs-player-rating {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: var(--sp-1);
 }
 
 .rs-app .rs-player-rating__star {
@@ -402,7 +825,7 @@
 }
 
 .rs-player-info__volume {
-  padding: 12px 16px;
+  padding: var(--sp-5) var(--sp-6);
 }
 
 .rs-player-info__volume .rs-player-volume {
@@ -452,6 +875,9 @@
   --skeleton: #1d1e21;
   --skeleton-hi: #2a2b2f;
   --accent-text: var(--accent-hi);
+  /* Solid stand-in for the translucent surface, for a row sliding over
+     its swipe actions or lifted by its handle. */
+  --rowg-cover: #1b1c1f;
   color: var(--stage-ink);
 }
 
@@ -482,7 +908,7 @@
 
 /* Section labels (Played, Now Playing, Up Next), styled like Settings' group headings. */
 .rs-player-upnext__label {
-  margin: var(--sp-6) 12px var(--sp-3);
+  margin: var(--sp-6) var(--sp-5) var(--sp-3);
   font-size: var(--fs-sub);
   font-weight: var(--fw-regular);
   letter-spacing: .02em;
@@ -514,13 +940,6 @@
   font-variant-numeric: tabular-nums;
 }
 
-.rs-player-qrow {
-  cursor: default;
-  height: var(--row-h);
-  gap: var(--sp-3);
-  padding-right: 6px;
-}
-
 .rs-player-related {
   padding-left: 0;
   gap: var(--sp-2);
@@ -532,7 +951,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-5);
-  padding-left: 12px;
+  padding-left: var(--sp-5);
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -583,7 +1002,7 @@
 .rs-player-lyrics__lines::-webkit-scrollbar { display: none; }
 
 .rs-player-lyrics__lines--plain {
-  padding-top: 8px;
+  padding-top: var(--sp-4);
   -webkit-mask-image: linear-gradient(#000 80%, transparent);
   mask-image: linear-gradient(#000 80%, transparent);
 }
@@ -613,6 +1032,29 @@
   .rs-player-lyric:not(:disabled):not(.rs-player-lyric--now):hover { color: var(--stage-muted); }
 }
 
+/* Karaoke: on the active word-timed line each word fills from muted to ink as
+   it is sung, with a soft edge. karaoke.js sets --rs-word-p (0..1) on that
+   line's words only; other lines keep their plain line colours. Reduced
+   motion skips the fill and lights the whole line. */
+.rs-app .rs-player-lyric--now.rs-player-lyric--words .rs-player-word {
+  --rs-word-edge: .45em;
+  background-image: linear-gradient(
+    90deg,
+    var(--stage-ink) calc(var(--rs-word-p, 0) * (100% + var(--rs-word-edge)) - var(--rs-word-edge)),
+    var(--stage-muted) calc(var(--rs-word-p, 0) * (100% + var(--rs-word-edge)))
+  );
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rs-app .rs-player-lyric--now.rs-player-lyric--words .rs-player-word {
+    background-image: none;
+    color: inherit;
+  }
+}
+
 .rs-app .rs-player-lyric--plain {
   margin: 0;
   font-size: 19px;
@@ -625,7 +1067,7 @@
 }
 
 .rs-player-panels--wide .rs-player-lyric {
-  font-size: 28px;
+  font-size: var(--fs-title1);
   line-height: 35px;
   padding: 5px 0;
 }
@@ -664,8 +1106,8 @@
 .rs-player-stepper {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
+  gap: var(--sp-1);
+  padding: var(--sp-1);
   border-radius: var(--r-btn);
   background: var(--seg-trough);
 }
@@ -715,7 +1157,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  padding: var(--sp-6) 4px;
+  padding: var(--sp-6) var(--sp-2);
   font-size: var(--fs-sub);
   color: var(--muted);
   overflow-wrap: anywhere;
@@ -764,7 +1206,7 @@
   display: flex;
   align-items: center;
   gap: var(--sp-4);
-  padding: calc(var(--safe-top) + 12px) 16px 8px;
+  padding: calc(var(--safe-top) + var(--sp-5)) var(--sp-6) var(--sp-4);
 }
 
 .rs-player-shot__bar .rs-iconbtn { color: var(--stage-ink); }
@@ -795,7 +1237,7 @@
   flex-direction: column;
   width: min(100%, 900px);
   margin: 0 auto;
-  padding: 16px 24px 0;
+  padding: var(--sp-6) var(--sp-8) 0;
   pointer-events: none;
 }
 
@@ -809,7 +1251,7 @@
 }
 
 .rs-player-shot__artist {
-  margin: 2px 0 0;
+  margin: var(--sp-1) 0 0;
   color: var(--stage-muted);
 }
 
@@ -831,7 +1273,7 @@
 .rs-app .rs-player-shot__line {
   display: block;
   width: 100%;
-  padding: 6px 8px;
+  padding: var(--sp-3) var(--sp-4);
   border-radius: var(--r-list);
   text-align: left;
   font-size: clamp(24px, 4.6vw, 44px);
@@ -858,7 +1300,7 @@
   min-height: 0;
   display: grid;
   place-items: center;
-  padding: 8px 16px calc(var(--safe-bottom) + 24px);
+  padding: var(--sp-4) var(--sp-6) calc(var(--safe-bottom) + var(--sp-8));
   pointer-events: none;
 }
 
@@ -870,7 +1312,7 @@
   right: 16px;
   top: calc(var(--safe-top) + 64px);
   width: min(320px, calc(100vw - 32px));
-  padding: 16px;
+  padding: var(--sp-6);
   border-radius: var(--r-sheet);
   background: rgba(20, 20, 22, .82);
   border: 1px solid rgba(255, 255, 255, .14);
@@ -922,7 +1364,7 @@
   align-items: center;
   gap: var(--sp-3);
   min-height: 32px;
-  padding: 0 12px;
+  padding: 0 var(--sp-5);
   border-radius: var(--r-button-sm);
   border: 1px solid rgba(255, 255, 255, .16);
   background: rgba(255, 255, 255, .05);
@@ -1008,9 +1450,6 @@
 .rs-player-shotcard__title,
 .rs-player-shotcard__artist {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
 .rs-player-shotcard__title {
@@ -1079,7 +1518,7 @@
 }
 
 .rs-player-queue__sub {
-  margin: 2px 0 0;
+  margin: var(--sp-1) 0 0;
   font-size: var(--fs-sub);
   color: var(--muted);
   font-variant-numeric: tabular-nums;
@@ -1088,7 +1527,7 @@
 .rs-player-addrow {
   cursor: default;
   gap: var(--sp-3);
-  padding-right: 8px;
+  padding-right: var(--sp-4);
 }
 
 .rs-player-addrow .rs-art {
@@ -1130,9 +1569,6 @@
 
 .rs-player-addhead__title {
   margin: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
   font-size: var(--fs-title);
   font-weight: var(--fw-semibold);
 }
@@ -1173,4 +1609,77 @@
   align-items: center;
   gap: var(--sp-2);
   margin-right: -6px;
+}
+
+/* Where the user's own queue ends and Autoplay's songs begin. */
+.rs-player-upnext__label--autoplay {
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.rs-player-upnext__hint {
+  color: var(--stage-faint);
+}
+
+/* ---- Remote player: another device's playback, in the player's strip
+   (`remote_sync/ui.rs`). Same bar, a caption saying where it plays. ---- */
+.rs-remote__caption {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.rs-remote__caption .rs-ic {
+  flex: none;
+}
+
+.rs-mini--remote .rs-btn--small {
+  flex: none;
+  margin-left: 2px;
+}
+
+.rs-remote__progress {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: var(--sp-3);
+  min-width: 0;
+  color: var(--stage-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-remote__track {
+  flex: 1;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, .16);
+}
+
+.rs-remote__track i {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--accent);
+}
+
+/* "Play on" under Output: the other devices, after the speakers. */
+.rs-menu__choices-label {
+  flex-basis: 100%;
+  margin-top: var(--sp-2);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-menu__play-on {
+  display: flex;
+  flex-basis: 100%;
+  flex-wrap: wrap;
+  gap: var(--sp-3);
+}
+
+.rs-menu__choice-note {
+  font-weight: var(--fw-regular);
+  opacity: .75;
 }

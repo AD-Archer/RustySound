@@ -3,17 +3,15 @@
 
 use crate::api::*;
 use crate::components::ui::{
-    Menu, MenuItem, Artwork, EmptyState, InsetList, Button,
-    ButtonVariant, SectionHeader, TrackRow,
+    Artwork, CollectionActions, EmptyState, ErrorState, GridSkeleton, InsetList, Menu, MenuItem,
+    RowGestureList, RowSwipe, SectionHeader, Skeleton, TrackRow,
 };
 use crate::components::views::library::hero::{DetailHero, DetailHeroSkeleton};
 use crate::components::views::library::shared::{
-    use_servers,
-    song_key, use_downloaded_keys, use_now_playing, use_player, use_song_patches, ErrorState,
-    GridSkeleton, ListSkeleton,
+    toggle_star, use_downloaded_keys, use_now_playing, use_song_patches,
 };
 use crate::components::views::library::tiles::{AlbumGrid, ArtistBubble};
-use crate::components::AppView;
+use crate::components::{use_player, use_servers, AppView, QueuePosition};
 use dioxus::prelude::*;
 use futures_util::future::join_all;
 
@@ -27,19 +25,22 @@ fn is_single_or_ep(album: &Album) -> bool {
     tracks > 0 && (tracks <= 3 || (tracks <= 6 && album.duration > 0 && album.duration < 30 * 60))
 }
 
-/// Every song of `albums`, in album order (for Play / Shuffle).
-async fn all_songs(server: ServerConfig, albums: Vec<Album>) -> Vec<Song> {
+/// Every song of `albums` on source `server_id`, in album order (for Play / Shuffle).
+async fn all_songs(servers: Vec<ServerConfig>, server_id: String, albums: Vec<Album>) -> Vec<Song> {
     let tasks = albums.iter().map(|album| {
-        let client = NavidromeClient::new(server.clone());
+        let client = MusicClient::for_source(&servers, &server_id);
         let id = album.id.clone();
-        async move { client.get_album(&id).await.map(|(_, songs)| songs).unwrap_or_default() }
+        async move {
+            let Some(client) = client else { return Vec::new() };
+            client.get_album(&id).await.map(|(_, songs)| songs).unwrap_or_default()
+        }
     });
     let mut seen = std::collections::HashSet::new();
     join_all(tasks)
         .await
         .into_iter()
         .flatten()
-        .filter(|song| seen.insert(song_key(song)))
+        .filter(|song| seen.insert(song.key()))
         .collect()
 }
 
@@ -58,16 +59,16 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
     let downloaded = use_downloaded_keys(top_songs);
     let (playing_key, live) = use_now_playing();
 
-    let server_for = move |id: &str| servers.peek().iter().find(|s| s.id == id).cloned();
+    let client_for = move |id: &str| MusicClient::for_source(&servers.peek(), id);
 
     let data = use_resource(use_reactive!(|(artist_id, server_id)| {
         let _ = retry();
-        let server = servers().into_iter().find(|s| s.id == server_id);
+        let client = MusicClient::for_source(&servers(), &server_id);
         async move {
-            let Some(server) = server else {
+            let Some(client) = client else {
                 return Err("This artist's server isn't configured.".to_string());
             };
-            NavidromeClient::new(server).get_artist(&artist_id).await
+            client.get_artist(&artist_id).await
         }
     }));
 
@@ -79,8 +80,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         };
         async move {
             let (name, sid) = found?;
-            let server = server_for(&sid)?;
-            NavidromeClient::new(server).get_top_songs(&name, TOP_MAX).await.ok()
+            client_for(&sid)?.get_top_songs(&name, TOP_MAX).await.ok()
         }
     });
     let similar = use_resource(move || {
@@ -90,8 +90,11 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         };
         async move {
             let (id, sid) = found?;
-            let server = server_for(&sid)?;
-            let info = NavidromeClient::new(server).get_artist_info2(&id, 16, false).await.ok()?;
+            // Similar artists come from the server (Last.fm behind it).
+            let MusicClient::Subsonic(client) = client_for(&sid)? else {
+                return None;
+            };
+            let info = client.get_artist_info2(&id, 16, false).await.ok()?;
             Some(info.similar.into_iter().filter(|a| a.in_library()).take(12).collect::<Vec<_>>())
         }
     });
@@ -140,10 +143,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         if albums.len() == 1 { "1 album".to_string() } else { format!("{} albums", albums.len()) },
         if total_songs == 1 { "1 song".to_string() } else { format!("{total_songs} songs") }
     );
-    let source = Some((
-        QueueSourceKind::Artist,
-        format!("{}::{}", artist.server_id, artist.id),
-    ));
+    let source = Some((QueueSourceKind::Artist, artist.key()));
 
     let start = {
         let albums = albums.clone();
@@ -152,15 +152,16 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
             if busy() {
                 return;
             }
-            let Some(server) = server_for(&sid) else {
+            if client_for(&sid).is_none() {
                 return;
-            };
+            }
+            let (servers_now, sid) = (servers.peek().clone(), sid.clone());
             let albums = albums.clone();
             let source = source.clone();
             busy.set(true);
             status.set(None);
             spawn(async move {
-                let songs = all_songs(server, albums).await;
+                let songs = all_songs(servers_now, sid, albums).await;
                 let result = if shuffle {
                     player.shuffle_play(songs, source)
                 } else {
@@ -172,26 +173,11 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
         }
     };
 
-    let toggle_star = {
+    let toggle_favorite = {
         let artist = artist.clone();
         move |_| {
             menu_at.set(None);
-            let Some(server) = server_for(&artist.server_id) else {
-                return;
-            };
-            let should_star = !starred();
-            let id = artist.id.clone();
-            spawn(async move {
-                let client = NavidromeClient::new(server);
-                let result = if should_star {
-                    client.star(&id, "artist").await
-                } else {
-                    client.unstar(&id, "artist").await
-                };
-                if result.is_ok() {
-                    starred.set(should_star);
-                }
-            });
+            toggle_star(&servers.peek(), &artist.server_id, "artist", artist.id.clone(), starred, status);
         }
     };
 
@@ -222,36 +208,29 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                     }
                 },
                 meta,
+                badge: crate::local_music::is_local(&artist.server_id)
+                    .then(|| crate::local_music::LOCAL_SOURCE_NAME.to_string()),
+                badge_icon: "hard-drive".to_string(),
                 on_more: move |evt: MouseEvent| {
                     let p = evt.client_coordinates();
                     menu_at.set(Some(Some((p.x - 250.0, p.y + 14.0))));
                 },
             }
             div { class: "rs-library-page",
-                div { class: "rs-library-actions",
-                    Button {
-                        label: if busy() { "Loading…".to_string() } else { "Play".to_string() },
-                        icon: "play".to_string(),
-                        block: true,
-                        disabled: busy() || albums.is_empty(),
-                        testid: "artist-play".to_string(),
-                        onclick: {
-                            let mut start = start.clone();
-                            move |_| start(false)
-                        },
-                    }
-                    Button {
-                        label: "Shuffle".to_string(),
-                        icon: "shuffle".to_string(),
-                        variant: ButtonVariant::Tinted,
-                        block: true,
-                        disabled: busy() || albums.is_empty(),
-                        testid: "artist-shuffle".to_string(),
-                        onclick: {
-                            let mut start = start.clone();
-                            move |_| start(true)
-                        },
-                    }
+                CollectionActions {
+                    testid: "artist".to_string(),
+                    disabled: busy() || albums.is_empty(),
+                    on_play: {
+                        let mut start = start.clone();
+                        move |_| start(false)
+                    },
+                    on_shuffle: {
+                        let mut start = start.clone();
+                        move |_| start(true)
+                    },
+                }
+                if busy() {
+                    p { class: "rs-library-status", role: "status", "Loading songs…" }
                 }
                 if let Some(text) = status() {
                     p { class: "rs-library-status", role: "status", "{text}" }
@@ -260,7 +239,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                 match &*top.read() {
                     None => rsx! {
                         SectionHeader { title: "Top Songs".to_string() }
-                        ListSkeleton { rows: 3 }
+                        Skeleton { rows: 3 }
                     },
                     Some(_) if top_count == 0 => rsx! {},
                     Some(_) => rsx! {
@@ -270,10 +249,12 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                             testid: "artist-top-all".to_string(),
                             on_action: move |_| show_all_top.toggle(),
                         }
+                        // Swipe a song for Play Next / Add to….
+                        RowGestureList { id: "artist-top-songs", swipe: RowSwipe::Browse,
                         InsetList { label: "Top songs".to_string(), class: "rs-library-tracks".to_string(),
                             for (index, song) in top_list.into_iter().take(shown).enumerate() {
                                 {
-                                    let key = song_key(&song);
+                                    let key = song.key();
                                     let playing = playing_now.as_deref() == Some(key.as_str());
                                     let sub = song.album.clone().unwrap_or_default();
                                     rsx! {
@@ -293,6 +274,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                                     }
                                 }
                             }
+                        }
                         }
                     },
                 }
@@ -338,7 +320,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                         label: if starred() { "Remove from Favorites".to_string() } else { "Favorite".to_string() },
                         icon: if starred() { "heart-filled".to_string() } else { "heart".to_string() },
                         testid: "artist-favorite".to_string(),
-                        onclick: toggle_star,
+                        onclick: toggle_favorite,
                     }
                     MenuItem {
                         label: "Play Top Songs".to_string(),
@@ -356,7 +338,7 @@ pub fn ArtistDetailView(artist_id: String, server_id: String) -> Element {
                         disabled: top_count == 0,
                         onclick: move |_| {
                             menu_at.set(None);
-                            player.enqueue(top_songs.peek().clone(), false);
+                            player.enqueue(top_songs.peek().clone(), QueuePosition::End);
                         },
                     }
                 }
