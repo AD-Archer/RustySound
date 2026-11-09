@@ -45,6 +45,10 @@ pub use home::{
     load_songs_you_might_like,
 };
 pub use mixes::{mix_id_from_slug, mix_slug};
+// Listening stats (`api::listening::lastfm`) reuse the external client and
+// the Last.fm URL and image helpers.
+pub(crate) use http::{get_external_json, Budget};
+pub(crate) use offserver::lastfm::{best_image as lastfm_best_image, error_message as lastfm_error, url as lastfm_url};
 pub use rewind::DEFAULT_REWIND_MONTHS;
 pub use types::*;
 // Shared with the listening aggregation (`api::listening`).

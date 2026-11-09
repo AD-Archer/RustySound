@@ -7,9 +7,11 @@
 //!   year from lifetime counts (see its module docs).
 //! - [`load_wrapped`] / [`wrapped_years`]: read the history and work a year
 //!   out, cached per year.
+//! - [`lastfm`]: the Listening page's stats from a Last.fm account.
 
 pub mod aggregate;
 mod history;
+pub mod lastfm;
 pub mod wrapped;
 
 pub use history::{current_year, load_wrapped, wrapped_years};

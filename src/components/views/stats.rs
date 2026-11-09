@@ -60,7 +60,7 @@ pub(super) fn number(value: Option<u64>) -> String {
 }
 
 /// "just now", "12 minutes ago", "3 hours ago", "4 days ago", or the date.
-fn ago(iso: &str) -> Option<String> {
+pub(super) fn ago(iso: &str) -> Option<String> {
     let then = chrono::DateTime::parse_from_rfc3339(iso).ok()?;
     let secs = (chrono::Utc::now() - then.with_timezone(&chrono::Utc)).num_seconds().max(0);
     Some(match secs {

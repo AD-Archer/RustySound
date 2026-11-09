@@ -57,6 +57,7 @@ pub fn LibraryView() -> Element {
         ("Random Mix", "shuffle", "library-random", AppView::RandomView {}),
         ("Bookmarks", "bookmark", "library-bookmarks", AppView::BookmarksView {}),
         ("Up Next", "queue", "library-queue", AppView::QueueView {}),
+        ("Listening", "headphones", "library-listening", AppView::ListeningView {}),
         ("Stats", "stats", "library-stats", AppView::StatsView {}),
     ];
     if !radio_available(&servers.read()) {

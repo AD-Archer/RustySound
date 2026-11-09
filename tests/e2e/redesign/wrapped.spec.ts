@@ -21,10 +21,10 @@ declare global {
 type Point = { x: number; y: number };
 
 async function openWrapped(page: Page) {
-  await gotoReady(page, "/settings");
-  const entry = tid(page, "settings-wrapped");
+  // From the Listening page (no Last.fm account: its prompt offers the story).
+  await gotoReady(page, "/listening");
+  const entry = tid(page, "listening-story").locator("button");
   await expect(entry).toBeVisible();
-  await expect(entry).toContainText(`Your ${new Date().getFullYear()} in Music`);
   await entry.click();
   await expect(tid(page, "wrapped")).toBeVisible();
   // The first card once the year has loaded (a skeleton card shows meanwhile).
@@ -146,7 +146,7 @@ test.describe("Wrapped", () => {
     // Swipe down: closed.
     await swipe(page, { x: mid.x, y: box.y + 80 }, { x: mid.x, y: box.y + 80 + box.height * 0.4 });
     await expect(tid(page, "wrapped")).toHaveCount(0);
-    await expect(tid(page, "settings")).toBeVisible();
+    await expect(tid(page, "listening")).toBeVisible();
   });
 
   test("wide: arrow keys, edge clicks and a mouse drag; Escape closes", async ({ connected: page }) => {

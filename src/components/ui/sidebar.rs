@@ -99,6 +99,7 @@ pub fn Sidebar() -> Element {
             None,
             vec![
                 ("Radio", "radio", "nav-radio", AppView::RadioView {}),
+                ("Listening", "headphones", "nav-listening", AppView::ListeningView {}),
                 ("Stats", "stats", "nav-stats", AppView::StatsView {}),
             ],
         ),

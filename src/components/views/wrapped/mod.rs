@@ -1,6 +1,7 @@
-//! Wrapped: a look back at a year of listening, as a story of cards. Opened
-//! from Settings ("Your 2026 in Music"); "This year so far" by default, with
-//! a picker for earlier years that have listening.
+//! Wrapped: a look back at a year of listening, as a story of cards, from the
+//! servers' play history. Opened from the Listening page ("Play as a story",
+//! for the year shown there) and the command palette; "This year so far" by
+//! default, with a picker for earlier years that have listening.
 //!
 //! The data comes from `api::listening` (worked out off the render path and
 //! cached per year); the cards are in `cards.rs`, their words in `copy.rs`.
@@ -18,11 +19,12 @@ use std::rc::Rc;
 
 /// The full-screen Wrapped story. The parent decides whether it is mounted.
 #[component]
-pub(crate) fn WrappedStory(on_close: EventHandler<()>) -> Element {
+pub(crate) fn WrappedStory(on_close: EventHandler<()>, #[props(default)] start_year: Option<i32>) -> Element {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let this_year = use_hook(current_year);
-    let mut year = use_signal(|| this_year);
-    let mut years = use_signal(|| vec![this_year]);
+    let first = start_year.unwrap_or(this_year);
+    let mut year = use_signal(|| first);
+    let mut years = use_signal(|| if first == this_year { vec![this_year] } else { vec![this_year, first] });
     let mut years_asked = use_signal(|| false);
     let mut index = use_signal(|| 0usize);
 
@@ -84,42 +86,6 @@ pub(crate) fn WrappedStory(on_close: EventHandler<()>) -> Element {
                     _ => rsx! { LoadingCard {} },
                 }
             },
-        }
-    }
-}
-
-/// The Settings entry: calm, near the top. Hidden when there is nothing to
-/// look back on (no active server and no music on the device).
-#[component]
-pub(super) fn WrappedEntry(on_open: EventHandler<()>) -> Element {
-    let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let has_source = servers.read().iter().any(|s| s.active) || crate::local_music::has_music();
-    if !has_source {
-        return rsx! {};
-    }
-    let year = current_year();
-    rsx! {
-        ul { class: "rs-list rs-list--icons rs-settings-wrapped", aria_label: "Wrapped",
-            li {
-                button {
-                    r#type: "button",
-                    class: "rs-row rs-settings-wrapped__row",
-                    "data-testid": "settings-wrapped",
-                    onclick: move |_| on_open.call(()),
-                    span { class: "rs-row__lead rs-settings-wrapped__lead", aria_hidden: "true",
-                        Icon { name: "headphones".to_string(), class: "rs-ic rs-ic--md".to_string() }
-                    }
-                    span { class: "rs-row__meta",
-                        span { class: "rs-row__title",
-                            span { "Your {year} in Music" }
-                        }
-                        span { class: "rs-row__sub", "Wrapped: a look back at your year so far" }
-                    }
-                    span { class: "rs-row__chev",
-                        Icon { name: "chevron-right".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                    }
-                }
-            }
         }
     }
 }

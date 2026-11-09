@@ -41,6 +41,9 @@ pub enum AppView {
     EqualizerView {},
     #[route("/stats")]
     StatsView {},
+    /// Listening stats from Last.fm, and Wrapped from the servers' history.
+    #[route("/listening")]
+    ListeningView {},
     #[route("/queue")]
     QueueView {},
     #[route("/album/:album_id/:server_id")]
@@ -79,6 +82,7 @@ pub fn view_label(view: &AppView) -> &'static str {
         AppView::SettingsView {} => "Settings",
         AppView::EqualizerView {} => "Equalizer",
         AppView::StatsView {} => "Stats",
+        AppView::ListeningView {} => "Listening",
         AppView::QueueView {} => "Queue",
         AppView::AlbumDetailView { .. } => "Album",
         AppView::ArtistDetailView { .. } => "Artist",

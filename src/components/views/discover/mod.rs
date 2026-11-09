@@ -167,6 +167,7 @@ pub fn HomeView() -> Element {
                 NewShelf {}
                 RewindShelf {}
                 OffServerShelf {}
+                crate::components::views::ListeningEntry {}
             }
             HomeMenuHost {}
         }

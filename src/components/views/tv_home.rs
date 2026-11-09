@@ -6,7 +6,7 @@ use crate::components::{AppView, Icon, Navigation};
 use dioxus::prelude::*;
 
 /// (label, icon, page) for each button, in sidebar order.
-fn places() -> [(&'static str, &'static str, AppView); 12] {
+fn places() -> [(&'static str, &'static str, AppView); 13] {
     [
         ("Home", "home", AppView::HomeView {}),
         ("Search", "search", AppView::SearchView {}),
@@ -18,6 +18,7 @@ fn places() -> [(&'static str, &'static str, AppView); 12] {
         ("Radio", "radio", AppView::RadioView {}),
         ("Up Next", "queue", AppView::QueueView {}),
         ("Downloads", "download", AppView::DownloadsView {}),
+        ("Listening", "headphones", AppView::ListeningView {}),
         ("Stats", "stats", AppView::StatsView {}),
         ("Settings", "settings", AppView::SettingsView {}),
     ]
