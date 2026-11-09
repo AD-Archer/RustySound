@@ -64,11 +64,7 @@
                     p { class: "rs-player-addhead__kind", "{kind}" }
                     h2 { class: "rs-player-addhead__title", "{intent.label}" }
                 }
-                IconButton {
-                    icon: "x".to_string(),
-                    label: "Close".to_string(),
-                    quiet: true,
-                    size: IconButtonSize::Small,
+                CloseButton {
                     onclick: {
                         let mut controller = controller.clone();
                         move |_| controller.close()

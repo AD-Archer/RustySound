@@ -14,7 +14,9 @@ use super::lyrics::LyricsSource;
 use super::meta::{NowPlayingExtras, NowPlayingMeta};
 use super::panels::{use_now_playing_lyrics, NowPlayingPanels};
 use super::strip::NowPlayingStrip;
-use super::transport::{NowPlayingScrubber, NowPlayingTransport};
+use super::clock::{use_now_playing_clock_provider, NowPlayingClock};
+use super::transport::{NowPlayingScrubber, NowPlayingTransport, RemoteScrubber, RemoteTransport};
+use crate::components::remote_sync::{use_remote_song, RemoteSync};
 use super::types::{NowPlayingFocus, SongDetailsController, SongDetailsTab};
 use crate::api::Song;
 use crate::components::ui::env::sleep_ms;
@@ -41,12 +43,23 @@ pub fn SongDetailsOverlay(controller: SongDetailsController) -> Element {
             focused.set(false);
         }
     });
+    // Another device in the sync room plays: the sheet shows its song and
+    // follows its position (lyrics included), and its controls drive it.
+    let sync = use_context::<RemoteSync>();
+    let remote_song = use_remote_song(sync);
+    let remote_song = use_memo(move || remote_song.read().clone().flatten());
+    let clock = use_now_playing_clock_provider(remote_song);
 
     let state = controller.current();
     if !state.is_open {
         return rsx! {};
     }
-    let Some(song) = now_playing().or(state.song.clone()) else {
+    let song = if (clock.remote)() {
+        remote_song().or(state.song.clone())
+    } else {
+        now_playing().or(state.song.clone())
+    };
+    let Some(song) = song else {
         return rsx! {};
     };
     let tab = state.tab_chosen.then_some(state.active_tab);
@@ -257,8 +270,7 @@ fn CompactNowPlaying(
                     NowPlayingArt { song: song.clone(), wide: false }
                 }
                 NowPlayingMeta { song: song.clone() }
-                NowPlayingScrubber { song: song.clone() }
-                NowPlayingTransport { song: song.clone() }
+                Transport { song: song.clone() }
             }
             NowPlayingStrip { song: song.clone(), focused }
             NowPlayingPanels { song: song.clone(), tab, wide: false }
@@ -317,8 +329,7 @@ fn WideNowPlaying(
                 div { class: "rs-player-np__left",
                     NowPlayingArt { song: song.clone(), wide: true }
                     NowPlayingMeta { song: song.clone() }
-                    NowPlayingScrubber { song: song.clone() }
-                    NowPlayingTransport { song: song.clone() }
+                    Transport { song: song.clone() }
                     NowPlayingExtras { song: song.clone() }
                 }
                 div { class: "rs-player-np__right",
@@ -328,6 +339,23 @@ fn WideNowPlaying(
         }
         if ambient {
             NowPlayingAmbient { song, controller }
+        }
+    }
+}
+
+/// Scrubber and transport for whichever device plays.
+#[component]
+fn Transport(song: Song) -> Element {
+    let clock = use_context::<NowPlayingClock>();
+    if (clock.remote)() {
+        rsx! {
+            RemoteScrubber { song }
+            RemoteTransport {}
+        }
+    } else {
+        rsx! {
+            NowPlayingScrubber { song: song.clone() }
+            NowPlayingTransport { song }
         }
     }
 }

@@ -15,7 +15,7 @@ use crate::components::song_details::actions::use_player;
 // TODO(chunk A): `src/time.rs` (`now_ms`, `sleep_ms`) replaces these homes.
 use crate::components::now_ms;
 use crate::components::ui::env::sleep_ms;
-use crate::components::AudioState;
+use crate::components::song_details::clock::{use_clock_playing, use_clock_time, NowPlayingClock};
 use crate::db::AppSettings;
 use crate::components::song_details::types::NowPlayingFocus;
 use dioxus::prelude::*;
@@ -58,9 +58,9 @@ fn center_line(dom_id: &str, index: usize, instant: bool) {
 /// mount the caller with a `key` per lyrics result. Shared by the Lyrics
 /// panel and ambient mode.
 pub(crate) fn use_active_line(stamps: Rc<Vec<f64>>, live: bool) -> Memo<Option<usize>> {
-    let audio = use_context::<Signal<AudioState>>();
     let settings = use_context::<Signal<AppSettings>>();
-    let clock = use_hook(move || audio.peek().current_time);
+    // Now Playing's clock: this device, or the one playing in the sync room.
+    let clock = use_clock_time();
     use_memo(move || {
         if live {
             return None;
@@ -75,10 +75,10 @@ pub(crate) fn use_active_line(stamps: Rc<Vec<f64>>, live: bool) -> Memo<Option<u
 /// are captured once.
 #[component]
 pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) -> Element {
-    let audio = use_context::<Signal<AudioState>>();
     let settings = use_context::<Signal<AppSettings>>();
+    let clock = use_clock_time();
+    let now_playing_clock = try_use_context::<NowPlayingClock>();
     let player = use_player();
-    let clock = use_hook(move || audio.peek().current_time);
     let stamps: Rc<Vec<f64>> =
         use_hook(|| Rc::new(lines.iter().map(|line| line.timestamp_seconds).collect()));
     // Each line's word `(start, end)`s, worked out once per result.
@@ -94,7 +94,7 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
         )
     });
     let karaoke = word_bounds.iter().any(|bounds| !bounds.is_empty());
-    let is_playing = player.is_playing;
+    let is_playing = use_clock_playing();
     use_hook(move || {
         if karaoke {
             let _ = document::eval(KARAOKE_JS);
@@ -214,7 +214,10 @@ pub(super) fn SyncedLyrics(lines: Vec<LyricLine>, live: bool, dom_id: String) ->
                             let mut player = player;
                             move |_| {
                                 let offset = settings.peek().lyrics_offset_ms as f64 / 1000.0;
-                                player.seek(stamp - offset);
+                                match now_playing_clock {
+                                    Some(clock) => clock.seek(stamp - offset),
+                                    None => player.seek(stamp - offset),
+                                }
                             }
                         },
                         if line.text.trim().is_empty() {

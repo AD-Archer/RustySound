@@ -7,10 +7,14 @@
 //! (`np-…`) and call the same actions (`actions.rs`), keeping every id unique.
 
 use super::actions::{format_badge, is_live_song, use_player};
+use super::clock::NowPlayingClock;
 use crate::api::Song;
+use crate::components::remote_sync::protocol::Op;
+use crate::components::remote_sync::RemoteSync;
+use crate::components::ui::env::format_clock;
 use crate::components::ui::{
-    IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, PlayerMenu, TrackMenuController,
-    TrackVariant,
+    IconButton, IconButtonSize, PlaybackProgress, PlaybackTime, PlayerMenu, ProgressTrack,
+    TrackMenuController, TrackVariant,
 };
 use crate::components::{Icon, SleepTimer};
 use crate::db::RepeatMode;
@@ -144,6 +148,108 @@ pub(super) fn NowPlayingTransport(song: Song) -> Element {
                 class: "rs-player-transport__side".to_string(),
                 onclick: move |_| player.cycle_repeat(),
             }
+        }
+    }
+}
+
+/// Another device's position, on the same glossy track: dragging it seeks
+/// that device. The middle says where it plays.
+#[component]
+pub(super) fn RemoteScrubber(song: Song) -> Element {
+    let clock = use_context::<NowPlayingClock>();
+    let sync = use_context::<RemoteSync>();
+    let caption = sync.view().map(|view| view.caption()).unwrap_or_default();
+    let duration = (song.duration as f64).max(0.0);
+    let current = (clock.time)().clamp(0.0, duration);
+    let can_seek = clock.target.read().is_some() && duration > 0.0;
+    let now = format_clock(current);
+    let left = format_clock((duration - current).max(0.0));
+    rsx! {
+        div { class: "rs-player-scrub",
+            ProgressTrack {
+                value: current,
+                max: duration,
+                disabled: !can_seek,
+                variant: TrackVariant::Stage,
+                label: "Position".to_string(),
+                value_text: format!("{now} of {}", format_clock(duration)),
+                testid: "remote-progress".to_string(),
+                on_commit: move |seconds: f64| clock.seek(seconds),
+            }
+            div { class: "rs-player-scrub__times",
+                span { class: "rs-time rs-player-scrub__time", "{now}" }
+                span { class: "rs-player-scrub__mid",
+                    span { class: "rs-player-badge rs-player-badge--remote", "data-testid": "now-playing-remote-caption",
+                        Icon { name: "headphones".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                        "{caption}"
+                    }
+                }
+                span { class: "rs-time rs-time--end rs-player-scrub__time", "\u{2212}{left}" }
+            }
+        }
+    }
+}
+
+/// Previous, play/pause and next for another device. Shuffle and repeat
+/// belong to that device's queue, so their places stay empty.
+#[component]
+pub(super) fn RemoteTransport() -> Element {
+    let clock = use_context::<NowPlayingClock>();
+    let sync = use_context::<RemoteSync>();
+    let target = (clock.target)();
+    let playing = (clock.playing)();
+    let send = {
+        let target = target.clone();
+        move |op: Op| {
+            let target = target.clone();
+            move |_| {
+                if let Some(target) = target.as_deref() {
+                    sync.send(target, op.clone());
+                }
+            }
+        }
+    };
+    let toggle = {
+        let target = target.clone();
+        move |_| {
+            if let Some(target) = target.as_deref() {
+                sync.toggle_remote(target);
+            }
+        }
+    };
+    let off = target.is_none();
+    rsx! {
+        div { class: "rs-player-transport", role: "group", aria_label: "Transport",
+            span { class: "rs-iconbtn rs-player-transport__side", aria_hidden: "true" }
+            IconButton {
+                icon: "prev".to_string(),
+                label: "Previous".to_string(),
+                size: IconButtonSize::Large,
+                disabled: off,
+                testid: "now-playing-prev".to_string(),
+                icon_class: "rs-ic rs-ic--xl".to_string(),
+                onclick: send(Op::Prev),
+            }
+            IconButton {
+                icon: if playing { "pause".to_string() } else { "play".to_string() },
+                label: if playing { "Pause".to_string() } else { "Play".to_string() },
+                size: IconButtonSize::Large,
+                disabled: off,
+                testid: "now-playing-play-pause".to_string(),
+                icon_class: "rs-ic rs-ic--xxl".to_string(),
+                class: "rs-player-transport__play".to_string(),
+                onclick: toggle,
+            }
+            IconButton {
+                icon: "next".to_string(),
+                label: "Next".to_string(),
+                size: IconButtonSize::Large,
+                disabled: off,
+                testid: "now-playing-next".to_string(),
+                icon_class: "rs-ic rs-ic--xl".to_string(),
+                onclick: send(Op::Next),
+            }
+            span { class: "rs-iconbtn rs-player-transport__side", aria_hidden: "true" }
         }
     }
 }

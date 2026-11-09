@@ -14,6 +14,8 @@
 //! ```
 
 use crate::api::{LyricLine, Song};
+use crate::components::remote_sync::RemoteSync;
+use crate::components::song_details::clock::NowPlayingClock;
 use crate::components::song_details::use_active_line;
 use crate::components::ui::{Artwork, IconButton, IconButtonSize};
 use crate::components::{update_settings, use_player, use_setting};
@@ -38,7 +40,13 @@ pub fn AmbientMode(
     let show_clock = use_setting(|s| s.ambient_clock);
     let show_lyrics = use_setting(|s| s.ambient_lyrics);
     let mut player = use_player();
-    let playing = (player.is_playing)();
+    // Over Now Playing, which may follow another device in the sync room.
+    let clock = try_use_context::<NowPlayingClock>();
+    let sync = use_context::<RemoteSync>();
+    let playing = match clock {
+        Some(clock) => (clock.playing)(),
+        None => (player.is_playing)(),
+    };
     let mut time = use_signal(String::new);
 
     use_hook(move || {
@@ -139,7 +147,14 @@ pub fn AmbientMode(
                     size: IconButtonSize::Large,
                     icon_class: "rs-ic rs-ic--xl".to_string(),
                     testid: "ambient-play-pause".to_string(),
-                    onclick: move |_| player.toggle_play(),
+                    onclick: move |_| match clock.filter(|c| *c.remote.peek()) {
+                        Some(clock) => {
+                            if let Some(target) = clock.target.peek().as_deref() {
+                                sync.toggle_remote(target);
+                            }
+                        }
+                        None => player.toggle_play(),
+                    },
                 }
             }
         }

@@ -4,7 +4,9 @@
 //! shrinks to; hidden and inert while the full player shows.
 
 use super::actions::{is_live_song, use_player};
+use super::clock::NowPlayingClock;
 use super::types::NowPlayingFocus;
+use crate::components::remote_sync::RemoteSync;
 use crate::api::Song;
 use crate::components::ui::{Artwork, IconButton};
 use dioxus::prelude::*;
@@ -13,7 +15,9 @@ use dioxus::prelude::*;
 pub(super) fn NowPlayingStrip(song: Song, focused: bool) -> Element {
     let mut player = use_player();
     let NowPlayingFocus(mut focus) = use_context::<NowPlayingFocus>();
-    let playing = (player.is_playing)();
+    let clock = use_context::<NowPlayingClock>();
+    let sync = use_context::<RemoteSync>();
+    let playing = (clock.playing)();
     let radio = is_live_song(&song);
     let title = if song.title.trim().is_empty() {
         if radio { "Internet Radio".to_string() } else { "Unknown Song".to_string() }
@@ -65,7 +69,15 @@ pub(super) fn NowPlayingStrip(song: Song, focused: bool) -> Element {
                 testid: "now-playing-strip-play".to_string(),
                 icon_class: "rs-ic rs-ic--lg".to_string(),
                 class: "rs-player-np__strip-play".to_string(),
-                onclick: move |_| player.toggle_play(),
+                onclick: move |_| {
+                    if *clock.remote.peek() {
+                        if let Some(target) = clock.target.peek().as_deref() {
+                            sync.toggle_remote(target);
+                        }
+                    } else {
+                        player.toggle_play();
+                    }
+                },
             }
         }
     }

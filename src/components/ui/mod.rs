@@ -61,7 +61,7 @@ pub use edge_swipe::EdgeSwipe;
 pub use empty_state::EmptyState;
 pub use eq_curve::EqCurve;
 pub use env::{cover_art_src, format_clock, use_layout, LayoutSignal};
-pub use icon_button::{IconButton, IconButtonSize};
+pub use icon_button::{CloseButton, IconButton, IconButtonSize};
 pub use inset_list::{InsetList, ListInset};
 pub use list_row::ListRow;
 pub use long_press::use_long_press;

@@ -9,7 +9,7 @@
 //!   own handlers. A `MenuItem` does not close the menu by itself.
 
 use crate::components::ui::env::use_layout;
-use crate::components::ui::MenuSheet;
+use crate::components::ui::{CloseButton, MenuSheet};
 
 use crate::components::Icon;
 use dioxus::prelude::*;
@@ -145,22 +145,14 @@ pub fn Menu(
                                 div { class: "rs-menu__head-sub rs-menu__head-sub--wrap", "{message}" }
                             }
                         }
-                        button {
-                            r#type: "button",
-                            class: "rs-menu__head-close",
-                            aria_label: "Close",
-                            onclick: move |_| on_close.call(()),
-                            crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                        }
+                        CloseButton { in_menu: true, onclick: move |_| on_close.call(()) }
                     }
                     div { class: "rs-menu__gap", aria_hidden: "true" }
-                } else {
-                    button {
-                        r#type: "button",
-                        class: "rs-menu__head-close rs-menu__head-close--abs",
-                        aria_label: "Close",
-                        onclick: move |_| on_close.call(()),
-                        crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
+                } else if popover {
+                    // No head: the × alone on its own row (a TV remote needs
+                    // something to land on). The action sheet has Cancel.
+                    div { class: "rs-menu__head rs-menu__head--bare",
+                        CloseButton { in_menu: true, onclick: move |_| on_close.call(()) }
                     }
                 }
                 for action in actions.iter().cloned() {

@@ -2,7 +2,7 @@
 //! `MenuSheet`, the compact action sheet the menus share. On compact, both
 //! can be swiped down to close (`sheet_swipe.js`).
 
-use crate::components::ui::{IconButton, IconButtonSize};
+use crate::components::ui::CloseButton;
 use dioxus::prelude::*;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -83,13 +83,7 @@ pub fn Sheet(
             if let Some(title) = title.clone() {
                 div { class: "rs-sheet__head",
                     h2 { class: "rs-sheet__title", "{title}" }
-                    IconButton {
-                        icon: "x".to_string(),
-                        label: "Close".to_string(),
-                        quiet: true,
-                        size: IconButtonSize::Small,
-                        onclick: move |_| on_close.call(()),
-                    }
+                    CloseButton { onclick: move |_| on_close.call(()) }
                 }
             }
             if menu {
@@ -119,17 +113,6 @@ pub fn MenuSheet(label: String, on_close: EventHandler<()>, children: Element) -
             role: "dialog",
             aria_label: "{label}",
             "data-sheet-swipe": "{swipe}",
-            div {
-                class: "rs-sheet__head rs-sheet__head--menu",
-                span { class: "rs-sheet__title", "{label}" }
-                button {
-                    r#type: "button",
-                    class: "rs-iconbtn rs-iconbtn--quiet",
-                    aria_label: "Close",
-                    onclick: move |_| on_close.call(()),
-                    crate::components::Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                }
-            }
             {children}
             div { class: "rs-menu",
                 button {

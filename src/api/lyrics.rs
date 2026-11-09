@@ -237,6 +237,42 @@ struct PersistentLyricLine {
     words: Vec<LyricWord>,
 }
 
+/// Lyrics found once, kept on disk without expiry (the JSON cache drops them
+/// after two weeks or when it fills), so songs keep their lyrics with the
+/// servers away. One file per song, named by the lookup key's MD5, in the
+/// app's data folder (which iOS doesn't purge, unlike caches).
+mod saved_lyrics {
+    use super::PersistentLyricsResult;
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn path(key: &str) -> Option<std::path::PathBuf> {
+        let dir = crate::storage::app_data_dir()?.join("lyrics");
+        std::fs::create_dir_all(&dir).ok()?;
+        Some(dir.join(format!("{:x}.json", md5::compute(key.as_bytes()))))
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn load(key: &str) -> Option<PersistentLyricsResult> {
+        serde_json::from_slice(&std::fs::read(path(key)?).ok()?).ok()
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(super) fn store(key: &str, lyrics: &PersistentLyricsResult) {
+        if let (Some(path), Ok(bytes)) = (path(key), serde_json::to_vec(lyrics)) {
+            let _ = std::fs::write(path, bytes);
+        }
+    }
+
+    // The web build has the browser's cache only.
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn load(_key: &str) -> Option<PersistentLyricsResult> {
+        None
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub(super) fn store(_key: &str, _lyrics: &PersistentLyricsResult) {}
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct PersistentLyricsResult {
     provider_key: String,
@@ -352,10 +388,21 @@ pub async fn fetch_lyrics_with_fallback(
         return Err("No lyrics found for this song.".to_string());
     }
 
+    // Lyrics found before, kept on disk for good: offline, or when no
+    // server answers below.
+    let saved = || {
+        let found = saved_lyrics::load(&query_cache_key)?.to_runtime().filter(|r| wanted(r))?;
+        if let Ok(mut cache) = LYRICS_SUCCESS_CACHE.lock() {
+            cache.insert(scoped_cache_key.clone(), found.clone());
+            cache.insert(query_cache_key.clone(), found.clone());
+        }
+        Some(found)
+    };
+
     if is_offline_mode() {
-        return Err(
-            "Offline mode is enabled. Disable offline mode to fetch new lyrics.".to_string(),
-        );
+        return saved().ok_or_else(|| {
+            "Offline mode is enabled. Disable offline mode to fetch new lyrics.".to_string()
+        });
     }
 
     let mut providers = normalized_provider_order
@@ -402,6 +449,7 @@ pub async fn fetch_lyrics_with_fallback(
                     &persistent,
                     Some(24 * 14),
                 );
+                saved_lyrics::store(&query_cache_key, &persistent);
                 return Ok(result);
             }
             Ok(None) => errors.push(format!("{} returned no lyrics", provider.label())),
@@ -414,6 +462,9 @@ pub async fn fetch_lyrics_with_fallback(
 
     if !saw_hard_error {
         let _ = cache_put_json(miss_cache_key, &true, Some(24));
+    } else if let Some(found) = saved() {
+        // The servers are unreachable, not lyric-less: what was found before.
+        return Ok(found);
     }
 
     if errors.is_empty() {

@@ -413,6 +413,8 @@
   font-weight: var(--fw-regular);
 }
 
+.rs-capsule__close { margin-left: var(--sp-2); }
+
 .rs-capsule__stop {
   position: relative;
   flex: none;
@@ -1130,6 +1132,66 @@
 }
 
 .rs-stage .rs-iconbtn--quiet { color: var(--stage-muted); }
+
+/* ---- Close button (ui/icon_button.rs CloseButton) ---------------------
+   One look for every popup's ×: a 30px circle tinted from the text colour
+   (so it works on light menus and the dark stage), a bold 12px glyph, and a
+   44px touch target from the ::after. */
+
+.rs-close {
+  position: relative;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--muted-strong);
+  background: color-mix(in srgb, currentColor 14%, transparent);
+  transition: background-color var(--dur-fast), color var(--dur-fast);
+}
+
+.rs-close::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+}
+
+.rs-close__ic {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.6;
+}
+
+.rs-close:active { background: color-mix(in srgb, currentColor 24%, transparent); }
+
+@media (hover: hover) {
+  .rs-close:hover { background: color-mix(in srgb, currentColor 20%, transparent); }
+}
+
+.rs-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* On the dark stage, ambient mode, stories and capsules. */
+.rs-stage .rs-close,
+.rs-capsule .rs-close,
+.rs-ambient .rs-close,
+.rs-story .rs-close { color: var(--stage-muted); }
+
+/* A menu without a head: the × alone, at the card's top right. */
+.rs-menu__head--bare {
+  justify-content: flex-end;
+  padding: 6px 8px 0;
+}
+
+.rs-menu__head--bare .rs-close {
+  width: 24px;
+  height: 24px;
+}
+
+.rs-menu__head--bare + .rs-menu__item { margin-top: -6px; }
 
 /* Round check tick (selection). */
 .rs-check {

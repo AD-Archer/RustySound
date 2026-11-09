@@ -29,6 +29,7 @@ mod transport;
 mod ui;
 
 pub use ui::{PlayOnChoices, RemotePlayer};
+pub(crate) use ui::use_remote_song;
 
 use crate::api::{device_label, NavidromeClient, ServerConfig};
 use crate::components::playback_sync::plan_queue_save;

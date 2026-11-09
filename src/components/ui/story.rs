@@ -11,7 +11,7 @@
 //! script posts: "next", "prev" and "close".
 
 use crate::components::ui::env::sleep_ms;
-use crate::components::ui::{IconButton, IconButtonSize};
+use crate::components::ui::CloseButton;
 use crate::components::Icon;
 use dioxus::prelude::*;
 
@@ -119,10 +119,8 @@ pub fn Story(
                     StoryProgress { count, index: current }
                     div { class: "rs-story__bar",
                         div { class: "rs-story__header", {header} }
-                        IconButton {
-                            icon: "x".to_string(),
+                        CloseButton {
                             label: format!("Close {label}"),
-                            size: IconButtonSize::Small,
                             testid: "story-close".to_string(),
                             onclick: move |_| on_close.call(()),
                         }
