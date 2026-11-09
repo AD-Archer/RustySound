@@ -4,7 +4,7 @@ use crate::cache_service::{
     remove_by_prefix as cache_remove_prefix,
 };
 #[cfg(not(target_arch = "wasm32"))]
-use crate::offline_art::{cached_cover_art_data_url, maybe_prefetch_cover_art};
+use crate::offline_art::{cached_cover_art_data_url, maybe_prefetch_cover_art, smaller_cached_cover_art_data_url};
 use chrono::{DateTime, NaiveDateTime, Utc};
 #[cfg(target_arch = "wasm32")]
 use dioxus::document;

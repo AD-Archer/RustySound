@@ -6,7 +6,7 @@ use crate::api::PlaybackReportState;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::cache_service::is_offline_mode;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::offline_art::{cached_cover_art_data_url, maybe_prefetch_cover_art};
+use crate::offline_art::{cached_cover_art_data_url, maybe_prefetch_cover_art, smaller_cached_cover_art_data_url};
 
 /// Largest cover edge asked for, as for Subsonic servers.
 const COVER_ART_MAX_PX: u32 = 1200;
@@ -123,12 +123,18 @@ impl JellyfinClient {
                 return data_url;
             }
             if is_offline_mode() {
-                return String::new();
+                return smaller_cached_cover_art_data_url(&self.server.id, item_id, size, 0).unwrap_or_default();
             }
         }
         let remote_url = self.build_cover_art_network_url(item_id, size);
         #[cfg(not(target_arch = "wasm32"))]
-        maybe_prefetch_cover_art(self.server.id.clone(), item_id.to_string(), size, remote_url.clone());
+        {
+            maybe_prefetch_cover_art(self.server.id.clone(), item_id.to_string(), size, remote_url.clone());
+            // As Navidrome's: a saved copy at least half the size meanwhile.
+            if let Some(data_url) = smaller_cached_cover_art_data_url(&self.server.id, item_id, size, size / 2) {
+                return data_url;
+            }
+        }
         remote_url
     }
 
