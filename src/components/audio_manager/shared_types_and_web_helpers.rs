@@ -578,6 +578,93 @@ pub fn ios_audio_log_export_txt(contents: &str) -> Result<String, String> {
     Ok(export_path.display().to_string())
 }
 
+/// Opens the iOS share sheet on an image (PNG or JPEG bytes), as a `UIImage`,
+/// so it offers Save Image, Messages, Instagram and the rest. Used by Lyrics
+/// Shot and Wrapped instead of `navigator.share`: the page captures the image
+/// first, which takes long enough that WebKit no longer counts the tap as a
+/// user gesture and refuses the web share. On iPad the sheet is a popover
+/// from the middle of the screen (it must be anchored somewhere).
+#[cfg(all(not(target_arch = "wasm32"), target_os = "ios"))]
+pub fn ios_share_image(bytes: &[u8]) -> Result<(), String> {
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+    unsafe impl objc::Encode for CGRect {
+        fn encode() -> objc::Encoding {
+            unsafe { objc::Encoding::from_str("{CGRect={CGPoint=dd}{CGSize=dd}}") }
+        }
+    }
+
+    if bytes.is_empty() {
+        return Err("No image to share.".to_string());
+    }
+    unsafe {
+        let root = ios_active_view_controller();
+        if root.is_null() {
+            return Err("Unable to find an active iOS view controller.".to_string());
+        }
+        let data: *mut Object = msg_send![
+            class!(NSData),
+            dataWithBytes: bytes.as_ptr() as *const std::ffi::c_void
+            length: bytes.len()
+        ];
+        if data.is_null() {
+            return Err("Failed to copy the image.".to_string());
+        }
+        let image: *mut Object = msg_send![class!(UIImage), imageWithData: data];
+        if image.is_null() {
+            return Err("The image could not be read.".to_string());
+        }
+        let items: *mut Object = msg_send![class!(NSArray), arrayWithObject: image];
+        let alloc: *mut Object = msg_send![class!(UIActivityViewController), alloc];
+        let activity: *mut Object = msg_send![
+            alloc,
+            initWithActivityItems: items
+            applicationActivities: ptr::null_mut::<Object>()
+        ];
+        if activity.is_null() {
+            return Err("Failed to open the share sheet.".to_string());
+        }
+        let popover: *mut Object = msg_send![activity, popoverPresentationController];
+        if !popover.is_null() {
+            let view: *mut Object = msg_send![root, view];
+            if !view.is_null() {
+                let bounds: CGRect = msg_send![view, bounds];
+                let anchor = CGRect {
+                    origin: CGPoint { x: bounds.size.width / 2.0, y: bounds.size.height / 2.0 },
+                    size: CGSize { width: 1.0, height: 1.0 },
+                };
+                let _: () = msg_send![popover, setSourceView: view];
+                let _: () = msg_send![popover, setSourceRect: anchor];
+                let _: () = msg_send![popover, setPermittedArrowDirections: 0usize];
+            }
+        }
+        let _: () = msg_send![
+            root,
+            presentViewController: activity
+            animated: YES
+            completion: ptr::null_mut::<Object>()
+        ];
+        let _: () = msg_send![activity, release];
+    }
+    Ok(())
+}
+
 #[cfg(any(target_arch = "wasm32", not(target_os = "ios")))]
 pub fn ios_audio_log_clear() {}
 

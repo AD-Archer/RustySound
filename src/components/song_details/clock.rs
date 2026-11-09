@@ -48,7 +48,9 @@ pub(super) fn use_now_playing_clock_provider(remote_song: Memo<Option<Song>>) ->
     let sync = use_context::<RemoteSync>();
     let audio = use_context::<Signal<AudioState>>();
     let player = use_player();
-    let remote = use_memo(move || sync.view().is_some());
+    // Another device's playback, unless this one is playing: a device the
+    // room still marks active must not pull this device's lyrics off time.
+    let remote = use_memo(move || sync.view().is_some() && !(player.is_playing)());
     let target = use_memo(move || sync.view().and_then(|view| view.target().map(str::to_string)));
     let mut remote_time = use_signal(|| 0.0f64);
     use_future(move || async move {

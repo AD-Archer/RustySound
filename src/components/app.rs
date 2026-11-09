@@ -293,6 +293,9 @@ pub fn AppShell() -> Element {
     // Covers in lists load from a local route, cached off the main thread.
     #[cfg(all(not(target_arch = "wasm32"), any(feature = "desktop", feature = "mobile")))]
     crate::offline_art::use_cover_art_handler();
+    // iPhone/iPad: Lyrics Shot and Wrapped hand their image to the share sheet.
+    #[cfg(target_os = "ios")]
+    crate::components::song_details::use_share_image_handler();
     // Music on the device (Mac and iPhone): scans, watches, publishes status.
     crate::local_music::use_local_music_host();
     // The inner transport signals, taken once. Reading the outer AudioState
