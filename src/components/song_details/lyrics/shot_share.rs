@@ -235,12 +235,17 @@ pub(crate) async fn share_screenshot_lyrics_image(
         serde_json::to_string(&file_name).unwrap_or_else(|_| "\"rustysound-lyrics-shot.png\"".to_string());
     let share_intent_escaped =
         serde_json::to_string(&share_intent).unwrap_or_else(|_| "\"share\"".to_string());
+    // iPhone/iPad: the page hands the image back and the native share sheet
+    // opens it (see `ios_share_image`). The web share needs the tap's user
+    // gesture, which has expired by the time the capture is done.
+    let native_share = cfg!(target_os = "ios") && share_intent != "save";
     let script = format!(
         r###"return (async function () {{
             const html2canvasSource = {html2canvas_source_escaped};
             const captureElementId = {capture_id_escaped};
             const fileName = {file_name_escaped};
             const shareIntent = {share_intent_escaped};
+            const nativeShare = {native_share};
             const debugTag = "[rustysound-share-shot]";
 
             function debugInfo(message, extra) {{
@@ -811,6 +816,34 @@ pub(crate) async fn share_screenshot_lyrics_image(
                 }}
             }}
 
+            if (nativeShare) {{
+                // Posted to the app's share route, which opens the iOS share
+                // sheet on the image (`use_share_image_handler`).
+                try {{
+                    const answer = await fetch("/rs-share-image", {{ method: "POST", body: imageBlob }});
+                    const text = answer.ok ? await answer.text() : "";
+                    debugInfo("native share route", {{ status: answer.status, text }});
+                    if (text === "shared") {{
+                        return "shared-image";
+                    }}
+                }} catch (_postErr) {{
+                    debugError("Posting the image to the share route failed", _postErr);
+                }}
+                try {{
+                    const base64 = await new Promise((resolve, reject) => {{
+                        const reader = new FileReader();
+                        reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+                        reader.onerror = () => reject(reader.error);
+                        reader.readAsDataURL(imageBlob);
+                    }});
+                    if (base64) {{
+                        return "image:" + base64;
+                    }}
+                }} catch (_readErr) {{
+                    debugError("Reading the image for the native share failed", _readErr);
+                }}
+            }}
+
             const imageFile = new File([imageBlob], resolvedFileName, {{ type: imageMimeType }});
             let canShareFiles = false;
             if (
@@ -863,13 +896,64 @@ pub(crate) async fn share_screenshot_lyrics_image(
         html2canvas_source_escaped = html2canvas_source_escaped,
         capture_id_escaped = capture_id_escaped,
         file_name_escaped = file_name_escaped,
-        share_intent_escaped = share_intent_escaped
+        share_intent_escaped = share_intent_escaped,
+        native_share = native_share
     );
 
-    document::eval(&script)
+    let status = document::eval(&script)
         .join::<String>()
         .await
-        .unwrap_or_else(|_| "unavailable".to_string())
+        .unwrap_or_else(|_| "unavailable".to_string());
+    match status.strip_prefix("image:") {
+        Some(encoded) => share_natively(encoded),
+        None => status,
+    }
+}
+
+/// Registers `/rs-share-image` for the app's lifetime (iPhone and iPad): the
+/// page POSTs the captured image there and the share sheet opens on it. The
+/// handler runs on the main thread, where UIKit must be called, and the
+/// image never travels through `eval` as text (megabytes of base64 made the
+/// old path crawl).
+#[cfg(target_os = "ios")]
+pub(crate) fn use_share_image_handler() {
+    use dioxus::mobile::wry::http::{Response, StatusCode};
+    dioxus::mobile::use_asset_handler("rs-share-image", move |request, responder| {
+        let result = crate::components::ios_share_image(request.body());
+        if let Err(error) = &result {
+            eprintln!("[rustysound-share] share sheet failed: {error}");
+        }
+        let (status, body) = match result {
+            Ok(()) => (StatusCode::OK, "shared"),
+            Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "failed"),
+        };
+        responder.respond(
+            Response::builder()
+                .status(status)
+                .header("content-type", "text/plain")
+                .body(body.as_bytes().to_vec())
+                .unwrap_or_default(),
+        );
+    });
+}
+
+/// The image the page captured (base64), shown in the iOS share sheet (the
+/// fallback when the share route can't be reached).
+#[cfg(target_os = "ios")]
+fn share_natively(encoded: &str) -> String {
+    use base64::Engine as _;
+    let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(encoded) else {
+        return "unavailable".to_string();
+    };
+    match crate::components::ios_share_image(&bytes) {
+        Ok(()) => "shared-image".to_string(),
+        Err(_) => "unavailable".to_string(),
+    }
+}
+
+#[cfg(not(target_os = "ios"))]
+fn share_natively(_encoded: &str) -> String {
+    "unavailable".to_string()
 }
 
 

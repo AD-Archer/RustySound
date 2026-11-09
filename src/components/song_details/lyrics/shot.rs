@@ -9,7 +9,7 @@ use super::shot_share::{
     ScreenshotTextPalette,
 };
 use crate::api::{LyricsResult, ServerConfig, Song};
-use crate::components::ui::env::{cover_art_url, sleep_ms};
+use crate::components::ui::env::{cover_art_url, sleep_ms, use_layout};
 use crate::components::ui::{Button, ButtonVariant, CloseButton, IconButton, IconButtonSize};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
@@ -149,6 +149,9 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
     let title = if song.title.trim().is_empty() { "Unknown Song".to_string() } else { song.title.clone() };
     let artist = song.artist.clone().filter(|a| !a.trim().is_empty());
 
+    // Phones: Save and Share get their own bar at the bottom, big enough to
+    // hit, and the top bar keeps only the way back, Customize, theme and ×.
+    let compact = use_layout().is_compact();
     let share = {
         let selected = selected.clone();
         let title = title.clone();
@@ -222,7 +225,18 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
             div { class: "rs-player-shot__veil", onclick: on_backdrop }
 
             div { class: "rs-player-shot__bar",
-                if shot_mode() {
+                if shot_mode() && compact {
+                    IconButton {
+                        icon: "chevron-left".to_string(),
+                        label: "Back to lines".to_string(),
+                        class: "rs-player-shot__back".to_string(),
+                        onclick: move |_| {
+                            shot_mode.set(false);
+                            customize_open.set(false);
+                        },
+                    }
+                }
+                if shot_mode() && !compact {
                     Button {
                         label: "Lines".to_string(),
                         icon: "chevron-left".to_string(),
@@ -232,6 +246,8 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
                             customize_open.set(false);
                         },
                     }
+                }
+                if shot_mode() {
                     Button {
                         label: "Customize".to_string(),
                         variant: ButtonVariant::Tinted,
@@ -253,7 +269,7 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
                     }
                 }
                 span { class: "rs-player-shot__spacer" }
-                if shot_mode() {
+                if shot_mode() && !compact {
                     Button {
                         label: if pending() { "Saving…".to_string() } else { "Save".to_string() },
                         variant: ButtonVariant::Filled,
@@ -307,6 +323,31 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
                         title: title.clone(),
                         artist: artist.clone(),
                         cover_url: cover_url.clone(),
+                    }
+                }
+                if compact {
+                    div { class: "rs-player-shot__actions",
+                        Button {
+                            label: if pending() { "Working…".to_string() } else { "Save".to_string() },
+                            variant: ButtonVariant::Tinted,
+                            disabled: selected.is_empty() || pending(),
+                            testid: "lyrics-shot-save".to_string(),
+                            onclick: {
+                                let mut share = share.clone();
+                                move |_| share(ScreenshotShareIntent::Save)
+                            },
+                        }
+                        Button {
+                            label: "Share".to_string(),
+                            icon: "share".to_string(),
+                            variant: ButtonVariant::Filled,
+                            disabled: selected.is_empty() || pending(),
+                            testid: "lyrics-shot-share".to_string(),
+                            onclick: {
+                                let mut share = share.clone();
+                                move |_| share(ScreenshotShareIntent::Social)
+                            },
+                        }
                     }
                 }
             } else {

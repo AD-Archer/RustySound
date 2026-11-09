@@ -1214,6 +1214,39 @@
 
 .rs-player-shot__spacer { flex: 1; }
 
+/* Phones: room between the top controls, and Save / Share in a bar of
+   their own at the bottom (two big buttons, clear of the home indicator). */
+.rs-app[data-layout="compact"] .rs-player-shot__bar {
+  gap: var(--sp-5);
+  padding-left: var(--sp-4);
+}
+
+.rs-player-shot__back {
+  color: var(--stage-ink);
+  background: rgba(255, 255, 255, .1);
+  border-radius: 50%;
+}
+
+.rs-player-shot__actions {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--sp-5);
+  padding: var(--sp-5) var(--sp-6) calc(var(--safe-bottom) + var(--sp-6));
+}
+
+.rs-player-shot__actions .rs-btn {
+  min-height: 50px;
+  justify-content: center;
+  font-size: var(--fs-headline);
+}
+
+.rs-player-shot__actions .rs-btn--tinted {
+  color: var(--stage-ink);
+  background: rgba(255, 255, 255, .14);
+}
+
 .rs-player-shot__toast {
   position: absolute;
   z-index: 3;
@@ -1305,6 +1338,8 @@
 }
 
 .rs-player-shot__stage > * { pointer-events: auto; }
+
+.rs-app[data-layout="compact"] .rs-player-shot__stage { padding-bottom: var(--sp-4); }
 
 .rs-player-shotpanel {
   position: absolute;

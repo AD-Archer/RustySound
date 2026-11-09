@@ -15,6 +15,8 @@ pub(crate) use lines::use_active_line;
 pub(crate) use source::{use_lyrics_source, LyricsAvailability, LyricsSource};
 // The Shot capture-and-share path, reused by Wrapped's summary card.
 pub(crate) use shot_share::share_screenshot_lyrics_image as share_element_image;
+#[cfg(target_os = "ios")]
+pub(crate) use shot_share::use_share_image_handler;
 
 use super::actions::{is_live_song, song_key};
 use super::types::SongDetailsController;

@@ -35,5 +35,7 @@ pub(crate) mod up_next;
 pub use overlay::SongDetailsOverlay;
 pub use types::{SongDetailsController, SongDetailsState, SongDetailsTab};
 pub(crate) use lyrics::share_element_image;
+#[cfg(target_os = "ios")]
+pub(crate) use lyrics::use_share_image_handler;
 // The active-line memo, shared with ambient mode.
 pub(crate) use lyrics::use_active_line;
