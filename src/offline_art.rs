@@ -20,8 +20,120 @@ const COVER_ART_CACHE_SUBDIR: &str = "cover_art_cache";
 
 #[cfg(not(target_arch = "wasm32"))]
 static IN_FLIGHT_ART: Lazy<Mutex<HashSet<String>>> = Lazy::new(|| Mutex::new(HashSet::new()));
+/// Covers give up rather than hang on a server that went away, so the saved
+/// copy (see [`cached_variant`]) is shown instead.
 #[cfg(not(target_arch = "wasm32"))]
-static ART_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(reqwest::Client::new);
+static ART_HTTP_CLIENT: Lazy<reqwest::Client> = Lazy::new(|| {
+    reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(5))
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .unwrap_or_default()
+});
+
+// ---- Any saved copy of a cover ---------------------------------------------
+//
+// The cache keeps one file per (server, cover, size) and per route: the music
+// server's `…__<size>.img` and the sync server's `…__<size>w.img`. Views ask
+// for different sizes, and whether the sync server is up decides the route,
+// so an exact-name lookup missed covers that were on disk all along: with the
+// sync server gone (or offline) the art it had served never showed. Lookups
+// now fall back to any saved copy of the same cover through this index.
+
+/// Saved files per cover (`<server>__<cover>`): `(size, file name)`.
+#[cfg(not(target_arch = "wasm32"))]
+type CoverIndex = std::collections::HashMap<String, Vec<(u32, String)>>;
+
+#[cfg(not(target_arch = "wasm32"))]
+static COVER_INDEX: Lazy<Mutex<Option<CoverIndex>>> = Lazy::new(|| Mutex::new(None));
+
+/// `<server>__<cover>` and the size of a cache file name; `None` for other files.
+#[cfg(not(target_arch = "wasm32"))]
+fn split_cover_file_name(name: &str) -> Option<(&str, u32)> {
+    let (key, size) = name.strip_suffix(".img")?.rsplit_once("__")?;
+    let size = size.strip_suffix('w').unwrap_or(size).parse().ok()?;
+    (!key.is_empty()).then_some((key, size))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn with_cover_index<T>(f: impl FnOnce(&mut CoverIndex) -> T) -> T {
+    let mut guard = COVER_INDEX.lock().unwrap_or_else(|e| e.into_inner());
+    let index = guard.get_or_insert_with(|| {
+        let mut index = CoverIndex::new();
+        let entries = cover_art_cache_dir().and_then(|dir| fs::read_dir(dir).ok());
+        for entry in entries.into_iter().flatten().flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            if let Some((key, size)) = split_cover_file_name(&name) {
+                index.entry(key.to_string()).or_default().push((size, name.clone()));
+            }
+        }
+        index
+    });
+    f(index)
+}
+
+/// Records a file just written to the cover cache.
+#[cfg(not(target_arch = "wasm32"))]
+fn note_cached(name: &str) {
+    let Some((key, size)) = split_cover_file_name(name) else {
+        return;
+    };
+    with_cover_index(|index| {
+        let files = index.entry(key.to_string()).or_default();
+        if !files.iter().any(|(_, file)| file == name) {
+            files.push((size, name.to_string()));
+        }
+    });
+}
+
+/// Of the saved sizes, the one to show for `wanted`: the smallest at least
+/// that big, else the biggest there is when it is at least `smallest`
+/// (`None`: no smaller ones).
+#[cfg(not(target_arch = "wasm32"))]
+fn pick_variant(files: &[(u32, String)], wanted: u32, smallest: Option<u32>) -> Option<&str> {
+    let bigger = files
+        .iter()
+        .filter(|(size, _)| *size >= wanted)
+        .min_by_key(|(size, _)| *size);
+    let pick = bigger.or_else(|| {
+        let min = smallest?;
+        files.iter().max_by_key(|(size, _)| *size).filter(|(size, _)| *size >= min)
+    });
+    pick.map(|(_, name)| name.as_str())
+}
+
+/// The bytes of another saved copy of the cover named `name`
+/// (`<server>__<cover>__<size>[w].img`), from either route, at least as big,
+/// or smaller down to `smallest` px (see [`pick_variant`]).
+#[cfg(not(target_arch = "wasm32"))]
+fn cached_variant(name: &str, smallest: Option<u32>) -> Option<Vec<u8>> {
+    let (key, wanted) = split_cover_file_name(name)?;
+    let dir = cover_art_cache_dir()?;
+    loop {
+        let file = with_cover_index(|index| {
+            let files = index.get(key)?;
+            pick_variant(files, wanted, smallest).map(str::to_string)
+        })?;
+        match fs::read(dir.join(&file)) {
+            Ok(bytes) if !bytes.is_empty() => return Some(bytes),
+            // Gone from disk: forget it and try the next one.
+            _ => with_cover_index(|index| {
+                if let Some(files) = index.get_mut(key) {
+                    files.retain(|(_, f)| *f != file);
+                }
+            }),
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn data_url(bytes: &[u8]) -> String {
+    format!(
+        "data:{};base64,{}",
+        image_mime(bytes),
+        general_purpose::STANDARD.encode(bytes)
+    )
+}
 
 #[cfg(not(target_arch = "wasm32"))]
 fn sanitize_file_component(raw: &str) -> String {
@@ -64,15 +176,30 @@ fn cover_art_file_path(server_id: &str, cover_art_id: &str, size: u32) -> Option
     Some(dir.join(format!("{sid}__{aid}__{size}.img")))
 }
 
+/// The saved cover as a data URL: this size, else a bigger saved copy
+/// (from the music server or the sync server).
 #[cfg(not(target_arch = "wasm32"))]
 pub fn cached_cover_art_data_url(server_id: &str, cover_art_id: &str, size: u32) -> Option<String> {
     let path = cover_art_file_path(server_id, cover_art_id, size)?;
-    let bytes = fs::read(path).ok()?;
-    if bytes.is_empty() {
-        return None;
+    if let Some(bytes) = fs::read(&path).ok().filter(|bytes| !bytes.is_empty()) {
+        return Some(data_url(&bytes));
     }
-    let encoded = general_purpose::STANDARD.encode(bytes);
-    Some(format!("data:image/jpeg;base64,{encoded}"))
+    let name = path.file_name()?.to_str()?;
+    cached_variant(name, None).map(|bytes| data_url(&bytes))
+}
+
+/// A saved copy of the cover at least `smallest` px as a data URL, for when
+/// the server can't be asked (offline) or while the right size is fetched.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn smaller_cached_cover_art_data_url(
+    server_id: &str,
+    cover_art_id: &str,
+    size: u32,
+    smallest: u32,
+) -> Option<String> {
+    let path = cover_art_file_path(server_id, cover_art_id, size)?;
+    let name = path.file_name()?.to_str()?;
+    cached_variant(name, Some(smallest)).map(|bytes| data_url(&bytes))
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -105,8 +232,10 @@ pub fn maybe_prefetch_cover_art(
         if let Ok(response) = ART_HTTP_CLIENT.get(remote_url).send().await {
             if response.status().is_success() {
                 if let Ok(bytes) = response.bytes().await {
-                    if !bytes.is_empty() {
-                        let _ = tokio::fs::write(&path, bytes).await;
+                    if !bytes.is_empty() && tokio::fs::write(&path, bytes).await.is_ok() {
+                        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                            note_cached(name);
+                        }
                     }
                 }
             }
@@ -275,8 +404,26 @@ async fn serve_cover(
             None => status(StatusCode::NOT_FOUND),
         };
     }
+    // Another saved copy of this cover: the other route's (sync server or
+    // music server), or a bigger size. No network, so it shows whether or
+    // not either server is up.
+    let variant = |smallest: Option<u32>| {
+        let name = name.to_string();
+        async move {
+            tokio::task::spawn_blocking(move || cached_variant(&name, smallest))
+                .await
+                .ok()
+                .flatten()
+        }
+    };
+    if let Some(bytes) = variant(None).await {
+        return ok(bytes);
+    }
     if crate::cache_service::is_offline_mode() {
-        return status(StatusCode::NOT_FOUND);
+        return match variant(Some(0)).await {
+            Some(bytes) => ok(bytes),
+            None => status(StatusCode::NOT_FOUND),
+        };
     }
     let param = |key: &str| {
         uri.query()
@@ -287,28 +434,34 @@ async fn serve_cover(
             .map(|value| value.into_owned())
             .filter(|value| value.starts_with("http://") || value.starts_with("https://"))
     };
-    let Some(remote) = param("src=") else {
-        return status(StatusCode::NOT_FOUND);
-    };
-    let bytes = match download(&remote).await {
-        Some(bytes) => bytes,
-        // The sync server failed: the music server's own cover instead.
-        None => match param("alt=") {
-            Some(fallback) => {
-                if let Some((server_id, _)) = name.split_once("__") {
-                    crate::components::remote_sync::media::note_art_failure(server_id);
+    let downloaded = match param("src=") {
+        Some(remote) => match download(&remote).await {
+            Some(bytes) => Some(bytes),
+            // The sync server failed: the music server's own cover instead.
+            None => match param("alt=") {
+                Some(fallback) => {
+                    if let Some((server_id, _)) = name.split_once("__") {
+                        crate::components::remote_sync::media::note_art_failure(server_id);
+                    }
+                    download(&fallback).await
                 }
-                match download(&fallback).await {
-                    Some(bytes) => bytes,
-                    None => return status(StatusCode::BAD_GATEWAY),
-                }
-            }
-            None => return status(StatusCode::BAD_GATEWAY),
+                None => None,
+            },
         },
+        None => None,
+    };
+    let Some(bytes) = downloaded else {
+        // Neither server answered: a smaller saved copy beats no cover.
+        return match variant(Some(0)).await {
+            Some(bytes) => ok(bytes),
+            None => status(StatusCode::BAD_GATEWAY),
+        };
     };
     if cache_enabled(true) {
         if let Some(path) = path {
-            let _ = tokio::fs::write(path, &bytes).await;
+            if tokio::fs::write(&path, &bytes).await.is_ok() {
+                note_cached(name);
+            }
         }
     }
     ok(bytes)
@@ -336,7 +489,7 @@ fn is_cover_file_name(name: &str) -> bool {
 }
 
 /// Content type sniffed from the first bytes (the cache stores bare bytes).
-#[cfg(all(not(target_arch = "wasm32"), any(test, feature = "desktop", feature = "mobile")))]
+#[cfg(not(target_arch = "wasm32"))]
 fn image_mime(bytes: &[u8]) -> &'static str {
     let head = &bytes[..bytes.len().min(512)];
     if head.starts_with(&[0x89, b'P', b'N', b'G']) {
@@ -366,6 +519,31 @@ mod tests {
         assert!(!is_cover_file_name("a/b__c__4.img"));
         assert!(!is_cover_file_name(".img"));
         assert!(!is_cover_file_name("a__b__4.jpg"));
+    }
+
+    #[test]
+    fn splits_cache_file_names() {
+        assert_eq!(split_cover_file_name("srv-1__al-1__400.img"), Some(("srv-1__al-1", 400)));
+        assert_eq!(split_cover_file_name("srv-1__al-1__400w.img"), Some(("srv-1__al-1", 400)), "sync copy, same key");
+        assert_eq!(split_cover_file_name("srv__a__b__80.img"), Some(("srv__a__b", 80)), "ids with double underscores");
+        assert_eq!(split_cover_file_name("cover-abc.img"), None);
+        assert_eq!(split_cover_file_name("srv__al__big.img"), None);
+    }
+
+    #[test]
+    fn picks_a_saved_copy() {
+        let files = vec![
+            (80, "s__a__80.img".to_string()),
+            (400, "s__a__400w.img".to_string()),
+            (512, "s__a__512.img".to_string()),
+        ];
+        assert_eq!(pick_variant(&files, 400, None), Some("s__a__400w.img"), "the sync server's copy");
+        assert_eq!(pick_variant(&files, 300, None), Some("s__a__400w.img"), "smallest big enough");
+        assert_eq!(pick_variant(&files, 1000, None), None, "no smaller ones unless asked");
+        assert_eq!(pick_variant(&files, 1000, Some(500)), Some("s__a__512.img"));
+        assert_eq!(pick_variant(&files, 2000, Some(1000)), None, "too small to stand in");
+        assert_eq!(pick_variant(&files, 2000, Some(0)), Some("s__a__512.img"), "offline: anything");
+        assert_eq!(pick_variant(&[], 80, Some(0)), None);
     }
 
     #[test]

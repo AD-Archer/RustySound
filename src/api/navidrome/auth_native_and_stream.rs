@@ -362,18 +362,31 @@ impl NavidromeClient {
 
         #[cfg(not(target_arch = "wasm32"))]
         if is_offline_mode() {
-            return String::new();
+            return smaller_cached_cover_art_data_url(&self.server.id, &normalized_cover_art_id, requested_size, 0)
+                .unwrap_or_default();
         }
 
         let remote_url = self.build_cover_art_network_url(&normalized_cover_art_id, requested_size);
 
         #[cfg(not(target_arch = "wasm32"))]
-        maybe_prefetch_cover_art(
-            self.server.id.clone(),
-            normalized_cover_art_id.clone(),
-            requested_size,
-            remote_url.clone(),
-        );
+        {
+            maybe_prefetch_cover_art(
+                self.server.id.clone(),
+                normalized_cover_art_id.clone(),
+                requested_size,
+                remote_url.clone(),
+            );
+            // A saved copy at least half the size shows now, and when the
+            // server is down; the right size is used once it's fetched.
+            if let Some(data_url) = smaller_cached_cover_art_data_url(
+                &self.server.id,
+                &normalized_cover_art_id,
+                requested_size,
+                requested_size / 2,
+            ) {
+                return data_url;
+            }
+        }
 
         remote_url
     }
