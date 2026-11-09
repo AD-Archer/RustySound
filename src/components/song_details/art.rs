@@ -5,6 +5,7 @@
 //! reads).
 
 use super::actions::{is_live_song, song_key, use_player};
+use super::clock::NowPlayingClock;
 use super::gestures::song_token;
 use super::source::{source_page, SourcePage};
 use super::types::SongDetailsController;
@@ -49,8 +50,10 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
             .collect::<Vec<_>>()
     });
     let radio = is_live_song(&song);
-    let waiting = if radio { Vec::new() } else { waiting() };
-    let played = if radio { Vec::new() } else { played() };
+    // Another device plays: this device's queue isn't what it plays.
+    let remote = try_use_context::<NowPlayingClock>().is_some_and(|clock| (clock.remote)());
+    let waiting = if radio || remote { Vec::new() } else { waiting() };
+    let played = if radio || remote { Vec::new() } else { played() };
     let title = song.title.clone();
     let source = if radio { None } else { source_page(&song) };
     let controller = use_context::<SongDetailsController>();
@@ -66,7 +69,7 @@ pub(super) fn NowPlayingArt(song: Song, wide: bool) -> Element {
     // Cover swipe (compact, gestures.js): which entry it starts on and which
     // ways it can go. Off for radio and on wide.
     let token = song_token((player.queue_index)(), &song_key(&song));
-    let swipe = !wide && !radio;
+    let swipe = !wide && !radio && !remote;
     let (has_prev, has_next) = (!played.is_empty(), !waiting.is_empty());
     // Compact side covers load the big cover's size, so the one a swipe
     // brings to the middle is already the cached image.

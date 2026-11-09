@@ -6,7 +6,7 @@ use super::{room_server, RemoteSync};
 use crate::api::{NavidromeClient, ServerConfig, Song};
 use crate::components::ui::env::{format_clock, sleep_ms};
 use crate::components::ui::Artwork;
-use crate::components::{Icon, PlayerCtx};
+use crate::components::{Icon, PlayerCtx, SongDetailsController};
 use dioxus::prelude::*;
 
 /// How often the remote position redraws between `state` messages (a local
@@ -15,7 +15,7 @@ const PROGRESS_TICK_MS: u64 = 500;
 
 /// The song the active device plays: from this device's queue when it is
 /// there, else one cached `getSong`.
-fn use_remote_song(sync: RemoteSync) -> Resource<Option<Song>> {
+pub(crate) fn use_remote_song(sync: RemoteSync) -> Resource<Option<Song>> {
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
     let track = use_memo(move || {
         sync.view()
@@ -42,6 +42,7 @@ fn use_remote_song(sync: RemoteSync) -> Resource<Option<Song>> {
 #[component]
 pub fn RemotePlayer(compact: bool) -> Element {
     let sync = use_context::<RemoteSync>();
+    let song_details = use_context::<SongDetailsController>();
     let song = use_remote_song(sync);
     let Some(view) = sync.view() else {
         return rsx! {};
@@ -74,6 +75,17 @@ pub fn RemotePlayer(compact: bool) -> Element {
             }
         }
     };
+    // Tapping the song opens Now Playing on it: lyrics, info and these
+    // controls, following the other device.
+    let open = {
+        let song = song.clone();
+        let mut song_details = song_details;
+        move |_| {
+            if let Some(song) = song.clone() {
+                song_details.open(song);
+            }
+        }
+    };
     let play_label = if playing { "Pause" } else { "Play" };
     let play_icon = if playing { "pause" } else { "play" };
     let region = format!("{caption}: {title}");
@@ -81,13 +93,19 @@ pub fn RemotePlayer(compact: bool) -> Element {
     if compact {
         return rsx! {
             div { class: "rs-mini rs-mini--remote", role: "region", aria_label: "{region}", "data-testid": "remote-player",
-                div { class: "rs-mini__open",
+                button {
+                    r#type: "button",
+                    class: "rs-mini__open",
+                    disabled: song.is_none(),
+                    "data-testid": "remote-open",
+                    onclick: open.clone(),
                     Artwork { cover_art: cover_art.clone(), server_id: server_id.clone(), size_px: 40, eager: true }
+                    span { class: "rs-sr-only", "Open Now Playing: " }
                     span { class: "rs-mini__meta",
                         span { class: "rs-mini__title", style: "display:block", "{title}" }
-                        span { class: "rs-mini__sub rs-remote__caption", style: "display:block", "data-testid": "remote-caption",
-                            Icon { name: "headphones".to_string(), class: "rs-ic rs-ic--sm".to_string() }
-                            "{caption}"
+                        span { class: "rs-mini__sub rs-remote__caption", "data-testid": "remote-caption",
+                            Icon { name: "headphones".to_string(), class: "rs-ic rs-ic--xs".to_string() }
+                            span { class: "rs-remote__caption-text", "{caption}" }
                         }
                     }
                 }
@@ -120,7 +138,13 @@ pub fn RemotePlayer(compact: bool) -> Element {
     rsx! {
         div { class: "rs-bar rs-bar--remote", role: "region", aria_label: "{region}", "data-testid": "remote-player",
             div { class: "rs-bar__np",
-                span { class: "rs-bar__art",
+                button {
+                    r#type: "button",
+                    class: "rs-bar__art",
+                    aria_label: "Open Now Playing",
+                    title: "Open Now Playing",
+                    disabled: song.is_none(),
+                    onclick: open,
                     Artwork { cover_art: cover_art.clone(), server_id: server_id.clone(), size_px: 44, eager: true }
                 }
                 div { class: "rs-bar__meta",

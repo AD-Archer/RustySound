@@ -10,8 +10,7 @@ use super::shot_share::{
 };
 use crate::api::{LyricsResult, ServerConfig, Song};
 use crate::components::ui::env::{cover_art_url, sleep_ms};
-use crate::components::ui::{IconButton, IconButtonSize, Button, ButtonVariant};
-use crate::components::AudioState;
+use crate::components::ui::{Button, ButtonVariant, CloseButton, IconButton, IconButtonSize};
 use crate::db::AppSettings;
 use dioxus::prelude::*;
 
@@ -72,7 +71,6 @@ fn scroll_to_line(index: usize) {
 pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close: EventHandler<()>) -> Element {
     let settings = use_context::<Signal<AppSettings>>();
     let servers = use_context::<Signal<Vec<ServerConfig>>>();
-    let audio = use_context::<Signal<AudioState>>();
     let live = super::is_live_song(&song);
 
     let bars = use_hook(|| screenshot_lyrics_bars(&lyrics, sync));
@@ -83,7 +81,7 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
             Vec::new()
         }
     });
-    let clock = use_hook(move || audio.peek().current_time);
+    let clock = crate::components::song_details::clock::use_clock_time();
     // The active synced line, recomputed per tick but only notifying on change.
     let active = use_memo({
         let stamps = synced_stamps.clone();
@@ -285,10 +283,8 @@ pub(super) fn LyricsShot(song: Song, lyrics: LyricsResult, sync: bool, on_close:
                         customize_open.set(false);
                     },
                 }
-                IconButton {
-                    icon: "x".to_string(),
+                CloseButton {
                     label: "Close Lyrics Shot".to_string(),
-                    size: IconButtonSize::Small,
                     onclick: move |_| on_close.call(()),
                 }
             }

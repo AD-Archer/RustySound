@@ -39,7 +39,9 @@ fn apply(mut settings: Signal<AppSettings>, change: impl FnOnce(&mut AppSettings
         apply_cache_settings(&next);
     }
     settings.set(next.clone());
-    spawn(async move {
+    // Not tied to the caller: a change that unmounts it (connecting Last.fm
+    // swaps the prompt for the stats) must still be saved.
+    dioxus::core::spawn_forever(async move {
         let _ = save_settings(next).await;
     });
     true

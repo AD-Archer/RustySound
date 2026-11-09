@@ -18,6 +18,7 @@
 
 pub(crate) mod actions;
 mod art;
+pub(crate) mod clock;
 mod gestures;
 mod info;
 mod lyrics;

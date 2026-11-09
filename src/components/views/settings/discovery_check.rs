@@ -106,7 +106,7 @@ pub(super) fn parse_listen_count(status: u16, value: &Value, asked: &str) -> Res
 }
 
 /// Checks the API key alone with the smallest public call.
-pub(super) async fn test_lastfm_key(key: String) -> Result<String, String> {
+pub(crate) async fn test_lastfm_key(key: String) -> Result<String, String> {
     let key = key.trim().to_string();
     if key.is_empty() {
         return Err("Paste your Last.fm API key first.".to_string());
@@ -130,7 +130,7 @@ pub(super) async fn test_lastfm_key(key: String) -> Result<String, String> {
 }
 
 /// Checks the username (needs the key: Last.fm requires one for every call).
-pub(super) async fn test_lastfm_user(key: String, user: String) -> Result<String, String> {
+pub(crate) async fn test_lastfm_user(key: String, user: String) -> Result<String, String> {
     let user = user.trim().to_string();
     if user.is_empty() {
         return Err("Type your Last.fm username first.".to_string());

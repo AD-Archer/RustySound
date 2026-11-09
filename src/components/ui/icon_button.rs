@@ -63,3 +63,32 @@ pub fn IconButton(
         }
     }
 }
+
+/// The close button every popup uses (menus, sheets, Add to…, stories,
+/// Lyrics Shot, ambient mode, capsules): a small tinted circle with a bold ×,
+/// as on iOS. The tint follows the text colour, so it reads on light menus
+/// and on the dark stage alike; the touch target stays 44px.
+/// * `label`: aria-label and tooltip, default "Close".
+/// * `testid`, `class`: data-testid and extra classes.
+/// * `in_menu`: inside a `role="menu"` card, where it is one of the items.
+#[component]
+pub fn CloseButton(
+    #[props(default = "Close".to_string())] label: String,
+    #[props(default)] in_menu: bool,
+    #[props(default)] testid: Option<String>,
+    #[props(default)] class: String,
+    onclick: EventHandler<MouseEvent>,
+) -> Element {
+    rsx! {
+        button {
+            r#type: "button",
+            class: "rs-close {class}",
+            role: if in_menu { Some("menuitem") } else { None },
+            aria_label: "{label}",
+            title: "{label}",
+            "data-testid": testid.clone(),
+            onclick: move |evt| onclick.call(evt),
+            Icon { name: "x".to_string(), class: "rs-ic rs-close__ic".to_string() }
+        }
+    }
+}

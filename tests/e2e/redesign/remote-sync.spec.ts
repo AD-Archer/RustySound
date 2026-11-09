@@ -102,6 +102,37 @@ test.describe("remote sync", () => {
     }
   });
 
+  test("tapping the other device's song opens Now Playing that follows and controls it", async ({ browser, mock }, testInfo) => {
+    const mac = await device(browser, testInfo, "np-mac", "Mac");
+    const room = await device(browser, testInfo, "np-room", "Living room");
+    try {
+      await playFirstTrack(room.page, mock as MockFixtures);
+
+      await gotoReady(mac.page, "/");
+      const remote = tid(mac.page, "remote-player");
+      await expect(tid(remote, "remote-caption")).toHaveText("Playing on Living room");
+      if (isCompact(mac.page)) await tid(remote, "remote-open").click();
+      else await remote.getByRole("button", { name: "Open Now Playing" }).click();
+
+      const now = tid(mac.page, "now-playing");
+      await expect(now).toBeVisible();
+      await expect(now).toContainText(mock.albumSongs[0].title);
+      await expect(tid(now, "now-playing-remote-caption")).toHaveText("Playing on Living room");
+      // The scrubber follows the other device's position.
+      const value = async () => Number(await tid(now, "remote-progress").locator("input").inputValue());
+      const first = await value();
+      await expect.poll(value, { timeout: 5_000 }).toBeGreaterThan(first);
+
+      // Its play button pauses the other device, not this one.
+      await tid(now, "now-playing-play-pause").click();
+      await expect.poll(async () => (await audioState(room.page))?.paused, { timeout: 10_000 }).toBe(true);
+      await expect(tid(now, "now-playing-play-pause")).toHaveAttribute("aria-label", "Play");
+    } finally {
+      await mac.context.close();
+      await room.context.close();
+    }
+  });
+
   test("Play on moves playback to the other device", async ({ browser, mock }, testInfo) => {
     const mac = await device(browser, testInfo, "mac", "Mac");
     const room = await device(browser, testInfo, "room", "Living room");

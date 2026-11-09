@@ -1634,6 +1634,30 @@
   flex: none;
 }
 
+/* Mini player: one line, icon and "Playing on …", ellipsis at the end. */
+.rs-mini__sub.rs-remote__caption {
+  display: flex;
+  margin-top: 1px;
+}
+
+.rs-remote__caption-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Now Playing: where the song plays, in the format badge's place. */
+.rs-player-badge--remote {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .rs-mini--remote .rs-btn--small {
   flex: none;
   margin-left: 2px;

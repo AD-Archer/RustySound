@@ -3,7 +3,7 @@
 use crate::api::*;
 use crate::components::song_details::actions::song_key;
 use crate::components::ui::{
-    Artwork, IconButton, IconButtonSize, SectionHeader, Sheet, Skeleton, StatusToast,
+    Artwork, CloseButton, SectionHeader, Sheet, Skeleton, StatusToast,
 };
 use crate::components::{
     quick_listen_id, use_player, use_servers, use_setting, AppView, Icon, Navigation, Preview,

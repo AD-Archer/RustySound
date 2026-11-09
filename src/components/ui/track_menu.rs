@@ -17,7 +17,7 @@
 use crate::api::{Capabilities, MusicClient, ServerConfig, Song};
 use crate::components::audio_manager::normalize_manual_queue_songs;
 use crate::components::ui::env::is_radio_song;
-use crate::components::ui::{Artwork, PlayerMenu, PlayerOptions, RowRemoveRequest};
+use crate::components::ui::{Artwork, CloseButton, PlayerMenu, PlayerOptions, RowRemoveRequest};
 use crate::components::views::artist_links::{parse_artist_names, resolve_artist_id};
 use crate::components::{
     can_share, quick_listen_id, share_link, ui::StatusToast, AddIntent, AddMenuController, AppView,
@@ -475,6 +475,7 @@ pub fn TrackMenu(
                             div { class: "rs-menu__head-sub", "{subtitle}" }
                         }
                     }
+                    CloseButton { in_menu: true, onclick: move |_| controller.close() }
                 }
                 div { class: "rs-menu__gap", aria_hidden: "true" }
             }

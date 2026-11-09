@@ -369,3 +369,421 @@
 .rs-downloads-sync {
   margin: var(--sp-3) 4px 0;
 }
+
+/* ==========================================================================
+   LISTENING (views/listening.rs): Last.fm stats. A stage header with the
+   profile and its totals, then the page: a year in review on a small stage,
+   the tops in three inset lists, recent scrobbles.
+   ========================================================================== */
+
+.rs-listening {
+  padding-bottom: var(--sp-9);
+}
+
+.rs-listening-hero {
+  padding: calc(var(--safe-top) + var(--sp-8)) var(--gutter) var(--sp-8);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.rs-app[data-layout="wide"] .rs-listening-hero {
+  padding: var(--sp-9) var(--view-pad) var(--sp-8);
+}
+
+.rs-listening-hero__inner {
+  max-width: 1040px;
+  margin: 0 auto;
+}
+
+/* Not connected: a calm centred prompt. */
+.rs-listening-hero--connect .rs-listening-hero__inner {
+  max-width: 520px;
+  text-align: center;
+}
+
+.rs-listening-hero__glyph {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto var(--sp-5);
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, .08);
+  color: var(--accent-hi);
+}
+
+.rs-listening-hero__lede {
+  margin-top: var(--sp-4);
+  color: var(--stage-muted);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+}
+
+.rs-listening-who {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-6);
+}
+
+.rs-listening-who__text {
+  flex: 1;
+  min-width: 0;
+}
+
+.rs-listening-who__kicker {
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--stage-muted);
+}
+
+.rs-listening-who__name {
+  font-family: var(--font-display);
+  font-size: var(--fs-title1);
+  line-height: var(--lh-title1);
+  font-weight: var(--fw-bold);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-listening-who__since {
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+}
+
+.rs-listening-who__link {
+  flex: none;
+  gap: var(--sp-2);
+}
+
+/* Phone: a smaller name that may wrap, beside a smaller avatar. */
+.rs-app[data-layout="compact"] .rs-listening-who {
+  gap: var(--sp-5);
+}
+
+.rs-app[data-layout="compact"] .rs-listening-who .rs-art {
+  width: 56px !important;
+  height: 56px !important;
+}
+
+.rs-app[data-layout="compact"] .rs-listening-who__name {
+  font-size: var(--fs-title2);
+  line-height: var(--lh-title2);
+  white-space: normal;
+}
+
+.rs-app[data-layout="compact"] .rs-listening-tile {
+  padding: var(--sp-4) var(--sp-5);
+}
+
+.rs-app[data-layout="compact"] .rs-listening-tile dd {
+  font-size: var(--fs-title3);
+}
+
+.rs-listening-tiles {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  margin-top: var(--sp-7);
+  overflow: hidden;
+  border-radius: var(--r-list);
+  background: var(--stage-line);
+}
+
+.rs-app[data-layout="wide"] .rs-listening-tiles {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.rs-listening-tile {
+  padding: var(--sp-5) var(--sp-6);
+  background: rgba(20, 21, 23, .92);
+}
+
+.rs-listening-tile dt {
+  font-size: var(--fs-foot);
+  color: var(--stage-muted);
+}
+
+.rs-listening-tile dd {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-title2);
+  line-height: var(--lh-title2);
+  font-weight: var(--fw-semibold);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rs-listening-page {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.rs-app[data-layout="wide"] .rs-listening-page {
+  padding: 0 var(--view-pad);
+  max-width: none;
+}
+
+.rs-listening-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin: var(--sp-8) var(--sp-2) var(--sp-4);
+}
+
+/* The year picker: the title's size, a chevron, no box. */
+.rs-listening-year {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  color: var(--accent-text);
+}
+
+.rs-listening-year select {
+  appearance: none;
+  -webkit-appearance: none;
+  min-height: var(--touch);
+  padding: 0 calc(var(--sp-6) + 2px) 0 var(--sp-2);
+  margin-right: calc((var(--sp-6) + 2px) * -1);
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: var(--fs-title);
+  font-weight: var(--fw-semibold);
+  cursor: pointer;
+}
+
+.rs-listening-year .rs-ic {
+  pointer-events: none;
+}
+
+.rs-listening-periods {
+  margin: 0 0 var(--sp-5);
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.rs-listening-periods::-webkit-scrollbar { display: none; }
+
+.rs-listening-periods .rs-seg {
+  min-width: max-content;
+}
+
+/* A year: the count big on a small stage, its top covers fanned beside. */
+.rs-listening-year-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-7);
+  padding: var(--sp-8) var(--sp-7);
+  border-radius: var(--r-list);
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+.rs-app[data-layout="wide"] .rs-listening-year-card {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  padding: var(--sp-9);
+}
+
+.rs-listening-year-card__kicker {
+  font-size: var(--fs-foot);
+  font-weight: var(--fw-semibold);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: var(--stage-muted);
+}
+
+.rs-listening-year-card__big {
+  margin-top: var(--sp-2);
+  font-size: var(--fs-title3);
+  color: var(--stage-muted);
+}
+
+.rs-listening-year-card__num {
+  display: block;
+  font-family: var(--font-display);
+  font-size: 56px;
+  line-height: 1;
+  font-weight: var(--fw-bold);
+  letter-spacing: -.02em;
+  color: var(--stage-ink);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-listening-year-card__sub {
+  margin-top: var(--sp-4);
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+}
+
+.rs-listening-year-card__top {
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--sp-6);
+  font-size: var(--fs-sub);
+  color: var(--stage-muted);
+}
+
+.rs-listening-year-card__top strong {
+  font-size: var(--fs-title2);
+  line-height: var(--lh-title2);
+  font-weight: var(--fw-semibold);
+  color: var(--stage-ink);
+}
+
+.rs-listening-year-card__story {
+  margin-top: var(--sp-6);
+  gap: var(--sp-3);
+}
+
+.rs-listening-year-card__covers {
+  position: relative;
+  height: 150px;
+}
+
+.rs-app[data-layout="wide"] .rs-listening-year-card__covers {
+  height: 200px;
+}
+
+/* Fanned like Cover Flow's sides: each one further back and smaller. */
+.rs-listening-year-card__cover {
+  position: absolute;
+  top: 50%;
+  left: calc(50% + (var(--i) - 2) * 22%);
+  width: 46%;
+  max-width: 180px;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%) scale(calc(1 - var(--i) * .1));
+  z-index: calc(10 - var(--i));
+  box-shadow: 0 10px 30px rgba(0, 0, 0, .6);
+}
+
+.rs-listening-year-card__cover:first-child {
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+
+.rs-listening-year-card__cover:nth-child(2) { left: 28%; }
+.rs-listening-year-card__cover:nth-child(3) { left: 72%; }
+.rs-listening-year-card__cover:nth-child(4) { left: 12%; }
+.rs-listening-year-card__cover:nth-child(5) { left: 88%; }
+
+.rs-listening-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--sp-5) var(--sp-7);
+  margin-top: var(--sp-6);
+}
+
+.rs-app[data-layout="wide"] .rs-listening-columns {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.rs-listening-col__title {
+  margin: 0 var(--sp-2) var(--sp-3);
+  font-size: var(--fs-sub);
+  font-weight: var(--fw-semibold);
+  color: var(--muted);
+}
+
+.rs-listening-rank {
+  flex: none;
+  width: 18px;
+  margin-right: var(--sp-2);
+  text-align: right;
+  font-size: var(--fs-sub);
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.rs-listening-col .rs-row .rs-art {
+  flex: none;
+  margin-right: var(--sp-5);
+}
+
+.rs-listening-sub {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Plays against the list's most: a hairline under the name. */
+.rs-listening-bar {
+  display: block;
+  height: 3px;
+  margin-top: 5px;
+  overflow: hidden;
+  border-radius: 2px;
+  background: var(--line);
+}
+
+.rs-listening-bar i {
+  display: block;
+  height: 100%;
+  transform-origin: left center;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+.rs-listening-note {
+  margin: var(--sp-4) var(--sp-2);
+  font-size: var(--fs-sub);
+  color: var(--muted);
+}
+
+.rs-listening-alert {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  margin-top: var(--sp-6);
+  padding: var(--sp-4) var(--sp-6);
+  border-radius: var(--r-list);
+  background: var(--surface);
+  color: var(--ink);
+  font-size: var(--fs-sub);
+}
+
+.rs-listening-foot {
+  margin: var(--sp-4) var(--sp-2) 0;
+  font-size: var(--fs-foot);
+  color: var(--muted);
+}
+
+/* Not connected: the form under the stage. */
+.rs-listening-connect {
+  max-width: 520px;
+  margin: var(--sp-8) auto 0;
+}
+
+.rs-listening-connect__help {
+  margin: var(--sp-4) var(--sp-2) var(--sp-6);
+  font-size: var(--fs-foot);
+  color: var(--muted);
+}
+
+.rs-listening-connect__help a {
+  color: var(--accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.rs-listening-connect__error {
+  margin: 0 var(--sp-2) var(--sp-5);
+  font-size: var(--fs-sub);
+  color: var(--danger, #d23b30);
+}
+
+/* Home (compact): the way in, after the shelves. */
+.rs-listening-entry {
+  margin-top: var(--sp-8);
+}

@@ -3,7 +3,7 @@
 
 use super::{PlaybackSync, RestoreSignals};
 use crate::components::ui::env::format_clock;
-use crate::components::Icon;
+use crate::components::ui::CloseButton;
 use dioxus::prelude::*;
 
 /// Tapping the capsule loads the queue at its song and position, paused;
@@ -34,14 +34,11 @@ pub fn ContinueCapsule() -> Element {
                     " · {title} — {at}"
                 }
             }
-            button {
-                r#type: "button",
-                class: "rs-capsule__stop",
-                aria_label: "Dismiss",
-                title: "Dismiss",
-                "data-testid": "continue-capsule-dismiss",
+            CloseButton {
+                label: "Dismiss".to_string(),
+                testid: "continue-capsule-dismiss".to_string(),
+                class: "rs-capsule__close".to_string(),
                 onclick: move |_| sync.dismiss(),
-                Icon { name: "x".to_string(), class: "rs-ic rs-ic--sm".to_string() }
             }
         }
     }
